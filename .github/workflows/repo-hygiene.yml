@@ -1,0 +1,76 @@
+name: repo-hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  forbidden-files:
+    # This repo must never contain real financial data or credentials.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if sensitive file patterns are committed
+        run: |
+          if find . -type f \( -iname '*.xlsx' -o -iname '*.xlsm' -o -iname '*.xls' \
+              -o -iname '*.pem' -o -iname '*.key' -o -name '.env' -o -name 'secrets.yaml' \) \
+              | grep -qvE '^\./\.git/'; then
+            echo 'Forbidden file(s) committed — see .gitignore policy:'
+            find . -type f \( -iname '*.xlsx' -o -iname '*.xlsm' -o -iname '*.xls' \
+                -o -iname '*.pem' -o -iname '*.key' -o -name '.env' -o -name 'secrets.yaml' \)
+            exit 1
+          fi
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docs-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Required project documents exist
+        run: |
+          required=(
+            README.md CONTRIBUTING.md SECURITY.md LICENSE
+            docs/PRD.md docs/ARCHITECTURE.md docs/DATA-MODEL.md
+            docs/HA-DEPLOYMENT.md docs/MIGRATION.md docs/ROADMAP.md
+            docs/SECURITY.md docs/adr/README.md
+            .github/PULL_REQUEST_TEMPLATE.md
+            .github/ISSUE_TEMPLATE/epic.md
+            .github/ISSUE_TEMPLATE/user_story.md
+            .github/ISSUE_TEMPLATE/task.md
+          )
+          for f in "${required[@]}"; do
+            [ -f "$f" ] || { echo "Missing: $f"; exit 1; }
+          done
+      - name: Markdown links resolve (internal relative links)
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          bad = []
+          for root, _, files in os.walk('.'):
+              if '.git' in root: continue
+              for fn in files:
+                  if not fn.endswith('.md'): continue
+                  path = os.path.join(root, fn)
+                  text = open(path, encoding='utf-8').read()
+                  for m in re.finditer(r'\]\(([^)]+)\)', text):
+                      link = m.group(1)
+                      if link.startswith(('http', '#', 'mailto:')): continue
+                      target = os.path.normpath(os.path.join(root, link.split('#')[0]))
+                      if link.split('#')[0] and not os.path.exists(target):
+                          bad.append(f'{path}: {link}')
+          if bad:
+              print('\n'.join(bad)); sys.exit(1)
+          PY

@@ -1,0 +1,64 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    if: hashFiles('backend/pyproject.toml', 'backend/requirements.txt') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
+      - name: Lint & typecheck
+        working-directory: backend
+        run: |
+          ruff check . || true   # ratchet: enforce once configured
+          mypy app || mypy src || true
+      - name: Unit & integration tests
+        working-directory: backend
+        run: pytest -x --cov --cov-report=term-missing
+
+  frontend:
+    runs-on: ubuntu-latest
+    if: hashFiles('frontend/package.json') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install, typecheck, test, build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test -- --run
+          npm run build
+
+  migrations:
+    # Every schema change must prove upgrade AND downgrade on a scratch DB.
+    runs-on: ubuntu-latest
+    if: hashFiles('backend/alembic.ini', 'backend/migrations/env.py') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Upgrade/downgrade migration test
+        working-directory: backend
+        run: |
+          pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
+          alembic upgrade head && alembic downgrade -1 && alembic upgrade head
