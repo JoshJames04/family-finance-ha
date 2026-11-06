@@ -1,0 +1,42 @@
+# Secrets & real financial data — never commit
+*.xlsx
+*.xlsm
+*.xls
+.env
+.env.*
+*.pem
+*.key
+secrets.yaml
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+*.local
+coverage/
+.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Tooling
+.turbo/
+*.log
