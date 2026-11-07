@@ -43,6 +43,24 @@ mobile lock screens).
 - Least-privilege Starling scopes; read-only; no payment initiation.
 - `SECURITY.md` at repo root defines the disclosure policy.
 
+### 4.1 Standing verification (CI gates)
+
+Security is verified continuously, not once:
+
+- `backend/tests/test_security.py` runs in the normal suite and asserts
+  the current guarantees: `X-Household-Id` header spoofing is rejected
+  (unknown/non-integer IDs), cross-household access on every scoped
+  route returns 404/409, the audit log has no mutation routes and an
+  append-only model (no `updated_at`), and hostile inputs (injection
+  strings, oversized payloads, invalid pagination) are rejected or
+  stored safely.
+- Dependabot covers pip, npm and GitHub Actions ecosystems.
+- The `tests` workflow fails on `pip-audit` (OSV) or `npm audit
+  --audit-level=high` findings — new critical/high vulnerabilities
+  block merges.
+- `repo-hygiene` fails on forbidden files (workbooks, secrets, DBs)
+  and runs gitleaks.
+
 ## 5. Privacy UX
 
 - Notification content suppresses amounts/payees on lock-screen-visible
@@ -53,3 +71,16 @@ mobile lock screens).
 
 - No telemetry, no external analytics, no outbound calls except configured
   integrations (Starling) and update checks (opt-in).
+
+## 7. Migration/import threat notes
+
+- The workbook parser opens files read-only and never writes to the
+  source; source hash + mtime are recorded so tampering between runs is
+  detectable.
+- Imported rows are staged as `import_record` before commit; nothing
+  reaches the ledger without an extractor decision.
+- Rollback voids derived rows rather than deleting them, preserving the
+  audit trail.
+- The real workbook and any file derived from it are forbidden in the
+  repository (`.gitignore` + CI gate); only synthetic fixtures are used
+  in tests.
