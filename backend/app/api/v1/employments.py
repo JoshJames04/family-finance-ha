@@ -330,3 +330,40 @@ def correct_payroll_run(
     emit(session, household.id, actor, "correct", "payroll_run", r.id,
          {"employment_id": emp_id, "corrected_by": new.id})
     return schemas.PayrollRunOut.model_validate(new)
+
+
+@router.post("/{emp_id}/payroll-runs/{run_id}/reopen",
+             response_model=schemas.PayrollRunOut)
+def reopen_payroll_run(
+    emp_id: int, run_id: int, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> schemas.PayrollRunOut:
+    """Re-open a reconciled run so a manual override can be applied
+    (issue #85) — audited; actuals are preserved."""
+    _get(session, household.id, emp_id)
+    r = _run(session, emp_id, run_id)
+    payrun.reopen(session, r)
+    emit(session, household.id, actor, "reopen", "payroll_run", r.id,
+         {"employment_id": emp_id, "status": r.status.value})
+    return schemas.PayrollRunOut.model_validate(r)
+
+
+@router.post("/{emp_id}/payroll-runs/{run_id}/overrides",
+             response_model=schemas.PayrollOverrideOut,
+             status_code=201)
+def override_payroll_run(
+    emp_id: int, run_id: int, body: schemas.PayrollOverrideIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.PayrollOverrideOut:
+    """Run-scoped manual adjustment with mandatory reason (issue #85).
+    Visible as a distinct component line; never carried forward."""
+    _get(session, household.id, emp_id)
+    r = _run(session, emp_id, run_id)
+    ov = payrun.apply_override(
+        session, r, kind=body.kind, delta_pence=body.delta.pence,
+        reason=body.reason, actor=actor or "unknown")
+    schedule.rematerialize_payroll_run(session, r)
+    emit(session, household.id, actor, "override", "payroll_run", r.id,
+         {"employment_id": emp_id, "kind": ov.kind.value,
+          "reason": ov.reason})
+    return schemas.PayrollOverrideOut.model_validate(ov)
