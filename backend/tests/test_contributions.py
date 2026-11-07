@@ -268,3 +268,159 @@ class TestApi:
                               "start": due, "end": due}).json()
         states = {r["state"] for r in rows}
         assert "satisfied" in states
+
+
+class TestOutstanding:
+    """Issue #88 — aging, requirement totals, write-off/reschedule."""
+
+    def test_missed_due_appears_with_age(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        _, dst, rule = pair
+        _movement(session, household, dst, 30_000,
+                  date(2025, 4, 1), rule.id)
+        items = contributions.outstanding(
+            session, household.id, today=TODAY)
+        assert len(items) == 1
+        assert items[0].age_days == 9
+        assert items[0].outstanding_pence == 30_000
+
+    def test_satisfied_not_outstanding(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        _, dst, rule = pair
+        _movement(session, household, dst, 30_000,
+                  date(2025, 4, 1), rule.id)
+        _leg(session, household, dst, 30_000, date(2025, 4, 1))
+        contributions.auto_match(session, household.id, today=TODAY)
+        assert contributions.outstanding(
+            session, household.id, today=TODAY) == []
+
+    def test_partial_still_outstanding_with_remainder(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        _, dst, rule = pair
+        _movement(session, household, dst, 30_000,
+                  date(2025, 4, 1), rule.id)
+        _leg(session, household, dst, 20_000, date(2025, 4, 1))
+        contributions.auto_match(session, household.id, today=TODAY)
+        items = contributions.outstanding(
+            session, household.id, today=TODAY)
+        assert items[0].outstanding_pence == 10_000
+
+    def test_requirements_reconcile(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        """AC: requirement totals = scheduled − satisfied."""
+        _, dst, rule = pair
+        _movement(session, household, dst, 30_000,
+                  date(2025, 4, 1), rule.id)
+        _movement(session, household, dst, 30_000,
+                  date(2025, 5, 1), rule.id)
+        _leg(session, household, dst, 12_000, date(2025, 4, 2))
+        contributions.auto_match(session, household.id, today=TODAY)
+        reqs = contributions.requirement_totals(
+            session, household.id, start=date(2025, 4, 1),
+            end=date(2025, 5, 31), today=TODAY)
+        assert len(reqs) == 2
+        apr = next(r for r in reqs
+                   if r.due_date == date(2025, 4, 1))
+        assert apr.scheduled_pence == 30_000
+        assert apr.satisfied_pence == 12_000
+        assert apr.outstanding_pence == apr.scheduled_pence \
+            - apr.satisfied_pence
+
+    def test_write_off_excludes_everywhere(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        from datetime import datetime
+        _, dst, rule = pair
+        mv = _movement(session, household, dst, 30_000,
+                       date(2025, 4, 1), rule.id)
+        contributions.write_off(session, mv, when=datetime.now())
+        assert contributions.outstanding(
+            session, household.id, today=TODAY) == []
+        assert contributions.requirement_totals(
+            session, household.id, start=date(2025, 4, 1),
+            end=date(2025, 4, 30)) == []
+        with pytest.raises(MatchError, match="already"):
+            contributions.write_off(session, mv, when=datetime.now())
+
+    def test_reschedule_moves_due_date(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        _, dst, rule = pair
+        mv = _movement(session, household, dst, 30_000,
+                       date(2025, 4, 1), rule.id)
+        contributions.reschedule(session, mv, date(2025, 4, 15),
+                                 today=TODAY)
+        assert mv.expected_date == date(2025, 4, 15)
+        items = contributions.outstanding(
+            session, household.id, today=TODAY)
+        assert items[0].age_days == 0 if items else True
+        # still past-due at 15th? Apr 15 > today Apr 10 → not overdue
+        assert contributions.outstanding(
+            session, household.id, today=TODAY) == []
+
+    def test_reschedule_rejects_backward_and_dismissed(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        from datetime import datetime
+        _, dst, rule = pair
+        mv = _movement(session, household, dst, 30_000,
+                       date(2025, 4, 10), rule.id)
+        with pytest.raises(MatchError, match="after"):
+            contributions.reschedule(session, mv, date(2025, 4, 5),
+                                     today=TODAY)
+        contributions.write_off(session, mv, when=datetime.now())
+        with pytest.raises(MatchError, match="written off"):
+            contributions.reschedule(session, mv, date(2025, 5, 1),
+                                     today=TODAY)
+
+
+class TestOutstandingApi:
+    @pytest.fixture()
+    def client(self, tmp_path: Path) -> Iterator[TestClient]:
+        settings = Settings.load({"FF_DATA_DIR": str(tmp_path)})
+        with TestClient(create_app(settings)) as c:
+            yield c
+
+    def test_write_off_and_requirements_endpoints(
+            self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        src = client.post("/api/v1/accounts", json={
+            "name": "Joint", "type": "joint", "opening_balance": 0,
+            "opening_date": "2025-01-01"}, headers=h).json()["id"]
+        dst = client.post("/api/v1/accounts", json={
+            "name": "Bills", "type": "bills", "opening_balance": 0,
+            "opening_date": "2025-01-01"}, headers=h).json()["id"]
+        client.post("/api/v1/transfer-rules", headers=h, json={
+            "name": "Bills", "source_account_id": src,
+            "dest_account_id": dst,
+            "amount_spec": {"kind": "fixed", "pence": 30000},
+            "frequency": "monthly", "day_of_month": 1,
+            "start_date": "2025-01-01"})
+        reqs = client.get("/api/v1/expected-movements/requirements",
+                          headers=h, params={
+                              "start": date.today().isoformat(),
+                              "end": "2030-01-01"}).json()
+        assert reqs
+        assert all(r["outstanding_pence"] == r["scheduled_pence"]
+                   for r in reqs)
+        mid = reqs[0]["due_date"]
+        # write off the first future movement
+        moves = client.get("/api/v1/expected-movements", headers=h,
+                           params={"start": mid,
+                                   "end": "2030-01-01"}).json()
+        in_leg = next(m for m in moves if m["amount_pence"] > 0)
+        wo = client.post(
+            f"/api/v1/expected-movements/{in_leg['id']}/write-off",
+            headers=h)
+        assert wo.status_code == 200
+        after = client.get(
+            "/api/v1/expected-movements/requirements",
+            headers=h, params={"start": mid, "end": "2030-01-01"}
+        ).json()
+        assert len(after) < len(reqs)

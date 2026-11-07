@@ -692,3 +692,24 @@ class ContributionStatusOut(BaseModel):
 
 class MatchResult(BaseModel):
     matched: int
+
+
+class OutstandingItemOut(BaseModel):
+    movement_id: int
+    account_id: int | None
+    label: str
+    due_date: date
+    age_days: int
+    outstanding_pence: int
+
+
+class RequirementOut(BaseModel):
+    account_id: int
+    due_date: date
+    scheduled_pence: int
+    satisfied_pence: int
+    outstanding_pence: int
+
+
+class RescheduleIn(BaseModel):
+    due_date: date
