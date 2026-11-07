@@ -72,6 +72,10 @@ def create_employment(
                    pension_scheme_ref=body.pension_scheme_ref,
                    contracted_hours=body.contracted_hours,
                    payday_rule=body.payday_rule,
+                   pension_mode=body.pension_mode,
+                   pension_employee_bps=body.pension_employee_bps,
+                   pension_fixed_pence=body.pension_fixed_pence,
+                   work_days_per_week=body.work_days_per_week,
                    overtime_multipliers=json.dumps(
                        {k.value: int(v) for k, v in
                         (body.overtime_multipliers or {}).items()}))
@@ -275,7 +279,8 @@ def create_payroll_run(
         allowance_pence=body.allowance.pence
         if body.allowance else 0,
         unpaid_leave_pence=body.unpaid_leave.pence
-        if body.unpaid_leave else 0)
+        if body.unpaid_leave else 0,
+        unpaid_leave_days=body.unpaid_leave_days)
     emit(session, household.id, actor, "create", "payroll_run", r.id,
          {"employment_id": e.id, "period_end": str(r.period_end),
           "status": r.status.value})

@@ -12,7 +12,6 @@ loans are always period-only.
 
 from __future__ import annotations
 
-import enum
 import json
 import re
 from dataclasses import dataclass
@@ -24,7 +23,16 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.persistence.models import TaxJurisdiction, TaxRuleSet
+from app.persistence.models import (
+    PensionMode,
+    TaxJurisdiction,
+    TaxRuleSet,
+)
+
+__all__ = ["PensionMode", "TaxCode", "Deductions", "TaxError",
+           "compute_period", "parse_tax_code", "rule_set",
+           "seed_rule_sets", "embedded_rule_sets", "tax_year_for",
+           "tax_month_for"]
 
 _DATA = Path(__file__).resolve().parent / "data" / "uk_tax_rules.json"
 
@@ -32,13 +40,6 @@ MONTHS_PER_YEAR = 12
 FLAT_CODES = {"BR", "D0", "D1", "0T", "NT"}
 _CODE_NUM = re.compile(r"^(S|C|W)?(\d+)(L|T|M|N)$")
 _CODE_K = re.compile(r"^(S|C|W)?K(\d+)$")
-
-
-class PensionMode(enum.StrEnum):
-    none = "none"
-    relief_at_source = "relief_at_source"  # post-tax; no PAYE/NI effect
-    net_pay = "net_pay"                    # reduces taxable, not NI gross
-    salary_sacrifice = "salary_sacrifice"  # reduces both tax and NI gross
 
 
 class TaxError(ValueError):
