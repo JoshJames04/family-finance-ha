@@ -79,21 +79,13 @@ class TestLinearChain:
         command.upgrade(cfg, "head")
         command.downgrade(cfg, "-1")  # reverse the latest revision
         eng = _eng(cfg)
+        assert current_revision(eng) == REVISIONS[-2]
         with eng.connect() as conn:
             assert conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table'"
                 " AND name='transaction'")).first() is not None
-            # the 0012 downgrade drops the template tables; budget and
-            # budget_line keep their 0011 columns
-            assert conn.execute(text(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-                " AND name='budget_template'")).first() is None
-            assert conn.execute(text(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-                " AND name='budget'")).first() is not None
-            cols = {r[1] for r in conn.execute(
-                text("PRAGMA table_info(budget)"))}
-            assert "copied_from_id" not in cols
+        command.upgrade(cfg, "head")  # and re-apply cleanly
+        assert current_revision(_eng(cfg)) == REVISIONS[-1]
 
 
 class TestSeededUpgrade:

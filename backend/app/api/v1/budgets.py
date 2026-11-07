@@ -8,24 +8,44 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import (
+    ActorDep,
+    HouseholdDep,
+    ProfileDep,
+    SessionDep,
+)
 from app.domain import budgets as dom
 from app.persistence.models import (
     Budget,
     BudgetLine,
     BudgetStatus,
     Category,
+    Role,
+    UserProfile,
 )
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
 
-def _get(session: Session, household_id: int, budget_id: int) -> Budget:
+def _visible(b: Budget, profile: UserProfile | None) -> bool:
+    """Shared budgets (owner NULL) are household-visible; private
+    budgets only to their owner or an admin profile (issue #61)."""
+    if b.owner_profile_id is None:
+        return True
+    if profile is None:
+        return False
+    return (profile.role == Role.admin
+            or b.owner_profile_id == profile.id)
+
+
+def _get(session: Session, household_id: int, budget_id: int,
+         profile: UserProfile | None = None) -> Budget:
     b = session.execute(
         select(Budget).where(Budget.id == budget_id)
         .options(selectinload(Budget.lines))
     ).scalar_one_or_none()
-    if b is None or b.household_id != household_id:
+    if (b is None or b.household_id != household_id
+            or not _visible(b, profile)):
         raise HTTPException(404, f"budget {budget_id} not found")
     return b
 
@@ -41,13 +61,18 @@ def _detail(session: Session, b: Budget) -> schemas.BudgetDetail:
 @router.get("", response_model=schemas.Page[schemas.BudgetOut])
 def list_budgets(
     household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     status: Annotated[BudgetStatus | None, Query()] = None,
+    shared_only: Annotated[bool, Query()] = False,
 ) -> schemas.Page[schemas.BudgetOut]:
     q = select(Budget).where(Budget.household_id == household.id)
     if status is not None:
         q = q.where(Budget.status == status)
-    rows = session.execute(q.order_by(Budget.start_date.desc())
-                           ).scalars().all()
+    if shared_only:
+        q = q.where(Budget.owner_profile_id.is_(None))
+    rows = [b for b in session.execute(
+        q.order_by(Budget.start_date.desc())).scalars().all()
+        if _visible(b, profile)]
     return schemas.Page(
         items=[schemas.BudgetOut.model_validate(b) for b in rows],
         total=len(rows), page=1, size=len(rows) or 1)
@@ -70,8 +95,10 @@ def create_budget(
 @router.get("/{budget_id}", response_model=schemas.BudgetDetail)
 def get_budget(
     budget_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> schemas.BudgetDetail:
-    return _detail(session, _get(session, household.id, budget_id))
+    return _detail(session, _get(
+        session, household.id, budget_id, profile))
 
 
 @router.post("/{budget_id}/lines",
@@ -79,8 +106,9 @@ def get_budget(
 def add_line(
     budget_id: int, body: schemas.BudgetLineIn,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.BudgetLineOut:
-    b = _get(session, household.id, budget_id)
+    b = _get(session, household.id, budget_id, profile)
     cat = session.get(Category, body.category_id)
     if cat is None or cat.household_id != household.id:
         raise HTTPException(404, "category not found")
@@ -97,8 +125,9 @@ def add_line(
 def revise_line(
     budget_id: int, line_id: int, body: schemas.BudgetLineRevise,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.BudgetLineOut:
-    b = _get(session, household.id, budget_id)
+    b = _get(session, household.id, budget_id, profile)
     line = session.get(BudgetLine, line_id)
     if line is None or line.budget_id != b.id:
         raise HTTPException(404, "line not found")
@@ -113,9 +142,10 @@ def revise_line(
 @router.post("/{budget_id}/approve", response_model=schemas.BudgetOut)
 def approve_budget(
     budget_id: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep,
+    actor: ActorDep, profile: ProfileDep,
 ) -> schemas.BudgetOut:
-    b = dom.approve(session, _get(session, household.id, budget_id))
+    b = dom.approve(session, _get(session, household.id, budget_id,
+                                  profile))
     emit(session, household.id, actor, "update", "budget", b.id,
          {"status": b.status.value})
     return schemas.BudgetOut.model_validate(b)
@@ -124,9 +154,10 @@ def approve_budget(
 @router.post("/{budget_id}/lock", response_model=schemas.BudgetOut)
 def lock_budget(
     budget_id: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep,
+    actor: ActorDep, profile: ProfileDep,
 ) -> schemas.BudgetOut:
-    b = dom.lock(session, _get(session, household.id, budget_id))
+    b = dom.lock(session, _get(session, household.id, budget_id,
+                               profile))
     emit(session, household.id, actor, "update", "budget", b.id,
          {"status": b.status.value})
     return schemas.BudgetOut.model_validate(b)
@@ -136,8 +167,9 @@ def lock_budget(
             response_model=schemas.BudgetActuals)
 def budget_actuals(
     budget_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> schemas.BudgetActuals:
-    b = _get(session, household.id, budget_id)
+    b = _get(session, household.id, budget_id, profile)
     totals = dom.actuals_for_budget(session, b)
     lines = {line.id: dom.line_analysis(totals[line.id], line)
              for line in b.lines}
@@ -247,8 +279,9 @@ def edit_template_line(
 def copy_forward(
     budget_id: int, body: schemas.CopyForwardIn,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.CopyResult:
-    src = _get(session, household.id, budget_id)
+    src = _get(session, household.id, budget_id, profile)
     new, warnings = dom.copy_forward(
         session, src, body.name, body.start_date, body.end_date,
         period_type=body.period_type)
@@ -264,8 +297,9 @@ def copy_forward(
 def apply_template(
     budget_id: int, body: schemas.ApplyTemplateIn,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.ApplyResult:
-    b = _get(session, household.id, budget_id)
+    b = _get(session, household.id, budget_id, profile)
     t = _get_template(session, household.id, body.template_id)
     created, warnings = dom.apply_template(session, b, t)
     emit(session, household.id, actor, "update", "budget", b.id,
@@ -279,12 +313,33 @@ def apply_template(
 def rollover(
     budget_id: int, body: schemas.RolloverIn,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.RolloverResult:
-    target = _get(session, household.id, budget_id)
-    src = _get(session, household.id, body.source_budget_id)
+    target = _get(session, household.id, budget_id, profile)
+    src = _get(session, household.id, body.source_budget_id,
+               profile)
     events = dom.apply_rollover(session, src, target)
     for e in events:
         emit(session, household.id, actor, "rollover", "budget_line",
              int(str(e["line_id"])), e)
     return schemas.RolloverResult(applied=len(events),
                                   carries=events)
+
+
+@router.post("/{budget_id}/share", response_model=schemas.BudgetOut)
+def share_budget(
+    budget_id: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, profile: ProfileDep,
+) -> schemas.BudgetOut:
+    """Explicit private-to-shared conversion - audited (issue #61)."""
+    b = _get(session, household.id, budget_id, profile)
+    if (profile is None or
+            (b.owner_profile_id is not None
+             and profile.role != Role.admin
+             and b.owner_profile_id != profile.id)):
+        raise HTTPException(403, "only the owner or an admin can share")
+    b.owner_profile_id = None
+    session.flush()
+    emit(session, household.id, actor, "update", "budget", b.id,
+         {"shared": True})
+    return schemas.BudgetOut.model_validate(b)
