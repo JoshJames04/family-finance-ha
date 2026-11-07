@@ -187,6 +187,11 @@ def patch_transaction(
     new_status = changed.pop("status", None)
     for k, v in changed.items():
         setattr(t, k, v)
+    if "category_id" in changed and t.category_id is not None:
+        from app.domain import categorise
+        t.suggested_category_id = None
+        categorise.learn(session, household.id, t.payee,
+                         t.category_id)
     if new_status is not None:
         apply_transition(session, t, new_status)
     session.flush()
@@ -208,7 +213,11 @@ def bulk_transactions(
             t = _get(session, household.id, txn_id)
             assert_editable(session, t)
             if body.category_id is not None:
+                from app.domain import categorise
                 t.category_id = body.category_id
+                t.suggested_category_id = None
+                categorise.learn(session, household.id, t.payee,
+                                 body.category_id)
             if body.status is not None:
                 apply_transition(session, t, body.status)
             applied.append(t.id)
