@@ -8,8 +8,8 @@ import { toast } from "sonner";
 import {
   CalendarClock, Pause, Pencil, Play, Plus, ReceiptText, Send,
 } from "lucide-react";
-import { api } from "../api/client";
-import { useApi } from "../api/useApi";
+import { api, getProfileId } from "../api/client";
+import { useApi, useIdentity } from "../api/useApi";
 import { useAccounts, useCategories, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
@@ -17,7 +17,7 @@ import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
-import { IconTile, PageHeader, Stat } from "../components/Display";
+import { IconTile, PageHeader, Segmented, Stat } from "../components/Display";
 import { EmptyState, Skeleton } from "../components/Feedback";
 import { Money } from "../components/Money";
 import { cn } from "../lib/cn";
@@ -63,22 +63,31 @@ function sectionOf(c: Commitment, byId: Map<number, Category>): string {
 export function Bills() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
+  const [scope, setScope] = useState<"all" | "mine" | "shared">("all");
   const commitments = useApi(
     () => api.get("/api/v1/commitments", { query: { include_inactive: true } }),
     ready, [rev]);
   const accounts = useAccounts(rev);
   const categories = useCategories();
+  const identity = useIdentity();
+  const me = identity.data ? getProfileId() : null;
+  const memberCount = (identity.data ?? []).filter((p) => p.is_active).length;
   const [editing, setEditing] = useState<Commitment | "new" | null>(null);
   const refresh = () => setRev((r) => r + 1);
 
-  const items = commitments.data?.items ?? [];
-  const active = items.filter((c) => c.active);
-  const paused = items.filter((c) => !c.active);
   const accountsById = useMemo(() => {
     const m = new Map<number, components["schemas"]["AccountOut"]>();
     for (const a of accounts.data?.items ?? []) m.set(a.id, a);
     return m;
   }, [accounts.data]);
+  const ownerOf = (c: Commitment) =>
+    c.account_id == null ? null : accountsById.get(c.account_id)?.owner_profile_id ?? null;
+  const inScope = (c: Commitment) =>
+    scope === "all" || (scope === "mine" ? ownerOf(c) === me : ownerOf(c) === null);
+
+  const items = commitments.data?.items ?? [];
+  const active = items.filter((c) => c.active && inScope(c));
+  const paused = items.filter((c) => !c.active && inScope(c));
 
   /* ---- summary ---- */
   const monthlyTotal = active.reduce(
@@ -123,9 +132,23 @@ export function Bills() {
         title="Bills"
         description="Everything you pay on a schedule — each one an object, not a line item."
         actions={
-          <Button variant="primary" size="sm" onClick={() => setEditing("new")}>
-            <Plus /> Add bill
-          </Button>
+          <div className="flex items-center gap-2">
+            {memberCount > 1 && (
+              <Segmented
+                label="Bill scope"
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "mine", label: "Mine" },
+                  { value: "shared", label: "Shared" },
+                ]}
+              />
+            )}
+            <Button variant="primary" size="sm" onClick={() => setEditing("new")}>
+              <Plus /> Add bill
+            </Button>
+          </div>
         }
       />
 
