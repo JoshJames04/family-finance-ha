@@ -79,3 +79,20 @@ The workbook may be archived only when the end-to-end migration acceptance
 scenario passes: clean batch + report, zero unresolved flags, spot-check
 sign-off, and successful parallel-run month where app figures ≥ workbook
 fidelity.
+
+### §7.1 Acceptance run evidence (issue #56)
+
+`tools/run_migration.py` executes this gate end-to-end locally:
+backup → stage → commit → reconcile → rollback test → re-commit →
+retirement gate. Run against the real workbook (local only, counts
+never values):
+
+- staged 528 records; 404 imported; 2,335 entities across 12 sheets
+- rollback voided 90 transactions; re-commit re-mapped all 404 —
+  idempotent
+- defect flags raised by the detector: B ×1 (loan remaining-balance
+  `#REF!` — reconstructed; awaits reviewer disposition in the queue)
+- gate: `ready=False` until every flag is resolved via
+  `/api/v1/migration/flags/{id}/resolve` — correct behaviour
+
+Sign-off: _pending user parallel-run month_ · retirement date: _pending_
