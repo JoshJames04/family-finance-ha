@@ -26,6 +26,7 @@ from app.persistence.models import (
     ExpectedSource,
     Frequency,
     GoalType,
+    LoanDirection,
     OvertimeStatus,
     PayrollComponentKind,
     PayrollRunStatus,
@@ -754,3 +755,51 @@ class GoalContributionOut(BaseModel):
     date: date
     amount_pence: int
     payee: str
+
+
+class LoanIn(BaseModel):
+    party: str = Field(min_length=1, max_length=120)
+    direction: LoanDirection
+    principal: Money
+    start_date: date
+    expected_payment: Money | None = None
+    interest_bps_pa: int | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class LoanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    party: str
+    direction: LoanDirection
+    principal_pence: int
+    start_date: date
+    expected_payment_pence: int | None
+    interest_bps_pa: int | None
+    active: bool
+    notes: str | None
+
+
+class RepaymentIn(BaseModel):
+    date: date
+    amount: Money
+    transaction_id: int | None = None
+    notes: str | None = Field(default=None, max_length=300)
+
+
+class RepaymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    loan_id: int
+    date: date
+    amount_pence: int
+    transaction_id: int | None
+    notes: str | None
+
+
+class LoanPositionOut(BaseModel):
+    outstanding_pence: int
+    repaid_pence: int
+    accrued_interest_pence: int
+    expected_to_date_pence: int
+    drift_pence: int
