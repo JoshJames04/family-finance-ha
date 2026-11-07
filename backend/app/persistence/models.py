@@ -970,3 +970,32 @@ class PayrollOverride(Base):
         DateTime, server_default=func.now())
 
     run: Mapped[PayrollRun] = relationship()
+
+
+class ExpectedMatch(Base):
+    """A real transfer leg matched against an expected movement
+    (issue #87). Auto-matches land with ``manual=False``; user
+    confirmations with ``manual=True``. One leg can match at most one
+    movement (enforced in the domain layer)."""
+
+    __tablename__ = "expected_match"
+    __table_args__ = (
+        UniqueConstraint("movement_id", "transaction_id",
+                         name="uq_expected_match_pair"),
+        CheckConstraint("matched_pence > 0",
+                        name="ck_expected_match_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    movement_id: Mapped[int] = mapped_column(
+        ForeignKey("expected_movement.id"), nullable=False, index=True)
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), nullable=False, index=True)
+    matched_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    manual: Mapped[bool] = mapped_column(Boolean, default=False,
+                                         nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    movement: Mapped[ExpectedMovement] = relationship()
+    transaction: Mapped[Transaction] = relationship()
