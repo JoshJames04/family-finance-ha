@@ -6,6 +6,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
@@ -13,7 +14,11 @@ from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.domain import detection, schedule
 from app.domain import subscriptions as subs
-from app.persistence.models import DetectionCandidate, Subscription
+from app.persistence.models import (
+    DetectionCandidate,
+    PriceChangeEvent,
+    Subscription,
+)
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
@@ -104,6 +109,23 @@ def list_candidates(
             for c in rows]
 
 
+@router.get(
+    "/price-changes",
+    response_model=list[schemas.PriceChangeEventOut])
+def price_change_feed(
+    household: HouseholdDep, session: SessionDep,
+) -> list[schemas.PriceChangeEventOut]:
+    """Household-level alert feed — every detected price move."""
+    rows = session.execute(
+        select(PriceChangeEvent)
+        .where(PriceChangeEvent.household_id == household.id)
+        .order_by(PriceChangeEvent.detected_date.desc(),
+                  PriceChangeEvent.id)
+    ).scalars().all()
+    return [schemas.PriceChangeEventOut.model_validate(e)
+            for e in rows]
+
+
 @router.post(
     "/candidates/{cid}/confirm",
     response_model=schemas.SubscriptionOut, status_code=201)
@@ -189,6 +211,16 @@ def price_history(
     s = _get(session, household.id, sid)
     return [schemas.SubscriptionPriceOut.model_validate(p)
             for p in s.prices]
+
+
+@router.get("/{sid}/price-changes",
+            response_model=list[schemas.PriceChangeEventOut])
+def price_changes(
+    sid: int, household: HouseholdDep, session: SessionDep,
+) -> list[schemas.PriceChangeEventOut]:
+    s = _get(session, household.id, sid)
+    return [schemas.PriceChangeEventOut.model_validate(e)
+            for e in s.price_changes]
 
 
 @router.post("/{sid}/payments",

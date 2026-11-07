@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.domain.recurring import advance
 from app.persistence.models import (
     Frequency,
+    PriceChangeEvent,
     Subscription,
     SubscriptionPrice,
     SubscriptionStatus,
@@ -76,14 +77,49 @@ def renewal_overdue(sub: Subscription, today: date) -> bool:
             and sub.next_renewal_date < today)
 
 
+def _outside_tolerance(new: int, baseline: int,
+                       tolerance_pct: int) -> bool:
+    if baseline == 0:
+        return new != 0
+    return abs(new - baseline) > abs(baseline) * tolerance_pct / 100
+
+
 def record_price(
     session: Session, sub: Subscription, d: date,
     amount_pence: int, transaction_id: int | None = None,
 ) -> SubscriptionPrice:
-    """Record an observed charge: price history + renewal advance."""
+    """Record an observed charge: price history + renewal advance.
+
+    A charge outside tolerance of the previous observed price (or
+    ``expected_pence`` for the first) raises exactly one
+    ``PriceChangeEvent`` — the moving baseline means a repeat charge
+    at the new price does not re-fire. ``expected_pence`` is left
+    alone: the event alerts, the user accepts (or rejects) the new
+    price.
+    """
     if sub.status is SubscriptionStatus.cancelled:
         raise SubscriptionError("cannot record payments on a "
                                 "cancelled subscription")
+    prior = session.execute(
+        select(SubscriptionPrice)
+        .where(SubscriptionPrice.subscription_id == sub.id,
+               SubscriptionPrice.date < d)
+        .order_by(SubscriptionPrice.date.desc(),
+                  SubscriptionPrice.id.desc())
+        .limit(1)).scalar_one_or_none()
+    baseline = prior.amount_pence if prior else sub.expected_pence
+    if _outside_tolerance(
+            amount_pence, baseline, sub.tolerance_pct):
+        seen = session.execute(
+            select(PriceChangeEvent.id).where(
+                PriceChangeEvent.subscription_id == sub.id,
+                PriceChangeEvent.detected_date == d)
+        ).scalar_one_or_none()
+        if seen is None:
+            session.add(PriceChangeEvent(
+                household_id=sub.household_id, subscription_id=sub.id,
+                detected_date=d, old_pence=baseline,
+                new_pence=amount_pence))
     p = SubscriptionPrice(
         subscription_id=sub.id, date=d, amount_pence=amount_pence,
         transaction_id=transaction_id)
