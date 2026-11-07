@@ -15,8 +15,10 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.domain import transfer_rules
 from app.domain.recurring import occurrences
 from app.persistence.models import (
+    AmountKind,
     Confidence,
     ExpectedMovement,
     ExpectedSource,
@@ -24,6 +26,7 @@ from app.persistence.models import (
     PayrollRun,
     PayrollRunStatus,
     RecurringCommitment,
+    TransferRule,
 )
 
 DEFAULT_HORIZON_DAYS = 365
@@ -101,6 +104,62 @@ def rematerialize_payroll_run(
     return 1
 
 
+def rematerialize_transfer_rule(
+    session: Session, rule: TransferRule, *,
+    today: date | None = None, horizon_days: int = DEFAULT_HORIZON_DAYS,
+) -> int:
+    """Two legs per occurrence: out on the source account, in on the
+    destination — same source_id, distinguished by account_id.
+    Fixed amounts are ``scheduled``; income_pct/budget_line are
+    ``estimated`` because they depend on data that can still change."""
+    today = today or date.today()
+    horizon = today + timedelta(days=horizon_days)
+    _drop_future(session, ExpectedSource.transfer_rule, rule.id, today)
+    if not rule.active:
+        session.flush()
+        return 0
+    spec = transfer_rules.parse_spec(rule.amount_spec)
+    confidence = (Confidence.scheduled if spec.kind is AmountKind.fixed
+                  else Confidence.estimated)
+    n = 0
+    for d in transfer_rules.occurrences(rule, horizon, today):
+        amount = transfer_rules.evaluate(session, rule, d)
+        if amount is None:
+            continue
+        for account_id, pence, suffix in (
+                (rule.source_account_id, -amount, "out"),
+                (rule.dest_account_id, amount, "in")):
+            session.add(_emit_row(
+                rule.household_id, account_id=account_id,
+                expected_date=d, amount_pence=pence,
+                label=f"{rule.name} ({suffix})",
+                confidence=confidence,
+                source=ExpectedSource.transfer_rule,
+                source_id=rule.id))
+            n += 1
+    session.flush()
+    return n
+
+
+def rematerialize_budget_derived_rules(
+    session: Session, household_id: int, *,
+    today: date | None = None) -> list[int]:
+    """After a budget revision is approved, every active rule whose
+    amount derives from a budget line recomputes its future rows.
+    Returns the affected rule ids (callers audit the event)."""
+    rules = session.execute(
+        select(TransferRule).where(
+            TransferRule.household_id == household_id,
+            TransferRule.active.is_(True))).scalars().all()
+    affected: list[int] = []
+    for rule in rules:
+        if transfer_rules.parse_spec(
+                rule.amount_spec).kind is AmountKind.budget_line:
+            rematerialize_transfer_rule(session, rule, today=today)
+            affected.append(rule.id)
+    return affected
+
+
 def materialize_all(
     session: Session, household: Household, *,
     today: date | None = None, horizon_days: int = DEFAULT_HORIZON_DAYS,
@@ -120,6 +179,13 @@ def materialize_all(
                 PayrollRun.employment.has(household_id=household.id))
     ).scalars().all():
         n += rematerialize_payroll_run(session, r, today=today)
+    for rule in session.execute(
+            select(TransferRule).where(
+                TransferRule.household_id == household.id,
+                TransferRule.active.is_(True))
+    ).scalars().all():
+        n += rematerialize_transfer_rule(session, rule, today=today,
+                                         horizon_days=horizon_days)
     return n
 
 

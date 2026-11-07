@@ -15,6 +15,7 @@ from app.api.deps import (
     SessionDep,
 )
 from app.domain import budgets as dom
+from app.domain import schedule
 from app.persistence.models import (
     Budget,
     BudgetLine,
@@ -136,6 +137,14 @@ def revise_line(
     emit(session, household.id, actor, "update", "budget_line", line.id,
          {"revised_pence": line.revised_pence,
           "reason": body.reason})
+    # a revised approved line changes budget-derived rule amounts (#86)
+    if b.status is BudgetStatus.approved:
+        affected = schedule.rematerialize_budget_derived_rules(
+            session, household.id)
+        if affected:
+            emit(session, household.id, actor, "recompute",
+                 "transfer_rule", line.id,
+                 {"rule_ids": affected, "line_id": line.id})
     return schemas.BudgetLineOut.model_validate(line)
 
 
@@ -148,6 +157,13 @@ def approve_budget(
                                   profile))
     emit(session, household.id, actor, "update", "budget", b.id,
          {"status": b.status.value})
+    # budget-derived transfer rules recompute on approval (#86)
+    affected = schedule.rematerialize_budget_derived_rules(
+        session, household.id)
+    if affected:
+        emit(session, household.id, actor, "recompute",
+             "transfer_rule", b.id,
+             {"rule_ids": affected, "budget_id": b.id})
     return schemas.BudgetOut.model_validate(b)
 
 
