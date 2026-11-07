@@ -129,6 +129,8 @@ class Account(TimestampMixin, Base):
     household: Mapped[Household] = relationship(back_populates="accounts")
     owner: Mapped[UserProfile | None] = relationship(
         back_populates="owned_accounts")
+    transactions: Mapped[list[Transaction]] = relationship(
+        back_populates="account")
 
 
 class Category(TimestampMixin, Base):
@@ -159,3 +161,58 @@ class Category(TimestampMixin, Base):
         remote_side=[id], back_populates="children")
     children: Mapped[list[Category]] = relationship(
         back_populates="parent")
+    transactions: Mapped[list[Transaction]] = relationship(
+        back_populates="category")
+
+
+class TransactionStatus(enum.StrEnum):
+    pending = "pending"
+    cleared = "cleared"
+    reconciled = "reconciled"
+    void = "void"
+
+
+class TransactionSource(enum.StrEnum):
+    manual = "manual"
+    starling = "starling"
+    excel_import = "excel_import"
+    system = "system"
+
+
+class Transaction(TimestampMixin, Base):
+    """Signed-pence ledger row. History is never edited — corrections
+    supersede. `transfer_id`/`import_record_id` are plain ints until their
+    tables land (Epic 3/4), when FKs are added."""
+
+    __tablename__ = "transaction"
+    __table_args__ = (
+        UniqueConstraint("account_id", "source", "external_ref",
+                         name="uq_transaction_dedup"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    settled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    payee: Mapped[str] = mapped_column(String(200), nullable=False)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True, index=True)
+    status: Mapped[TransactionStatus] = mapped_column(
+        Enum(TransactionStatus), default=TransactionStatus.pending,
+        nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    source: Mapped[TransactionSource] = mapped_column(
+        Enum(TransactionSource), default=TransactionSource.manual,
+        nullable=False)
+    external_ref: Mapped[str | None] = mapped_column(String(128),
+                                                     nullable=True)
+    import_record_id: Mapped[int | None] = mapped_column(Integer,
+                                                         nullable=True)
+    transfer_id: Mapped[int | None] = mapped_column(Integer, nullable=True,
+                                                    index=True)
+
+    account: Mapped[Account] = relationship(back_populates="transactions")
+    category: Mapped[Category | None] = relationship(
+        back_populates="transactions")
