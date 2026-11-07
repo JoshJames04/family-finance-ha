@@ -845,3 +845,44 @@ class PayrollComponent(Base):
         if self.actual_pence is None:
             return None
         return self.actual_pence - self.forecast_pence
+
+
+class Confidence(enum.StrEnum):
+    scheduled = "scheduled"    # contractual/exact — commitments, payslips
+    estimated = "estimated"    # forecast — unreconciled payroll runs
+
+
+class ExpectedSource(enum.StrEnum):
+    commitment = "commitment"
+    payroll_run = "payroll_run"
+    manual = "manual"
+
+
+class ExpectedMovement(Base):
+    """One dated expected income/expenditure item (issue #72) — the
+    forecast substrate. Always traceable: (source_type, source_id,
+    expected_date) is unique, so re-materialisation is a delete+insert
+    of FUTURE rows for a source and stays idempotent."""
+
+    __tablename__ = "expected_movement"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id",
+                         "expected_date",
+                         name="uq_expected_source_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True, index=True)
+    expected_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    confidence: Mapped[Confidence] = mapped_column(
+        Enum(Confidence), nullable=False)
+    source_type: Mapped[ExpectedSource] = mapped_column(
+        Enum(ExpectedSource), nullable=False)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
