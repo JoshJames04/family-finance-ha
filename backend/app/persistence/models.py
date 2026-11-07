@@ -1400,3 +1400,27 @@ class PriceChangeEvent(Base):
     @property
     def delta_pence(self) -> int:
         return self.new_pence - self.old_pence
+
+
+class MonthlyAggregate(TimestampMixin, Base):
+    """Materialised per-month analytics (issue #111). Rebuildable
+    identically from raw transactions + loans — never edited by hand."""
+
+    __tablename__ = "monthly_aggregate"
+    __table_args__ = (
+        UniqueConstraint("household_id", "month",
+                         name="uq_monthlyagg_household_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    month: Mapped[date_t] = mapped_column(Date, nullable=False)
+    income_pence: Mapped[int] = mapped_column(Integer, default=0,
+                                              nullable=False)
+    expense_pence: Mapped[int] = mapped_column(Integer, default=0,
+                                               nullable=False)
+    savings_pence: Mapped[int] = mapped_column(Integer, default=0,
+                                               nullable=False)
+    net_worth_pence: Mapped[int] = mapped_column(Integer, default=0,
+                                                 nullable=False)

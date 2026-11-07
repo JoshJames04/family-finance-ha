@@ -1062,3 +1062,15 @@ class ReportOut(BaseModel):
     period: ReportPeriodOut
     prior_period: ReportPeriodOut | None = None
     sections: list[ReportSectionOut]
+class MonthlyAggregateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    month: date
+    income_pence: int
+    expense_pence: int
+    savings_pence: int
+    net_worth_pence: int
+
+
+class NetWorthOut(BaseModel):
+    net_worth_pence: int
+

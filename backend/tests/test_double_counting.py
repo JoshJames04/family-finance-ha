@@ -44,11 +44,14 @@ DOMAIN = Path(__file__).parents[1] / "app" / "domain"
 # contributed_pence deliberately sums INTERNAL transfer legs (goal
 # contributions are transfers by design); repaid_pence aggregates
 # Repayment rows, not Transaction rows — the guard doesn't apply.
+# _monthly_net feeds balance accumulation — legs are in-flight money
+# either side of a month boundary (same basis as net_worth_at).
 ALLOWLIST = {
     "current_balance",
     "refundable_balance",
     "contributed_pence",
     "repaid_pence",
+    "_monthly_net",
 }
 
 
