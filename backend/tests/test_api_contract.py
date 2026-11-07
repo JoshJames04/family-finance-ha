@@ -65,11 +65,20 @@ class TestSpecCoverage:
             f"(routes={len(route_ops)})")
 
     def test_no_phantom_spec_paths(self) -> None:
-        spec_ops, route_ops = _ops(_fresh_app())
+        import sys
+        from collections import Counter
+
+        app = _fresh_app()
+        spec_ops, route_ops = _ops(app)
         phantom = spec_ops - route_ops
+        kinds = Counter(f"{type(r).__module__}.{type(r).__qualname__}"
+                        for r in app.routes)
+        fapi = [k for k in sys.modules if k == "fastapi.routing"]
         assert not phantom, (
             f"spec paths with no route: {phantom} "
-            f"(spec={len(spec_ops)}, routes={len(route_ops)})")
+            f"(spec={len(spec_ops)}, routes={len(route_ops)}, "
+            f"kinds={kinds}, fastapi_mods={fapi}, "
+            f"APIRoute_id={id(APIRoute)})")
 
 
 # ---------- uniform problem-details ------------------------------
