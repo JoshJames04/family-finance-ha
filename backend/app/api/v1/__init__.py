@@ -13,6 +13,7 @@ from app.api.v1 import (
     categorisation,
     commitments,
     credentials,
+    diagnostics,
     employments,
     expected,
     goals,
@@ -58,3 +59,4 @@ v1_router.include_router(reconcile.router)
 v1_router.include_router(credentials.router)
 v1_router.include_router(banks.router)
 v1_router.include_router(anomalies.router)
+v1_router.include_router(diagnostics.router)
