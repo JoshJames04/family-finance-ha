@@ -10,6 +10,7 @@ from __future__ import annotations
 import enum
 from datetime import date, datetime
 from datetime import date as date_t
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -19,6 +20,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
     func,
@@ -565,3 +567,104 @@ class BudgetTemplateLine(Base):
 
     template: Mapped[BudgetTemplate] = relationship(
         back_populates="lines")
+
+
+class TaxJurisdiction(enum.StrEnum):
+    england_wales = "england_wales"
+    scotland = "scotland"
+    northern_ireland = "northern_ireland"
+
+
+class StudentLoanPlan(enum.StrEnum):
+    none = "none"
+    plan1 = "plan1"
+    plan2 = "plan2"
+    plan4 = "plan4"
+    plan5 = "plan5"
+    postgrad = "postgrad"
+
+
+class Employment(TimestampMixin, Base):
+    """A member's employment — payroll facts + payday rule ref (issue
+    #78). Salary and tax code are effective-dated revision series, never
+    edited in place."""
+
+    __tablename__ = "employment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=False, index=True)
+    employer: Mapped[str] = mapped_column(String(200), nullable=False)
+    jurisdiction: Mapped[TaxJurisdiction] = mapped_column(
+        Enum(TaxJurisdiction), nullable=False)
+    ni_category: Mapped[str] = mapped_column(
+        String(2), default="A", nullable=False)
+    student_loan_plan: Mapped[StudentLoanPlan] = mapped_column(
+        Enum(StudentLoanPlan), default=StudentLoanPlan.none,
+        nullable=False)
+    pension_scheme_ref: Mapped[str | None] = mapped_column(
+        String(128), nullable=True)
+    contracted_hours: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False)
+    payday_rule: Mapped[str | None] = mapped_column(
+        String(400), nullable=True)  # serialised domain.paydays.PaydayRule
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                            nullable=False)
+
+    profile: Mapped[UserProfile] = relationship()
+    salary_revisions: Mapped[list[SalaryRevision]] = relationship(
+        back_populates="employment",
+        order_by="SalaryRevision.effective_date")
+    tax_code_revisions: Mapped[list[TaxCodeRevision]] = relationship(
+        back_populates="employment",
+        order_by="TaxCodeRevision.effective_date")
+
+
+class SalaryRevision(Base):
+    """Effective-dated annual salary (pence). Same-date duplicates are
+    rejected — a later revision supersedes an earlier one, never
+    overlaps."""
+
+    __tablename__ = "salary_revision"
+    __table_args__ = (
+        UniqueConstraint("employment_id", "effective_date",
+                         name="uq_salaryrev_emp_date"),
+        CheckConstraint("annual_salary_pence >= 0",
+                        name="ck_salaryrev_nonneg"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employment_id: Mapped[int] = mapped_column(
+        ForeignKey("employment.id"), nullable=False, index=True)
+    effective_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    annual_salary_pence: Mapped[int] = mapped_column(Integer,
+                                                   nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000),
+                                              nullable=True)
+
+    employment: Mapped[Employment] = relationship(
+        back_populates="salary_revisions")
+
+
+class TaxCodeRevision(Base):
+    """Effective-dated tax code (issue #78 — tax code is effective-dated
+    on the employment, modelled as its own series)."""
+
+    __tablename__ = "tax_code_revision"
+    __table_args__ = (
+        UniqueConstraint("employment_id", "effective_date",
+                         name="uq_taxrev_emp_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employment_id: Mapped[int] = mapped_column(
+        ForeignKey("employment.id"), nullable=False, index=True)
+    effective_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    tax_code: Mapped[str] = mapped_column(String(12), nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000),
+                                              nullable=True)
+
+    employment: Mapped[Employment] = relationship(
+        back_populates="tax_code_revisions")

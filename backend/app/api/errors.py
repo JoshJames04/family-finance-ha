@@ -42,6 +42,7 @@ def install_error_handlers(app: FastAPI) -> None:
     from app.domain.accounts import AccountNotEmptyError
     from app.domain.budgets import BudgetError
     from app.domain.categories import CategoryCycleError
+    from app.domain.payroll import PayrollError
     from app.domain.periods import (
         PeriodLockedError,
         ReconciledImmutableError,
@@ -52,8 +53,8 @@ def install_error_handlers(app: FastAPI) -> None:
 
     domain_conflicts = (
         AccountNotEmptyError, BudgetError, CategoryCycleError,
-        PeriodLockedError, ReconciledImmutableError, RefundError,
-        InvalidTransitionError, TransferError,
+        PayrollError, PeriodLockedError, ReconciledImmutableError,
+        RefundError, InvalidTransitionError, TransferError,
     )
     for exc_type in domain_conflicts:
         @app.exception_handler(exc_type)
