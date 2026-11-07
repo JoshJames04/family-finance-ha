@@ -147,6 +147,30 @@ def active_subscriptions(
     ).scalars().all())
 
 
+_PERIODS_PER_YEAR: dict[Frequency, int] = {
+    Frequency.weekly: 52,
+    Frequency.fortnightly: 26,
+    Frequency.monthly: 12,
+    Frequency.quarterly: 4,
+    Frequency.annually: 1,
+}
+
+
+def annualised_pence(sub: Subscription) -> int:
+    """True yearly cost — monthly dribble-spend made visible."""
+    return sub.expected_pence * _PERIODS_PER_YEAR[sub.frequency]
+
+
+def annualised_report(
+    session: Session, household_id: int,
+) -> tuple[list[tuple[Subscription, int]], int]:
+    """(per-sub rows, household total) over ACTIVE subscriptions —
+    cancelled subs stop feeding the figure entirely."""
+    rows = [(s, annualised_pence(s))
+            for s in active_subscriptions(session, household_id)]
+    return rows, sum(a for _, a in rows)
+
+
 def all_subscriptions(
     session: Session, household_id: int,
 ) -> list[Subscription]:
