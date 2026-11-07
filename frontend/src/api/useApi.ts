@@ -4,7 +4,11 @@
  * exposes loading/error/data states.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, getHouseholdId, setHouseholdId } from "./client";
+import { api, getHouseholdId, getProfileId, setHouseholdId, setProfileId }
+  from "./client";
+import type { components } from "./schema";
+
+export type Profile = components["schemas"]["ProfileOut"];
 
 export interface ApiState<T> {
   data: T | null;
@@ -40,6 +44,40 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
       cancelled = true;
     };
   }, []);
+  return state;
+}
+
+/**
+ * Member identity for standalone mode: after the household resolves,
+ * load its profiles and pick a default (stored choice if still active,
+ * else the first admin) so `useReady`-gated calls carry `X-Profile-Id`
+ * on their first request. Under ingress the header is ignored — HA
+ * injects identity — so this costs one harmless request.
+ */
+export function useIdentity(): ApiState<Profile[]> {
+  const households = useHouseholds();
+  const state = useApi(
+    () =>
+      api
+        .get("/api/v1/profiles")
+        .then((page) => {
+          const items = page.items;
+          const stored = getProfileId();
+          const stillValid = items.some(
+            (p) => p.id === stored && p.is_active);
+          if (!stillValid) {
+            const fallback = items.find((p) => p.is_active && p.role === "admin")
+              ?? items.find((p) => p.is_active);
+            setProfileId(fallback?.id ?? null);
+          }
+          return items;
+        })
+        // Identity is optional (fresh installs have no profiles) — a
+        // failed probe must never block readiness.
+        .catch(() => [] as Profile[]),
+    households.data !== null,
+    [households.data?.length],
+  );
   return state;
 }
 

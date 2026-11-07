@@ -1,13 +1,16 @@
 /**
- * Light/dark scheme detection. Home Assistant ingress does not hand
- * its theme object to framed add-ons, so the reliable signal is
- * `prefers-color-scheme` (which HA follows when the user's theme is
- * set to "auto"); any HA CSS vars actually present in the document
- * still take precedence via the fallback chains in theme.css.
+ * Theme preference: "system" (default — follows prefers-color-scheme,
+ * which HA ingress also follows when its theme is "auto"), or a
+ * manual "light"/"dark" override persisted in localStorage. The
+ * resolved scheme lands on <html data-theme> for the token layer.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 export type Scheme = "light" | "dark";
+export type ThemePref = "system" | Scheme;
+
+const KEY = "ff.theme";
+const listeners = new Set<() => void>();
 
 const media = (() => {
   try {
@@ -19,21 +22,48 @@ const media = (() => {
   }
 })();
 
-function current(): Scheme {
+function readPref(): ThemePref {
+  try {
+    const v = localStorage.getItem(KEY);
+    return v === "light" || v === "dark" ? v : "system";
+  } catch {
+    return "system";
+  }
+}
+
+function resolve(pref: ThemePref): Scheme {
+  if (pref !== "system") return pref;
   return media?.matches ? "dark" : "light";
 }
 
-export function useTheme(): Scheme {
-  const [scheme, setScheme] = useState<Scheme>(current);
-  useEffect(() => {
-    if (!media) return;
-    const onChange = (e: MediaQueryListEvent) =>
-      setScheme(e.matches ? "dark" : "light");
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
+function snapshot(): string {
+  const pref = readPref();
+  return `${pref}:${resolve(pref)}`;
+}
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  const onMedia = () => cb();
+  media?.addEventListener?.("change", onMedia);
+  return () => {
+    listeners.delete(cb);
+    media?.removeEventListener?.("change", onMedia);
+  };
+}
+
+export function setThemePref(pref: ThemePref): void {
+  try {
+    if (pref === "system") localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, pref);
+  } catch { /* storage unavailable — session-only */ }
+  for (const l of listeners) l();
+}
+
+export function useTheme(): { pref: ThemePref; scheme: Scheme } {
+  const snap = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const [pref, scheme] = snap.split(":") as [ThemePref, Scheme];
   useEffect(() => {
     document.documentElement.dataset.theme = scheme;
   }, [scheme]);
-  return scheme;
+  return { pref, scheme };
 }

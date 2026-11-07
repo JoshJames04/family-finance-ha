@@ -1,0 +1,296 @@
+/** Settings: household members and roles, category management,
+ * appearance (system/light/dark), and data — version, backups and
+ * export. */
+import { useState } from "react";
+import { toast } from "sonner";
+import {
+  Download, HardDrive, Monitor, Moon, Palette, Plus, Sun, Tags,
+  UserRound, Users,
+} from "lucide-react";
+import { api } from "../api/client";
+import { useApi } from "../api/useApi";
+import { useReady } from "../api/hooks";
+import type { components } from "../api/schema";
+import { DataView } from "../components/DataView";
+import { Panel } from "../components/Panel";
+import { Badge, type BadgeTone } from "../components/Badge";
+import { Button } from "../components/Button";
+import { Dialog } from "../components/Dialog";
+import { Field, Input, Select } from "../components/Field";
+import { IconTile, PageHeader, Segmented } from "../components/Display";
+import { EmptyState } from "../components/Feedback";
+import { setThemePref, useTheme, type ThemePref } from "../theme/useTheme";
+import { formatBytes } from "../lib/format";
+
+type Profile = components["schemas"]["ProfileOut"];
+type Role = components["schemas"]["Role"];
+type Category = components["schemas"]["CategoryOut"];
+type Backup = components["schemas"]["BackupOut"];
+
+const ROLE_TONE: Record<Role, BadgeTone> = {
+  admin: "accent", member: "info", viewer: "neutral",
+};
+
+export function Settings() {
+  const ready = useReady();
+  const [rev, setRev] = useState(0);
+  const [addingMember, setAddingMember] = useState(false);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const profiles = useApi(() => api.get("/api/v1/profiles"), ready, [rev]);
+  const categories = useApi(() => api.get("/api/v1/categories"), ready, [rev]);
+  const version = useApi(() => api.get("/api/v1/version"), ready);
+  const backups = useApi(() => api.get("/api/v1/admin/backups"), ready, [rev]);
+  const { pref } = useTheme();
+  const refresh = () => setRev((r) => r + 1);
+
+  const toggleMember = (p: Profile) =>
+    api.post(
+      p.is_active
+        ? "/api/v1/profiles/{profile_id}/deactivate"
+        : "/api/v1/profiles/{profile_id}/activate",
+      { path: { profile_id: p.id } },
+    ).then(() => {
+      toast.success(`${p.display_name} ${p.is_active ? "deactivated" : "activated"}`);
+      refresh();
+    }).catch((e: Error) => toast.error(e.message));
+
+  const archiveCategory = (c: Category) =>
+    api.patch("/api/v1/categories/{category_id}", {
+      path: { category_id: c.id },
+      body: { archived: !c.archived },
+    }).then(() => {
+      toast.success(c.archived ? `${c.name} restored` : `${c.name} archived`);
+      refresh();
+    }).catch((e: Error) => toast.error(e.message));
+
+  const backupNow = () =>
+    api.post("/api/v1/admin/backups")
+      .then((b) => { toast.success(`Backup saved (${formatBytes(b.bytes)})`); refresh(); })
+      .catch((e: Error) => toast.error(e.message));
+
+  const cats = categories.data?.items ?? [];
+  const parents = cats.filter((c) => c.parent_id === null);
+
+  return (
+    <div>
+      <PageHeader title="Settings" description="Household, categories, appearance and your data." />
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Panel
+          flush
+          title="Household members"
+          description="Who shares this ledger and what they can do."
+          actions={<Button size="sm" variant="secondary" onClick={() => setAddingMember(true)}><Plus /> Add</Button>}
+        >
+          <DataView
+            state={{ ...profiles, data: profiles.data?.items ?? null }}
+            empty="No members"
+            emptyIcon={Users}
+          >
+            {(items) => (
+              <ul className="divide-y divide-border">
+                {items.map((p) => (
+                  <li key={p.id} className="flex items-center gap-3 px-4 py-3">
+                    <IconTile icon={UserRound} label={p.display_name} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13.5px] font-medium">{p.display_name}</p>
+                      <p className="text-[12px] text-fg-subtle">{p.is_active ? "Active" : "Deactivated"}</p>
+                    </div>
+                    <Badge tone={ROLE_TONE[p.role]}>{p.role}</Badge>
+                    <Button size="sm" variant="ghost" onClick={() => toggleMember(p)}
+                      aria-label={`${p.is_active ? "Deactivate" : "Activate"} ${p.display_name}`}>
+                      {p.is_active ? "Deactivate" : "Activate"}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </DataView>
+        </Panel>
+
+        <Panel
+          flush
+          title="Categories"
+          description="The buckets your spending is sorted into."
+          actions={<Button size="sm" variant="secondary" onClick={() => setAddingCategory(true)}><Plus /> Add</Button>}
+        >
+          <DataView
+            state={{ ...categories, data: cats }}
+            empty="No categories"
+            emptyIcon={Tags}
+          >
+            {() => (
+              <ul className="max-h-105 divide-y divide-border overflow-y-auto scrollbar-thin">
+                {parents.map((c) => (
+                  <li key={c.id}>
+                    <div className="flex items-center gap-3 px-4 py-2.5">
+                      <IconTile label={c.name} size="sm" />
+                      <span className={c.archived ? "flex-1 text-[13.5px] font-medium text-fg-subtle line-through" : "flex-1 text-[13.5px] font-medium"}>
+                        {c.name}
+                        {c.is_system && <Badge tone="neutral" className="ml-2">system</Badge>}
+                      </span>
+                      <Button size="sm" variant="ghost" onClick={() => archiveCategory(c)}
+                        aria-label={`${c.archived ? "Restore" : "Archive"} ${c.name}`}>
+                        {c.archived ? "Restore" : "Archive"}
+                      </Button>
+                    </div>
+                    {cats.filter((ch) => ch.parent_id === c.id).map((ch) => (
+                      <div key={ch.id} className="flex items-center gap-3 py-2 pr-4 pl-13">
+                        <span className={ch.archived ? "flex-1 text-[13px] text-fg-subtle line-through" : "flex-1 text-[13px] text-fg-muted"}>{ch.name}</span>
+                        <Button size="sm" variant="ghost" onClick={() => archiveCategory(ch)}
+                          aria-label={`${ch.archived ? "Restore" : "Archive"} ${ch.name}`}>
+                          {ch.archived ? "Restore" : "Archive"}
+                        </Button>
+                      </div>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </DataView>
+        </Panel>
+
+        <Panel title="Appearance" description="Follows your system by default — override here.">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <IconTile icon={Palette} label="theme" />
+              <div>
+                <p className="text-[13.5px] font-medium">Theme</p>
+                <p className="text-[12px] text-fg-subtle">Applies everywhere, remembered on this device.</p>
+              </div>
+            </div>
+            <Segmented<ThemePref>
+              label="Theme"
+              value={pref}
+              onChange={setThemePref}
+              options={[
+                { value: "system", label: <span className="inline-flex items-center gap-1"><Monitor className="size-3.5" /> System</span> },
+                { value: "light", label: <span className="inline-flex items-center gap-1"><Sun className="size-3.5" /> Light</span> },
+                { value: "dark", label: <span className="inline-flex items-center gap-1"><Moon className="size-3.5" /> Dark</span> },
+              ]}
+            />
+          </div>
+        </Panel>
+
+        <Panel
+          title="Data & backups"
+          description={`Family Finance ${version.data ? String(version.data["version"] ?? "") : ""}`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={backupNow}><HardDrive /> Back up now</Button>
+            <a
+              href="./api/v1/transactions/export.csv"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
+            >
+              <Download /> Export transactions (CSV)
+            </a>
+          </div>
+          {(backups.data ?? []).length > 0 ? (
+            <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
+              {(backups.data ?? []).slice(0, 5).map((b: Backup) => (
+                <li key={b.name} className="flex items-center justify-between gap-3 px-3 py-2 text-[12.5px]">
+                  <span className="truncate font-medium">{b.name}</span>
+                  <span className="tnum shrink-0 text-fg-subtle">{formatBytes(b.bytes)}{b.ok ? "" : " · incomplete"}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState compact icon={HardDrive} title="No backups yet"
+              description="Nightly backups run automatically — or take one now." />
+          )}
+        </Panel>
+      </div>
+
+      <AddMemberDialog open={addingMember} onOpenChange={setAddingMember} onSaved={refresh} />
+      <AddCategoryDialog open={addingCategory} onOpenChange={setAddingCategory} parents={parents.filter((c) => !c.archived)} onSaved={refresh} />
+    </div>
+  );
+}
+
+function AddMemberDialog({ open, onOpenChange, onSaved }: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<Role>("member");
+  const [busy, setBusy] = useState(false);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    api.post("/api/v1/profiles", { body: { display_name: name.trim(), role } })
+      .then(() => {
+        toast.success(`${name.trim()} added`);
+        setName("");
+        onSaved();
+        onOpenChange(false);
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title="Add member"
+      description="Members get their own dashboard layout; admins can manage the household."
+      footer={<>
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-add-member" disabled={!name.trim() || busy}>{busy ? "Adding…" : "Add member"}</Button>
+      </>}>
+      <form id="ff-add-member" onSubmit={submit} className="grid gap-4">
+        <Field label="Name">{(id) => <Input id={id} autoFocus placeholder="e.g. Bob" value={name} onChange={(e) => setName(e.target.value)} />}</Field>
+        <Field label="Role">{(id) => (
+          <Select id={id} value={role} onChange={(e) => setRole(e.target.value as Role)}>
+            <option value="member">Member — full use</option>
+            <option value="admin">Admin — manage household</option>
+            <option value="viewer">Viewer — read only</option>
+          </Select>
+        )}</Field>
+      </form>
+    </Dialog>
+  );
+}
+
+function AddCategoryDialog({ open, onOpenChange, parents, onSaved }: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  parents: Category[];
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [parentId, setParentId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    api.post("/api/v1/categories", {
+      body: { name: name.trim(), parent_id: parentId ? Number(parentId) : null, is_system: false },
+    })
+      .then(() => {
+        toast.success(`${name.trim()} added`);
+        setName("");
+        onSaved();
+        onOpenChange(false);
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title="Add category"
+      description="Top-level or nested under an existing category."
+      footer={<>
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-add-cat" disabled={!name.trim() || busy}>{busy ? "Adding…" : "Add category"}</Button>
+      </>}>
+      <form id="ff-add-cat" onSubmit={submit} className="grid gap-4">
+        <Field label="Name">{(id) => <Input id={id} autoFocus placeholder="e.g. Eating out" value={name} onChange={(e) => setName(e.target.value)} />}</Field>
+        <Field label="Parent" hint="Optional — nest under a top-level category.">{(id) => (
+          <Select id={id} value={parentId} onChange={(e) => setParentId(e.target.value)}>
+            <option value="">Top level</option>
+            {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </Select>
+        )}</Field>
+      </form>
+    </Dialog>
+  );
+}

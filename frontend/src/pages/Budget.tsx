@@ -3,50 +3,66 @@
  * revision editing, visible lock state, and an expected-movements
  * side panel for the selected period — the money picture at a glance,
  * not a spreadsheet wall. */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { CalendarDays, ChevronLeft, ChevronRight, Lock, Pencil, Target } from "lucide-react";
 import { api } from "../api/client";
-import { useApi, useHouseholds } from "../api/useApi";
+import { useApi } from "../api/useApi";
+import {
+  pickBudgetFor, useBudgetDetail, useBudgets, useCategories, useReady,
+  type Budget as BudgetT, type LineAnalysis,
+} from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
-import { Badge } from "../components/Badge";
+import { Badge, type BadgeTone } from "../components/Badge";
 import { Money } from "../components/Money";
-import { formatDate } from "../lib/format";
+import { Button } from "../components/Button";
+import { Panel } from "../components/Panel";
+import { Dialog } from "../components/Dialog";
+import { Field, Input, Select } from "../components/Field";
+import { IconTile, PageHeader, Progress, Segmented, Stat } from "../components/Display";
+import { EmptyState, Skeleton } from "../components/Feedback";
+import { cn } from "../lib/cn";
+import {
+  formatDayMonth, formatMonthName, formatMonthOf, formatPence,
+  formatPercent, formatWeekdayDayMonth, parseISODate,
+} from "../lib/format";
 
-type BudgetOut = components["schemas"]["BudgetOut"];
-type Detail = components["schemas"]["BudgetDetail"];
 type Line = components["schemas"]["BudgetLineOut"];
-type Actuals = components["schemas"]["BudgetActuals"];
 type Movement = components["schemas"]["ExpectedMovementOut"];
-type Category = components["schemas"]["CategoryOut"];
 
-interface LineAnalysis {
-  original_pence: number;
-  revised_pence: number | null;
-  revision_reason: string | null;
-  effective_pence: number;
-  actual_pence: number;
-  variance_pence: number;
-  accuracy_pct: number;
-  original_accuracy_pct: number;
+const STATUS_TONE: Record<string, BadgeTone> = {
+  draft: "neutral", approved: "success", locked: "neutral",
+};
+
+function ownerKey(b: BudgetT): string {
+  return b.owner_profile_id == null ? "shared" : String(b.owner_profile_id);
 }
 
 export function Budget() {
-  const households = useHouseholds();
-  const budgets = useApi(
-    () => api.get("/api/v1/budgets"), households.data !== null);
-  const categories = useApi(
-    () => api.get("/api/v1/categories"), households.data !== null);
+  const ready = useReady();
+  const budgets = useBudgets();
+  const categories = useCategories();
+  const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
+  const items = useMemo(() => budgets.data?.items ?? [], [budgets.data]);
   const [budgetId, setBudgetId] = useState<number | null>(null);
   const [rev, setRev] = useState(0);
   const [revising, setRevising] = useState<Line | null>(null);
-  const id = budgetId ?? budgets.data?.items[0]?.id ?? null;
-  const detail = useApi(
-    () => api.get("/api/v1/budgets/{budget_id}", { path: { budget_id: id! } }),
-    id !== null, [id, rev]);
-  const actuals = useApi(
-    () => api.get("/api/v1/budgets/{budget_id}/actuals",
-      { path: { budget_id: id! } }),
-    id !== null, [id, rev]);
+
+  // Default: the budget covering today (shared first), else the most
+  // recent one — never a far-future period.
+  useEffect(() => {
+    if (budgetId !== null || items.length === 0) return;
+    const today = pickBudgetFor(items);
+    const latestPast = [...items]
+      .filter((b) => parseISODate(b.start_date) <= new Date())
+      .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
+    setBudgetId((today ?? latestPast ?? items[0])!.id);
+  }, [items, budgetId]);
+
+  const id = budgetId;
+  const selectedBudget = items.find((b) => b.id === id);
+  const { detail, actuals, analyses } = useBudgetDetail(id, rev);
   const period = detail.data
     ? { from: detail.data.start_date, to: detail.data.end_date }
     : null;
@@ -54,179 +70,290 @@ export function Budget() {
     () => api.get("/api/v1/expected-movements",
       { query: { start: period!.from, end: period!.to } }),
     period !== null, [period?.from, period?.to]);
-  const catName = useMemo(() => {
-    const m = new Map<number, string>();
-    for (const c of categories.data?.items ?? []) m.set(c.id, c.name);
-    return m;
-  }, [categories.data]);
   const locked = detail.data
     ? detail.data.status === "locked" || detail.data.read_only
     : false;
 
+  /* ---- period navigation ---- */
+  const owners = useMemo(() => [...new Set(items.map(ownerKey))], [items]);
+  const owner = selectedBudget ? ownerKey(selectedBudget) : "shared";
+  const ownerItems = items.filter((b) => ownerKey(b) === owner);
+  const years = [...new Set(ownerItems.map((b) => parseISODate(b.start_date).getFullYear()))].sort();
+  const year = selectedBudget ? parseISODate(selectedBudget.start_date).getFullYear() : years[0];
+  const byMonth = new Map<number, BudgetT>();
+  for (const b of ownerItems) {
+    const d = parseISODate(b.start_date);
+    if (d.getFullYear() === year) byMonth.set(d.getMonth(), b);
+  }
+  const chrono = [...ownerItems].sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const pos = chrono.findIndex((b) => b.id === id);
+  const ownerLabel = (k: string) =>
+    k === "shared" ? "Shared"
+      : profiles.data?.items.find((p) => String(p.id) === k)?.display_name ?? `Member ${k}`;
+  const switchOwner = (k: string) => {
+    const cur = selectedBudget ? parseISODate(selectedBudget.start_date) : new Date();
+    const candidates = items.filter((b) => ownerKey(b) === k);
+    const same = candidates.find((b) => {
+      const d = parseISODate(b.start_date);
+      return d.getFullYear() === cur.getFullYear() && d.getMonth() === cur.getMonth();
+    });
+    const next = same ?? pickBudgetFor(candidates) ?? candidates[0];
+    if (next) setBudgetId(next.id);
+  };
+
+  /* ---- totals ---- */
+  const lines = detail.data?.lines ?? [];
+  const sum = (side: string, f: (l: Line, a?: LineAnalysis) => number) =>
+    lines.filter((l) => l.side === side).reduce((s, l) => s + f(l, analyses[String(l.id)]), 0);
+  const plannedOut = sum("expense", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
+  const actualOut = sum("expense", (_l, a) => Math.abs(a?.actual_pence ?? 0));
+  const plannedIn = sum("income", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
+  const actualIn = sum("income", (_l, a) => Math.abs(a?.actual_pence ?? 0));
+
   const sides: Array<{ key: "income" | "expense"; label: string }> = [
-    { key: "income", label: "Income" },
     { key: "expense", label: "Expenses" },
+    { key: "income", label: "Income" },
   ];
 
   return (
-    <section>
-      <h1>Budget</h1>
+    <div>
+      <PageHeader
+        title="Budget"
+        description="Plan against actuals, month by month."
+        actions={
+          owners.length > 1 ? (
+            <Segmented
+              label="Budget owner"
+              value={owner}
+              onChange={switchOwner}
+              options={owners.map((k) => ({ value: k, label: ownerLabel(k) }))}
+            />
+          ) : undefined
+        }
+      />
+
       <DataView
-        state={{ ...budgets, data: budgets.data?.items ?? null }}
-        empty="No budgets created."
+        state={{ ...budgets, data: items.length ? items : budgets.data ? [] : null }}
+        empty="No budgets created"
+        emptyDescription="Budgets imported from the workbook or created here will appear by month."
+        emptyIcon={Target}
+        loading={<Skeleton className="h-24 w-full rounded-xl" />}
       >
-        {(items) => (
+        {() => (
           <>
-            <label>
-              Budget{" "}
-              <select
+            {/* Period picker */}
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-2 shadow-card">
+              <Button variant="ghost" size="icon" aria-label="Previous budget" disabled={pos <= 0}
+                onClick={() => setBudgetId(chrono[pos - 1]!.id)}>
+                <ChevronLeft />
+              </Button>
+              <Select
                 aria-label="Budget"
                 value={id ?? ""}
+                sizeVariant="sm"
+                wrapperClassName="w-44 sm:hidden"
                 onChange={(e) => setBudgetId(Number(e.target.value))}
               >
-                {items.map((b: BudgetOut) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
+                {[...ownerItems].sort((a, b) => b.start_date.localeCompare(a.start_date)).map((b) => (
+                  <option key={b.id} value={b.id}>{formatMonthOf(b.start_date)}</option>
                 ))}
-              </select>
-            </label>
-            <DataView state={detail} empty="">
-              {(d: Detail) => (
-                <div className="ff-budget-grid">
-                  <div>
-                    <h2>
-                      {d.name}{" "}
-                      <Badge tone={d.status === "locked" ? "neutral"
-                        : d.status === "approved" ? "success" : "info"}>
-                        {d.status}
-                      </Badge>
-                      {locked && (
-                        <span className="ff-muted">
-                          {" "}locked — read-only
-                        </span>
+              </Select>
+              <Select
+                aria-label="Year"
+                value={year}
+                sizeVariant="sm"
+                wrapperClassName="hidden w-24 sm:block"
+                onChange={(e) => {
+                  const y = Number(e.target.value);
+                  const m = selectedBudget ? parseISODate(selectedBudget.start_date).getMonth() : 0;
+                  const inYear = ownerItems.filter((b) => parseISODate(b.start_date).getFullYear() === y);
+                  const target = inYear.find((b) => parseISODate(b.start_date).getMonth() === m) ?? inYear[0];
+                  if (target) setBudgetId(target.id);
+                }}
+              >
+                {years.map((y) => <option key={y} value={y}>{y}</option>)}
+              </Select>
+              <div className="scrollbar-thin hidden flex-1 gap-1 overflow-x-auto sm:flex" role="group" aria-label="Month">
+                {Array.from({ length: 12 }, (_, m) => {
+                  const b = byMonth.get(m);
+                  const isSel = b && b.id === id;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      disabled={!b}
+                      aria-pressed={!!isSel}
+                      onClick={() => b && setBudgetId(b.id)}
+                      className={cn(
+                        "h-8 min-w-11 flex-1 rounded-lg px-2 text-[12.5px] font-medium transition-colors",
+                        isSel ? "bg-fg text-bg" : b ? "text-fg-muted hover:bg-surface-2 hover:text-fg" : "cursor-default text-fg-subtle/40",
                       )}
-                    </h2>
-                    <p className="ff-muted">
-                      {formatDate(d.start_date)} → {formatDate(d.end_date)}
-                    </p>
-                    <DataView state={actuals} empty="">
-                      {(a: Actuals) => (
-                        <>
-                          {(() => {
-                            const analyses = a.lines as unknown as
-                              Record<string, LineAnalysis>;
-                            return sides.map((side) => {
-                            const rows = d.lines.filter(
-                              (l) => l.side === side.key);
-                            if (rows.length === 0) return null;
-                            return (
-                              <table
-                                className="ff-table ff-budget-table"
-                                key={side.key}
-                                aria-label={`${side.label} lines`}
-                              >
-                                <thead>
-                                  <tr>
-                                    <th colSpan={6}>{side.label}</th>
-                                  </tr>
-                                  <tr>
-                                    <th>Category</th>
-                                    <th className="ff-num">Original</th>
-                                    <th className="ff-num">Revised</th>
-                                    <th className="ff-num">Actual</th>
-                                    <th className="ff-num">Variance</th>
-                                    <th className="ff-num">Accuracy</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.map((l: Line) => {
-                                    const an = analyses[String(l.id)];
-                                    const v = an?.variance_pence ?? 0;
-                                    const acc = an?.accuracy_pct ?? null;
-                                    return (
-                                      <tr key={l.id}>
-                                        <td data-label="Category">
-                                          {catName.get(l.category_id)
-                                            ?? `Category ${l.category_id}`}
-                                          {an?.revision_reason && (
-                                            <div className="ff-muted ff-reason">
-                                              revised: {an.revision_reason}
-                                            </div>
-                                          )}
-                                        </td>
-                                        <td className="ff-num" data-label="Original">
-                                          <Money pence={l.original_pence} />
-                                        </td>
-                                        <td className="ff-num" data-label="Revised">
-                                          {locked ? (
-                                            l.revised_pence != null
-                                              ? <Money pence={l.revised_pence} />
-                                              : "—"
-                                          ) : (
-                                            <button
-                                              className="ff-inline-edit"
-                                              aria-label={`Revise ${catName.get(l.category_id) ?? l.category_id}`}
-                                              onClick={() => setRevising(l)}
-                                            >
-                                              {l.revised_pence != null
-                                                ? <Money pence={l.revised_pence} />
-                                                : "revise…"}
-                                            </button>
-                                          )}
-                                        </td>
-                                        <td className="ff-num" data-label="Actual">
-                                          {an != null
-                                            ? <Money pence={an.actual_pence} />
-                                            : "—"}
-                                        </td>
-                                        <td
-                                          className={`ff-num ${v < 0 ? "ff-neg" : "ff-pos"}`}
-                                          data-label="Variance"
-                                        >
-                                          {an != null
-                                            ? <Money pence={v} /> : "—"}
-                                        </td>
-                                        <td className="ff-num" data-label="Accuracy">
-                                          {acc != null ? `${acc}%` : "—"}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            );
-                          });
-                          })()}
-                        </>
-                      )}
-                    </DataView>
-                  </div>
-                  <aside aria-label="Upcoming in this period">
-                    <h2>Expected this period</h2>
-                    <DataView
-                      state={{
-                        ...movements,
-                        data: movements.data ?? null,
-                      }}
-                      empty="Nothing expected in this period."
                     >
-                      {(mvts: Movement[]) => (
-                        <ul className="ff-list">
-                          {mvts.slice(0, 12).map((m) => (
-                            <li key={m.id}>
-                              <span>{m.label}</span>
-                              <span className="ff-muted">
-                                {formatDate(m.expected_date)}
-                              </span>
-                              <span className={`ff-num ${m.amount_pence < 0 ? "ff-neg" : "ff-pos"}`}>
-                                <Money pence={m.amount_pence} />
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </DataView>
-                  </aside>
-                </div>
+                      {formatMonthName(m).slice(0, 3)}
+                    </button>
+                  );
+                })}
+              </div>
+              <Button variant="ghost" size="icon" aria-label="Next budget" disabled={pos < 0 || pos >= chrono.length - 1}
+                onClick={() => setBudgetId(chrono[pos + 1]!.id)}>
+                <ChevronRight />
+              </Button>
+            </div>
+
+            <DataView state={detail} empty="" loading={<Skeleton className="h-64 w-full rounded-xl" />}>
+              {(d) => (
+                <>
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <h2 className="text-[17px] font-semibold tracking-tight">{formatMonthOf(d.start_date)}</h2>
+                    <Badge tone={STATUS_TONE[d.status] ?? "info"}>{d.status}</Badge>
+                    {locked && (
+                      <span className="inline-flex items-center gap-1 text-[12.5px] text-fg-subtle">
+                        <Lock className="size-3.5" />
+                        <span>locked — read-only</span>
+                      </span>
+                    )}
+                    <span className="ml-auto text-[12.5px] text-fg-subtle">
+                      {formatDayMonth(d.start_date)} – {formatDayMonth(d.end_date)}
+                    </span>
+                  </div>
+
+                  <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    {[
+                      { label: "Planned spending", value: <Money pence={plannedOut} /> },
+                      { label: "Spent so far", value: <Money pence={actualOut} />, hint: plannedOut > 0 ? `${formatPercent(actualOut / plannedOut)} of plan used` : undefined },
+                      { label: "Left to spend", value: <Money pence={plannedOut - actualOut} className={plannedOut - actualOut < 0 ? "text-negative" : ""} /> },
+                      { label: "Income received", value: <Money pence={actualIn} />, hint: plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : undefined },
+                    ].map((s) => (
+                      <Stat key={s.label} label={s.label} value={s.value} hint={s.hint}
+                        className="rounded-xl border border-border bg-surface p-4 shadow-card" />
+                    ))}
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+                    <div className="flex min-w-0 flex-col gap-4">
+                      <DataView state={actuals} empty="" loading={<Skeleton className="h-64 w-full rounded-xl" />}>
+                        {() => (
+                          <>
+                            {sides.map((side) => {
+                              const rows = d.lines.filter((l) => l.side === side.key);
+                              if (rows.length === 0) return null;
+                              return (
+                                <Panel key={side.key} title={side.label} flush
+                                  description={`${rows.length} line${rows.length === 1 ? "" : "s"}`}>
+                                  <div className="overflow-x-auto">
+                                    <table className="ff-table ff-budget-table w-full min-w-[720px] border-collapse text-[13.5px]" aria-label={`${side.label} lines`}>
+                                      <thead className="text-left text-[12px] text-fg-subtle">
+                                        <tr className="h-9 border-b border-border">
+                                          <th className="pl-4 font-medium">Category</th>
+                                          <th className="px-3 text-right font-medium">Original</th>
+                                          <th className="px-3 text-right font-medium">Revised</th>
+                                          <th className="px-3 text-right font-medium">Actual</th>
+                                          <th className="px-3 text-right font-medium">Variance</th>
+                                          <th className="w-40 px-3 pr-4 font-medium">Accuracy</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {rows.map((l: Line) => {
+                                          const an = analyses[String(l.id)];
+                                          const name = categories.byId.get(l.category_id)?.name ?? `Category ${l.category_id}`;
+                                          const v = an?.variance_pence ?? 0;
+                                          const plan = an?.effective_pence ?? l.revised_pence ?? l.original_pence;
+                                          const actual = Math.abs(an?.actual_pence ?? 0);
+                                          // Accuracy is meaningless for an empty plan with no spend.
+                                          const acc = plan === 0 && actual === 0 ? null : an?.accuracy_pct ?? null;
+                                          return (
+                                            <tr key={l.id} className="border-b border-border last:border-0 hover:bg-surface-2/60">
+                                              <td className="py-2.5 pl-4" data-label="Category">
+                                                <div className="flex items-center gap-2.5">
+                                                  <IconTile label={name} size="sm" />
+                                                  <div className="min-w-0">
+                                                    <p className="font-medium">{name}</p>
+                                                    {an?.revision_reason && (
+                                                      <p className="ff-reason truncate text-[12px] text-fg-subtle">
+                                                        Revised: {an.revision_reason}
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              </td>
+                                              <td className="tnum px-3 text-right text-fg-muted" data-label="Original">
+                                                <Money pence={l.original_pence} />
+                                              </td>
+                                              <td className="px-3 text-right" data-label="Revised">
+                                                {locked ? (
+                                                  l.revised_pence != null ? <Money pence={l.revised_pence} /> : <span className="text-fg-subtle">—</span>
+                                                ) : (
+                                                  <button
+                                                    type="button"
+                                                    className="group ff-inline-edit inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-surface-3"
+                                                    aria-label={`Revise ${name}`}
+                                                    onClick={() => setRevising(l)}
+                                                  >
+                                                    {l.revised_pence != null
+                                                      ? <Money pence={l.revised_pence} className="font-medium" />
+                                                      : <span className="text-fg-subtle">—</span>}
+                                                    <Pencil className="size-3 text-fg-subtle opacity-0 group-hover:opacity-100" />
+                                                  </button>
+                                                )}
+                                              </td>
+                                              <td className="px-3 text-right font-medium" data-label="Actual">
+                                                {an != null ? <Money pence={an.actual_pence} /> : "—"}
+                                              </td>
+                                              <td className="px-3 text-right" data-label="Variance">
+                                                {an != null ? <Money pence={v} tone="variance" signed /> : "—"}
+                                              </td>
+                                              <td className="px-3 pr-4" data-label="Accuracy">
+                                                {acc == null ? <span className="text-fg-subtle">—</span> : (
+                                                  <div className="flex items-center gap-2">
+                                                    <Progress value={actual} max={plan} className="flex-1" label={`${name} used`} />
+                                                    <span className="tnum w-10 text-right text-[12.5px] text-fg-muted">{acc}%</span>
+                                                  </div>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </Panel>
+                              );
+                            })}
+                            {d.lines.length === 0 && (
+                              <Panel><EmptyState compact icon={Target} title="This budget has no lines yet" /></Panel>
+                            )}
+                          </>
+                        )}
+                      </DataView>
+                    </div>
+
+                    <Panel title="Expected this period" description="Scheduled movements" flush
+                      aria-label="Upcoming in this period" className="h-fit xl:sticky xl:top-20">
+                      <div className="p-2">
+                        <DataView
+                          state={{ ...movements, data: movements.data ?? null }}
+                          empty="Nothing expected in this period"
+                          emptyIcon={CalendarDays}
+                        >
+                          {(mvts: Movement[]) => (
+                            <ul className="flex flex-col">
+                              {mvts.slice(0, 12).map((m) => (
+                                <li key={m.id} className="flex items-center gap-3 rounded-lg px-2 py-2">
+                                  <IconTile label={m.label} size="sm" />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-[13px] font-medium">{m.label}</p>
+                                    <p className="text-[12px] text-fg-subtle">{formatWeekdayDayMonth(m.expected_date)}</p>
+                                  </div>
+                                  <Money pence={m.amount_pence} signed tone="auto" className="text-[13px]" />
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </DataView>
+                      </div>
+                    </Panel>
+                  </div>
+                </>
               )}
             </DataView>
           </>
@@ -235,22 +362,22 @@ export function Budget() {
       {revising && id !== null && (
         <ReviseForm
           line={revising}
+          name={categories.byId.get(revising.category_id)?.name ?? "line"}
           budgetId={id}
-          locked={locked}
-          onDone={() => { setRevising(null); setRev((r) => r + 1); }}
+          onDone={() => { setRevising(null); setRev((r) => r + 1); toast.success("Budget line revised"); }}
           onCancel={() => setRevising(null)}
         />
       )}
-    </section>
+    </div>
   );
 }
 
 /** Revision form — the API requires a reason; the UI enforces it the
  * same way (issue #125). Amount entered in pounds, sent as Money. */
-function ReviseForm({ line, budgetId, onDone, onCancel }: {
+function ReviseForm({ line, name, budgetId, onDone, onCancel }: {
   line: Line;
+  name: string;
   budgetId: number;
-  locked: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -272,38 +399,35 @@ function ReviseForm({ line, budgetId, onDone, onCancel }: {
     });
   };
   return (
-    <form
-      className="ff-card"
-      aria-label="Revise budget line"
-      onSubmit={submit}
+    <Dialog
+      open
+      onOpenChange={(o) => { if (!o) onCancel(); }}
+      title={`Revise ${name}`}
+      description={<>Originally planned at {formatPence(line.original_pence)}. Revisions are kept alongside the original for accuracy tracking.</>}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" type="submit" form="ff-revise" disabled={busy || !reason.trim()}>
+            {busy ? "Saving…" : "Save revision"}
+          </Button>
+        </>
+      }
     >
-      <h2>Revise line</h2>
-      <label>
-        New amount (£)
-        <input
-          required
-          type="number"
-          step="0.01"
-          min="0"
-          aria-label="Revised amount"
-          value={pounds}
-          onChange={(e) => setPounds(e.target.value)}
-        />
-      </label>
-      <label>
-        Reason (required)
-        <input
-          required
-          aria-label="Revision reason"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-      </label>
-      {error && <p role="alert" className="ff-error">{error}</p>}
-      <button type="submit" disabled={busy || !reason.trim()}>
-        {busy ? "Saving…" : "Save revision"}
-      </button>{" "}
-      <button type="button" onClick={onCancel}>Cancel</button>
-    </form>
+      <form id="ff-revise" aria-label="Revise budget line" onSubmit={submit} className="grid gap-4">
+        <Field label="New amount (£)">
+          {(id) => (
+            <Input id={id} required type="number" step="0.01" min="0" aria-label="Revised amount"
+              value={pounds} onChange={(e) => setPounds(e.target.value)} />
+          )}
+        </Field>
+        <Field label="Reason (required)" hint="e.g. tariff change, one-off cost">
+          {(id) => (
+            <Input id={id} required aria-label="Revision reason" autoFocus
+              value={reason} onChange={(e) => setReason(e.target.value)} />
+          )}
+        </Field>
+        {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
+      </form>
+    </Dialog>
   );
 }
