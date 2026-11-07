@@ -113,12 +113,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Family Finance", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.add_middleware(RequestIdMiddleware)
+    from app.api.auth import auth_middleware
+    from app.api.auth import router as auth_router
+    app.middleware("http")(auth_middleware)
     install_error_handlers(app)
     # Mount at call time, not import time — a circular import edge
     # can reach app.main before app.api.v1 finishes building
     # v1_router, and an import-time include would freeze a partial
     # route table into every app created afterwards.
     app.include_router(v1_router, prefix="/api/v1")
+    app.include_router(auth_router, prefix="/api/v1")
     app.include_router(api)
 
     # Per-app registry: a module-level registry is shared across every
