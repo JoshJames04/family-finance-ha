@@ -28,16 +28,21 @@ from app.persistence.models import (
     BudgetStatus,
     Category,
     DayType,
+    Gift,
     ImportBatch,
     ImportRecord,
+    Loan,
+    LoanDirection,
     OvertimeEntry,
     OvertimeStatus,
     PayrollComponent,
     PayrollComponentKind,
     PayrollRun,
     PayrollRunStatus,
+    Repayment,
     RowClass,
     SalaryRevision,
+    SeasonalEvent,
     TaxRuleSet,
     Transaction,
     TransactionSource,
@@ -593,3 +598,190 @@ class PayrollExtractor:
             self._component(run, row, col, kind, label, reconciled)
         session.flush()
         return "payroll_run", run.id
+
+
+# --- issue #48: loan ledger / christmas / piecework co ------------------------
+
+class LoanLedgerExtractor:
+    """Family loan sheet → Loan + Repayment rows. The workbook's
+    'Remaining' formula column is *never read* (defect B — the stored
+    balance is broken); the balance is reconstructed as principal −
+    validated repayments and any residual is flagged in notes. The
+    'Total Amount' summary row supplies the principal."""
+
+    def __init__(self, sheet: str, household_id: int, party: str,
+                 direction: LoanDirection = LoanDirection.we_owe,
+                 principal_label: str = "total amount") -> None:
+        self.sheet = sheet
+        self.household_id = household_id
+        self.party = party
+        self.direction = direction
+        self.principal_label = principal_label
+        self._loan: Loan | None = None
+        self._principal: int | None = None
+
+    def map_record(
+        self, session: Session, batch: ImportBatch, record: ImportRecord
+    ) -> tuple[str, int] | None:
+        vals = record_values(record)
+        label = str(vals.get(2, "")).strip().lower()
+        if label.startswith(self.principal_label):
+            self._principal = round(
+                float(next((v for c, v in vals.items()
+                            if c > 2 and isinstance(v, (int, float))),
+                           0)) * 100)
+            return None
+        year = vals.get(2)
+        amount = _num(vals.get(3))
+        if (not isinstance(year, (int, float)) or amount is None
+                or amount <= 0):
+            return None  # zero rows are skipped years, not repayments
+        if self._principal is None:
+            record.review_flag = True  # repayments before principal
+            return None
+        if self._loan is None:
+            self._loan = Loan(
+                household_id=self.household_id, party=self.party,
+                direction=self.direction,
+                principal_pence=self._principal,
+                start_date=date(int(year), 1, 1),
+                notes="balance reconstructed from validated repayments")
+            session.add(self._loan)
+            session.flush()
+        rep = Repayment(loan_id=self._loan.id,
+                        date=date(int(year), 12, 31),
+                        amount_pence=round(amount * 100),
+                        notes="excel import")
+        session.add(rep)
+        session.flush()
+        paid = sum(r.amount_pence for r in self._loan.repayments)
+        residual = self._loan.principal_pence - paid
+        self._loan.notes = (
+            "balance reconstructed: principal − repayments = "
+            f"{residual}p residual" + (" (flagged)" if residual < 0
+                                      else ""))
+        return "repayment", rep.id
+
+
+class XmasExtractor:
+    """xmasYYYY tables → SeasonalEvent(year, christmas) + Gift rows.
+    Each side-by-side table carries its year in the table name; event
+    budget = sum of planned amounts (recomputed, not read)."""
+
+    def __init__(self, sheet: str, household_id: int,
+                 tables: dict[str, str]) -> None:
+        self.sheet = sheet
+        self.household_id = household_id
+        self._tables: list[tuple[int, int, int, int, int]] = []
+        for tname, ref in tables.items():
+            c0, r0, c1, r1 = range_boundaries(ref)
+            m = re.search(r"(\d{4})", tname)
+            if m is None or None in (r0, r1, c0, c1):
+                continue
+            self._tables.append(
+                (r0, r1, c0, c1, int(m.group(1))))  # type: ignore[arg-type]
+        self._events: dict[int, SeasonalEvent] = {}
+
+    def _event(self, session: Session, year: int) -> SeasonalEvent:
+        ev = self._events.get(year)
+        if ev is None:
+            ev = session.execute(
+                select(SeasonalEvent).where(
+                    SeasonalEvent.household_id == self.household_id,
+                    SeasonalEvent.year == year,
+                    SeasonalEvent.type == "christmas")
+            ).scalar_one_or_none()
+            if ev is None:
+                ev = SeasonalEvent(
+                    household_id=self.household_id, year=year,
+                    type="christmas", name=f"Christmas {year}",
+                    budget_pence=0)
+                session.add(ev)
+                session.flush()
+            self._events[year] = ev
+        return ev
+
+    def map_record(
+        self, session: Session, batch: ImportBatch, record: ImportRecord
+    ) -> tuple[str, int] | None:
+        m = _ROW_RE.search(record.cell_range)
+        row = int(m.group(1)) if m else 0
+        vals = record_values(record)
+        target: tuple[str, int] | None = None
+        for r0, r1, c0, _c1, year in self._tables:
+            if not r0 <= row <= r1:
+                continue
+            who = vals.get(c0)
+            what = vals.get(c0 + 1)
+            how = _num(vals.get(c0 + 2))
+            when = vals.get(c0 + 3)
+            if (not isinstance(who, str) or not who.strip()
+                    or who.strip().lower().startswith("who")
+                    or how is None):
+                continue
+            gift = Gift(
+                event_id=self._event(session, year).id,
+                recipient=who.strip(), idea=str(what or ""),
+                planned_pence=round(how * 100),
+                purchase_status="idea", payment_status="unpaid",
+                notes=str(when or ""))
+            session.add(gift)
+            ev = self._events[year]
+            ev.budget_pence = (
+                sum(g.planned_pence for g in ev.gifts)
+                + gift.planned_pence)
+            session.flush()
+            target = target or ("gift", gift.id)
+        return target
+
+
+class PieceworkExtractor:
+    """pieceworkIncomeTbl rows → historical income Transactions under an
+    archived category — reporting only, no active workflow. Amounts are
+    literal tips + cached delivery charges; the 'Daily Total' formula
+    column is never trusted (defect A)."""
+
+    CATEGORY = "Piecework Co (archived)"
+
+    def __init__(self, sheet: str, household_id: int, account_id: int,
+                 cache: dict[tuple[str, int, int], Any]) -> None:
+        self.sheet = sheet
+        self.household_id = household_id
+        self.account_id = account_id
+        self.cache = cache
+        self._cat: Category | None = None
+
+    def map_record(
+        self, session: Session, batch: ImportBatch, record: ImportRecord
+    ) -> tuple[str, int] | None:
+        vals = record_values(record)
+        work = _as_date(vals.get(2))
+        tips = _num(vals.get(5)) or 0.0
+        if work is None:
+            return None
+        m = _ROW_RE.search(record.cell_range)
+        row = int(m.group(1)) if m else 0
+        delivery = _cached_num(self.cache, self.sheet, row, 4) or 0.0
+        amount = round((tips + delivery) * 100)
+        if amount <= 0:
+            return None
+        if self._cat is None:
+            self._cat = session.execute(
+                select(Category).where(
+                    Category.household_id == self.household_id,
+                    Category.name == self.CATEGORY)
+            ).scalar_one_or_none() or Category(
+                household_id=self.household_id, name=self.CATEGORY)
+            if self._cat.id is None:
+                session.add(self._cat)
+                session.flush()
+        t = Transaction(
+            account_id=self.account_id, date=work,
+            amount_pence=amount, payee="Piecework Co delivery",
+            status=TransactionStatus.cleared,
+            source=TransactionSource.excel_import,
+            external_ref=f"imp:{batch.id}:{record.id}",
+            import_record_id=record.id)
+        session.add(t)
+        session.flush()
+        return "transaction", t.id
