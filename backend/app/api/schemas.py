@@ -354,3 +354,19 @@ class AccuracyPoint(BaseModel):
 class AccuracyHistory(BaseModel):
     category_id: int
     points: list[AccuracyPoint]
+
+
+class BulkLineReviseItem(BaseModel):
+    line_id: int
+    amount: Money
+    reason: str = Field(min_length=1, max_length=200)
+
+
+class BulkLineRevise(BaseModel):
+    revisions: list[BulkLineReviseItem] = Field(min_length=1,
+                                                max_length=500)
+
+
+class BulkReviseResult(BaseModel):
+    updated: int
+    skipped: list[int] = []  # line ids not found in budget
