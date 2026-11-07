@@ -17,7 +17,7 @@
   align-items: center;
   gap: 12px;
   padding: 0 16px;
-  background: var(--ff-primary);
+  background: var(--ff-primary-strong);
   color: var(--ff-card);
 }
 
@@ -64,7 +64,7 @@
 
 .ff-nav-item.active {
   background: var(--ff-bg-secondary);
-  color: var(--ff-primary);
+  color: var(--ff-primary-strong);
   font-weight: 600;
 }
 
@@ -107,6 +107,40 @@
     padding: 16px 8px;
     box-shadow: var(--ff-shadow);
   }
+}
+
+/* --- accessibility (issue #127) --- */
+
+/* Skip link: off-screen until focused, then pinned top-left. */
+.ff-skip {
+  position: fixed;
+  top: -48px;
+  left: 8px;
+  z-index: 30;
+  padding: 8px 12px;
+  border-radius: var(--ff-radius);
+  background: var(--ff-primary-strong);
+  color: var(--ff-card);
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.ff-skip:focus-visible {
+  top: 8px;
+}
+
+/* Visible keyboard focus on every interactive element — the
+   primary token keeps the ring on-theme and ≥3:1 against chrome. */
+.ff-shell a:focus-visible,
+.ff-shell button:focus-visible,
+.ff-shell [tabindex]:focus-visible,
+.ff-content a:focus-visible,
+.ff-content button:focus-visible,
+.ff-content input:focus-visible,
+.ff-content select:focus-visible,
+.ff-content textarea:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
 }
 
 /* --- narrow: bottom tab bar --- */
