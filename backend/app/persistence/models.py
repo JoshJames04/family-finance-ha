@@ -1633,3 +1633,96 @@ class CategorisationRule(TimestampMixin, Base):
                                           nullable=False)
     source: Mapped[RuleSource] = mapped_column(
         Enum(RuleSource), default=RuleSource.manual, nullable=False)
+
+
+class SyncStatus(enum.StrEnum):
+    running = "running"
+    completed = "completed"
+    failed = "failed"      # resumable — cursor holds the resume point
+
+
+class SyncCursor(TimestampMixin, Base):
+    """Resumable sync state per (account, source) (issue #67).
+    ``last_ref``/``last_date`` mark the last committed page; a run
+    that dies mid-feed resumes from here without re-ingesting."""
+
+    __tablename__ = "sync_cursor"
+    __table_args__ = (
+        UniqueConstraint("account_id", "source",
+                         name="uq_synccursor_account_source"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    source: Mapped[TransactionSource] = mapped_column(
+        Enum(TransactionSource), nullable=False)
+    last_ref: Mapped[str | None] = mapped_column(String(128),
+                                                 nullable=True)
+    last_date: Mapped[date_t | None] = mapped_column(Date,
+                                                     nullable=True)
+    status: Mapped[SyncStatus] = mapped_column(
+        Enum(SyncStatus), default=SyncStatus.completed,
+        nullable=False)
+    error: Mapped[str | None] = mapped_column(String(500),
+                                              nullable=True)
+
+
+class SyncRun(Base):
+    """One ingest attempt — counters + status for monitoring."""
+
+    __tablename__ = "sync_run"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    source: Mapped[TransactionSource] = mapped_column(
+        Enum(TransactionSource), nullable=False)
+    status: Mapped[SyncStatus] = mapped_column(
+        Enum(SyncStatus), default=SyncStatus.running, nullable=False)
+    fetched: Mapped[int] = mapped_column(Integer, default=0,
+                                         nullable=False)
+    inserted: Mapped[int] = mapped_column(Integer, default=0,
+                                          nullable=False)
+    deduped: Mapped[int] = mapped_column(Integer, default=0,
+                                         nullable=False)
+    merge_candidates: Mapped[int] = mapped_column(Integer, default=0,
+                                                  nullable=False)
+    error: Mapped[str | None] = mapped_column(String(500),
+                                              nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+class MergeStatus(enum.StrEnum):
+    pending = "pending"
+    merged = "merged"
+    dismissed = "dismissed"
+
+
+class MergeCandidate(Base):
+    """A fuzzy overlap: an incoming feed row matching an existing
+    transaction on (account, date, amount, payee). Flagged for
+    review — never auto-deleted, never double-counted (the incoming
+    row is NOT inserted)."""
+
+    __tablename__ = "merge_candidate"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    existing_txn_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), nullable=False)
+    incoming: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False)
+    status: Mapped[MergeStatus] = mapped_column(
+        Enum(MergeStatus), default=MergeStatus.pending,
+        nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)

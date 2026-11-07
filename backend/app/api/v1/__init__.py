@@ -21,6 +21,7 @@ from app.api.v1 import (
     scenarios,
     seasonal,
     subscriptions,
+    sync,
     transactions,
     transfer_rules,
     transfers,
@@ -48,3 +49,4 @@ v1_router.include_router(subscriptions.router)
 v1_router.include_router(scenarios.router)
 v1_router.include_router(notifications.router)
 v1_router.include_router(categorisation.router)
+v1_router.include_router(sync.router)
