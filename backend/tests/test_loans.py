@@ -190,3 +190,115 @@ class TestApi:
         assert client.get(f"/api/v1/loans/{lid}",
                           headers=h).json()["outstanding_pence"] \
             == 500_000
+
+    def test_projection_endpoint_and_running_balance(
+            self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        ln = client.post("/api/v1/loans", headers=h, json={
+            "party": "Bank", "direction": "we_owe",
+            "principal": 120_000, "start_date": "2025-01-01",
+            "expected_payment": 10_000})
+        lid = ln.json()["id"]
+        for i in range(2):
+            client.post(f"/api/v1/loans/{lid}/repayments", headers=h,
+                        json={"date": f"2025-02-0{i + 1}",
+                              "amount": 10_000})
+        hist = client.get(f"/api/v1/loans/{lid}/repayments",
+                          headers=h).json()
+        assert hist[0]["balance_after_pence"] == 110_000
+        assert hist[1]["balance_after_pence"] == 100_000
+        proj = client.get(
+            f"/api/v1/loans/{lid}/projection?extra_monthly=5000",
+            headers=h).json()
+        assert proj["baseline"]["months"] is not None
+        assert proj["with_extra"]["months"] < proj["baseline"]["months"]
+        assert proj["months_saved"] > 0
+        assert proj["extra_monthly_pence"] == 5_000
+
+
+class TestProjection:
+    """Issue #94 — deterministic debt-free projection."""
+
+    def _loan(self, session: Session, household: Household,
+              principal: int = 120_000, expected: int = 10_000,
+              interest_bps: int = 0) -> Loan:
+        ln = Loan(household_id=household.id, party="Bank",
+                  direction=LoanDirection.we_owe,
+                  principal_pence=principal,
+                  start_date=date(2025, 1, 1),
+                  expected_payment_pence=expected,
+                  interest_bps_pa=interest_bps, active=True)
+        session.add(ln)
+        session.flush()
+        return ln
+
+    def test_golden_no_interest(
+            self, session: Session, household: Household) -> None:
+        ln = self._loan(session, household)
+        p = loans.projected_payoff(
+            session, ln, on=date(2025, 1, 15))
+        # £120,000 at £10,000/mo, no interest → 12 months → Jan 2026
+        assert p.months == 12
+        assert p.payoff_date == date(2026, 1, 1)
+
+    def test_extra_moves_date_deterministically(
+            self, session: Session, household: Household) -> None:
+        ln = self._loan(session, household)
+        on = date(2025, 1, 15)
+        base = loans.projected_payoff(session, ln, on=on)
+        extra = loans.projected_payoff(
+            session, ln, extra_monthly_pence=10_000, on=on)
+        # doubling the rate halves the term
+        assert extra.months == 6
+        assert extra.payoff_date == date(2025, 7, 1)
+        assert base.months - extra.months == 6
+
+    def test_after_repayments_remaining_shortens(
+            self, session: Session, household: Household,
+            loan: Loan) -> None:
+        session.add(Repayment(loan_id=loan.id,
+                              date=date(2025, 2, 1),
+                              amount_pence=200_000))
+        session.flush()
+        p = loans.projected_payoff(
+            session, loan, on=date(2025, 2, 10))
+        # £500k − £200k repaid = £300k at £10k/mo → 30 months
+        assert p.months == 30
+
+    def test_no_rate_never_pays_off(
+            self, session: Session, household: Household) -> None:
+        ln = Loan(household_id=household.id, party="Free",
+                  direction=LoanDirection.we_owe,
+                  principal_pence=50_000,
+                  start_date=date(2025, 1, 1), active=True)
+        session.add(ln)
+        session.flush()
+        p = loans.projected_payoff(
+            session, ln, on=date(2025, 1, 15))
+        assert p.months is None and p.payoff_date is None
+
+    def test_interest_extends_beyond_simple_division(
+            self, session: Session, household: Household) -> None:
+        ln = self._loan(session, household,
+                        principal=100_000, expected=10_000,
+                        interest_bps=1_200)  # 12% pa
+        p = loans.projected_payoff(
+            session, ln, on=date(2025, 1, 15))
+        # naive division says 10 months; ~1% per month of accrued
+        # interest eats a month — pays off at 12
+        assert p.months == 12
+
+    def test_running_balance_history(
+            self, session: Session, household: Household,
+            loan: Loan) -> None:
+        session.add(Repayment(loan_id=loan.id,
+                              date=date(2025, 1, 15),
+                              amount_pence=10_000))
+        session.add(Repayment(loan_id=loan.id,
+                              date=date(2025, 2, 15),
+                              amount_pence=10_000))
+        session.flush()
+        rows = loans.repayment_balances(session, loan)
+        assert [b for _, b in rows] == [490_000, 480_000]
