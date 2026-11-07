@@ -33,41 +33,43 @@ ADMIN = {"X-Admin-Token": "s3cret"}
 
 # ---------- spec ↔ implementation parity -------------------------
 
-def _spec_ops() -> set[tuple[str, str]]:
-    out: set[tuple[str, str]] = set()
-    for path, methods in _app.openapi()["paths"].items():
-        for method in methods:
-            out.add((method.upper(), path))
-    return out
+def _fresh_app() -> Any:
+    """Per-test app — the module-level ``_app`` is built during
+    collection and a circular import edge can freeze a partially-built
+    router into it. A fresh build sees the completed router."""
+    d = tempfile.mkdtemp(prefix="ff-contract-app-")
+    return create_app(Settings.load({"FF_DATA_DIR": d}))
 
 
-def _route_ops() -> set[tuple[str, str]]:
-    out: set[tuple[str, str]] = set()
-    for r in _app.routes:
-        if isinstance(r, APIRoute):
-            for m in r.methods:
-                out.add((m, r.path))
-    return out
+def _ops(app: Any) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+    """(spec ops, route ops) — both derived from the SAME route list:
+    the spec is generated fresh via ``get_openapi(routes=app.routes)``
+    rather than the ``openapi_schema`` cache, so the two sides can
+    never diverge on stale state."""
+    from fastapi.openapi.utils import get_openapi
 
-
-_ROUTES_AT_IMPORT = len(_app.routes)
+    spec = get_openapi(title="t", version="0", routes=app.routes)
+    spec_ops = {(m.upper(), p) for p, ms in spec["paths"].items()
+                for m in ms}
+    route_ops = {(m, r.path) for r in app.routes
+                 if isinstance(r, APIRoute) for m in r.methods}
+    return spec_ops, route_ops
 
 
 class TestSpecCoverage:
     def test_every_route_is_documented(self) -> None:
-        missing = _route_ops() - _spec_ops()
+        spec_ops, route_ops = _ops(_fresh_app())
+        missing = route_ops - spec_ops
         assert not missing, (
             f"undocumented endpoints: {missing} "
-            f"(routes={len(_app.routes)}, at_import={_ROUTES_AT_IMPORT})")
+            f"(routes={len(route_ops)})")
 
     def test_no_phantom_spec_paths(self) -> None:
-        phantom = _spec_ops() - _route_ops()
-        routes = _route_ops()
+        spec_ops, route_ops = _ops(_fresh_app())
+        phantom = spec_ops - route_ops
         assert not phantom, (
             f"spec paths with no route: {phantom} "
-            f"(routes_now={len(routes)}, "
-            f"spec={len(_spec_ops())}, "
-            f"at_import={_ROUTES_AT_IMPORT})")
+            f"(spec={len(spec_ops)}, routes={len(route_ops)})")
 
 
 # ---------- uniform problem-details ------------------------------
