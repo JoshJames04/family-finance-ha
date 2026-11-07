@@ -383,6 +383,12 @@ class ProfileOut(BaseModel):
     is_active: bool
 
 
+class ProfilePatch(BaseModel):
+    role: Role | None = None
+    display_name: str | None = Field(
+        default=None, min_length=1, max_length=120)
+
+
 class ShareBudgetIn(BaseModel):
     share: bool = True
 
