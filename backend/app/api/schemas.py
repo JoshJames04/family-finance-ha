@@ -12,6 +12,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
     field_validator,
 )
 
@@ -1322,3 +1323,23 @@ class ReconStatsOut(BaseModel):
     scanned: int
     matched: int
     queued: int
+
+
+class CredentialRefOut(BaseModel):
+    """The only credential shape an API response may carry — the
+    opaque handle. There is deliberately no field capable of
+    holding secret material (issue #30 schema-level guarantee)."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    ref: str
+    key_version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CredentialStoreIn(BaseModel):
+    """Write-only input: the secret enters here and is never
+    serialised back out. ``SecretStr`` also keeps it out of reprs
+    and validation-error echoes."""
+    ref: str = Field(min_length=1, max_length=128)
+    secret: SecretStr

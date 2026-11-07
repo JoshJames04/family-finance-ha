@@ -21,6 +21,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -1779,3 +1780,26 @@ class Reconciliation(Base):
         DateTime, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
+
+
+class VaultEntry(TimestampMixin, Base):
+    """Encrypted credential material (issue #30). ``ref`` is the
+    opaque handle the rest of the system holds — a VaultEntry's
+    ciphertext is never serialised anywhere. ``key_version`` records
+    which keyring generation produced ``ciphertext`` so rotation can
+    re-encrypt lazily."""
+
+    __tablename__ = "vault_entry"
+    __table_args__ = (
+        UniqueConstraint("household_id", "ref",
+                         name="uq_vault_household_ref"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    ciphertext: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False)
+    key_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1)
