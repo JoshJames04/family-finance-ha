@@ -50,7 +50,7 @@ class RowRecord:
     values: tuple[CellValue, ...] = field(default=(), compare=False)
 
 
-def _rows(ws) -> list[tuple[int, dict[int, Any]]]:
+def _rows(ws: Any) -> list[tuple[int, dict[int, Any]]]:
     out = []
     for r in ws.iter_rows():
         real = [c for c in r if not isinstance(c, EmptyCell)
