@@ -86,6 +86,7 @@ def add_line(
         raise HTTPException(404, "category not found")
     line = dom.add_line(session, b, body.category_id, body.side,
                         body.amount.pence)
+    line.rollover = body.rollover
     emit(session, household.id, actor, "create", "budget_line", line.id,
          {"budget_id": b.id, "category_id": line.category_id})
     return schemas.BudgetLineOut.model_validate(line)
@@ -271,3 +272,19 @@ def apply_template(
          {"from_template_id": t.id, "lines_added": len(created)})
     return schemas.ApplyResult(created=len(created),
                                warnings=warnings)
+
+
+@router.post("/{budget_id}/rollover",
+             response_model=schemas.RolloverResult)
+def rollover(
+    budget_id: int, body: schemas.RolloverIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.RolloverResult:
+    target = _get(session, household.id, budget_id)
+    src = _get(session, household.id, body.source_budget_id)
+    events = dom.apply_rollover(session, src, target)
+    for e in events:
+        emit(session, household.id, actor, "rollover", "budget_line",
+             e["line_id"], e)
+    return schemas.RolloverResult(applied=len(events),
+                                  carries=events)
