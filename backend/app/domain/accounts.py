@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.persistence.models import (
     Account,
     AccountType,
+    BalanceVerification,
     RecurringCommitment,
     Transaction,
     TransactionSource,
@@ -24,6 +25,7 @@ from app.persistence.models import (
 )
 
 OPENING_PAYEE = "Opening balance"
+CORRECTION_PAYEE = "Balance correction (manual verification)"
 
 
 class AccountNotEmptyError(RuntimeError):
@@ -127,4 +129,50 @@ def all_accounts(session: Session, household_id: int) -> list[Account]:
     """History view — includes archived."""
     return list(session.execute(
         select(Account).where(Account.household_id == household_id)
+    ).scalars().all())
+
+
+def verify_balance(
+    session: Session,
+    account: Account,
+    asserted_pence: int,
+    verified_date: date,
+    *,
+    correct: bool = False,
+    note: str | None = None,
+) -> BalanceVerification:
+    """Record an asserted balance against the ledger-derived one.
+
+    When `correct` is set and the asserted balance diverges, a new
+    ledger row (source `manual_verification`) is appended — history is
+    never edited. The verification links to its adjusting record so the
+    corrected balance explains itself.
+    """
+    derived = current_balance(session, account.id)
+    v = BalanceVerification(
+        account_id=account.id, asserted_pence=asserted_pence,
+        derived_pence=derived, variance_pence=asserted_pence - derived,
+        verified_date=verified_date, note=note)
+    session.add(v)
+    session.flush()
+    if correct and v.variance_pence != 0:
+        t = Transaction(
+            account_id=account.id, date=verified_date,
+            amount_pence=v.variance_pence, payee=CORRECTION_PAYEE,
+            status=TransactionStatus.reconciled,
+            source=TransactionSource.manual_verification,
+            external_ref=f"balver:{v.id}",
+            notes=note)
+        session.add(t)
+        session.flush()
+        v.correction_txn_id = t.id
+        session.flush()
+    return v
+
+
+def verifications(session: Session, account_id: int) -> list[BalanceVerification]:
+    return list(session.execute(
+        select(BalanceVerification)
+        .where(BalanceVerification.account_id == account_id)
+        .order_by(BalanceVerification.id.desc())
     ).scalars().all())
