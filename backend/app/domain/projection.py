@@ -53,27 +53,75 @@ class Projection:
     days: list[DayPoint]
 
 
-def _movements(session: Session, account_id: int, start: date,
-               end: date) -> tuple[dict[date, int], dict[date, int]]:
-    """Per-date flows in (start, end]: (net, negative-gross). Net
-    drives the balance series; gross negatives drive committed
-    obligations — a bill due ON payday must not be swallowed by the
-    wage arriving the same date."""
+def _movement_rows(session: Session, account_id: int, start: date,
+                   end: date) -> list[tuple[int, date, int]]:
+    """Live expected movements in (start, end] as (id, date, pence)
+    rows — the level scenario ops need to address individual items."""
     stmt = (
-        select(ExpectedMovement.expected_date,
+        select(ExpectedMovement.id,
+               ExpectedMovement.expected_date,
                ExpectedMovement.amount_pence)
         .where(ExpectedMovement.account_id == account_id,
                ExpectedMovement.expected_date > start,
                ExpectedMovement.expected_date <= end,
                ExpectedMovement.dismissed_at.is_(None)))
+    return [(int(r[0]), r[1], int(r[2])) for r in session.execute(stmt)]
+
+
+def _aggregate(rows: list[tuple[date, int]]
+               ) -> tuple[dict[date, int], dict[date, int]]:
+    """Per-date flows: (net, negative-gross). Net drives the balance
+    series; gross negatives drive committed obligations — a bill due
+    ON payday must not be swallowed by the wage arriving the same
+    date."""
     net: dict[date, int] = {}
     neg: dict[date, int] = {}
-    for d, amt in session.execute(stmt):
-        amt = int(amt)
+    for d, amt in rows:
         net[d] = net.get(d, 0) + amt
         if amt < 0:
             neg[d] = neg.get(d, 0) + amt
     return net, neg
+
+
+def _movements(session: Session, account_id: int, start: date,
+               end: date) -> tuple[dict[date, int], dict[date, int]]:
+    return _aggregate(
+        [(d, amt) for _, d, amt in
+         _movement_rows(session, account_id, start, end)])
+
+
+def _assemble(account: Account, balance: int,
+              net: dict[date, int], negatives: dict[date, int],
+              payday: date | None, today: date, end: date) -> Projection:
+    committed_until = payday or end
+    committed_pence = -sum(
+        amt for d, amt in negatives.items() if d <= committed_until)
+
+    series: list[DayPoint] = []
+    running = balance
+    lowest, lowest_date = balance, None
+    cur = today
+    while cur < end:
+        cur += timedelta(days=1)
+        delta = net.get(cur, 0)
+        running += delta
+        series.append(DayPoint(cur, delta, running))
+        if running < lowest:
+            lowest, lowest_date = running, cur
+
+    threshold = account.min_balance_pence
+    return Projection(
+        account_id=account.id,
+        start_balance_pence=balance,
+        next_payday=payday,
+        committed_until_payday_pence=committed_pence,
+        safe_to_spend_pence=balance - committed_pence,
+        min_balance_pence=lowest,
+        min_balance_date=lowest_date,
+        threshold_pence=threshold,
+        below_threshold=(threshold is not None and lowest < threshold),
+        days=series,
+    )
 
 
 def _next_payday(session: Session, account_id: int, today: date,
@@ -101,36 +149,9 @@ def project(session: Session, account: Account, days: int,
 
     movements, negatives = _movements(session, account.id, today, end)
     payday = _next_payday(session, account.id, today, end)
-    committed_until = payday or end
-    committed_pence = -sum(
-        amt for d, amt in negatives.items() if d <= committed_until)
-
     balance = current_balance(session, account.id)
-    series: list[DayPoint] = []
-    running = balance
-    lowest, lowest_date = balance, None
-    cur = today
-    while cur < end:
-        cur += timedelta(days=1)
-        delta = movements.get(cur, 0)
-        running += delta
-        series.append(DayPoint(cur, delta, running))
-        if running < lowest:
-            lowest, lowest_date = running, cur
-
-    threshold = account.min_balance_pence
-    return Projection(
-        account_id=account.id,
-        start_balance_pence=balance,
-        next_payday=payday,
-        committed_until_payday_pence=committed_pence,
-        safe_to_spend_pence=balance - committed_pence,
-        min_balance_pence=lowest,
-        min_balance_date=lowest_date,
-        threshold_pence=threshold,
-        below_threshold=(threshold is not None and lowest < threshold),
-        days=series,
-    )
+    return _assemble(account, balance, movements, negatives,
+                     payday, today, end)
 
 
 @dataclass(frozen=True)

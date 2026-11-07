@@ -1,37 +1,62 @@
 """Transactions: filtered/paginated list, create, gated patch, bulk ops."""
 
+import csv
+import io
 from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, select
+from fastapi.responses import PlainTextResponse
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import rbac
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
-from app.persistence.models import Account, Transaction
+from app.persistence.models import (
+    Account,
+    Category,
+    Role,
+    Transaction,
+    UserProfile,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 def _get(
-    session: Session, household_id: int, txn_id: int
+    session: Session, household_id: int, txn_id: int,
+    profile: UserProfile | None = None,
 ) -> Transaction:
     t = session.get(Transaction, txn_id)
     if t is None:
         raise HTTPException(404, f"transaction {txn_id} not found")
     a = session.get(Account, t.account_id)
-    if a is None or a.household_id != household_id:
+    if (a is None or a.household_id != household_id
+            or not rbac.visible(a.owner_profile_id, profile)):
         raise HTTPException(404, f"transaction {txn_id} not found")
     return t
+
+
+def _write_account(session: Session, household_id: int,
+                   account_id: int,
+                   profile: UserProfile | None) -> None:
+    """Mutation gate on the owning account's scope (issue #32)."""
+    a = session.get(Account, account_id)
+    if (a is None or a.household_id != household_id
+            or not rbac.visible(a.owner_profile_id, profile)):
+        raise HTTPException(404, "account not found")
+    if not rbac.write_allowed(a.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
 
 
 @router.get("", response_model=schemas.Page[schemas.TransactionOut])
 def list_transactions(
     household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     account_id: Annotated[int | None, Query()] = None,
     category_id: Annotated[int | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
@@ -50,6 +75,14 @@ def list_transactions(
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household.id)
     )
+    # Private-account rows are invisible to other members (issue
+    # #32) — same scope filter as the export endpoint.
+    if profile is None:
+        stmt = stmt.where(Account.owner_profile_id.is_(None))
+    elif profile.role != Role.admin:
+        stmt = stmt.where(
+            Account.owner_profile_id.is_(None)
+            | (Account.owner_profile_id == profile.id))
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
     if category_id is not None:
@@ -82,11 +115,65 @@ def list_transactions(
         total=total, page=page, size=size)
 
 
+_EXPORT_COLUMNS = [
+    "id", "date", "settled_date", "account", "payee", "category",
+    "amount_pence", "status", "source", "transfer_id", "notes",
+]
+
+
+@router.get("/export.csv", response_class=PlainTextResponse)
+def export_transactions(
+    household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+) -> PlainTextResponse:
+    """RFC-4180 CSV export of the period (issue #115). Member-scoped:
+    anonymous sees shared accounts only; a member sees shared + their
+    own; admin sees everything. Ordered (date, id) — deterministic."""
+    if date_to < date_from:
+        raise HTTPException(422, "date_to before date_from")
+    stmt = (
+        select(Transaction, Account.name, Category.name)
+        .join(Account, Transaction.account_id == Account.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
+        .where(Account.household_id == household.id,
+               Transaction.date >= date_from,
+               Transaction.date <= date_to))
+    if profile is None:
+        stmt = stmt.where(Account.owner_profile_id.is_(None))
+    elif profile.role != Role.admin:
+        stmt = stmt.where(or_(
+            Account.owner_profile_id.is_(None),
+            Account.owner_profile_id == profile.id))
+    rows = session.execute(
+        stmt.order_by(Transaction.date, Transaction.id)).all()
+
+    buf = io.StringIO(newline="")
+    w = csv.writer(buf)
+    w.writerow(_EXPORT_COLUMNS)
+    for t, account_name, category_name in rows:
+        w.writerow([
+            t.id, t.date.isoformat(),
+            t.settled_date.isoformat() if t.settled_date else "",
+            account_name, t.payee, category_name or "",
+            t.amount_pence, t.status.value, t.source.value,
+            t.transfer_id or "", t.notes or "",
+        ])
+    return PlainTextResponse(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="transactions_'
+                 f"{date_from}_{date_to}.csv\""})
+
+
 @router.post("", response_model=schemas.TransactionOut, status_code=201)
 def create_transaction(
     body: schemas.TransactionIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.TransactionOut:
+    _write_account(session, household.id, body.account_id, profile)
     a = session.get(Account, body.account_id)
     if a is None or a.household_id != household.id:
         raise HTTPException(404, f"account {body.account_id} not found")
@@ -100,7 +187,8 @@ def create_transaction(
     session.flush()
     if body.refund_of_id is not None:
         from app.domain.refunds import link_refund
-        orig = _get(session, household.id, body.refund_of_id)
+        orig = _get(session, household.id, body.refund_of_id,
+                    profile)
         link_refund(session, t, orig)
     emit(session, household.id, actor, "create", "transaction", t.id,
          {"account_id": a.id, "amount_pence": t.amount_pence})
@@ -110,22 +198,30 @@ def create_transaction(
 @router.get("/{txn_id}", response_model=schemas.TransactionOut)
 def get_transaction(
     txn_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> schemas.TransactionOut:
     return schemas.TransactionOut.model_validate(
-        _get(session, household.id, txn_id))
+        _get(session, household.id, txn_id, profile))
 
 
 @router.patch("/{txn_id}", response_model=schemas.TransactionOut)
 def patch_transaction(
     txn_id: int, body: schemas.TransactionPatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.TransactionOut:
-    t = _get(session, household.id, txn_id)
+    t = _get(session, household.id, txn_id, profile)
+    _write_account(session, household.id, t.account_id, profile)
     assert_editable(session, t)
     changed = body.model_dump(exclude_unset=True)
     new_status = changed.pop("status", None)
     for k, v in changed.items():
         setattr(t, k, v)
+    if "category_id" in changed and t.category_id is not None:
+        from app.domain import categorise
+        t.suggested_category_id = None
+        categorise.learn(session, household.id, t.payee,
+                         t.category_id)
     if new_status is not None:
         apply_transition(session, t, new_status)
     session.flush()
@@ -137,17 +233,23 @@ def patch_transaction(
 @router.post("/bulk", response_model=schemas.BulkResult)
 def bulk_transactions(
     body: schemas.BulkTransactionOp, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.BulkResult:
     """Categorise / status-change many rows; per-row failures reported."""
     applied: list[int] = []
     rejected: list[dict[str, str]] = []
     for txn_id in body.ids:
         try:
-            t = _get(session, household.id, txn_id)
+            t = _get(session, household.id, txn_id, profile)
+            _write_account(session, household.id, t.account_id,
+                           profile)
             assert_editable(session, t)
             if body.category_id is not None:
+                from app.domain import categorise
                 t.category_id = body.category_id
+                t.suggested_category_id = None
+                categorise.learn(session, household.id, t.payee,
+                                 body.category_id)
             if body.status is not None:
                 apply_transition(session, t, body.status)
             applied.append(t.id)

@@ -8,6 +8,8 @@ arch:
   - amd64
   - aarch64
 image: ghcr.io/joshjames04/family-finance-ha
+url: https://github.com/JoshJames04/family-finance-ha
+startup: application
 init: false
 ingress: true
 panel_sidebar: true

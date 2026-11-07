@@ -73,6 +73,29 @@ jobs:
         working-directory: frontend
         run: npx playwright test
 
+  image:
+    # issue #23: prove the add-on image builds + serves the SPA
+    # on every PR (the multi-arch matrix stays in release.yml).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build add-on image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: ff:ci
+      - name: Smoke — healthz + SPA index
+        run: |
+          set -euo pipefail
+          docker run -d --name ff -p 8099:8099             -e FF_ENV=ci -e FF_DATA_DIR=/tmp ff:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8099/healthz && break || sleep 1
+          done
+          curl -sf http://localhost:8099/ | grep -qi "html"
+
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -108,7 +131,15 @@ jobs:
   ha-integration:
     # Custom component scaffold: config flow + coordinator availability
     # under the real HA test harness (issue #100).
+    # Matrix over the pinned supported floor and the latest release —
+    # each phacc release pins a specific HA core version (issue #105).
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        harness:
+          - "pytest-homeassistant-custom-component==0.13.310"
+          - "pytest-homeassistant-custom-component"
     steps:
       - uses: actions/checkout@v4
       - name: Detect integration presence
@@ -128,10 +159,30 @@ jobs:
           cache-dependency-path: tests/requirements_test.txt
       - name: Install test harness
         if: steps.check.outputs.present == 'yes'
-        run: pip install -r tests/requirements_test.txt
+        run: pip install "${{ matrix.harness }}"
       - name: Integration tests
         if: steps.check.outputs.present == 'yes'
         run: pytest tests/ha -v
+
+  hacs-validate:
+    # HACS custom-repository installability (issue #105).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect integration presence
+        id: check
+        run: |
+          if [ -f custom_components/family_finance/manifest.json ]; then
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::No custom_components found - skipping HACS job"
+          fi
+      # hacs/action only validates public repositories; this repo is
+      # private, so the same structural checks run locally instead.
+      - name: HACS metadata validation
+        if: steps.check.outputs.present == 'yes'
+        run: python scripts/check_hacs_metadata.py
 
   migrations:
     # Every schema change must prove upgrade AND downgrade on a scratch DB.
