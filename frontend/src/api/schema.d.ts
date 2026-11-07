@@ -144,6 +144,321 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/budgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Budgets */
+        get: operations["list_budgets_api_v1_budgets_get"];
+        put?: never;
+        /** Create Budget */
+        post: operations["create_budget_api_v1_budgets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Budget */
+        get: operations["get_budget_api_v1_budgets__budget_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Line */
+        post: operations["add_line_api_v1_budgets__budget_id__lines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Bulk Revise Lines
+         * @description Table-UX bulk edit: one request revises many lines. Invalid
+         *     transitions bubble as 409 problem-details like single edits.
+         */
+        patch: operations["bulk_revise_lines_api_v1_budgets__budget_id__lines_patch"];
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Revise Line */
+        patch: operations["revise_line_api_v1_budgets__budget_id__lines__line_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Budget */
+        post: operations["approve_budget_api_v1_budgets__budget_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lock Budget */
+        post: operations["lock_budget_api_v1_budgets__budget_id__lock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/actuals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Budget Actuals */
+        get: operations["budget_actuals_api_v1_budgets__budget_id__actuals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/templates/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Templates */
+        get: operations["list_templates_api_v1_budgets_templates_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Template */
+        post: operations["create_template_api_v1_budgets_templates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Template */
+        get: operations["get_template_api_v1_budgets_templates__template_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/templates/{template_id}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Template Line */
+        post: operations["add_template_line_api_v1_budgets_templates__template_id__lines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/templates/{template_id}/lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit Template Line */
+        patch: operations["edit_template_line_api_v1_budgets_templates__template_id__lines__line_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/copy-forward": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy Forward */
+        post: operations["copy_forward_api_v1_budgets__budget_id__copy_forward_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/apply-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Template */
+        post: operations["apply_template_api_v1_budgets__budget_id__apply_template_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/rollover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rollover */
+        post: operations["rollover_api_v1_budgets__budget_id__rollover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Share Budget
+         * @description Explicit private-to-shared conversion - audited (issue #61).
+         */
+        post: operations["share_budget_api_v1_budgets__budget_id__share_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/{budget_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Budget Report */
+        get: operations["budget_report_api_v1_budgets__budget_id__report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/budgets/reports/accuracy/{category_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Accuracy History */
+        get: operations["accuracy_history_api_v1_budgets_reports_accuracy__category_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/categories": {
         parameters: {
             query?: never;
@@ -309,6 +624,579 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Profiles */
+        get: operations["list_profiles_api_v1_profiles_get"];
+        put?: never;
+        /** Create Profile */
+        post: operations["create_profile_api_v1_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Backups */
+        get: operations["list_backups_api_v1_admin_backups_get"];
+        put?: never;
+        /** Create Backup */
+        post: operations["create_backup_api_v1_admin_backups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Restore */
+        post: operations["request_restore_api_v1_admin_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Employments */
+        get: operations["list_employments_api_v1_employments_get"];
+        put?: never;
+        /** Create Employment */
+        post: operations["create_employment_api_v1_employments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Employment */
+        get: operations["get_employment_api_v1_employments__emp_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Employment */
+        patch: operations["patch_employment_api_v1_employments__emp_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/salary-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Salary Revisions */
+        get: operations["list_salary_revisions_api_v1_employments__emp_id__salary_revisions_get"];
+        put?: never;
+        /** Add Salary Revision */
+        post: operations["add_salary_revision_api_v1_employments__emp_id__salary_revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/tax-code-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tax Code Revisions */
+        get: operations["list_tax_code_revisions_api_v1_employments__emp_id__tax_code_revisions_get"];
+        put?: never;
+        /** Add Tax Code Revision */
+        post: operations["add_tax_code_revision_api_v1_employments__emp_id__tax_code_revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/salary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Salary At */
+        get: operations["salary_at_api_v1_employments__emp_id__salary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/gross": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gross For Period */
+        get: operations["gross_for_period_api_v1_employments__emp_id__gross_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/overtime-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Overtime */
+        get: operations["list_overtime_api_v1_employments__emp_id__overtime_entries_get"];
+        put?: never;
+        /** Create Overtime */
+        post: operations["create_overtime_api_v1_employments__emp_id__overtime_entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/overtime-entries/{entry_id}/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Overtime Transition */
+        post: operations["overtime_transition_api_v1_employments__emp_id__overtime_entries__entry_id___action__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Payroll Runs */
+        get: operations["list_payroll_runs_api_v1_employments__emp_id__payroll_runs_get"];
+        put?: never;
+        /** Create Payroll Run */
+        post: operations["create_payroll_run_api_v1_employments__emp_id__payroll_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Payroll Run */
+        get: operations["get_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reconcile Payroll Run */
+        post: operations["reconcile_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/correct": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Correct Payroll Run */
+        post: operations["correct_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__correct_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reopen Payroll Run
+         * @description Re-open a reconciled run so a manual override can be applied
+         *     (issue #85) — audited; actuals are preserved.
+         */
+        post: operations["reopen_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__reopen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Override Payroll Run
+         * @description Run-scoped manual adjustment with mandatory reason (issue #85).
+         *     Visible as a distinct component line; never carried forward.
+         */
+        post: operations["override_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__overrides_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Movements */
+        get: operations["list_movements_api_v1_expected_movements_get"];
+        put?: never;
+        /** Create Manual */
+        post: operations["create_manual_api_v1_expected_movements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/{mid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Manual */
+        delete: operations["delete_manual_api_v1_expected_movements__mid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/materialise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rematerialise
+         * @description Bulk regenerate future rows from all sources (idempotent).
+         */
+        post: operations["rematerialise_api_v1_expected_movements_materialise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/contributions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contribution Status
+         * @description Satisfied/partial/overdue state per expected transfer (#87).
+         */
+        get: operations["contribution_status_api_v1_expected_movements_contributions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/match": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auto Match Contributions
+         * @description Auto-match real transfer legs to expected movements (#87).
+         */
+        post: operations["auto_match_contributions_api_v1_expected_movements_match_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/{mid}/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Match
+         * @description Manual confirmation of a leg against an expected movement.
+         */
+        post: operations["confirm_match_api_v1_expected_movements__mid__matches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/outstanding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Outstanding List
+         * @description Past-due unmatched obligations with age in days (#88).
+         */
+        get: operations["outstanding_list_api_v1_expected_movements_outstanding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Requirement Totals
+         * @description Per-account requirement totals — scheduled minus satisfied
+         *     (#88: "the bills account needs £X by dd/MM").
+         */
+        get: operations["requirement_totals_api_v1_expected_movements_requirements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/{mid}/write-off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write Off Movement
+         * @description Abandon an obligation — audited; excluded from outstanding and
+         *     requirement totals thereafter (#88).
+         */
+        post: operations["write_off_movement_api_v1_expected_movements__mid__write_off_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expected-movements/{mid}/reschedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reschedule Movement
+         * @description Push a due date forward for an obligation still to be honoured
+         *     — audited (#88).
+         */
+        post: operations["reschedule_movement_api_v1_expected_movements__mid__reschedule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rules */
+        get: operations["list_rules_api_v1_transfer_rules_get"];
+        put?: never;
+        /** Create Rule */
+        post: operations["create_rule_api_v1_transfer_rules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/{rid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deactivate Rule */
+        delete: operations["deactivate_rule_api_v1_transfer_rules__rid__delete"];
+        options?: never;
+        head?: never;
+        /** Update Rule */
+        patch: operations["update_rule_api_v1_transfer_rules__rid__patch"];
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/{rid}/materialise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Materialise Rule */
+        post: operations["materialise_rule_api_v1_transfer_rules__rid__materialise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/{rid}/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Evaluate Rule */
+        get: operations["evaluate_rule_api_v1_transfer_rules__rid__evaluate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/version": {
         parameters: {
             query?: never;
@@ -418,6 +1306,300 @@ export interface components {
          * @enum {string}
          */
         AccountType: "personal" | "joint" | "bills" | "savings" | "cash" | "credit" | "loan";
+        /** AccuracyHistory */
+        AccuracyHistory: {
+            /** Category Id */
+            category_id: number;
+            /** Points */
+            points: components["schemas"]["AccuracyPoint"][];
+        };
+        /** AccuracyPoint */
+        AccuracyPoint: {
+            /** Budget Id */
+            budget_id: number;
+            /** Name */
+            name: string;
+            /** Start Date */
+            start_date: string;
+            /** End Date */
+            end_date: string;
+            /** Actual Pence */
+            actual_pence: number;
+            /** Effective Pence */
+            effective_pence: number;
+            /** Variance Pence */
+            variance_pence: number;
+            /** Accuracy Pct */
+            accuracy_pct: number;
+            /** Original Accuracy Pct */
+            original_accuracy_pct: number;
+        };
+        /** ApplyResult */
+        ApplyResult: {
+            /** Created */
+            created: number;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** ApplyTemplateIn */
+        ApplyTemplateIn: {
+            /** Template Id */
+            template_id: number;
+        };
+        /** BackupOut */
+        BackupOut: {
+            /** Name */
+            name: string;
+            /** Bytes */
+            bytes: number;
+            /** Ok */
+            ok: boolean;
+        };
+        /** BudgetActuals */
+        BudgetActuals: {
+            /** Budget Id */
+            budget_id: number;
+            /** Totals */
+            totals: {
+                [key: string]: number;
+            };
+            /**
+             * Lines
+             * @default {}
+             */
+            lines: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        /** BudgetDetail */
+        BudgetDetail: {
+            /** Id */
+            id: number;
+            /** Owner Profile Id */
+            owner_profile_id: number | null;
+            /** Name */
+            name: string;
+            period_type: components["schemas"]["BudgetPeriodType"];
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            status: components["schemas"]["BudgetStatus"];
+            /** Lines */
+            lines: components["schemas"]["BudgetLineOut"][];
+            /** Read Only */
+            read_only: boolean;
+        };
+        /** BudgetIn */
+        BudgetIn: {
+            /** Name */
+            name: string;
+            period_type: components["schemas"]["BudgetPeriodType"];
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            /** Owner Profile Id */
+            owner_profile_id?: number | null;
+        };
+        /** BudgetLineIn */
+        BudgetLineIn: {
+            /** Category Id */
+            category_id: number;
+            side: components["schemas"]["BudgetLineSide"];
+            /** Money */
+            amount: number | string | {
+                pence: number;
+            };
+            /**
+             * Rollover
+             * @default false
+             */
+            rollover: boolean;
+        };
+        /** BudgetLineOut */
+        BudgetLineOut: {
+            /** Id */
+            id: number;
+            /** Category Id */
+            category_id: number;
+            side: components["schemas"]["BudgetLineSide"];
+            /** Original Pence */
+            original_pence: number;
+            /** Revised Pence */
+            revised_pence: number | null;
+            /** Rollover */
+            rollover: boolean;
+            /** Effective Pence */
+            effective_pence: number;
+        };
+        /** BudgetLineRevise */
+        BudgetLineRevise: {
+            /** Money */
+            amount: number | string | {
+                pence: number;
+            };
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * BudgetLineSide
+         * @enum {string}
+         */
+        BudgetLineSide: "income" | "expense";
+        /** BudgetLineSpecIn */
+        BudgetLineSpecIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "budget_line";
+            /** Category Id */
+            category_id: number;
+        };
+        /** BudgetOut */
+        BudgetOut: {
+            /** Id */
+            id: number;
+            /** Owner Profile Id */
+            owner_profile_id: number | null;
+            /** Name */
+            name: string;
+            period_type: components["schemas"]["BudgetPeriodType"];
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            status: components["schemas"]["BudgetStatus"];
+        };
+        /**
+         * BudgetPeriodType
+         * @enum {string}
+         */
+        BudgetPeriodType: "monthly" | "annual" | "custom";
+        /** BudgetReport */
+        BudgetReport: {
+            /** Budget Id */
+            budget_id: number;
+            /** Lines */
+            lines: components["schemas"]["BudgetReportLine"][];
+        };
+        /** BudgetReportLine */
+        BudgetReportLine: {
+            /** Line Id */
+            line_id: number;
+            /** Category Id */
+            category_id: number;
+            /** Original Pence */
+            original_pence: number;
+            /** Revised Pence */
+            revised_pence: number | null;
+            /** Revision Reason */
+            revision_reason: string | null;
+            /** Effective Pence */
+            effective_pence: number;
+            /** Actual Pence */
+            actual_pence: number;
+            /** Variance Pence */
+            variance_pence: number;
+            /** Variance Pct */
+            variance_pct: number;
+            /** Accuracy Pct */
+            accuracy_pct: number;
+            /** Original Accuracy Pct */
+            original_accuracy_pct: number;
+            /** Status */
+            status: string;
+        };
+        /**
+         * BudgetStatus
+         * @enum {string}
+         */
+        BudgetStatus: "draft" | "approved" | "locked";
+        /** BudgetTemplateDetail */
+        BudgetTemplateDetail: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Lines */
+            lines: components["schemas"]["BudgetTemplateLineOut"][];
+        };
+        /** BudgetTemplateIn */
+        BudgetTemplateIn: {
+            /** Name */
+            name: string;
+        };
+        /** BudgetTemplateLineIn */
+        BudgetTemplateLineIn: {
+            /** Category Id */
+            category_id: number;
+            side: components["schemas"]["BudgetLineSide"];
+            /** Money */
+            amount: number | string | {
+                pence: number;
+            };
+        };
+        /** BudgetTemplateLineOut */
+        BudgetTemplateLineOut: {
+            /** Id */
+            id: number;
+            /** Category Id */
+            category_id: number;
+            side: components["schemas"]["BudgetLineSide"];
+            /** Amount Pence */
+            amount_pence: number;
+        };
+        /** BudgetTemplateLinePatch */
+        BudgetTemplateLinePatch: {
+            /** Money */
+            amount: number | string | {
+                pence: number;
+            };
+        };
+        /** BudgetTemplateOut */
+        BudgetTemplateOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /** BulkLineRevise */
+        BulkLineRevise: {
+            /** Revisions */
+            revisions: components["schemas"]["BulkLineReviseItem"][];
+        };
+        /** BulkLineReviseItem */
+        BulkLineReviseItem: {
+            /** Line Id */
+            line_id: number;
+            /** Money */
+            amount: number | string | {
+                pence: number;
+            };
+            /** Reason */
+            reason: string;
+        };
         /** BulkResult */
         BulkResult: {
             /** Applied */
@@ -426,6 +1608,16 @@ export interface components {
             rejected: {
                 [key: string]: string;
             }[];
+        };
+        /** BulkReviseResult */
+        BulkReviseResult: {
+            /** Updated */
+            updated: number;
+            /**
+             * Skipped
+             * @default []
+             */
+            skipped: number[];
         };
         /** BulkTransactionOp */
         BulkTransactionOp: {
@@ -534,10 +1726,239 @@ export interface components {
             notes: string | null;
         };
         /**
+         * Confidence
+         * @enum {string}
+         */
+        Confidence: "scheduled" | "estimated";
+        /** ContributionMatchIn */
+        ContributionMatchIn: {
+            /** Transaction Id */
+            transaction_id: number;
+            /** Amount */
+            amount?: (number | string | {
+                pence: number;
+            }) | null;
+        };
+        /** ContributionStatusOut */
+        ContributionStatusOut: {
+            /** Movement Id */
+            movement_id: number;
+            /** Expected Pence */
+            expected_pence: number;
+            /** Matched Pence */
+            matched_pence: number;
+            /** Outstanding Pence */
+            outstanding_pence: number;
+            /** State */
+            state: string;
+        };
+        /** CopyForwardIn */
+        CopyForwardIn: {
+            /** Name */
+            name: string;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            period_type?: components["schemas"]["BudgetPeriodType"] | null;
+        };
+        /** CopyResult */
+        CopyResult: {
+            budget: components["schemas"]["BudgetOut"];
+            /** Warnings */
+            warnings: string[];
+        };
+        /**
+         * DayType
+         * @enum {string}
+         */
+        DayType: "weekday" | "saturday" | "sunday" | "bank_holiday";
+        /** EmploymentIn */
+        EmploymentIn: {
+            /** Profile Id */
+            profile_id: number;
+            /** Employer */
+            employer: string;
+            /** @default england_wales */
+            jurisdiction: components["schemas"]["TaxJurisdiction"];
+            /**
+             * Ni Category
+             * @default A
+             */
+            ni_category: string;
+            /** @default none */
+            student_loan_plan: components["schemas"]["StudentLoanPlan"];
+            /** Pension Scheme Ref */
+            pension_scheme_ref?: string | null;
+            /** Contracted Hours */
+            contracted_hours: number | string;
+            /** Payday Rule */
+            payday_rule?: string | null;
+            /** Overtime Multipliers */
+            overtime_multipliers?: {
+                [key: string]: number;
+            } | null;
+            /** @default none */
+            pension_mode: components["schemas"]["PensionMode"];
+            /**
+             * Pension Employee Bps
+             * @default 0
+             */
+            pension_employee_bps: number;
+            /**
+             * Pension Fixed Pence
+             * @default 0
+             */
+            pension_fixed_pence: number;
+            /**
+             * Work Days Per Week
+             * @default 5
+             */
+            work_days_per_week: number | string;
+        };
+        /** EmploymentOut */
+        EmploymentOut: {
+            /** Id */
+            id: number;
+            /** Household Id */
+            household_id: number;
+            /** Profile Id */
+            profile_id: number;
+            /** Employer */
+            employer: string;
+            jurisdiction: components["schemas"]["TaxJurisdiction"];
+            /** Ni Category */
+            ni_category: string;
+            student_loan_plan: components["schemas"]["StudentLoanPlan"];
+            /** Pension Scheme Ref */
+            pension_scheme_ref: string | null;
+            /** Contracted Hours */
+            contracted_hours: string;
+            /** Payday Rule */
+            payday_rule: string | null;
+            pension_mode: components["schemas"]["PensionMode"];
+            /** Pension Employee Bps */
+            pension_employee_bps: number;
+            /** Pension Fixed Pence */
+            pension_fixed_pence: number;
+            /** Work Days Per Week */
+            work_days_per_week: string;
+            /** Is Active */
+            is_active: boolean;
+        };
+        /** EmploymentPatch */
+        EmploymentPatch: {
+            /** Employer */
+            employer?: string | null;
+            jurisdiction?: components["schemas"]["TaxJurisdiction"] | null;
+            /** Ni Category */
+            ni_category?: string | null;
+            student_loan_plan?: components["schemas"]["StudentLoanPlan"] | null;
+            /** Pension Scheme Ref */
+            pension_scheme_ref?: string | null;
+            /** Contracted Hours */
+            contracted_hours?: number | string | null;
+            /** Payday Rule */
+            payday_rule?: string | null;
+            /** Overtime Multipliers */
+            overtime_multipliers?: {
+                [key: string]: number;
+            } | null;
+            pension_mode?: components["schemas"]["PensionMode"] | null;
+            /** Pension Employee Bps */
+            pension_employee_bps?: number | null;
+            /** Pension Fixed Pence */
+            pension_fixed_pence?: number | null;
+            /** Work Days Per Week */
+            work_days_per_week?: number | string | null;
+            /** Is Active */
+            is_active?: boolean | null;
+        };
+        /** EvaluateResult */
+        EvaluateResult: {
+            /** Amount Pence */
+            amount_pence: number | null;
+            confidence: components["schemas"]["Confidence"];
+        };
+        /** ExpectedMovementIn */
+        ExpectedMovementIn: {
+            /** Account Id */
+            account_id?: number | null;
+            /**
+             * Expected Date
+             * Format: date
+             */
+            expected_date: string;
+            /** Money */
+            amount: number | string | {
+                pence: number;
+            };
+            /** Label */
+            label: string;
+        };
+        /** ExpectedMovementOut */
+        ExpectedMovementOut: {
+            /** Id */
+            id: number;
+            /** Household Id */
+            household_id: number;
+            /** Account Id */
+            account_id: number | null;
+            /**
+             * Expected Date
+             * Format: date
+             */
+            expected_date: string;
+            /** Amount Pence */
+            amount_pence: number;
+            /** Label */
+            label: string;
+            confidence: components["schemas"]["Confidence"];
+            source_type: components["schemas"]["ExpectedSource"];
+            /** Source Id */
+            source_id: number;
+        };
+        /**
+         * ExpectedSource
+         * @enum {string}
+         */
+        ExpectedSource: "commitment" | "payroll_run" | "transfer_rule" | "manual";
+        /** FixedSpecIn */
+        FixedSpecIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fixed";
+            /** Pence */
+            pence: number;
+        };
+        /**
          * Frequency
          * @enum {string}
          */
         Frequency: "weekly" | "fortnightly" | "monthly" | "quarterly" | "annually";
+        /** GrossPeriodOut */
+        GrossPeriodOut: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Gross Pence */
+            gross_pence: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -555,6 +1976,21 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** IncomePctSpecIn */
+        IncomePctSpecIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "income_pct";
+            /** Bps */
+            bps: number;
+        };
+        /** MatchResult */
+        MatchResult: {
+            /** Matched */
+            matched: number;
+        };
         /** MaterialiseResult */
         MaterialiseResult: {
             /** Created */
@@ -565,10 +2001,94 @@ export interface components {
              */
             next_date: string;
         };
+        /** OutstandingItemOut */
+        OutstandingItemOut: {
+            /** Movement Id */
+            movement_id: number;
+            /** Account Id */
+            account_id: number | null;
+            /** Label */
+            label: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Age Days */
+            age_days: number;
+            /** Outstanding Pence */
+            outstanding_pence: number;
+        };
+        /** OvertimeIn */
+        OvertimeIn: {
+            /**
+             * Work Date
+             * Format: date
+             */
+            work_date: string;
+            /** Hours */
+            hours: number | string;
+            /** Multiplier Bps */
+            multiplier_bps?: number | null;
+            day_type?: components["schemas"]["DayType"] | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** OvertimeOut */
+        OvertimeOut: {
+            /** Id */
+            id: number;
+            /** Employment Id */
+            employment_id: number;
+            /**
+             * Work Date
+             * Format: date
+             */
+            work_date: string;
+            /** Hours */
+            hours: string;
+            /** Multiplier Bps */
+            multiplier_bps: number;
+            day_type: components["schemas"]["DayType"];
+            status: components["schemas"]["OvertimeStatus"];
+            /** Hourly Rate Pence */
+            hourly_rate_pence: number;
+            /** Pay Pence */
+            pay_pence: number;
+            /** Notes */
+            notes: string | null;
+        };
+        /**
+         * OvertimeStatus
+         * @enum {string}
+         */
+        OvertimeStatus: "draft" | "submitted" | "approved" | "rejected";
         /** Page[AccountOut] */
         Page_AccountOut_: {
             /** Items */
             items: components["schemas"]["AccountOut"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+        };
+        /** Page[BudgetOut] */
+        Page_BudgetOut_: {
+            /** Items */
+            items: components["schemas"]["BudgetOut"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+        };
+        /** Page[BudgetTemplateOut] */
+        Page_BudgetTemplateOut_: {
+            /** Items */
+            items: components["schemas"]["BudgetTemplateOut"][];
             /** Total */
             total: number;
             /** Page */
@@ -598,10 +2118,32 @@ export interface components {
             /** Size */
             size: number;
         };
+        /** Page[EmploymentOut] */
+        Page_EmploymentOut_: {
+            /** Items */
+            items: components["schemas"]["EmploymentOut"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+        };
         /** Page[HouseholdOut] */
         Page_HouseholdOut_: {
             /** Items */
             items: components["schemas"]["HouseholdOut"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+        };
+        /** Page[ProfileOut] */
+        Page_ProfileOut_: {
+            /** Items */
+            items: components["schemas"]["ProfileOut"][];
             /** Total */
             total: number;
             /** Page */
@@ -631,6 +2173,311 @@ export interface components {
             /** Size */
             size: number;
         };
+        /** Page[TransferRuleOut] */
+        Page_TransferRuleOut_: {
+            /** Items */
+            items: components["schemas"]["TransferRuleOut"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+        };
+        /**
+         * PayrollComponentKind
+         * @enum {string}
+         */
+        PayrollComponentKind: "base_salary" | "overtime" | "bonus" | "allowance" | "unpaid_leave" | "pension" | "tax" | "ni" | "student_loan";
+        /** PayrollComponentOut */
+        PayrollComponentOut: {
+            /** Id */
+            id: number;
+            kind: components["schemas"]["PayrollComponentKind"];
+            /** Label */
+            label: string;
+            /** Forecast Pence */
+            forecast_pence: number;
+            /** Actual Pence */
+            actual_pence: number | null;
+            /** Variance Pence */
+            variance_pence: number | null;
+        };
+        /**
+         * PayrollOverrideIn
+         * @description Run-scoped manual adjustment: signed delta on a component kind.
+         */
+        PayrollOverrideIn: {
+            kind: components["schemas"]["PayrollComponentKind"];
+            /** Money */
+            delta: number | string | {
+                pence: number;
+            };
+            /** Reason */
+            reason: string;
+        };
+        /** PayrollOverrideOut */
+        PayrollOverrideOut: {
+            /** Id */
+            id: number;
+            /** Run Id */
+            run_id: number;
+            kind: components["schemas"]["PayrollComponentKind"];
+            /** Delta Pence */
+            delta_pence: number;
+            /** Reason */
+            reason: string;
+            /** Actor */
+            actor: string;
+        };
+        /**
+         * PayrollReconcileIn
+         * @description actual amounts keyed by component kind, e.g. {"tax": 29500}.
+         *     Absent kinds are assumed to match forecast.
+         */
+        PayrollReconcileIn: {
+            /** Actuals */
+            actuals?: {
+                [key: string]: number;
+            };
+        };
+        /** PayrollRunIn */
+        PayrollRunIn: {
+            /**
+             * Period Start
+             * Format: date
+             */
+            period_start: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /**
+             * Pay Date
+             * Format: date
+             */
+            pay_date: string;
+            /** Bonus */
+            bonus?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Allowance */
+            allowance?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Unpaid Leave */
+            unpaid_leave?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Unpaid Leave Days */
+            unpaid_leave_days?: number | string | null;
+        };
+        /** PayrollRunOut */
+        PayrollRunOut: {
+            /** Id */
+            id: number;
+            /** Employment Id */
+            employment_id: number;
+            /**
+             * Period Start
+             * Format: date
+             */
+            period_start: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /**
+             * Pay Date
+             * Format: date
+             */
+            pay_date: string;
+            status: components["schemas"]["PayrollRunStatus"];
+            /** Tax Year */
+            tax_year: string;
+            /** Rule Set Version */
+            rule_set_version: number;
+            /** Gross Pence */
+            gross_pence: number;
+            /** Net Pence */
+            net_pence: number;
+            /** Corrects Id */
+            corrects_id: number | null;
+            /**
+             * Components
+             * @default []
+             */
+            components: components["schemas"]["PayrollComponentOut"][];
+        };
+        /**
+         * PayrollRunStatus
+         * @enum {string}
+         */
+        PayrollRunStatus: "forecast" | "reconciled" | "corrected";
+        /**
+         * PensionMode
+         * @enum {string}
+         */
+        PensionMode: "none" | "relief_at_source" | "net_pay" | "salary_sacrifice";
+        /** ProfileIn */
+        ProfileIn: {
+            /** Display Name */
+            display_name: string;
+            /** @default member */
+            role: components["schemas"]["Role"];
+            /** Ha User Id */
+            ha_user_id?: string | null;
+        };
+        /** ProfileOut */
+        ProfileOut: {
+            /** Id */
+            id: number;
+            /** Display Name */
+            display_name: string;
+            role: components["schemas"]["Role"];
+            /** Is Active */
+            is_active: boolean;
+        };
+        /** RequirementOut */
+        RequirementOut: {
+            /** Account Id */
+            account_id: number;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Scheduled Pence */
+            scheduled_pence: number;
+            /** Satisfied Pence */
+            satisfied_pence: number;
+            /** Outstanding Pence */
+            outstanding_pence: number;
+        };
+        /** RescheduleIn */
+        RescheduleIn: {
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+        };
+        /** RestoreAccepted */
+        RestoreAccepted: {
+            /** Name */
+            name: string;
+            /**
+             * Applies On Next Start
+             * @default true
+             */
+            applies_on_next_start: boolean;
+        };
+        /** RestoreRequest */
+        RestoreRequest: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * Role
+         * @enum {string}
+         */
+        Role: "admin" | "member" | "viewer";
+        /** RolloverIn */
+        RolloverIn: {
+            /** Source Budget Id */
+            source_budget_id: number;
+        };
+        /** RolloverResult */
+        RolloverResult: {
+            /** Applied */
+            applied: number;
+            /** Carries */
+            carries: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** SalaryAtOut */
+        SalaryAtOut: {
+            /**
+             * On
+             * Format: date
+             */
+            on: string;
+            /** Annual Salary Pence */
+            annual_salary_pence: number;
+            /** Hourly Rate Pence */
+            hourly_rate_pence: number;
+        };
+        /** SalaryRevisionIn */
+        SalaryRevisionIn: {
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Money */
+            annual_salary: number | string | {
+                pence: number;
+            };
+            /** Notes */
+            notes?: string | null;
+        };
+        /** SalaryRevisionOut */
+        SalaryRevisionOut: {
+            /** Id */
+            id: number;
+            /** Employment Id */
+            employment_id: number;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Annual Salary Pence */
+            annual_salary_pence: number;
+            /** Notes */
+            notes: string | null;
+        };
+        /**
+         * StudentLoanPlan
+         * @enum {string}
+         */
+        StudentLoanPlan: "none" | "plan1" | "plan2" | "plan4" | "plan5" | "postgrad";
+        /** TaxCodeRevisionIn */
+        TaxCodeRevisionIn: {
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Tax Code */
+            tax_code: string;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** TaxCodeRevisionOut */
+        TaxCodeRevisionOut: {
+            /** Id */
+            id: number;
+            /** Employment Id */
+            employment_id: number;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Tax Code */
+            tax_code: string;
+            /** Notes */
+            notes: string | null;
+        };
+        /**
+         * TaxJurisdiction
+         * @enum {string}
+         */
+        TaxJurisdiction: "england_wales" | "scotland" | "northern_ireland";
         /** TransactionIn */
         TransactionIn: {
             /** Account Id */
@@ -650,6 +2497,10 @@ export interface components {
             category_id?: number | null;
             /** Notes */
             notes?: string | null;
+            /** External Ref */
+            external_ref?: string | null;
+            /** Refund Of Id */
+            refund_of_id?: number | null;
         };
         /** TransactionOut */
         TransactionOut: {
@@ -733,6 +2584,74 @@ export interface components {
             notes: string | null;
             /** Legs */
             legs: number[];
+        };
+        /** TransferRuleIn */
+        TransferRuleIn: {
+            /** Name */
+            name: string;
+            /** Source Account Id */
+            source_account_id: number;
+            /** Dest Account Id */
+            dest_account_id: number;
+            /** Amount Spec */
+            amount_spec: components["schemas"]["FixedSpecIn"] | components["schemas"]["IncomePctSpecIn"] | components["schemas"]["BudgetLineSpecIn"];
+            frequency: components["schemas"]["Frequency"];
+            /** Day Of Month */
+            day_of_month: number;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /** End Date */
+            end_date?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** TransferRuleOut */
+        TransferRuleOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Source Account Id */
+            source_account_id: number;
+            /** Dest Account Id */
+            dest_account_id: number;
+            /** Amount Spec */
+            amount_spec: {
+                [key: string]: unknown;
+            };
+            frequency: components["schemas"]["Frequency"];
+            /** Day Of Month */
+            day_of_month: number;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /** End Date */
+            end_date: string | null;
+            /** Active */
+            active: boolean;
+            /** Notes */
+            notes: string | null;
+        };
+        /** TransferRulePatch */
+        TransferRulePatch: {
+            /** Name */
+            name?: string | null;
+            /** Amount Spec */
+            amount_spec?: (components["schemas"]["FixedSpecIn"] | components["schemas"]["IncomePctSpecIn"] | components["schemas"]["BudgetLineSpecIn"]) | null;
+            frequency?: components["schemas"]["Frequency"] | null;
+            /** Day Of Month */
+            day_of_month?: number | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1140,6 +3059,733 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_TransactionOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_budgets_api_v1_budgets_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["BudgetStatus"] | null;
+                shared_only?: boolean;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_BudgetOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_budget_api_v1_budgets_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_budget_api_v1_budgets__budget_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_line_api_v1_budgets__budget_id__lines_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetLineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetLineOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_revise_lines_api_v1_budgets__budget_id__lines_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkLineRevise"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkReviseResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revise_line_api_v1_budgets__budget_id__lines__line_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetLineRevise"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetLineOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_budget_api_v1_budgets__budget_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lock_budget_api_v1_budgets__budget_id__lock_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    budget_actuals_api_v1_budgets__budget_id__actuals_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetActuals"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_api_v1_budgets_templates_list_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_BudgetTemplateOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_template_api_v1_budgets_templates_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTemplateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_template_api_v1_budgets_templates__template_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTemplateDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_template_line_api_v1_budgets_templates__template_id__lines_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTemplateLineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTemplateLineOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_template_line_api_v1_budgets_templates__template_id__lines__line_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                template_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetTemplateLinePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetTemplateLineOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_forward_api_v1_budgets__budget_id__copy_forward_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyForwardIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_template_api_v1_budgets__budget_id__apply_template_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyTemplateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollover_api_v1_budgets__budget_id__rollover_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RolloverIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolloverResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    share_budget_api_v1_budgets__budget_id__share_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    budget_report_api_v1_budgets__budget_id__report_get: {
+        parameters: {
+            query?: {
+                warn_pct?: number;
+                over_pct?: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accuracy_history_api_v1_budgets_reports_accuracy__category_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                category_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccuracyHistory"];
                 };
             };
             /** @description Validation Error */
@@ -1670,6 +4316,1472 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_profiles_api_v1_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ProfileOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_profile_api_v1_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_backups_api_v1_admin_backups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOut"][];
+                };
+            };
+        };
+    };
+    create_backup_api_v1_admin_backups_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_restore_api_v1_admin_restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_employments_api_v1_employments_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_EmploymentOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_employment_api_v1_employments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmploymentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_employment_api_v1_employments__emp_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_employment_api_v1_employments__emp_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmploymentPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_salary_revisions_api_v1_employments__emp_id__salary_revisions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalaryRevisionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_salary_revision_api_v1_employments__emp_id__salary_revisions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalaryRevisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalaryRevisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tax_code_revisions_api_v1_employments__emp_id__tax_code_revisions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxCodeRevisionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_tax_code_revision_api_v1_employments__emp_id__tax_code_revisions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaxCodeRevisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxCodeRevisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    salary_at_api_v1_employments__emp_id__salary_get: {
+        parameters: {
+            query: {
+                on: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalaryAtOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    gross_for_period_api_v1_employments__emp_id__gross_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrossPeriodOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_overtime_api_v1_employments__emp_id__overtime_entries_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["OvertimeStatus"] | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OvertimeOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_overtime_api_v1_employments__emp_id__overtime_entries_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OvertimeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OvertimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overtime_transition_api_v1_employments__emp_id__overtime_entries__entry_id___action__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                entry_id: number;
+                action: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OvertimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_payroll_runs_api_v1_employments__emp_id__payroll_runs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_payroll_run_api_v1_employments__emp_id__payroll_runs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayrollRunIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconcile_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__reconcile_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayrollReconcileIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    correct_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__correct_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reopen_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__reopen_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    override_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__overrides_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayrollOverrideIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollOverrideOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_movements_api_v1_expected_movements_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                account_id?: number | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpectedMovementOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_manual_api_v1_expected_movements_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpectedMovementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpectedMovementOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_manual_api_v1_expected_movements__mid__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                mid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rematerialise_api_v1_expected_movements_materialise_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contribution_status_api_v1_expected_movements_contributions_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionStatusOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auto_match_contributions_api_v1_expected_movements_match_post: {
+        parameters: {
+            query?: {
+                window_days?: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_match_api_v1_expected_movements__mid__matches_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                mid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContributionMatchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    outstanding_list_api_v1_expected_movements_outstanding_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutstandingItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requirement_totals_api_v1_expected_movements_requirements_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_off_movement_api_v1_expected_movements__mid__write_off_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                mid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reschedule_movement_api_v1_expected_movements__mid__reschedule_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                mid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RescheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_rules_api_v1_transfer_rules_get: {
+        parameters: {
+            query?: {
+                include_inactive?: boolean;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TransferRuleOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_rule_api_v1_transfer_rules_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferRuleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferRuleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_rule_api_v1_transfer_rules__rid__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_rule_api_v1_transfer_rules__rid__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferRulePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferRuleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    materialise_rule_api_v1_transfer_rules__rid__materialise_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evaluate_rule_api_v1_transfer_rules__rid__evaluate_get: {
+        parameters: {
+            query: {
+                on: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateResult"];
+                };
             };
             /** @description Validation Error */
             422: {
