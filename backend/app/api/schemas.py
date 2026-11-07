@@ -1019,3 +1019,37 @@ class AnnualisedSubOut(BaseModel):
 class AnnualisedOut(BaseModel):
     per_subscription: list[AnnualisedSubOut]
     total_annualised_pence: int
+
+
+class ReportDrillOut(BaseModel):
+    """Endpoint + params that reproduce a figure's record set."""
+    endpoint: str
+    params: dict[str, Any]
+
+
+class ReportFigureOut(BaseModel):
+    key: str
+    label: str
+    amount_pence: int | None
+    prior_amount_pence: int | None = None
+    delta_pence: int | None = None
+    count: int | None = None
+    drill: ReportDrillOut | None = None
+    components: list[ReportDrillOut] | None = None
+
+
+class ReportSectionOut(BaseModel):
+    key: str
+    label: str
+    figures: list[ReportFigureOut]
+
+
+class ReportPeriodOut(BaseModel):
+    start: date
+    end: date
+
+
+class ReportOut(BaseModel):
+    period: ReportPeriodOut
+    prior_period: ReportPeriodOut | None = None
+    sections: list[ReportSectionOut]
