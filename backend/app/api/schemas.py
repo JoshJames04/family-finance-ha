@@ -109,6 +109,22 @@ class ProjectionOut(BaseModel):
     days: list[ProjectionDayOut]
 
 
+class WarningSourceOut(BaseModel):
+    account_id: int
+    name: str
+    available_pence: int
+
+
+class OverdraftWarningOut(BaseModel):
+    account_id: int
+    name: str
+    first_dip_date: date
+    floor_pence: int
+    min_balance_pence: int
+    deficit_pence: int
+    suggested_sources: list[WarningSourceOut]
+
+
 class BalanceVerifyIn(BaseModel):
     asserted_balance: Money
     verified_date: date

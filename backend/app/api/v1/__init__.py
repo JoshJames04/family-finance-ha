@@ -11,6 +11,7 @@ from app.api.v1 import (
     commitments,
     employments,
     expected,
+    forecast,
     goals,
     households,
     loans,
@@ -35,6 +36,7 @@ v1_router.include_router(profiles.router)
 v1_router.include_router(admin.router)
 v1_router.include_router(employments.router)
 v1_router.include_router(expected.router)
+v1_router.include_router(forecast.router)
 v1_router.include_router(goals.router)
 v1_router.include_router(loans.router)
 v1_router.include_router(reports.router)
