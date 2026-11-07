@@ -73,6 +73,7 @@ class AccountIn(BaseModel):
 class AccountPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     institution_ref: str | None = Field(default=None, max_length=128)
+    min_balance_pence: int | None = None
 
 
 class AccountOut(BaseModel):
@@ -86,6 +87,26 @@ class AccountOut(BaseModel):
     owner_profile_id: int | None
     institution_ref: str | None
     archived: bool
+    min_balance_pence: int | None
+
+
+class ProjectionDayOut(BaseModel):
+    date: date
+    movements_pence: int
+    balance_pence: int
+
+
+class ProjectionOut(BaseModel):
+    account_id: int
+    start_balance_pence: int
+    next_payday: date | None
+    committed_until_payday_pence: int
+    safe_to_spend_pence: int
+    min_balance_pence: int
+    min_balance_date: date | None
+    threshold_pence: int | None
+    below_threshold: bool
+    days: list[ProjectionDayOut]
 
 
 class BalanceVerifyIn(BaseModel):
