@@ -25,6 +25,7 @@ from app.persistence.models import (
     DayType,
     ExpectedSource,
     Frequency,
+    GoalType,
     OvertimeStatus,
     PayrollComponentKind,
     PayrollRunStatus,
@@ -713,3 +714,40 @@ class RequirementOut(BaseModel):
 
 class RescheduleIn(BaseModel):
     due_date: date
+
+
+class SavingsGoalIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    goal_type: GoalType
+    target: Money
+    target_date: date | None = None
+    start_date: date
+    account_id: int
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class SavingsGoalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    goal_type: GoalType
+    target_pence: int
+    target_date: date | None
+    start_date: date
+    account_id: int
+    active: bool
+    notes: str | None
+
+
+class GoalProgressOut(BaseModel):
+    contributed_pence: int
+    remaining_pence: int
+    monthly_need_pence: int | None
+    pct: int
+
+
+class GoalContributionOut(BaseModel):
+    transaction_id: int
+    date: date
+    amount_pence: int
+    payee: str
