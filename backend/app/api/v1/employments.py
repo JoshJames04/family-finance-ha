@@ -17,11 +17,13 @@ from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import overtime as ot
 from app.domain import payroll as dom
+from app.domain import payrun
 from app.persistence.models import (
     DayType,
     Employment,
     OvertimeEntry,
     OvertimeStatus,
+    PayrollRun,
     UserProfile,
 )
 
@@ -240,3 +242,82 @@ def overtime_transition(
     emit(session, household.id, actor, action, "overtime_entry", o.id,
          {"employment_id": emp_id, "status": o.status.value})
     return schemas.OvertimeOut.model_validate(o)
+
+
+def _run(session: Session, emp_id: int, run_id: int) -> PayrollRun:
+    r = session.get(PayrollRun, run_id)
+    if r is None or r.employment_id != emp_id:
+        raise HTTPException(404, f"payroll run {run_id} not found")
+    return r
+
+
+@router.get("/{emp_id}/payroll-runs",
+            response_model=list[schemas.PayrollRunOut])
+def list_payroll_runs(
+    emp_id: int, household: HouseholdDep, session: SessionDep,
+) -> list[schemas.PayrollRunOut]:
+    e = _get(session, household.id, emp_id)
+    return [schemas.PayrollRunOut.model_validate(r)
+            for r in payrun.runs_for_employment(session, e.id)]
+
+
+@router.post("/{emp_id}/payroll-runs",
+             response_model=schemas.PayrollRunOut, status_code=201)
+def create_payroll_run(
+    emp_id: int, body: schemas.PayrollRunIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.PayrollRunOut:
+    e = _get(session, household.id, emp_id)
+    r = payrun.generate(
+        session, e, start=body.period_start, end=body.period_end,
+        pay_date=body.pay_date,
+        bonus_pence=body.bonus.pence if body.bonus else 0,
+        allowance_pence=body.allowance.pence
+        if body.allowance else 0,
+        unpaid_leave_pence=body.unpaid_leave.pence
+        if body.unpaid_leave else 0)
+    emit(session, household.id, actor, "create", "payroll_run", r.id,
+         {"employment_id": e.id, "period_end": str(r.period_end),
+          "status": r.status.value})
+    return schemas.PayrollRunOut.model_validate(r)
+
+
+@router.get("/{emp_id}/payroll-runs/{run_id}",
+            response_model=schemas.PayrollRunOut)
+def get_payroll_run(
+    emp_id: int, run_id: int, household: HouseholdDep,
+    session: SessionDep,
+) -> schemas.PayrollRunOut:
+    _get(session, household.id, emp_id)
+    return schemas.PayrollRunOut.model_validate(
+        _run(session, emp_id, run_id))
+
+
+@router.post("/{emp_id}/payroll-runs/{run_id}/reconcile",
+             response_model=schemas.PayrollRunOut)
+def reconcile_payroll_run(
+    emp_id: int, run_id: int, body: schemas.PayrollReconcileIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.PayrollRunOut:
+    _get(session, household.id, emp_id)
+    r = _run(session, emp_id, run_id)
+    variances = payrun.reconcile(session, r, body.actuals)
+    emit(session, household.id, actor, "reconcile", "payroll_run",
+         r.id, {"employment_id": emp_id,
+                "variance_kinds": [v.kind.value for v in variances],
+                "variance_count": len(variances)})
+    return schemas.PayrollRunOut.model_validate(r)
+
+
+@router.post("/{emp_id}/payroll-runs/{run_id}/correct",
+             response_model=schemas.PayrollRunOut, status_code=201)
+def correct_payroll_run(
+    emp_id: int, run_id: int, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> schemas.PayrollRunOut:
+    _get(session, household.id, emp_id)
+    r = _run(session, emp_id, run_id)
+    new = payrun.correct(session, r)
+    emit(session, household.id, actor, "correct", "payroll_run", r.id,
+         {"employment_id": emp_id, "corrected_by": new.id})
+    return schemas.PayrollRunOut.model_validate(new)
