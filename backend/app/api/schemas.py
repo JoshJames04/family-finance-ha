@@ -1190,6 +1190,8 @@ class NotificationRuleIn(BaseModel):
     channel: str = Field(default="ha_notify", max_length=40)
     digest: bool = False
     digest_window_minutes: int = Field(default=60, ge=1, le=10080)
+    service: str | None = Field(default=None, max_length=80)
+    privacy_safe: bool = True
 
 
 class NotificationRuleOut(BaseModel):
@@ -1204,6 +1206,8 @@ class NotificationRuleOut(BaseModel):
     digest: bool
     digest_window_minutes: int
     enabled: bool
+    service: str | None
+    privacy_safe: bool
 
 
 class NotificationEventOut(BaseModel):
@@ -1225,12 +1229,20 @@ class NotificationDeliveryOut(BaseModel):
     rule_id: int
     channel: str
     event_count: int
+    status: str
+    error: str | None
+    sent_at: datetime | None
     created_at: datetime
 
 
 class DispatchOut(BaseModel):
     deliveries: list[NotificationDeliveryOut]
     events_delivered: int
+
+
+class DeliverOut(BaseModel):
+    sent: int
+    failed: int
 
 
 class CategorisationRuleIn(BaseModel):

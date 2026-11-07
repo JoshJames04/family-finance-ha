@@ -50,12 +50,15 @@ def create_rule(session: Session, household_id: int, *,
                 target_profile_id: int | None = None,
                 channel: str = "ha_notify",
                 digest: bool = False,
-                digest_window_minutes: int = 60) -> NotificationRule:
+                digest_window_minutes: int = 60,
+                service: str | None = None,
+                privacy_safe: bool = True) -> NotificationRule:
     r = NotificationRule(
         household_id=household_id, name=name, kind=kind,
         params=params or {}, target_profile_id=target_profile_id,
         channel=channel, digest=digest,
-        digest_window_minutes=digest_window_minutes)
+        digest_window_minutes=digest_window_minutes,
+        service=service, privacy_safe=privacy_safe)
     session.add(r)
     session.flush()
     return r
