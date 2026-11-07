@@ -11,6 +11,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 # Env var first (survives docker compose exec on Windows where a positional
 # "/data" arg gets path-mangled by MSYS), then argv, then local default.
@@ -19,7 +20,7 @@ DATA_DIR = Path(
 )
 
 
-def synthetic_household() -> dict:
+def synthetic_household() -> dict[str, Any]:
     return {
         "household": {"name": "Test Household", "locale": "en-GB", "currency": "GBP"},
         "members": [
