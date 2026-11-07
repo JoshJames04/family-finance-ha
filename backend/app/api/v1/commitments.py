@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.domain import schedule
 from app.domain.recurring import materialise
 from app.persistence.models import Account, RecurringCommitment
 
@@ -62,6 +63,7 @@ def create_commitment(
     )
     session.add(c)
     session.flush()
+    schedule.rematerialize_commitment(session, c)
     emit(session, household.id, actor, "create",
          "recurring_commitment", c.id, {"name": c.name})
     return schemas.CommitmentOut.model_validate(c)
@@ -74,6 +76,7 @@ def materialise_commitment(
 ) -> schemas.MaterialiseResult:
     c = _get(session, household.id, cid)
     made = materialise(session, c, horizon)
+    schedule.rematerialize_commitment(session, c)
     emit(session, household.id, actor, "materialise",
          "recurring_commitment", c.id,
          {"created": [t.id for t in made]})
@@ -88,5 +91,6 @@ def deactivate_commitment(
 ) -> None:
     c = _get(session, household.id, cid)
     c.active = False
+    schedule.rematerialize_commitment(session, c)  # drops future rows
     emit(session, household.id, actor, "deactivate",
          "recurring_commitment", c.id)

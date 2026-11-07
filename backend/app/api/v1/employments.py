@@ -17,7 +17,7 @@ from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import overtime as ot
 from app.domain import payroll as dom
-from app.domain import payrun
+from app.domain import payrun, schedule
 from app.persistence.models import (
     DayType,
     Employment,
@@ -281,6 +281,7 @@ def create_payroll_run(
         unpaid_leave_pence=body.unpaid_leave.pence
         if body.unpaid_leave else 0,
         unpaid_leave_days=body.unpaid_leave_days)
+    schedule.rematerialize_payroll_run(session, r)
     emit(session, household.id, actor, "create", "payroll_run", r.id,
          {"employment_id": e.id, "period_end": str(r.period_end),
           "status": r.status.value})
@@ -307,6 +308,7 @@ def reconcile_payroll_run(
     _get(session, household.id, emp_id)
     r = _run(session, emp_id, run_id)
     variances = payrun.reconcile(session, r, body.actuals)
+    schedule.rematerialize_payroll_run(session, r)  # → scheduled
     emit(session, household.id, actor, "reconcile", "payroll_run",
          r.id, {"employment_id": emp_id,
                 "variance_kinds": [v.kind.value for v in variances],
@@ -323,6 +325,8 @@ def correct_payroll_run(
     _get(session, household.id, emp_id)
     r = _run(session, emp_id, run_id)
     new = payrun.correct(session, r)
+    schedule.rematerialize_payroll_run(session, r)    # drop corrected
+    schedule.rematerialize_payroll_run(session, new)  # add correction
     emit(session, household.id, actor, "correct", "payroll_run", r.id,
          {"employment_id": emp_id, "corrected_by": new.id})
     return schemas.PayrollRunOut.model_validate(new)

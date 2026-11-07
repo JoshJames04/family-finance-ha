@@ -14,7 +14,9 @@ from app.persistence.models import (
     BudgetLineSide,
     BudgetPeriodType,
     BudgetStatus,
+    Confidence,
     DayType,
+    ExpectedSource,
     Frequency,
     OvertimeStatus,
     PayrollComponentKind,
@@ -560,3 +562,23 @@ class PayrollRunOut(BaseModel):
     net_pence: int
     corrects_id: int | None
     components: list[PayrollComponentOut] = []
+
+
+class ExpectedMovementIn(BaseModel):
+    account_id: int | None = None
+    expected_date: date
+    amount: Money
+    label: str = Field(min_length=1, max_length=200)
+
+
+class ExpectedMovementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    account_id: int | None
+    expected_date: date_t
+    amount_pence: int
+    label: str
+    confidence: Confidence
+    source_type: ExpectedSource
+    source_id: int
