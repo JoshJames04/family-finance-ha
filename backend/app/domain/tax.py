@@ -60,12 +60,15 @@ class Deductions:
     ni_pence: int
     student_loan_pence: int
     pension_pence: int
+    # Contribution deducted from NET pay — nonzero only for relief at
+    # source; net_pay/sacrifice already sit inside taxable_gross.
+    net_pension_deduction_pence: int = 0
 
     @property
     def net_pence(self) -> int:
         return (self.taxable_gross_pence - self.tax_pence
                 - self.ni_pence - self.student_loan_pence
-                - self.pension_pence)
+                - self.net_pension_deduction_pence)
 
 
 def parse_tax_code(raw: str) -> TaxCode:
@@ -234,7 +237,10 @@ def compute_period(
     return Deductions(
         taxable_gross_pence=taxable_gross, tax_pence=tax,
         ni_pence=ni_pence, student_loan_pence=sl_pence,
-        pension_pence=pension_pence)
+        pension_pence=pension_pence,
+        net_pension_deduction_pence=(
+            pension_pence
+            if pension_mode is PensionMode.relief_at_source else 0))
 
 
 @lru_cache(maxsize=1)
