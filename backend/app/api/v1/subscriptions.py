@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import schedule
+from app.domain import detection, schedule
 from app.domain import subscriptions as subs
-from app.persistence.models import Subscription
+from app.persistence.models import DetectionCandidate, Subscription
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
@@ -61,6 +61,81 @@ def create_subscription(
     emit(session, household.id, actor, "create", "subscription", s.id,
          {"payee": s.payee, "frequency": s.frequency.value})
     return _out(s)
+
+
+def _get_candidate(
+    session: Session, household_id: int, cid: int
+) -> DetectionCandidate:
+    c = session.get(DetectionCandidate, cid)
+    if c is None or c.household_id != household_id:
+        raise HTTPException(404, f"candidate {cid} not found")
+    return c
+
+
+@router.post(
+    "/detect",
+    response_model=list[schemas.DetectionCandidateOut])
+def detect_candidates(
+    body: schemas.DetectionScanIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> list[schemas.DetectionCandidateOut]:
+    found = detection.scan(
+        session, household.id,
+        min_occurrences=body.min_occurrences)
+    if found:
+        emit(session, household.id, actor, "detect",
+             "detection_candidate", 0,
+             {"touched": len(found)})
+    return [
+        schemas.DetectionCandidateOut.model_validate(c)
+        for c in found]
+
+
+@router.get(
+    "/candidates",
+    response_model=list[schemas.DetectionCandidateOut])
+def list_candidates(
+    household: HouseholdDep, session: SessionDep,
+    include_dismissed: Annotated[bool, Query()] = False,
+) -> list[schemas.DetectionCandidateOut]:
+    rows = detection.candidates(
+        session, household.id, include_dismissed=include_dismissed)
+    return [schemas.DetectionCandidateOut.model_validate(c)
+            for c in rows]
+
+
+@router.post(
+    "/candidates/{cid}/confirm",
+    response_model=schemas.SubscriptionOut, status_code=201)
+def confirm_candidate(
+    cid: int, body: schemas.CandidateConfirmIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.SubscriptionOut:
+    c = _get_candidate(session, household.id, cid)
+    s = detection.confirm(
+        session, c, category_id=body.category_id,
+        account_id=body.account_id,
+        tolerance_pct=body.tolerance_pct)
+    schedule.rematerialize_subscription(session, s)
+    emit(session, household.id, actor, "confirm",
+         "detection_candidate", c.id,
+         {"subscription_id": s.id})
+    return _out(s)
+
+
+@router.post(
+    "/candidates/{cid}/dismiss",
+    response_model=schemas.DetectionCandidateOut)
+def dismiss_candidate(
+    cid: int, body: schemas.CandidateDismissIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.DetectionCandidateOut:
+    c = _get_candidate(session, household.id, cid)
+    detection.dismiss(c, body.reason)
+    session.flush()
+    emit(session, household.id, actor, "dismiss",
+         "detection_candidate", c.id, {"reason": body.reason})
+    return schemas.DetectionCandidateOut.model_validate(c)
 
 
 @router.get("/{sid}", response_model=schemas.SubscriptionOut)

@@ -1298,3 +1298,68 @@ class SubscriptionPrice(Base):
     subscription: Mapped[Subscription] = relationship(
         back_populates="prices")
     transaction: Mapped[Transaction | None] = relationship()
+
+
+class CandidateType(enum.StrEnum):
+    subscription = "subscription"
+    variable_dd = "variable_dd"
+
+
+class CandidateStatus(enum.StrEnum):
+    pending = "pending"
+    confirmed = "confirmed"
+    dismissed = "dismissed"
+
+
+class DetectionCandidate(TimestampMixin, Base):
+    """A recurring-outflow pattern found by the detection scan (#106).
+
+    Nothing becomes a subscription until confirmed; dismissed rows
+    suppress identical re-proposals on later scans. Variable-amount
+    patterns are typed ``variable_dd`` — never confirmed as fixed
+    subscriptions."""
+
+    __tablename__ = "detection_candidate"
+    __table_args__ = (
+        CheckConstraint("expected_pence >= 0",
+                        name="ck_candidate_expected"),
+        CheckConstraint("confidence BETWEEN 0 AND 100",
+                        name="ck_candidate_confidence"),
+        CheckConstraint("occurrence_count >= 1",
+                        name="ck_candidate_occurrences"),
+        CheckConstraint(
+            "status IN ('pending','confirmed','dismissed')",
+            name="ck_candidate_status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    payee: Mapped[str] = mapped_column(String(200), nullable=False)
+    payee_normalised: Mapped[str] = mapped_column(
+        String(200), nullable=False, index=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True)
+    frequency: Mapped[Frequency] = mapped_column(
+        Enum(Frequency), nullable=False)
+    expected_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    tolerance_pct: Mapped[int] = mapped_column(
+        Integer, default=10, nullable=False)
+    candidate_type: Mapped[CandidateType] = mapped_column(
+        Enum(CandidateType), nullable=False)
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False)
+    occurrence_count: Mapped[int] = mapped_column(Integer,
+                                                  nullable=False)
+    first_seen: Mapped[date_t] = mapped_column(Date, nullable=False)
+    last_seen: Mapped[date_t] = mapped_column(Date, nullable=False)
+    status: Mapped[CandidateStatus] = mapped_column(
+        Enum(CandidateStatus), default=CandidateStatus.pending,
+        nullable=False)
+    subscription_id: Mapped[int | None] = mapped_column(
+        ForeignKey("subscription.id"), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    household: Mapped[Household] = relationship()
+    subscription: Mapped[Subscription | None] = relationship()
