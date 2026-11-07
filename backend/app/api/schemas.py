@@ -28,9 +28,11 @@ from app.persistence.models import (
     GoalType,
     LoanDirection,
     OvertimeStatus,
+    PaymentStatus,
     PayrollComponentKind,
     PayrollRunStatus,
     PensionMode,
+    PurchaseStatus,
     Role,
     StudentLoanPlan,
     TaxJurisdiction,
@@ -803,3 +805,61 @@ class LoanPositionOut(BaseModel):
     accrued_interest_pence: int
     expected_to_date_pence: int
     drift_pence: int
+
+
+class SeasonalEventIn(BaseModel):
+    year: int = Field(ge=1900, le=2200)
+    type: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    budget: Money
+    savings_goal_id: int | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class SeasonalEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    year: int
+    type: str
+    name: str
+    budget_pence: int
+    savings_goal_id: int | None
+    notes: str | None
+
+
+class EventTotalsOut(BaseModel):
+    planned_pence: int
+    actual_pence: int
+    committed_pence: int
+    remaining_pence: int
+
+
+class GiftIn(BaseModel):
+    recipient: str = Field(min_length=1, max_length=120)
+    idea: str = Field(min_length=1, max_length=300)
+    planned: Money
+    actual: Money | None = None
+    notes: str | None = Field(default=None, max_length=300)
+
+
+class GiftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    event_id: int
+    recipient: str
+    idea: str
+    planned_pence: int
+    actual_pence: int | None
+    purchase_status: PurchaseStatus
+    payment_status: PaymentStatus
+    transaction_id: int | None
+    notes: str | None
+
+
+class GiftTransitionIn(BaseModel):
+    to: PurchaseStatus
+
+
+class GiftPayIn(BaseModel):
+    actual: Money | None = None
+    transaction_id: int | None = None
