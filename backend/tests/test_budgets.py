@@ -547,3 +547,113 @@ class TestRollover:
         d = client.get(f"/api/v1/budgets/{b2}", headers=h).json()
         # nothing spent → full 50000 surplus carries onto original
         assert d["lines"][0]["revised_pence"] == 100000
+
+
+class TestMemberScoping:
+    """Issue #61 — private vs shared budgets enforced at the API."""
+
+    def _setup(self, client: TestClient):
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        pa = client.post("/api/v1/profiles", json={
+            "display_name": "Alex", "role": "member"},
+            headers=h).json()["id"]
+        pb = client.post("/api/v1/profiles", json={
+            "display_name": "Blair", "role": "member"},
+            headers=h).json()["id"]
+        admin = client.post("/api/v1/profiles", json={
+            "display_name": "Root", "role": "admin"},
+            headers=h).json()["id"]
+        return hid, pa, pb, admin
+
+    def _budget(self, client, hid, owner, name="B"):
+        return client.post("/api/v1/budgets", json={
+            "name": name, "period_type": "monthly",
+            "start_date": "2026-05-01", "end_date": "2026-05-31",
+            "owner_profile_id": owner},
+            headers={"X-Household-Id": str(hid)}).json()["id"]
+
+    def test_private_invisible_to_other_member(
+            self, client: TestClient) -> None:
+        hid, pa, pb, _ = self._setup(client)
+        bid = self._budget(client, hid, pa)
+        h_b = {"X-Household-Id": str(hid), "X-Profile-Id": str(pb)}
+        assert client.get(f"/api/v1/budgets/{bid}",
+                          headers=h_b).status_code == 404
+        # owner sees it
+        h_a = {"X-Household-Id": str(hid), "X-Profile-Id": str(pa)}
+        assert client.get(f"/api/v1/budgets/{bid}",
+                          headers=h_a).status_code == 200
+
+    def test_list_scoped_per_member(self, client: TestClient) -> None:
+        hid, pa, pb, _ = self._setup(client)
+        self._budget(client, hid, pa, "PrivA")
+        self._budget(client, hid, pb, "PrivB")
+        self._budget(client, hid, None, "Shared")
+        h_b = {"X-Household-Id": str(hid), "X-Profile-Id": str(pb)}
+        names = {b["name"] for b in
+                 client.get("/api/v1/budgets", headers=h_b
+                            ).json()["items"]}
+        assert names == {"PrivB", "Shared"}  # B's own + shared, not A's
+        # anonymous → shared only
+        anon = {"X-Household-Id": str(hid)}
+        names = {b["name"] for b in
+                 client.get("/api/v1/budgets", headers=anon
+                            ).json()["items"]}
+        assert names == {"Shared"}
+        # household aggregate view
+        names = {b["name"] for b in client.get(
+            "/api/v1/budgets", headers=anon,
+            params={"shared_only": "true"}).json()["items"]}
+        assert names == {"Shared"}
+
+    def test_admin_sees_all(self, client: TestClient) -> None:
+        hid, pa, _, admin = self._setup(client)
+        bid = self._budget(client, hid, pa)
+        h_ad = {"X-Household-Id": str(hid), "X-Profile-Id": str(admin)}
+        assert client.get(f"/api/v1/budgets/{bid}",
+                          headers=h_ad).status_code == 200
+
+    def test_share_conversion_audited(self, client: TestClient) -> None:
+        hid, pa, pb, _ = self._setup(client)
+        bid = self._budget(client, hid, pa)
+        h_b = {"X-Household-Id": str(hid), "X-Profile-Id": str(pb)}
+        # B cannot share A's budget
+        assert client.post(f"/api/v1/budgets/{bid}/share",
+                           headers=h_b).status_code == 404
+        h_a = {"X-Household-Id": str(hid), "X-Profile-Id": str(pa)}
+        r = client.post(f"/api/v1/budgets/{bid}/share", headers=h_a)
+        assert r.status_code == 200
+        # now visible to B
+        assert client.get(f"/api/v1/budgets/{bid}",
+                          headers=h_b).status_code == 200
+        from app.persistence import session as ps
+        from app.persistence.models import AuditEvent
+        with ps._session_factory() as s:
+            ev = [e for e in s.query(AuditEvent).all()
+                  if e.entity_type == "budget" and e.entity_id == bid]
+        assert '"shared": true' in ev[-1].payload
+
+    def test_mutations_scoped(self, client: TestClient) -> None:
+        hid, pa, pb, _ = self._setup(client)
+        bid = self._budget(client, hid, pa)
+        cat = client.post("/api/v1/categories", json={"name": "F"},
+                          headers={"X-Household-Id": str(hid)}).json()
+        h_b = {"X-Household-Id": str(hid), "X-Profile-Id": str(pb)}
+        assert client.post(f"/api/v1/budgets/{bid}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 100}, headers=h_b).status_code == 404
+        assert client.post(f"/api/v1/budgets/{bid}/approve",
+                           headers=h_b).status_code == 404
+
+    def test_deactivated_profile_403(self, client: TestClient) -> None:
+        hid, pa, _, _ = self._setup(client)
+        from app.persistence import session as ps
+        from app.persistence.models import UserProfile
+        with ps._session_factory() as s:
+            s.get(UserProfile, pa).is_active = False
+            s.commit()
+        r = client.get("/api/v1/budgets", headers={
+            "X-Household-Id": str(hid), "X-Profile-Id": str(pa)})
+        assert r.status_code == 403

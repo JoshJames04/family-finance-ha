@@ -14,6 +14,7 @@ from app.persistence.models import (
     BudgetPeriodType,
     BudgetStatus,
     Frequency,
+    Role,
     TransactionSource,
     TransactionStatus,
 )
@@ -298,3 +299,21 @@ class RolloverIn(BaseModel):
 class RolloverResult(BaseModel):
     applied: int
     carries: list[dict[str, object]]
+
+
+class ProfileIn(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+    role: Role = Role.member
+    ha_user_id: str | None = Field(default=None, max_length=64)
+
+
+class ProfileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    display_name: str
+    role: Role
+    is_active: bool
+
+
+class ShareBudgetIn(BaseModel):
+    share: bool = True
