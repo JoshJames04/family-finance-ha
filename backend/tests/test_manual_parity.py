@@ -57,14 +57,15 @@ class TestManualAccountLifecycle:
 
     def test_no_sync_affordances(self, client: TestClient,
                                  h: dict) -> None:
-        """Manual accounts expose no sync-only fields or routes."""
+        """Manual accounts expose no sync-only fields or bank
+        affordances. Generic /sync monitoring routes (issue #67)
+        are legitimate; Starling-specific wiring is not yet."""
         _acct(client, h)
         a = client.get("/api/v1/accounts", headers=h
                        ).json()["items"][0]
         assert not any("sync" in k or "connection" in k for k in a)
         spec = client.get("/openapi.json").json()
-        assert not any("sync" in p or "starling" in p
-                       for p in spec["paths"])
+        assert not any("starling" in p for p in spec["paths"])
 
 
 class TestManualTransactions:

@@ -15,7 +15,7 @@ from app.api.deps import (
     SessionDep,
 )
 from app.domain import budgets as dom
-from app.domain import schedule
+from app.domain import rbac, schedule
 from app.persistence.models import (
     Budget,
     BudgetLine,
@@ -37,6 +37,12 @@ def _visible(b: Budget, profile: UserProfile | None) -> bool:
         return False
     return (profile.role == Role.admin
             or b.owner_profile_id == profile.id)
+
+
+def _w(b: Budget, profile: UserProfile | None) -> None:
+    """Mutation gate — resolved identities enforced (issue #32)."""
+    if not rbac.write_allowed(b.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
 
 
 def _get(session: Session, household_id: int, budget_id: int,
@@ -82,8 +88,10 @@ def list_budgets(
 @router.post("", response_model=schemas.BudgetOut, status_code=201)
 def create_budget(
     body: schemas.BudgetIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.BudgetOut:
+    if not rbac.write_allowed(body.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     b = dom.create_budget(
         session, household.id, body.name, body.period_type,
         body.start_date, body.end_date,
@@ -110,6 +118,7 @@ def add_line(
     profile: ProfileDep,
 ) -> schemas.BudgetLineOut:
     b = _get(session, household.id, budget_id, profile)
+    _w(b, profile)
     cat = session.get(Category, body.category_id)
     if cat is None or cat.household_id != household.id:
         raise HTTPException(404, "category not found")
@@ -129,6 +138,7 @@ def revise_line(
     profile: ProfileDep,
 ) -> schemas.BudgetLineOut:
     b = _get(session, household.id, budget_id, profile)
+    _w(b, profile)
     line = session.get(BudgetLine, line_id)
     if line is None or line.budget_id != b.id:
         raise HTTPException(404, "line not found")
@@ -155,6 +165,7 @@ def approve_budget(
 ) -> schemas.BudgetOut:
     b = dom.approve(session, _get(session, household.id, budget_id,
                                   profile))
+    _w(b, profile)
     emit(session, household.id, actor, "update", "budget", b.id,
          {"status": b.status.value})
     # budget-derived transfer rules recompute on approval (#86)
@@ -174,6 +185,7 @@ def lock_budget(
 ) -> schemas.BudgetOut:
     b = dom.lock(session, _get(session, household.id, budget_id,
                                profile))
+    _w(b, profile)
     emit(session, household.id, actor, "update", "budget", b.id,
          {"status": b.status.value})
     return schemas.BudgetOut.model_validate(b)
@@ -232,8 +244,10 @@ def list_templates(
              status_code=201)
 def create_template(
     body: schemas.BudgetTemplateIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.BudgetTemplateOut:
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     t = dom.create_template(session, household.id, body.name)
     emit(session, household.id, actor, "create", "budget_template",
          t.id, {"name": t.name})
@@ -258,7 +272,10 @@ def get_template(
 def add_template_line(
     template_id: int, body: schemas.BudgetTemplateLineIn,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.BudgetTemplateLineOut:
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     t = _get_template(session, household.id, template_id)
     cat = session.get(Category, body.category_id)
     if cat is None or cat.household_id != household.id:
@@ -277,7 +294,10 @@ def edit_template_line(
     template_id: int, line_id: int,
     body: schemas.BudgetTemplateLinePatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.BudgetTemplateLineOut:
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     t = _get_template(session, household.id, template_id)
     line = session.get(BudgetTemplateLine, line_id)
     if line is None or line.template_id != t.id:
@@ -298,6 +318,7 @@ def copy_forward(
     profile: ProfileDep,
 ) -> schemas.CopyResult:
     src = _get(session, household.id, budget_id, profile)
+    _w(src, profile)
     new, warnings = dom.copy_forward(
         session, src, body.name, body.start_date, body.end_date,
         period_type=body.period_type)
@@ -316,6 +337,7 @@ def apply_template(
     profile: ProfileDep,
 ) -> schemas.ApplyResult:
     b = _get(session, household.id, budget_id, profile)
+    _w(b, profile)
     t = _get_template(session, household.id, body.template_id)
     created, warnings = dom.apply_template(session, b, t)
     emit(session, household.id, actor, "update", "budget", b.id,
@@ -332,6 +354,7 @@ def rollover(
     profile: ProfileDep,
 ) -> schemas.RolloverResult:
     target = _get(session, household.id, budget_id, profile)
+    _w(target, profile)
     src = _get(session, household.id, body.source_budget_id,
                profile)
     events = dom.apply_rollover(session, src, target)
@@ -349,6 +372,7 @@ def share_budget(
 ) -> schemas.BudgetOut:
     """Explicit private-to-shared conversion - audited (issue #61)."""
     b = _get(session, household.id, budget_id, profile)
+    _w(b, profile)
     if (profile is None or
             (b.owner_profile_id is not None
              and profile.role != Role.admin
@@ -423,6 +447,7 @@ def bulk_revise_lines(
     """Table-UX bulk edit: one request revises many lines. Invalid
     transitions bubble as 409 problem-details like single edits."""
     b = _get(session, household.id, budget_id, profile)
+    _w(b, profile)
     updated, skipped = 0, []
     for item in body.revisions:
         line = session.get(BudgetLine, item.line_id)

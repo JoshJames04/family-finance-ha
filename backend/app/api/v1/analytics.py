@@ -42,3 +42,23 @@ def net_worth_now(
     return schemas.NetWorthOut(
         net_worth_pence=analytics.net_worth_at(
             session, household.id, date.today()))
+
+
+@router.get("/forecast",
+            response_model=list[schemas.ForecastRowOut])
+def expenditure_forecast(
+    household: HouseholdDep, session: SessionDep,
+    months: Annotated[int, Query(ge=1, le=36)] = 12,
+    history_months: Annotated[int, Query(ge=1, le=60)] = 12,
+) -> list[schemas.ForecastRowOut]:
+    """Explainable per-category spend forecast (issue #113) — every
+    row names its method, confidence class, and input window."""
+    from app.domain import forecasting
+    return [schemas.ForecastRowOut(
+        category_id=r.category_id, month=r.month,
+        amount_pence=r.amount_pence, method=r.method,
+        confidence=r.confidence, input_start=r.input_start,
+        input_end=r.input_end, input_months=r.input_months)
+        for r in forecasting.forecast(
+            session, household.id, months=months,
+            history_months=history_months)]
