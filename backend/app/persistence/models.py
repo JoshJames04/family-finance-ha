@@ -1897,3 +1897,50 @@ class BankAccountMapping(TimestampMixin, Base):
         Integer, nullable=True)
     balance_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
+
+
+class AnomalyTrigger(enum.StrEnum):
+    """Explainable detection triggers (issue #114) — each flag
+    records which rule fired and the values behind it."""
+
+    amount_outlier = "amount_outlier"      # > k·MAD within payee
+    category_outlier = "category_outlier"  # > k·MAD within category
+    new_payee_large = "new_payee_large"    # unseen payee, large amt
+    burst = "burst"                        # freq spike same payee
+
+
+class AnomalyStatus(enum.StrEnum):
+    pending = "pending"
+    confirmed = "confirmed"   # user says genuinely unusual
+    dismissed = "dismissed"   # user says normal — feeds tuning
+
+
+class AnomalyFlag(Base):
+    """A suspicious transaction queued for review. ``detail`` holds
+    the trigger's computed values (median, deviation, counts) so the
+    flag can explain itself — the explanation is never absent."""
+
+    __tablename__ = "anomaly_flag"
+    __table_args__ = (
+        UniqueConstraint("transaction_id", "trigger",
+                         name="uq_anomaly_txn_trigger"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), nullable=False, index=True)
+    trigger: Mapped[AnomalyTrigger] = mapped_column(
+        Enum(AnomalyTrigger), nullable=False)
+    status: Mapped[AnomalyStatus] = mapped_column(
+        Enum(AnomalyStatus), default=AnomalyStatus.pending,
+        nullable=False)
+    detail: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)

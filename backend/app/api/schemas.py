@@ -1379,3 +1379,21 @@ class BankMappingOut(BaseModel):
 class MappingLinkIn(BaseModel):
     account_id: int | None = None
     create_account: bool = False   # mint an internal Account if set
+
+
+class AnomalyFlagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    transaction_id: int
+    trigger: str
+    status: str
+    detail: dict[str, object]
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class AnomalyScanOut(BaseModel):
+    scanned: int
+    flagged: int
+    suppressed: int
