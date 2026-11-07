@@ -5,16 +5,23 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import (
+    ActorDep,
+    HouseholdDep,
+    ProfileDep,
+    SessionDep,
+)
+from app.domain import deliver
 from app.domain import notifications as notify
 from app.domain.notifications import NotificationError
 from app.persistence.models import (
+    NotificationDelivery,
     NotificationEvent,
     NotificationKind,
     NotificationRule,
@@ -62,7 +69,8 @@ def create_rule(
         kind=NotificationKind(body.kind), params=body.params,
         target_profile_id=body.target_profile_id,
         channel=body.channel, digest=body.digest,
-        digest_window_minutes=body.digest_window_minutes)
+        digest_window_minutes=body.digest_window_minutes,
+        service=body.service, privacy_safe=body.privacy_safe)
     emit(session, household.id, actor, "create",
          "notification_rule", r.id, {"kind": body.kind})
     return schemas.NotificationRuleOut.model_validate(r)
@@ -168,3 +176,68 @@ def snooze_event(
     emit(session, household.id, actor, "snooze",
          "notification_event", e.id)
     return schemas.NotificationEventOut.model_validate(e)
+
+
+class _UrllibNotifier:
+    """Prod transport: POST {ha_url}/api/services/notify/{service}
+    with the supervisor token — no new deps (issue #119)."""
+
+    def __init__(self, ha_url: str, token: str | None) -> None:
+        self._url = ha_url.rstrip("/")
+        self._token = token
+
+    def notify(self, service: str | None, title: str,
+               message: str) -> None:
+        import json as _json
+        import urllib.request
+        svc = service or "notify"
+        req = urllib.request.Request(
+            f"{self._url}/api/services/notify/{svc}",
+            data=_json.dumps(
+                {"title": title, "message": message}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                **({"Authorization": f"Bearer {self._token}"}
+                   if self._token else {})})
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+
+
+def _notifier(request: Request) -> deliver.HaNotifier:
+    """Injectable transport — tests swap app.state.ha_notifier."""
+    override: deliver.HaNotifier | None = getattr(
+        request.app.state, "ha_notifier", None)
+    if override is not None:
+        return override
+    settings = request.app.state.settings
+    token = (settings.supervisor_token.get_secret_value()
+             if settings.supervisor_token is not None else None)
+    return _UrllibNotifier(settings.ha_url, token)
+
+
+@router.post("/deliver", response_model=schemas.DeliverOut)
+def deliver_now(
+    request: Request, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+) -> schemas.DeliverOut:
+    """Attempt every pending delivery (issue #119). Per-delivery
+    failures land on the row and surface here — the endpoint always
+    reports, never crashes."""
+    res = deliver.deliver_pending(
+        session, household.id, _notifier(request))
+    return schemas.DeliverOut(sent=res.sent, failed=res.failed)
+
+
+@router.get("/deliveries",
+            response_model=list[schemas.NotificationDeliveryOut])
+def list_deliveries(
+    household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+) -> list[schemas.NotificationDeliveryOut]:
+    """Delivery monitoring — failed rows surface their error."""
+    rows = session.scalars(
+        select(NotificationDelivery).where(
+            NotificationDelivery.household_id == household.id)
+        .order_by(NotificationDelivery.id.desc()).limit(200)).all()
+    return [schemas.NotificationDeliveryOut.model_validate(d)
+            for d in rows]

@@ -1532,6 +1532,12 @@ class NotificationRule(TimestampMixin, Base):
         Integer, default=60, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True,
                                           nullable=False)
+    # issue #119: HA notify service suffix (None → broadcast via
+    # notify.notify); privacy-safe strips amounts/payees/digits.
+    service: Mapped[str | None] = mapped_column(
+        String(80), nullable=True)
+    privacy_safe: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False)
 
     events: Mapped[list[NotificationEvent]] = relationship(
         back_populates="rule", cascade="all, delete-orphan")
@@ -1550,6 +1556,12 @@ class NotificationDelivery(Base):
         ForeignKey("notification_rule.id"), nullable=False, index=True)
     channel: Mapped[str] = mapped_column(String(40), nullable=False)
     event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # issue #119 transport lifecycle: pending → sent | failed
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now())
 
