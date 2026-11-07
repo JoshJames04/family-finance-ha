@@ -377,6 +377,21 @@ def budget_report(
                for r in rows])
 
 
+@router.get("/reports/accuracy-ranking",
+            response_model=list[schemas.AccuracyRankRow])
+def accuracy_ranking(
+    household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+) -> list[schemas.AccuracyRankRow]:
+    """Worst-forecast categories first, across visible budgets."""
+    budgets = session.execute(
+        select(Budget).where(Budget.household_id == household.id)
+    ).scalars().all()
+    visible = [b for b in budgets if _visible(b, profile)]
+    return [schemas.AccuracyRankRow.model_validate(r)
+            for r in dom.accuracy_ranking(session, visible)]
+
+
 @router.get("/reports/accuracy/{category_id}",
             response_model=schemas.AccuracyHistory)
 def accuracy_history(

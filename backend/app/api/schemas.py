@@ -401,6 +401,15 @@ class AccuracyHistory(BaseModel):
     points: list[AccuracyPoint]
 
 
+class AccuracyRankRow(BaseModel):
+    category_id: int
+    name: str
+    periods: int
+    mean_accuracy_pct: float
+    mean_original_accuracy_pct: float
+    revision_delta_pct: float
+
+
 class BulkLineReviseItem(BaseModel):
     line_id: int
     amount: Money
