@@ -1,18 +1,26 @@
 """Transactions: filtered/paginated list, create, gated patch, bulk ops."""
 
+import csv
+import io
 from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, select
+from fastapi.responses import PlainTextResponse
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
-from app.persistence.models import Account, Transaction
+from app.persistence.models import (
+    Account,
+    Category,
+    Role,
+    Transaction,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -80,6 +88,59 @@ def list_transactions(
     return schemas.Page(
         items=[schemas.TransactionOut.model_validate(t) for t in rows],
         total=total, page=page, size=size)
+
+
+_EXPORT_COLUMNS = [
+    "id", "date", "settled_date", "account", "payee", "category",
+    "amount_pence", "status", "source", "transfer_id", "notes",
+]
+
+
+@router.get("/export.csv", response_class=PlainTextResponse)
+def export_transactions(
+    household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+) -> PlainTextResponse:
+    """RFC-4180 CSV export of the period (issue #115). Member-scoped:
+    anonymous sees shared accounts only; a member sees shared + their
+    own; admin sees everything. Ordered (date, id) — deterministic."""
+    if date_to < date_from:
+        raise HTTPException(422, "date_to before date_from")
+    stmt = (
+        select(Transaction, Account.name, Category.name)
+        .join(Account, Transaction.account_id == Account.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
+        .where(Account.household_id == household.id,
+               Transaction.date >= date_from,
+               Transaction.date <= date_to))
+    if profile is None:
+        stmt = stmt.where(Account.owner_profile_id.is_(None))
+    elif profile.role != Role.admin:
+        stmt = stmt.where(or_(
+            Account.owner_profile_id.is_(None),
+            Account.owner_profile_id == profile.id))
+    rows = session.execute(
+        stmt.order_by(Transaction.date, Transaction.id)).all()
+
+    buf = io.StringIO(newline="")
+    w = csv.writer(buf)
+    w.writerow(_EXPORT_COLUMNS)
+    for t, account_name, category_name in rows:
+        w.writerow([
+            t.id, t.date.isoformat(),
+            t.settled_date.isoformat() if t.settled_date else "",
+            account_name, t.payee, category_name or "",
+            t.amount_pence, t.status.value, t.source.value,
+            t.transfer_id or "", t.notes or "",
+        ])
+    return PlainTextResponse(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="transactions_'
+                 f"{date_from}_{date_to}.csv\""})
 
 
 @router.post("", response_model=schemas.TransactionOut, status_code=201)
