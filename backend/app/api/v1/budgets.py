@@ -372,9 +372,10 @@ def accuracy_history(
         raise HTTPException(404, "category not found")
     pts = dom.accuracy_history(session, household.id, category_id)
     # private budgets must not leak into an aggregate for other members
-    visible = [p for p in pts
-               if _visible(session.get(Budget, int(str(p["budget_id"]))),
-                           profile)]
+    visible = [
+        p for p in pts
+        if (b := session.get(Budget, int(str(p["budget_id"]))))
+        is not None and _visible(b, profile)]
     return schemas.AccuracyHistory(
         category_id=category_id,
         points=[schemas.AccuracyPoint.model_validate(p)
