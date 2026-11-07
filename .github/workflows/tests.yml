@@ -22,7 +22,7 @@ jobs:
             echo "present=no" >> "$GITHUB_OUTPUT"
             echo "::notice::No backend/ found - skipping backend job"
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.check.outputs.present == 'yes'
         with:
           python-version: '3.13'
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - uses: actions/setup-node@v4
@@ -151,7 +151,7 @@ jobs:
             echo "present=no" >> "$GITHUB_OUTPUT"
             echo "::notice::No custom_components found - skipping HA job"
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.check.outputs.present == 'yes'
         with:
           python-version: '3.13'
@@ -198,7 +198,7 @@ jobs:
             echo "present=no" >> "$GITHUB_OUTPUT"
             echo "::notice::No migrations found - skipping migrations job"
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.check.outputs.present == 'yes'
         with:
           python-version: '3.13'
