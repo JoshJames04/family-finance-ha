@@ -11,7 +11,12 @@ export function DataView<T>({
   empty: string;
   children: (data: NonNullable<T>) => ReactNode;
 }) {
-  if (state.loading) return <p className="ff-muted">Loading…</p>;
+  if (state.loading)
+    return (
+      <p className="ff-muted" role="status" aria-live="polite">
+        Loading…
+      </p>
+    );
   if (state.error)
     return (
       <p className="ff-error" role="alert">
