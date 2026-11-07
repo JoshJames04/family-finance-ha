@@ -32,6 +32,9 @@ node_modules/
 coverage/
 .vite/
 
+# Generated OpenAPI spec (frontend `gen:api` produces it)
+backend/openapi.json
+
 # OS / editor
 .DS_Store
 Thumbs.db
