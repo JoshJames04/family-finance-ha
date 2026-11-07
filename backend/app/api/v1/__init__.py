@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     accounts,
+    admin,
     budgets,
     categories,
     commitments,
@@ -22,3 +23,4 @@ v1_router.include_router(transactions.router)
 v1_router.include_router(transfers.router)
 v1_router.include_router(commitments.router)
 v1_router.include_router(profiles.router)
+v1_router.include_router(admin.router)
