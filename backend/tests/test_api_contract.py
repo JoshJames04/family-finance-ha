@@ -50,14 +50,24 @@ def _route_ops() -> set[tuple[str, str]]:
     return out
 
 
+_ROUTES_AT_IMPORT = len(_app.routes)
+
+
 class TestSpecCoverage:
     def test_every_route_is_documented(self) -> None:
         missing = _route_ops() - _spec_ops()
-        assert not missing, f"undocumented endpoints: {missing}"
+        assert not missing, (
+            f"undocumented endpoints: {missing} "
+            f"(routes={len(_app.routes)}, at_import={_ROUTES_AT_IMPORT})")
 
     def test_no_phantom_spec_paths(self) -> None:
         phantom = _spec_ops() - _route_ops()
-        assert not phantom, f"spec paths with no route: {phantom}"
+        routes = _route_ops()
+        assert not phantom, (
+            f"spec paths with no route: {phantom} "
+            f"(routes_now={len(routes)}, "
+            f"spec={len(_spec_ops())}, "
+            f"at_import={_ROUTES_AT_IMPORT})")
 
 
 # ---------- uniform problem-details ------------------------------
