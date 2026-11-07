@@ -47,6 +47,19 @@ def mock_api() -> Generator[AsyncMock]:
     ) as validate:
         validate.return_value = {"version": "0.1.0"}
         fetch.return_value = {
-            "app_version": "0.1.0", "account_count": 3}
+            "app_version": "0.1.0",
+            "account_count": 3,
+            "total_balance_pence": 152_340,
+            "connected_accounts": 0,
+            "sync_status": "manual",
+            "upcoming_bills_count": 4,
+            "next_payday": "2026-11-27",
+            "month_spend_pence": 84_200,
+            "month_remaining_pence": 115_800,
+            "budget_variance_pence": -3_100,
+            "goals_on_track": 2,
+            "goals_total": 3,
+            "outstanding_commitments": 1,
+        }
         fetch.validate = validate  # type: ignore[attr-defined]
         yield fetch
