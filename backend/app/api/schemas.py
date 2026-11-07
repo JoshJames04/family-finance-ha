@@ -35,6 +35,7 @@ from app.persistence.models import (
     PurchaseStatus,
     Role,
     StudentLoanPlan,
+    SubscriptionStatus,
     TaxJurisdiction,
     TransactionSource,
     TransactionStatus,
@@ -888,3 +889,62 @@ class EventRolloverIn(BaseModel):
     year: int = Field(ge=1900, le=2200)
     copy_planned: bool = False
     carry_remaining: bool = False
+
+
+class SubscriptionIn(BaseModel):
+    payee: str = Field(min_length=1, max_length=200)
+    frequency: Frequency
+    expected: Money
+    next_renewal_date: date
+    category_id: int | None = None
+    account_id: int | None = None
+    tolerance_pct: int = Field(default=10, ge=0, le=100)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class SubscriptionPatch(BaseModel):
+    payee: str | None = Field(default=None, min_length=1,
+                              max_length=200)
+    frequency: Frequency | None = None
+    expected: Money | None = None
+    next_renewal_date: date | None = None
+    category_id: int | None = None
+    account_id: int | None = None
+    tolerance_pct: int | None = Field(default=None, ge=0, le=100)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class SubscriptionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    payee: str
+    frequency: Frequency
+    expected_pence: int
+    tolerance_pct: int
+    next_renewal_date: date
+    status: SubscriptionStatus
+    cancelled_date: date | None
+    category_id: int | None
+    account_id: int | None
+    source: str
+    notes: str | None
+    overdue: bool = False
+
+
+class SubscriptionCancelIn(BaseModel):
+    date: date
+
+
+class SubscriptionPaymentIn(BaseModel):
+    date: date
+    amount: Money
+    transaction_id: int | None = None
+
+
+class SubscriptionPriceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    subscription_id: int
+    date: date
+    amount_pence: int
+    transaction_id: int | None
