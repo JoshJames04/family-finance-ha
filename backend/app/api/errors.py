@@ -70,6 +70,15 @@ def install_error_handlers(app: FastAPI) -> None:
         async def domain_exc(_: Request, exc: Exception) -> JSONResponse:
             return problem(409, "Domain rule violated", detail=str(exc))
 
+    # Out-of-range identifiers (e.g. id > int64 passed as a path or
+    # header param) hit OverflowError at the SQLite boundary — a
+    # client validation failure, not a server fault → 422.
+    @app.exception_handler(OverflowError)
+    async def overflow_exc(_: Request,
+                           exc: OverflowError) -> JSONResponse:
+        return problem(422, "Validation failed",
+                       detail="identifier or value out of range")
+
     # Uniqueness/FK violations (e.g. transaction dedup key) → 409.
     from sqlalchemy.exc import IntegrityError
 

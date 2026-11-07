@@ -15,7 +15,7 @@ Pydantic boundary rules (strict):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from functools import total_ordering
 from typing import Any, Self
 
@@ -46,9 +46,14 @@ class Money:
     def of_pounds(cls, value: int | str | Decimal) -> Self:
         if isinstance(value, float | bool):
             raise TypeError("floats/bools are not valid money input")
-        dec = Decimal(str(value))
-        return cls(pence=int((dec * 100).quantize(Decimal("1"),
-                                                rounding=ROUND_HALF_EVEN)))
+        try:
+            dec = Decimal(str(value))
+            pence = int((dec * 100).quantize(
+                Decimal("1"), rounding=ROUND_HALF_EVEN))
+        except (InvalidOperation, ValueError, OverflowError) as e:
+            raise ValueError(
+                f"unparsable money value {value!r}") from e
+        return cls(pence=pence)
 
     # ---- arithmetic ---------------------------------------------------
     def __add__(self, other: Self) -> Self:
@@ -109,7 +114,10 @@ class Money:
         if isinstance(value, str):
             return cls.of_pounds(value)
         if isinstance(value, dict) and "pence" in value:
-            return cls.of_pence(int(value["pence"]))
+            pence = value["pence"]
+            if isinstance(pence, int) and not isinstance(pence, bool):
+                return cls.of_pence(pence)
+            raise ValueError("pence must be an integer")
         raise ValueError(f"cannot parse Money from {type(value).__name__}")
 
     @classmethod
