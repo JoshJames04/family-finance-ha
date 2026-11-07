@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Family Finance",
+        "description": "Enter the URL of your Family Finance app (e.g. the add-on ingress URL or http://host:8099) and the household to link.",
+        "data": {
+          "url": "App URL",
+          "token": "Access token (optional)",
+          "household_id": "Household ID"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the Family Finance app",
+      "invalid_auth": "Invalid credentials or household"
+    },
+    "abort": {
+      "already_configured": "This household connection is already configured"
+    }
+  }
+}
