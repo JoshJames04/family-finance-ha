@@ -22,6 +22,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -889,3 +890,58 @@ class ExpectedMovement(Base):
     source_id: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now())
+
+
+class AmountKind(enum.StrEnum):
+    """How a transfer rule derives its amount (issue #86)."""
+    fixed = "fixed"            # literal pence each occurrence
+    income_pct = "income_pct"  # % (basis points) of income into source
+    budget_line = "budget_line"  # covering approved budget's line
+
+
+class TransferRule(TimestampMixin, Base):
+    """A configurable recurring household flow (issue #86):
+    personal→bills, joint→food, etc. ``amount_spec`` is a JSON object
+    discriminated by ``kind``:
+
+    - ``{"kind": "fixed", "pence": 120000}``
+    - ``{"kind": "income_pct", "bps": 3000}`` — 30% of income received
+      into the source account in the period before each occurrence
+    - ``{"kind": "budget_line", "category_id": 7}`` — the covering
+      approved budget's effective line amount for that category
+
+    Materialises two expected-movement legs per occurrence (out on the
+    source account, in on the destination)."""
+
+    __tablename__ = "transfer_rule"
+    __table_args__ = (
+        CheckConstraint("source_account_id != dest_account_id",
+                        name="ck_transfer_rule_distinct_accounts"),
+        CheckConstraint("day_of_month BETWEEN 1 AND 31",
+                        name="ck_transfer_rule_day"),
+        CheckConstraint("end_date IS NULL OR end_date >= start_date",
+                        name="ck_transfer_rule_range"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False)
+    dest_account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False)
+    amount_spec: Mapped[str] = mapped_column(Text, nullable=False)
+    frequency: Mapped[Frequency] = mapped_column(Enum(Frequency),
+                                                 nullable=False)
+    day_of_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                         nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    source_account: Mapped[Account] = relationship(
+        foreign_keys=[source_account_id])
+    dest_account: Mapped[Account] = relationship(
+        foreign_keys=[dest_account_id])

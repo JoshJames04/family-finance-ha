@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from datetime import date as date_t
 from decimal import Decimal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
 from app.domain.money import Money
 from app.persistence.models import (
@@ -582,3 +589,72 @@ class ExpectedMovementOut(BaseModel):
     confidence: Confidence
     source_type: ExpectedSource
     source_id: int
+
+
+class FixedSpecIn(BaseModel):
+    kind: Literal["fixed"]
+    pence: int = Field(gt=0)
+
+
+class IncomePctSpecIn(BaseModel):
+    kind: Literal["income_pct"]
+    bps: int = Field(gt=0, le=10000)
+
+
+class BudgetLineSpecIn(BaseModel):
+    kind: Literal["budget_line"]
+    category_id: int
+
+
+AmountSpecIn = Annotated[
+    FixedSpecIn | IncomePctSpecIn | BudgetLineSpecIn,
+    Field(discriminator="kind")]
+
+
+class TransferRuleIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    source_account_id: int
+    dest_account_id: int
+    amount_spec: AmountSpecIn
+    frequency: Frequency
+    day_of_month: int = Field(ge=1, le=31)
+    start_date: date
+    end_date: date | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class TransferRulePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    amount_spec: AmountSpecIn | None = None
+    frequency: Frequency | None = None
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
+    start_date: date | None = None
+    end_date: date | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class TransferRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    source_account_id: int
+    dest_account_id: int
+    amount_spec: dict[str, Any]
+    frequency: Frequency
+    day_of_month: int
+    start_date: date
+    end_date: date | None
+    active: bool
+    notes: str | None
+
+    @field_validator("amount_spec", mode="before")
+    @classmethod
+    def _parse_spec(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
+
+
+class EvaluateResult(BaseModel):
+    amount_pence: int | None
+    confidence: Confidence
