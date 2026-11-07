@@ -171,7 +171,8 @@ class Category(TimestampMixin, Base):
     children: Mapped[list[Category]] = relationship(
         back_populates="parent")
     transactions: Mapped[list[Transaction]] = relationship(
-        back_populates="category")
+        back_populates="category",
+        foreign_keys="Transaction.category_id")
 
 
 class TransactionStatus(enum.StrEnum):
@@ -230,10 +231,15 @@ class Transaction(TimestampMixin, Base):
         ForeignKey("transfer.id"), nullable=True, index=True)
     refund_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("transaction.id"), nullable=True, index=True)
+    suggested_category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True)
 
     account: Mapped[Account] = relationship(back_populates="transactions")
     category: Mapped[Category | None] = relationship(
-        back_populates="transactions")
+        back_populates="transactions",
+        foreign_keys="Transaction.category_id")
+    suggested_category: Mapped[Category | None] = relationship(
+        foreign_keys="Transaction.suggested_category_id")
     transfer: Mapped[Transfer | None] = relationship(
         back_populates="legs")
     refund_of: Mapped[Transaction | None] = relationship(
@@ -1584,3 +1590,46 @@ class NotificationEvent(Base):
         back_populates="events")
     delivery: Mapped[NotificationDelivery | None] = relationship(
         back_populates="events")
+
+
+class MatchType(enum.StrEnum):
+    """How a categorisation rule's pattern compares to a payee."""
+    contains = "contains"
+    exact = "exact"
+    regex = "regex"
+
+
+class RuleSource(enum.StrEnum):
+    manual = "manual"    # user-authored rule
+    learned = "learned"  # created/strengthened by confirmed corrections
+
+
+class CategorisationRule(TimestampMixin, Base):
+    """payee pattern → category (issue #68). Priority-ordered
+    (lower wins); ``times_confirmed`` breaks ties — confirmed
+    corrections literally strengthen a rule's future suggestions.
+    ``auto_apply=False`` rules only fill ``suggested_category_id`` —
+    never a silent categorisation."""
+
+    __tablename__ = "categorisation_rule"
+    # No pattern-uniqueness constraint: overlapping patterns at
+    # different priorities are the whole point of precedence.
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    pattern: Mapped[str] = mapped_column(String(200), nullable=False)
+    match_type: Mapped[MatchType] = mapped_column(
+        Enum(MatchType), default=MatchType.contains, nullable=False)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("category.id"), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=100,
+                                          nullable=False)
+    auto_apply: Mapped[bool] = mapped_column(Boolean, default=False,
+                                             nullable=False)
+    times_confirmed: Mapped[int] = mapped_column(Integer, default=0,
+                                                 nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True,
+                                          nullable=False)
+    source: Mapped[RuleSource] = mapped_column(
+        Enum(RuleSource), default=RuleSource.manual, nullable=False)

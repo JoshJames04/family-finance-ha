@@ -182,6 +182,7 @@ class TransactionOut(BaseModel):
     external_ref: str | None
     transfer_id: int | None
     refund_of_id: int | None
+    suggested_category_id: int | None
 
 
 class BulkTransactionOp(BaseModel):
@@ -1222,3 +1223,36 @@ class NotificationDeliveryOut(BaseModel):
 class DispatchOut(BaseModel):
     deliveries: list[NotificationDeliveryOut]
     events_delivered: int
+
+
+class CategorisationRuleIn(BaseModel):
+    pattern: str = Field(min_length=1, max_length=200)
+    match_type: str = Field(default="contains",
+                            pattern="^(contains|exact|regex)$")
+    category_id: int
+    priority: int = 100
+    auto_apply: bool = False
+
+
+class CategorisationRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    pattern: str
+    match_type: str
+    category_id: int
+    priority: int
+    auto_apply: bool
+    times_confirmed: int
+    enabled: bool
+    source: str
+
+
+class CategoriseApplyOut(BaseModel):
+    auto_applied: int
+    suggested: int
+    unmatched: int
+
+
+class PairRefundOut(BaseModel):
+    linked: int
