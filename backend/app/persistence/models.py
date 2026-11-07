@@ -1498,6 +1498,17 @@ class NotificationKind(enum.StrEnum):
     """Trigger kinds the rules engine evaluates (issue #116)."""
     spend_above = "spend_above"      # a transaction over threshold_pence
     balance_below = "balance_below"  # account balance under threshold
+    # issue #117 — scheduled/date-driven kinds
+    weekly_digest = "weekly_digest"    # params: {"weekday": 0..6}
+    payday_reminder = "payday_reminder"  # params: {"days_before": n}
+    bill_reminder = "bill_reminder"    # params: {"days_before": n}
+    # issue #118 — condition alerts (severity + optional all-clear)
+    low_projected_balance = "low_projected_balance"
+    budget_overspend = "budget_overspend"
+    unusual_transaction = "unusual_transaction"
+    price_change = "price_change"
+    missed_transfer = "missed_transfer"
+    sync_failure = "sync_failure"
 
 
 class NotificationState(enum.StrEnum):
