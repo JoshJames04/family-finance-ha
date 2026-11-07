@@ -859,6 +859,7 @@ class ExpectedSource(enum.StrEnum):
     payroll_run = "payroll_run"
     transfer_rule = "transfer_rule"
     savings_goal = "savings_goal"
+    subscription = "subscription"
     manual = "manual"
 
 
@@ -1219,3 +1220,81 @@ class BalanceVerification(Base):
 
     account: Mapped[Account] = relationship()
     correction: Mapped[Transaction | None] = relationship()
+
+
+class SubscriptionStatus(enum.StrEnum):
+    active = "active"
+    cancelled = "cancelled"
+
+
+class Subscription(TimestampMixin, Base):
+    """One recurring subscription in the register (issue #107).
+
+    Renewal dates advance per frequency; cancelled entries stay with
+    full price history but emit no forecast rows."""
+
+    __tablename__ = "subscription"
+    __table_args__ = (
+        CheckConstraint("expected_pence >= 0",
+                        name="ck_subscription_expected"),
+        CheckConstraint("tolerance_pct BETWEEN 0 AND 100",
+                        name="ck_subscription_tolerance"),
+        CheckConstraint("anchor_day BETWEEN 1 AND 31",
+                        name="ck_subscription_anchor"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    payee: Mapped[str] = mapped_column(String(200), nullable=False)
+    payee_normalised: Mapped[str] = mapped_column(
+        String(200), nullable=False, index=True)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True)
+    frequency: Mapped[Frequency] = mapped_column(
+        Enum(Frequency), nullable=False)
+    expected_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    tolerance_pct: Mapped[int] = mapped_column(
+        Integer, default=10, nullable=False)
+    next_renewal_date: Mapped[date_t] = mapped_column(Date,
+                                                      nullable=False)
+    anchor_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[SubscriptionStatus] = mapped_column(
+        Enum(SubscriptionStatus), default=SubscriptionStatus.active,
+        nullable=False)
+    cancelled_date: Mapped[date_t | None] = mapped_column(
+        Date, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="manual",
+                                        nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    household: Mapped[Household] = relationship()
+    prices: Mapped[list[SubscriptionPrice]] = relationship(
+        back_populates="subscription", cascade="all, delete-orphan",
+        order_by="SubscriptionPrice.date")
+
+
+class SubscriptionPrice(Base):
+    """Observed price point for a subscription — price-change history."""
+
+    __tablename__ = "subscription_price"
+    __table_args__ = (
+        CheckConstraint("amount_pence >= 0",
+                        name="ck_subscription_price_amount"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("subscription.id"), nullable=False, index=True)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    transaction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transaction.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    subscription: Mapped[Subscription] = relationship(
+        back_populates="prices")
+    transaction: Mapped[Transaction | None] = relationship()
