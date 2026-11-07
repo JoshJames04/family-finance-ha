@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -221,9 +221,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa(full_path: str) -> FileResponse:
-            if full_path.startswith(("api/", "api")):
-                return FileResponse(web_dir / "index.html",
-                                    status_code=404)
+            if full_path == "api" or full_path.startswith("api/"):
+                # Real API 404 — defer to the problem+json handler so
+                # the API contract stays uniform under the catch-all.
+                raise HTTPException(status_code=404)
             cand = (web_dir / full_path).resolve()
             if cand.is_file() and cand.is_relative_to(
                     web_dir.resolve()):
