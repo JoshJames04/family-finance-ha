@@ -223,3 +223,90 @@ class TestApi:
             headers=h).json()
         assert [row["transaction_id"] for row in ledger] == \
             [d.json()["id"]]
+
+
+class TestProjections:
+    """Issue #92 — projected completion, on-track, milestones."""
+
+    def test_golden_projection(self, session: Session,
+                               household: Household, pot: Account,
+                               main: Account) -> None:
+        """AC: £1,200 target, £300 saved, £100/mo → 9 months."""
+        g = _goal(session, household, pot, target=120_000,
+                  gtype=GoalType.general)
+        # £300 contributed Jan–Mar = £100/mo (3 months elapsed)
+        for i in range(3):
+            _contribution(session, household, main, pot, 10_000,
+                          date(2025, 1 + i, 15))
+        rate = goals.average_monthly_rate(session, g, TODAY)
+        assert rate == 10_000
+        # £900 remaining ÷ £100/mo = 9 months → 2026-01-01
+        assert goals.projected_completion(session, g, TODAY) == \
+            date(2026, 1, 1)
+
+    def test_missed_contribution_updates_projection(
+            self, session: Session, household: Household,
+            pot: Account, main: Account) -> None:
+        """AC: projection reacts immediately to a new contribution."""
+        g = _goal(session, household, pot, target=40_000,
+                  gtype=GoalType.general)
+        g.start_date = date(2025, 3, 10)
+        _contribution(session, household, main, pot, 10_000,
+                      date(2025, 3, 15))
+        before = goals.projected_completion(session, g, TODAY)
+        _contribution(session, household, main, pot, 10_000,
+                      date(2025, 4, 5))
+        after = goals.projected_completion(session, g, TODAY)
+        assert after is not None and before is not None
+        assert after < before  # more savings → sooner completion
+
+    def test_zero_rate_projection_none(
+            self, session: Session, household: Household,
+            pot: Account) -> None:
+        g = _goal(session, household, pot, target=40_000)
+        assert goals.projected_completion(session, g, TODAY) is None
+
+    def test_on_track_indicator(
+            self, session: Session, household: Household,
+            pot: Account, main: Account) -> None:
+        g = _goal(session, household, pot, target=40_000,
+                  target_date=date(2025, 5, 1))
+        # required = £400 ÷ 4 months = £100/mo; saved £0 → off track
+        assert goals.on_track(session, g, TODAY) is False
+        _contribution(session, household, main, pot, 40_000,
+                      date(2025, 4, 1))
+        assert goals.on_track(session, g, TODAY) is True
+
+    def test_undated_goal_track_none(
+            self, session: Session, household: Household,
+            pot: Account) -> None:
+        g = _goal(session, household, pot, target=40_000)
+        assert goals.on_track(session, g, TODAY) is None
+
+    def test_milestone_trigger(self) -> None:
+        """AC: a contribution crossing 25/50/75/100 fires the milestone
+        Epic 15 consumes."""
+        assert goals.newly_crossed(0, 30_000, 100_000) == [25]
+        assert goals.newly_crossed(24_999, 50_000, 100_000) == [25, 50]
+        assert goals.newly_crossed(70_000, 100_000, 100_000) == \
+            [75, 100]
+        assert goals.newly_crossed(10_000, 20_000, 100_000) == []
+
+    def test_crossed_milestones_from_ledger(
+            self, session: Session, household: Household,
+            pot: Account, main: Account) -> None:
+        g = _goal(session, household, pot, target=100_000)
+        _contribution(session, household, main, pot, 60_000,
+                      date(2025, 3, 1))
+        assert goals.crossed_milestones(session, g) == [25, 50]
+
+    def test_progress_exposes_projection(
+            self, session: Session, household: Household,
+            pot: Account, main: Account) -> None:
+        g = _goal(session, household, pot, target=40_000)
+        g.start_date = date(2025, 3, 10)
+        _contribution(session, household, main, pot, 10_000,
+                      date(2025, 4, 1))
+        p = goals.progress(session, g, TODAY)
+        assert p.average_rate_pence == 10_000
+        assert p.projected_date == date(2025, 7, 1)

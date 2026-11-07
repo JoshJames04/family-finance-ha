@@ -70,7 +70,9 @@ def goal_progress(
     return schemas.GoalProgressOut(
         contributed_pence=p.contributed_pence,
         remaining_pence=p.remaining_pence,
-        monthly_need_pence=p.monthly_need_pence, pct=p.pct)
+        monthly_need_pence=p.monthly_need_pence, pct=p.pct,
+        average_rate_pence=p.average_rate_pence,
+        projected_date=p.projected_date, on_track=p.on_track)
 
 
 @router.get("/{gid}/contributions",

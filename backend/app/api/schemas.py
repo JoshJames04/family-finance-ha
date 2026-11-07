@@ -744,6 +744,9 @@ class GoalProgressOut(BaseModel):
     remaining_pence: int
     monthly_need_pence: int | None
     pct: int
+    average_rate_pence: int
+    projected_date: date | None
+    on_track: bool | None
 
 
 class GoalContributionOut(BaseModel):

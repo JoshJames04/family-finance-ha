@@ -98,6 +98,9 @@ class GoalProgress:
     remaining_pence: int
     monthly_need_pence: int | None
     pct: int  # whole-percent funded
+    average_rate_pence: int
+    projected_date: date | None
+    on_track: bool | None
 
 
 def progress(session: Session, goal: SavingsGoal,
@@ -107,10 +110,85 @@ def progress(session: Session, goal: SavingsGoal,
         contributed_pence=c,
         remaining_pence=max(0, goal.target_pence - c),
         monthly_need_pence=monthly_need(session, goal, today),
-        pct=min(100, c * 100 // goal.target_pence))
+        pct=min(100, c * 100 // goal.target_pence),
+        average_rate_pence=average_monthly_rate(session, goal, today),
+        projected_date=projected_completion(session, goal, today),
+        on_track=on_track(session, goal, today))
 
 
 # Sinking funds whose contributions are periodic expectations — these
 # materialise into the expected stream; ad-hoc goals do not.
 SINKING_TYPES = {GoalType.annual_reserve, GoalType.christmas,
                  GoalType.holiday, GoalType.emergency}
+
+
+# ---------- projections (issue #92) --------------------------------
+
+MILESTONES = (25, 50, 75, 100)
+
+
+def _add_months(d: date, months: int) -> date:
+    m = d.month + months
+    y = d.year + (m - 1) // 12
+    m = (m - 1) % 12 + 1
+    return date(y, m, 1)
+
+
+def average_monthly_rate(session: Session, goal: SavingsGoal,
+                         today: date | None = None) -> int:
+    """Contribution velocity: total ÷ months since goal start."""
+    today = today or date.today()
+    months = _months_between(goal.start_date, today)
+    return contributed_pence(session, goal) // months
+
+
+def projected_completion(session: Session, goal: SavingsGoal,
+                         today: date | None = None) -> date | None:
+    """When the goal lands at the current contribution rate — the 1st
+    of the month it completes. ``None`` when the rate is zero
+    (unknowable) or the goal is already funded."""
+    today = today or date.today()
+    need = remaining_pence(session, goal)
+    if need == 0:
+        return today  # funded
+    rate = average_monthly_rate(session, goal, today)
+    if rate <= 0:
+        return None
+    months = -(-need // rate)  # ceil
+    return _add_months(today, months)
+
+
+def required_monthly_rate(session: Session, goal: SavingsGoal,
+                          today: date | None = None) -> int | None:
+    """The pace needed to hit a dated target: full target ÷ total
+    months in the window (start→target), not just the remainder."""
+    if goal.target_date is None:
+        return None
+    months = _months_between(goal.start_date, goal.target_date)
+    return -(-goal.target_pence // months)
+
+
+def on_track(session: Session, goal: SavingsGoal,
+             today: date | None = None) -> bool | None:
+    """Is the actual contribution rate ≥ the required rate? ``None``
+    for undated goals (nothing to be on-track *for*)."""
+    req = required_monthly_rate(session, goal, today)
+    if req is None:
+        return None
+    return average_monthly_rate(session, goal, today) >= req
+
+
+def crossed_milestones(session: Session, goal: SavingsGoal) -> list[int]:
+    """Percentage milestones the funded pct has reached — Epic 15
+    diffs these for notifications."""
+    pct = contributed_pence(session, goal) * 100 // goal.target_pence
+    return [m for m in MILESTONES if pct >= m]
+
+
+def newly_crossed(prev_pence: int, new_pence: int,
+                  target_pence: int) -> list[int]:
+    """Milestones crossed by a single contribution — the notification
+    trigger Epic 15 consumes."""
+    before = prev_pence * 100 // target_pence
+    after = new_pence * 100 // target_pence
+    return [m for m in MILESTONES if before < m <= after]
