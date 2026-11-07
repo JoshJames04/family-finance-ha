@@ -1,0 +1,101 @@
+/* Shared page primitives: cards, lists, tables, state colours. */
+
+.ff-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 12px 0 20px;
+}
+
+.ff-card {
+  background: var(--ff-card);
+  border: 1px solid var(--ff-divider);
+  border-radius: var(--ff-radius);
+  padding: 14px 16px;
+  box-shadow: var(--ff-shadow);
+}
+
+.ff-card h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ff-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ff-figure {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.ff-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--ff-card);
+  border: 1px solid var(--ff-divider);
+  border-radius: var(--ff-radius);
+  overflow: hidden;
+}
+
+.ff-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ff-divider);
+}
+
+.ff-list li:last-child {
+  border-bottom: 0;
+}
+
+.ff-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--ff-card);
+  border: 1px solid var(--ff-divider);
+  border-radius: var(--ff-radius);
+  overflow: hidden;
+}
+
+.ff-table th,
+.ff-table td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ff-divider);
+}
+
+.ff-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ff-text-secondary);
+}
+
+.ff-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.ff-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ff-pos {
+  color: var(--ff-success);
+}
+
+.ff-neg {
+  color: var(--ff-text);
+}
+
+.ff-muted {
+  color: var(--ff-text-secondary);
+}
+
+.ff-error {
+  color: var(--ff-error);
+}

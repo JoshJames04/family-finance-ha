@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // base "./" keeps asset URLs relative so the app works under a Home
@@ -11,5 +11,9 @@ export default defineConfig({
     proxy: {
       "/api": { target: "http://localhost:8099", changeOrigin: true },
     },
+  },
+  test: {
+    environment: "jsdom",
+    restoreMocks: true,
   },
 });
