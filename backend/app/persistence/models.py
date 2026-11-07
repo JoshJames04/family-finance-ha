@@ -484,6 +484,10 @@ class Budget(TimestampMixin, Base):
     end_date: Mapped[date_t] = mapped_column(Date, nullable=False)
     status: Mapped[BudgetStatus] = mapped_column(
         Enum(BudgetStatus), default=BudgetStatus.draft, nullable=False)
+    copied_from_id: Mapped[int | None] = mapped_column(
+        ForeignKey("budget.id"), nullable=True)
+    from_template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("budget_template.id"), nullable=True)
 
     household: Mapped[Household] = relationship()
     lines: Mapped[list[BudgetLine]] = relationship(
@@ -519,3 +523,43 @@ class BudgetLine(TimestampMixin, Base):
     def effective_pence(self) -> int:
         return (self.revised_pence if self.revised_pence is not None
                 else self.original_pence)
+
+
+class BudgetTemplate(TimestampMixin, Base):
+    """Named reusable line set (issue #59). Edits never mutate budgets
+    already created from it — application copies values, not refs."""
+
+    __tablename__ = "budget_template"
+    __table_args__ = (
+        UniqueConstraint("household_id", "name",
+                         name="uq_template_household_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+
+    household: Mapped[Household] = relationship()
+    lines: Mapped[list[BudgetTemplateLine]] = relationship(
+        back_populates="template", cascade="all, delete-orphan")
+
+
+class BudgetTemplateLine(Base):
+    __tablename__ = "budget_template_line"
+    __table_args__ = (
+        UniqueConstraint("template_id", "category_id",
+                         name="uq_tline_template_category"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    template_id: Mapped[int] = mapped_column(
+        ForeignKey("budget_template.id"), nullable=False, index=True)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("category.id"), nullable=False)
+    side: Mapped[BudgetLineSide] = mapped_column(
+        Enum(BudgetLineSide), nullable=False)
+    amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    template: Mapped[BudgetTemplate] = relationship(
+        back_populates="lines")

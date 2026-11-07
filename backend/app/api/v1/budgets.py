@@ -142,3 +142,132 @@ def budget_actuals(
              for line in b.lines}
     return schemas.BudgetActuals(
         budget_id=b.id, totals=totals, lines=lines)
+
+
+# ---------- templates + copy-forward (issue #59) ----------------------
+from sqlalchemy.orm import selectinload as _sel  # noqa: E402
+
+from app.persistence.models import (  # noqa: E402
+    BudgetTemplate,
+    BudgetTemplateLine,
+)
+
+
+def _get_template(session: Session, household_id: int,
+                  template_id: int) -> BudgetTemplate:
+    t = session.execute(
+        select(BudgetTemplate).where(BudgetTemplate.id == template_id)
+        .options(_sel(BudgetTemplate.lines))
+    ).scalar_one_or_none()
+    if t is None or t.household_id != household_id:
+        raise HTTPException(404, "template not found")
+    return t
+
+
+@router.get("/templates/list",
+            response_model=schemas.Page[schemas.BudgetTemplateOut])
+def list_templates(
+    household: HouseholdDep, session: SessionDep,
+) -> schemas.Page[schemas.BudgetTemplateOut]:
+    rows = session.execute(
+        select(BudgetTemplate).where(
+            BudgetTemplate.household_id == household.id)
+    ).scalars().all()
+    return schemas.Page(
+        items=[schemas.BudgetTemplateOut.model_validate(t)
+               for t in rows],
+        total=len(rows), page=1, size=len(rows) or 1)
+
+
+@router.post("/templates", response_model=schemas.BudgetTemplateOut,
+             status_code=201)
+def create_template(
+    body: schemas.BudgetTemplateIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> schemas.BudgetTemplateOut:
+    t = dom.create_template(session, household.id, body.name)
+    emit(session, household.id, actor, "create", "budget_template",
+         t.id, {"name": t.name})
+    return schemas.BudgetTemplateOut.model_validate(t)
+
+
+@router.get("/templates/{template_id}",
+            response_model=schemas.BudgetTemplateDetail)
+def get_template(
+    template_id: int, household: HouseholdDep, session: SessionDep,
+) -> schemas.BudgetTemplateDetail:
+    t = _get_template(session, household.id, template_id)
+    return schemas.BudgetTemplateDetail(
+        **schemas.BudgetTemplateOut.model_validate(t).model_dump(),
+        lines=[schemas.BudgetTemplateLineOut.model_validate(x)
+               for x in t.lines])
+
+
+@router.post("/templates/{template_id}/lines",
+             response_model=schemas.BudgetTemplateLineOut,
+             status_code=201)
+def add_template_line(
+    template_id: int, body: schemas.BudgetTemplateLineIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.BudgetTemplateLineOut:
+    t = _get_template(session, household.id, template_id)
+    cat = session.get(Category, body.category_id)
+    if cat is None or cat.household_id != household.id:
+        raise HTTPException(404, "category not found")
+    line = dom.add_template_line(session, t, body.category_id,
+                                 body.side, body.amount.pence)
+    emit(session, household.id, actor, "create",
+         "budget_template_line", line.id,
+         {"template_id": t.id})
+    return schemas.BudgetTemplateLineOut.model_validate(line)
+
+
+@router.patch("/templates/{template_id}/lines/{line_id}",
+              response_model=schemas.BudgetTemplateLineOut)
+def edit_template_line(
+    template_id: int, line_id: int,
+    body: schemas.BudgetTemplateLinePatch,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.BudgetTemplateLineOut:
+    t = _get_template(session, household.id, template_id)
+    line = session.get(BudgetTemplateLine, line_id)
+    if line is None or line.template_id != t.id:
+        raise HTTPException(404, "template line not found")
+    line = dom.update_template_line(session, line,
+                                    body.amount.pence)
+    emit(session, household.id, actor, "update",
+         "budget_template_line", line.id,
+         {"amount_pence": line.amount_pence})
+    return schemas.BudgetTemplateLineOut.model_validate(line)
+
+
+@router.post("/{budget_id}/copy-forward",
+             response_model=schemas.CopyResult, status_code=201)
+def copy_forward(
+    budget_id: int, body: schemas.CopyForwardIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.CopyResult:
+    src = _get(session, household.id, budget_id)
+    new, warnings = dom.copy_forward(
+        session, src, body.name, body.start_date, body.end_date,
+        period_type=body.period_type)
+    emit(session, household.id, actor, "create", "budget", new.id,
+         {"copied_from_id": src.id})
+    return schemas.CopyResult(
+        budget=schemas.BudgetOut.model_validate(new),
+        warnings=warnings)
+
+
+@router.post("/{budget_id}/apply-template",
+             response_model=schemas.ApplyResult)
+def apply_template(
+    budget_id: int, body: schemas.ApplyTemplateIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.ApplyResult:
+    b = _get(session, household.id, budget_id)
+    t = _get_template(session, household.id, body.template_id)
+    created, warnings = dom.apply_template(session, b, t)
+    emit(session, household.id, actor, "update", "budget", b.id,
+         {"from_template_id": t.id, "lines_added": len(created)})
+    return schemas.ApplyResult(created=len(created),
+                               warnings=warnings)

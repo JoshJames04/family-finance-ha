@@ -78,7 +78,7 @@ def add_line(session: Session, budget: Budget, category_id: int,
         raise BudgetError("lines can only be added while draft")
     if amount_pence < 0:
         raise BudgetError("line amounts are unsigned; side carries sign")
-    line = BudgetLine(budget_id=budget.id, category_id=category_id,
+    line = BudgetLine(budget=budget, category_id=category_id,
                       side=side, original_pence=amount_pence)
     session.add(line)
     session.flush()
@@ -173,3 +173,98 @@ def actuals_for_budget(session: Session, budget: Budget) -> dict[int, int]:
         out[line.id] = -total if line.side == BudgetLineSide.expense \
             else total
     return out
+
+
+# ---------- templates + copy-forward (issue #59) ----------------------
+from app.persistence.models import (  # noqa: E402
+    BudgetTemplate,
+    BudgetTemplateLine,
+    Category,
+)
+
+
+def create_template(session: Session, household_id: int,
+                    name: str) -> BudgetTemplate:
+    t = BudgetTemplate(household_id=household_id, name=name)
+    session.add(t)
+    session.flush()
+    return t
+
+
+def add_template_line(session: Session, template: BudgetTemplate,
+                      category_id: int, side: BudgetLineSide,
+                      amount_pence: int) -> BudgetTemplateLine:
+    if amount_pence < 0:
+        raise BudgetError("template amounts are unsigned")
+    line = BudgetTemplateLine(template=template,
+                              category_id=category_id, side=side,
+                              amount_pence=amount_pence)
+    session.add(line)
+    session.flush()
+    return line
+
+
+def update_template_line(session: Session, line: BudgetTemplateLine,
+                         amount_pence: int) -> BudgetTemplateLine:
+    """Editing a template never mutates budgets made from it — the
+    application copies values at apply-time, not references."""
+    if amount_pence < 0:
+        raise BudgetError("template amounts are unsigned")
+    line.amount_pence = amount_pence
+    session.flush()
+    return line
+
+
+def apply_template(
+    session: Session, budget: Budget, template: BudgetTemplate
+) -> tuple[list[BudgetLine], list[str]]:
+    """Copy template lines into a draft budget. Returns (created,
+    warnings) — warnings name categories skipped (archived) or already
+    present (partial application allowed)."""
+    _assert_mutable(session, budget)
+    if budget.status != BudgetStatus.draft:
+        raise BudgetError("templates apply only to draft budgets")
+    existing = {line.category_id for line in budget.lines}
+    created, warnings = [], []
+    for tl in template.lines:
+        cat = session.get(Category, tl.category_id)
+        name = cat.name if cat else f"#{tl.category_id}"
+        if cat is None or cat.household_id != budget.household_id:
+            warnings.append(f"category {name} unavailable")
+            continue
+        if cat.archived:
+            warnings.append(f"category {name} archived — skipped")
+            continue
+        if tl.category_id in existing:
+            warnings.append(f"category {name} already a line — skipped")
+            continue
+        created.append(add_line(session, budget, tl.category_id,
+                                tl.side, tl.amount_pence))
+    if budget.from_template_id is None and created:
+        budget.from_template_id = template.id
+    return created, warnings
+
+
+def copy_forward(
+    session: Session, source: Budget, name: str,
+    start: date, end: date,
+    period_type: BudgetPeriodType | None = None,
+) -> tuple[Budget, list[str]]:
+    """Clone a budget into a new draft for a later period.
+
+    original→original, revised is NOT carried (a fresh planning cycle
+    starts clean); provenance via copied_from_id. Archived-category
+    lines clone too (they keep historical meaning) with a warning."""
+    new = create_budget(
+        session, source.household_id, name,
+        period_type or source.period_type, start, end,
+        owner_profile_id=source.owner_profile_id)
+    new.copied_from_id = source.id
+    warnings = []
+    for line in source.lines:
+        cat = session.get(Category, line.category_id)
+        if cat is not None and cat.archived:
+            warnings.append(f"category {cat.name} archived — cloned")
+        add_line(session, new, line.category_id, line.side,
+                 line.original_pence)
+    return new, warnings
