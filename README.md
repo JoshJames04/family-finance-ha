@@ -6,7 +6,9 @@ budgeting, forecasting, payroll, savings, debts, subscriptions and day-to-day
 spending — all in one place, under your control.
 
 > **Status:** Pre-implementation planning. The development backlog lives in
-> GitHub Issues; delivery phases are tracked in
+> GitHub Issues; delivery is tracked on the
+> [Family Finance project board](https://github.com/users/JoshJames04/projects/1)
+> (Backlog / Board / Current Sprint / Roadmap / By Epic views) with phases in
 > [Milestones](../../milestones) and the [Roadmap](docs/ROADMAP.md).
 
 ## Why this exists
