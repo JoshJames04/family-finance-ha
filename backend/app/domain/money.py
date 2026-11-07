@@ -44,6 +44,8 @@ class Money:
 
     @classmethod
     def of_pounds(cls, value: int | str | Decimal) -> Self:
+        if isinstance(value, float | bool):
+            raise TypeError("floats/bools are not valid money input")
         dec = Decimal(str(value))
         return cls(pence=int((dec * 100).quantize(Decimal("1"),
                                                 rounding=ROUND_HALF_EVEN)))
