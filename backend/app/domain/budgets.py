@@ -97,16 +97,46 @@ def approve(session: Session, budget: Budget) -> Budget:
 
 
 def revise_line(session: Session, line: BudgetLine,
-                amount_pence: int) -> BudgetLine:
+                amount_pence: int, reason: str) -> BudgetLine:
     budget = line.budget
     _assert_mutable(session, budget)
     if budget.status != BudgetStatus.approved:
         raise BudgetError("revisions only while approved")
     if amount_pence < 0:
         raise BudgetError("line amounts are unsigned")
+    if not reason.strip():
+        raise BudgetError("revisions require a reason")
     line.revised_pence = amount_pence
+    line.revision_reason = reason.strip()
     session.flush()
     return line
+
+
+def line_analysis(actual_pence: int,
+                  line: BudgetLine) -> dict[str, object]:
+    """Variance + accuracy per ADR-0007's honest-budgeting rule.
+
+    variance  = effective - actual (positive → under budget)
+    accuracy  = 100 - |effective - actual| / max(|eff|, |act|, 1) * 100
+    Both reported against original and revised so the planner can see
+    whether revisions improved accuracy."""
+    eff = effective_pence(line)
+    denom = max(abs(eff), abs(actual_pence), 1)
+    accuracy = round(100 - abs(eff - actual_pence) / denom * 100, 2)
+    orig_denom = max(abs(line.original_pence), abs(actual_pence), 1)
+    orig_accuracy = round(
+        100 - abs(line.original_pence - actual_pence)
+        / orig_denom * 100, 2)
+    return {
+        "original_pence": line.original_pence,
+        "revised_pence": line.revised_pence,
+        "revision_reason": line.revision_reason,
+        "effective_pence": eff,
+        "actual_pence": actual_pence,
+        "variance_pence": eff - actual_pence,
+        "accuracy_pct": accuracy,
+        "original_accuracy_pct": orig_accuracy,
+    }
 
 
 def lock(session: Session, budget: Budget) -> Budget:

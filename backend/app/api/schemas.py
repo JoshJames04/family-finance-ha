@@ -201,6 +201,7 @@ class BudgetLineIn(BaseModel):
 
 class BudgetLineRevise(BaseModel):
     amount: Money
+    reason: str = Field(min_length=1, max_length=200)
 
 
 class BudgetLineOut(BaseModel):
@@ -232,3 +233,4 @@ class BudgetDetail(BudgetOut):
 class BudgetActuals(BaseModel):
     budget_id: int
     totals: dict[int, int]  # line_id → actual pence
+    lines: dict[int, dict[str, object]] = {}  # variance/accuracy per line
