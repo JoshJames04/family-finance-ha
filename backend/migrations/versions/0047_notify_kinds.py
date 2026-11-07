@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0047_notify_kinds"
-down_revision: str | None = "0045_sync_monitoring"
+down_revision: str | None = "0046_energy"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
