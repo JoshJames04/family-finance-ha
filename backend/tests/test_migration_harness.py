@@ -77,18 +77,19 @@ class TestLinearChain:
 
     def test_step_down_preserves_tables(self, cfg: Config) -> None:
         command.upgrade(cfg, "head")
-        command.downgrade(cfg, "-1")  # drop the latest revision's tables
+        command.downgrade(cfg, "-1")  # reverse the latest revision
         eng = _eng(cfg)
         with eng.connect() as conn:
             assert conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table'"
                 " AND name='transaction'")).first() is not None
+            # the 0011 downgrade drops only a column, not the table
             assert conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table'"
-                " AND name='budget'")).first() is None
-            assert conn.execute(text(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-                " AND name='import_batch'")).first() is not None
+                " AND name='budget'")).first() is not None
+            cols = {r[1] for r in conn.execute(
+                text("PRAGMA table_info(budget_line)"))}
+            assert "revision_reason" not in cols
 
 
 class TestSeededUpgrade:

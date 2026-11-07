@@ -101,9 +101,11 @@ def revise_line(
     line = session.get(BudgetLine, line_id)
     if line is None or line.budget_id != b.id:
         raise HTTPException(404, "line not found")
-    line = dom.revise_line(session, line, body.amount.pence)
+    line = dom.revise_line(session, line, body.amount.pence,
+                           body.reason)
     emit(session, household.id, actor, "update", "budget_line", line.id,
-         {"revised_pence": line.revised_pence})
+         {"revised_pence": line.revised_pence,
+          "reason": body.reason})
     return schemas.BudgetLineOut.model_validate(line)
 
 
@@ -135,5 +137,8 @@ def budget_actuals(
     budget_id: int, household: HouseholdDep, session: SessionDep,
 ) -> schemas.BudgetActuals:
     b = _get(session, household.id, budget_id)
+    totals = dom.actuals_for_budget(session, b)
+    lines = {line.id: dom.line_analysis(totals[line.id], line)
+             for line in b.lines}
     return schemas.BudgetActuals(
-        budget_id=b.id, totals=dom.actuals_for_budget(session, b))
+        budget_id=b.id, totals=totals, lines=lines)

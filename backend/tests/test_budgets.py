@@ -57,7 +57,7 @@ class TestDomain:
         line = dom.add_line(session, b, category.id,
                             BudgetLineSide.expense, 50000)
         dom.approve(session, b)
-        dom.revise_line(session, line, 55000)
+        dom.revise_line(session, line, 55000, "higher food costs")
         assert line.original_pence == 50000
         assert line.revised_pence == 55000
         assert dom.effective_pence(line) == 55000
@@ -73,7 +73,7 @@ class TestDomain:
         line = dom.add_line(session, b, category.id,
                             BudgetLineSide.expense, 50000)
         with pytest.raises(BudgetError):
-            dom.revise_line(session, line, 1)
+            dom.revise_line(session, line, 1, "r")
 
     def test_add_line_after_approve_rejected(
             self, session: Session, household, category) -> None:
@@ -99,7 +99,7 @@ class TestDomain:
         session.flush()
         assert dom.is_read_only(session, b) is True
         with pytest.raises(BudgetError):
-            dom.revise_line(session, line, 1)
+            dom.revise_line(session, line, 1, "r")
         with pytest.raises(BudgetError):
             dom.add_line(session, b, category.id,
                          BudgetLineSide.expense, 1)
@@ -180,7 +180,7 @@ class TestApi:
         assert detail["read_only"] is False
 
         r = client.patch(f"/api/v1/budgets/{bid}/lines/{lid}",
-                         json={"amount": 55500}, headers=h)
+                         json={"amount": 55500, "reason": "food prices"}, headers=h)
         assert r.status_code == 200
         assert r.json()["original_pence"] == 50000
         assert r.json()["revised_pence"] == 55500
@@ -188,7 +188,7 @@ class TestApi:
         assert client.post(f"/api/v1/budgets/{bid}/lock",
                            headers=h).status_code == 200
         assert client.patch(f"/api/v1/budgets/{bid}/lines/{lid}",
-                            json={"amount": 1},
+                            json={"amount": 1, "reason": "x"},
                             headers=h).status_code == 409
         act = client.get(f"/api/v1/budgets/{bid}/actuals",
                          headers=h).json()
@@ -219,3 +219,105 @@ class TestApi:
         assert client.post(f"/api/v1/budgets/{bid}/approve",
                            headers={"X-Household-Id": str(h1)}
                            ).status_code == 409
+
+
+class TestTripleValue:
+    """ADR-0007: original immutable, revised audited w/ reason, actual
+    derived live — variance + accuracy computed (#58)."""
+
+    def test_reason_required(self, session: Session, household,
+                             category) -> None:
+        b = _mk_budget(session, household)
+        line = dom.add_line(session, b, category.id,
+                            BudgetLineSide.expense, 50000)
+        dom.approve(session, b)
+        for bad in ("", "   "):
+            with pytest.raises(BudgetError):
+                dom.revise_line(session, line, 1, bad)
+
+    def test_original_cannot_be_edited(
+            self, session: Session, household, category) -> None:
+        b = _mk_budget(session, household)
+        line = dom.add_line(session, b, category.id,
+                            BudgetLineSide.expense, 50000)
+        dom.approve(session, b)
+        dom.revise_line(session, line, 70000, "price rise")
+        assert line.original_pence == 50000
+        assert line.revision_reason == "price rise"
+
+    def test_variance_and_accuracy(self, session: Session, household,
+                                   category) -> None:
+        acct = Account(household_id=household.id, name="A",
+                       type=AccountType.joint, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1), archived=False)
+        session.add(acct)
+        session.flush()
+        session.add(Transaction(
+            account_id=acct.id, date=date(2026, 5, 3),
+            amount_pence=-40000, payee="X", category_id=category.id,
+            status=TransactionStatus.cleared))
+        b = _mk_budget(session, household)
+        line = dom.add_line(session, b, category.id,
+                            BudgetLineSide.expense, 50000)
+        dom.approve(session, b)
+        actual = dom.actuals_for_budget(session, b)[line.id]
+        a = dom.line_analysis(actual, line)
+        assert a["actual_pence"] == 40000
+        assert a["variance_pence"] == 10000  # 50000 - 40000 underspent
+        assert a["accuracy_pct"] == 80.0     # |50000-40000|/50000 = 20%
+        dom.revise_line(session, line, 45000, "closer")
+        a2 = dom.line_analysis(actual, line)
+        assert a2["variance_pence"] == 5000
+        assert a2["accuracy_pct"] == 88.89   # revision improved accuracy
+        assert a2["original_accuracy_pct"] == 80.0
+
+    def test_actuals_flow_through_without_refresh(
+            self, session: Session, household, category) -> None:
+        acct = Account(household_id=household.id, name="A",
+                       type=AccountType.joint, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1), archived=False)
+        session.add(acct)
+        session.flush()
+        b = _mk_budget(session, household)
+        line = dom.add_line(session, b, category.id,
+                            BudgetLineSide.expense, 50000)
+        assert dom.actuals_for_budget(session, b)[line.id] == 0
+        session.add(Transaction(
+            account_id=acct.id, date=date(2026, 5, 5),
+            amount_pence=-9000, payee="X", category_id=category.id,
+            status=TransactionStatus.cleared))
+        session.flush()
+        assert dom.actuals_for_budget(session, b)[line.id] == 9000
+
+    def test_api_revision_audit_includes_reason(
+            self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        cat = client.post("/api/v1/categories", json={"name": "Food"},
+                          headers=h).json()
+        bid = client.post("/api/v1/budgets", json={
+            "name": "May", "period_type": "monthly",
+            "start_date": "2026-05-01", "end_date": "2026-05-31"},
+            headers=h).json()["id"]
+        lid = client.post(f"/api/v1/budgets/{bid}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 50000}, headers=h).json()["id"]
+        client.post(f"/api/v1/budgets/{bid}/approve", headers=h)
+        # reason missing → 422
+        r = client.patch(f"/api/v1/budgets/{bid}/lines/{lid}",
+                         json={"amount": 1}, headers=h)
+        assert r.status_code == 422
+        client.patch(f"/api/v1/budgets/{bid}/lines/{lid}",
+                     json={"amount": 60000, "reason": "energy rise"},
+                     headers=h)
+        from app.persistence import session as ps
+        from app.persistence.models import AuditEvent
+        assert ps._session_factory is not None
+        with ps._session_factory() as s:
+            ev = [e for e in s.query(AuditEvent).all()
+                  if e.entity_type == "budget_line"
+                  and e.entity_id == lid][-1]
+        assert "energy rise" in (ev.payload or "")

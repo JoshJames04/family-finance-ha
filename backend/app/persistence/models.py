@@ -510,6 +510,8 @@ class BudgetLine(TimestampMixin, Base):
     original_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     revised_pence: Mapped[int | None] = mapped_column(Integer,
                                                       nullable=True)
+    revision_reason: Mapped[str | None] = mapped_column(String(200),
+                                                        nullable=True)
 
     budget: Mapped[Budget] = relationship(back_populates="lines")
 
