@@ -6,9 +6,6 @@ can replace the stdlib default transparently."""
 
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.request
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,43 +15,34 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import banks, vault
+from app.domain import banks, discovery, vault
 from app.domain.banks import (
     ConnError,
-    TokenInfo,
     TokenInvalid,
     TokenRejected,
     Validator,
 )
+from app.domain.discovery import BankClient, DiscoveryError
 from app.domain.vault import Keyring
-from app.persistence.models import BankConnection, BankProvider
+from app.integrations.starling import StarlingClient
+from app.persistence.models import (
+    Account,
+    BankAccountMapping,
+    BankConnection,
+    BankProvider,
+)
 
 router = APIRouter(prefix="/banking", tags=["banking"])
 
-API_BASE = "https://api.starlingbank.com"
 
-
-def _starling_validate(token: str) -> TokenInfo:
-    """Production validator — stdlib HTTP (no new deps): asks
-    Starling which scopes the token actually holds."""
-    req = urllib.request.Request(
-        f"{API_BASE}/api/v2/identity/token",
-        headers={"Authorization": f"Bearer {token}"})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise TokenInvalid(f"HTTP {e.code}") from e
-        raise banks.ValidatorUnavailable(f"HTTP {e.code}") from e
-    except (urllib.error.URLError, TimeoutError) as e:
-        raise banks.ValidatorUnavailable(str(e)) from e
-    return TokenInfo(scopes=frozenset(data.get("scopes", [])))
+def _client(request: Request) -> BankClient:
+    return getattr(request.app.state, "bank_client",
+                   StarlingClient())
 
 
 def _validator(request: Request) -> Validator:
     return getattr(request.app.state, "token_validator",
-                   _starling_validate)
+                   StarlingClient().validate_token)
 
 
 def _keyring(request: Request) -> Keyring:
@@ -63,6 +51,7 @@ def _keyring(request: Request) -> Keyring:
 
 ValidatorDep = Annotated[Validator, Depends(_validator)]
 RingDep = Annotated[Keyring, Depends(_keyring)]
+ClientDep = Annotated[BankClient, Depends(_client)]
 
 
 @router.get("/connections",
@@ -143,3 +132,108 @@ def disconnect(
     emit(session, household.id, actor, "bank_disconnect",
          "bank_connection", c.id)
     return schemas.BankConnectionOut.model_validate(c)
+
+
+@router.post("/connections/{cid}/discover",
+             response_model=list[schemas.BankMappingOut])
+def discover(
+    cid: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, ring: RingDep, client: ClientDep,
+) -> list[schemas.BankMappingOut]:
+    """Re-runnable, idempotent discovery — proposes/renames/closes
+    mappings from the provider's account list."""
+    c = _conn(session, household.id, cid)
+    try:
+        token = banks.token(session, c, ring)
+        rows = discovery.discover(session, c, client, token)
+    except ConnError as e:
+        raise HTTPException(502, str(e)) from e
+    emit(session, household.id, actor, "bank_discover",
+         "bank_connection", c.id)
+    return [schemas.BankMappingOut.model_validate(m) for m in rows]
+
+
+def _mapping(session: Session, household_id: int,
+             mid: int) -> BankAccountMapping:
+    m = session.get(BankAccountMapping, mid)
+    if m is None or m.household_id != household_id:
+        raise HTTPException(404, f"mapping {mid} not found")
+    return m
+
+
+@router.get("/mappings",
+            response_model=list[schemas.BankMappingOut])
+def list_mappings(
+    household: HouseholdDep, session: SessionDep,
+) -> list[schemas.BankMappingOut]:
+    rows = session.scalars(select(BankAccountMapping).where(
+        BankAccountMapping.household_id == household.id))
+    return [schemas.BankMappingOut.model_validate(m) for m in rows]
+
+
+@router.post("/mappings/{mid}/link",
+             response_model=schemas.BankMappingOut)
+def link(
+    mid: int, body: schemas.MappingLinkIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> schemas.BankMappingOut:
+    """Confirm a proposal — link an existing internal account or
+    mint one when create_account is set."""
+    m = _mapping(session, household.id, mid)
+    if body.create_account:
+        from datetime import date
+        acct = Account(household_id=household.id,
+                       name=m.external_label, type="personal",
+                       opening_balance_pence=m.balance_pence or 0,
+                       opening_date=date.today())
+        session.add(acct)
+        session.flush()
+    else:
+        if body.account_id is None:
+            raise HTTPException(
+                422, "account_id or create_account required")
+        found = session.get(Account, body.account_id)
+        if found is None or found.household_id != household.id:
+            raise HTTPException(404, "account not found")
+        acct = found
+    try:
+        discovery.link(session, m, acct)
+    except DiscoveryError as e:
+        raise HTTPException(422, str(e)) from e
+    emit(session, household.id, actor, "bank_mapping_link",
+         "bank_account_mapping", m.id)
+    return schemas.BankMappingOut.model_validate(m)
+
+
+@router.post("/mappings/{mid}/ignore",
+             response_model=schemas.BankMappingOut)
+def ignore(
+    mid: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep,
+) -> schemas.BankMappingOut:
+    m = _mapping(session, household.id, mid)
+    try:
+        discovery.ignore(session, m)
+    except DiscoveryError as e:
+        raise HTTPException(422, str(e)) from e
+    emit(session, household.id, actor, "bank_mapping_ignore",
+         "bank_account_mapping", m.id)
+    return schemas.BankMappingOut.model_validate(m)
+
+
+@router.post("/connections/{cid}/sync-balances")
+def sync_balances(
+    cid: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, ring: RingDep, client: ClientDep,
+) -> dict[str, int]:
+    """Point-in-time balance refresh on linked mappings — never
+    writes to the ledger."""
+    c = _conn(session, household.id, cid)
+    try:
+        token = banks.token(session, c, ring)
+        n = discovery.sync_balances(session, c, client, token)
+    except ConnError as e:
+        raise HTTPException(502, str(e)) from e
+    emit(session, household.id, actor, "bank_balance_sync",
+         "bank_connection", c.id)
+    return {"synced": n}
