@@ -409,6 +409,14 @@ class OvertimeExtractor:
                     DayType.sunday if work.weekday() == 6 else
                     DayType.weekday)
         actual = _as_date(vals.get(4))
+        entry = session.execute(
+            select(OvertimeEntry).where(
+                OvertimeEntry.employment_id == self.employment_id,
+                OvertimeEntry.work_date == work,
+                OvertimeEntry.hours == hours)
+        ).scalar_one_or_none()
+        if entry is not None:
+            return "overtime_entry", entry.id
         entry = OvertimeEntry(
             employment_id=self.employment_id,
             work_date=work, hours=hours,
@@ -536,9 +544,16 @@ class PayrollExtractor:
         if v is None or v == 0:
             return
         pence = round(v * 100)
-        run.components.append(PayrollComponent(
-            kind=kind, label=label, forecast_pence=pence,
-            actual_pence=pence if reconciled else None))
+        existing = next(
+            (c for c in run.components
+             if c.kind == kind and c.label == label), None)
+        if existing is None:
+            run.components.append(PayrollComponent(
+                kind=kind, label=label, forecast_pence=pence,
+                actual_pence=pence if reconciled else None))
+        else:
+            existing.forecast_pence = pence
+            existing.actual_pence = pence if reconciled else None
 
     def map_record(
         self, session: Session, batch: ImportBatch, record: ImportRecord
@@ -648,11 +663,20 @@ class LoanLedgerExtractor:
                 notes="balance reconstructed from validated repayments")
             session.add(self._loan)
             session.flush()
-        rep = Repayment(loan_id=self._loan.id,
-                        date=date(int(year), 12, 31),
-                        amount_pence=round(amount * 100),
-                        notes="excel import")
-        session.add(rep)
+        rep_date = date(int(year), 12, 31)
+        pence = round(amount * 100)
+        rep = session.execute(
+            select(Repayment).where(
+                Repayment.loan_id == self._loan.id,
+                Repayment.date == rep_date,
+                Repayment.amount_pence == pence)
+        ).scalar_one_or_none()
+        if rep is None:
+            rep = Repayment(loan_id=self._loan.id,
+                            date=rep_date,
+                            amount_pence=pence,
+                            notes="excel import")
+            session.add(rep)
         session.flush()
         paid = sum(r.amount_pence for r in self._loan.repayments)
         residual = self._loan.principal_pence - paid
@@ -719,17 +743,25 @@ class XmasExtractor:
                     or who.strip().lower().startswith("who")
                     or how is None):
                 continue
-            gift = Gift(
-                event_id=self._event(session, year).id,
-                recipient=who.strip(), idea=str(what or ""),
-                planned_pence=round(how * 100),
-                purchase_status="idea", payment_status="unpaid",
-                notes=str(when or ""))
-            session.add(gift)
-            ev = self._events[year]
-            ev.budget_pence = (
-                sum(g.planned_pence for g in ev.gifts)
-                + gift.planned_pence)
+            ev = self._event(session, year)
+            gift = session.execute(
+                select(Gift).where(
+                    Gift.event_id == ev.id,
+                    Gift.recipient == who.strip(),
+                    Gift.planned_pence == round(how * 100))
+            ).scalar_one_or_none()
+            if gift is None:
+                gift = Gift(
+                    event_id=ev.id,
+                    recipient=who.strip(), idea=str(what or ""),
+                    planned_pence=round(how * 100),
+                    purchase_status="idea", payment_status="unpaid",
+                    notes=str(when or ""))
+                session.add(gift)
+                session.flush()
+                ev.budget_pence = (
+                    sum(g.planned_pence for g in ev.gifts)
+                    + gift.planned_pence)
             session.flush()
             target = target or ("gift", gift.id)
         return target
@@ -775,12 +807,21 @@ class PieceworkExtractor:
             if self._cat.id is None:
                 session.add(self._cat)
                 session.flush()
+        ref = f"imp:{batch.id}:{record.id}"
+        t = session.execute(
+            select(Transaction).where(
+                Transaction.external_ref == ref)
+        ).scalar_one_or_none()
+        if t is not None:  # rollback→recommit: restore, don't duplicate
+            t.status = TransactionStatus.cleared
+            session.flush()
+            return "transaction", t.id
         t = Transaction(
             account_id=self.account_id, date=work,
             amount_pence=amount, payee="Piecework Co delivery",
             status=TransactionStatus.cleared,
             source=TransactionSource.excel_import,
-            external_ref=f"imp:{batch.id}:{record.id}",
+            external_ref=ref,
             import_record_id=record.id)
         session.add(t)
         session.flush()
