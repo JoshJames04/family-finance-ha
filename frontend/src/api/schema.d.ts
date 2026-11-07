@@ -2252,11 +2252,29 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Ops */
+        get: operations["list_ops_api_v1_scenarios__scenario_id__ops_get"];
         put?: never;
         /** Add Op */
         post: operations["add_op_api_v1_scenarios__scenario_id__ops_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenarios/{scenario_id}/ops/{op_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Op */
+        delete: operations["delete_op_api_v1_scenarios__scenario_id__ops__op_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -11820,6 +11838,39 @@ export interface operations {
             };
         };
     };
+    list_ops_api_v1_scenarios__scenario_id__ops_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                scenario_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScenarioOpOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_op_api_v1_scenarios__scenario_id__ops_post: {
         parameters: {
             query?: never;
@@ -11846,6 +11897,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ScenarioOpOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_op_api_v1_scenarios__scenario_id__ops__op_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                scenario_id: number;
+                op_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
