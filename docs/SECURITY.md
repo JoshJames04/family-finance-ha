@@ -29,7 +29,10 @@ mobile lock screens).
 - TLS terminated by HA/proxy; app never binds a public port.
 - Backups encrypted at rest via HA backup protection; app snapshots obey the
   same policy.
-- Audit trail (append-only) on all financial mutations and auth events.
+- Audit trail (append-only) on all financial mutations and auth events:
+  SQLite triggers `audit_event_no_update`/`audit_event_no_delete` abort
+  UPDATE/DELETE at the database layer, and amount-like payload keys are
+  stored as sha256 digests so the log never carries raw figures.
 - No real financial data in dev, CI, tests, issues or docs — synthetic
   fixtures only (see `tests/fixtures/README.md`).
 
@@ -54,6 +57,10 @@ Security is verified continuously, not once:
   append-only model (no `updated_at`), and hostile inputs (injection
   strings, oversized payloads, invalid pagination) are rejected or
   stored safely.
+- `backend/tests/test_audit_integrity.py` verifies the append-only
+  triggers reject UPDATE/DELETE at the DB layer, statically walks every
+  `/api/v1` route to prove each mutation handler emits an audit event,
+  and asserts amount-like payload fields are sha256 digests.
 - Dependabot covers pip, npm and GitHub Actions ecosystems.
 - The `tests` workflow fails on `pip-audit` (OSV) or `npm audit
   --audit-level=high` findings — new critical/high vulnerabilities
