@@ -1,7 +1,7 @@
 import {
-  ArrowLeftRight, BarChart3, Briefcase, CalendarClock, Gift, Handshake,
-  Inbox, Landmark, LayoutDashboard, LineChart, type LucideIcon, PiggyBank,
-  ReceiptText, Repeat, Settings, Target, Zap,
+  ArrowLeftRight, BarChart3, Briefcase, Building2, CalendarClock, Gift,
+  Handshake, Inbox, Landmark, LayoutDashboard, LineChart,
+  type LucideIcon, PiggyBank, ReceiptText, Repeat, Settings, Target, Zap,
 } from "lucide-react";
 
 export interface NavItem {
@@ -46,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Household",
     items: [
       { to: "/accounts", label: "Accounts", icon: Landmark, description: "Balances and account health" },
+      { to: "/banking", label: "Banking", icon: Building2, description: "Bank connections and sync" },
       { to: "/salary", label: "Salary", icon: Briefcase, description: "Payroll, payslips and overtime" },
       { to: "/energy", label: "Energy", icon: Zap, description: "Usage, tariffs and cost" },
       { to: "/reports", label: "Reports", icon: BarChart3, description: "Monthly and annual summaries" },

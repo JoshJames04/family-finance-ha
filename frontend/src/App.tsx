@@ -4,6 +4,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Transactions } from "./pages/Transactions";
 import { Budget } from "./pages/Budget";
 import { Accounts } from "./pages/Accounts";
+import { Banking } from "./pages/Banking";
 import { Upcoming } from "./pages/Upcoming";
 import { Bills } from "./pages/Bills";
 import { Forecast } from "./pages/Forecast";
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="gifts" element={<Gifts />} />
         <Route path="loans" element={<Loans />} />
         <Route path="accounts" element={<Accounts />} />
+        <Route path="banking" element={<Banking />} />
         <Route path="salary" element={<Salary />} />
         <Route path="energy" element={<Energy />} />
         <Route path="reports" element={<Reports />} />
