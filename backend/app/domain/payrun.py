@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -57,20 +58,47 @@ def _component(run: PayrollRun, kind: PayrollComponentKind,
         kind=kind, label=label, forecast_pence=pence))
 
 
+def unpaid_leave_for_days(session: Session, employment: Employment,
+                          days: Decimal, on: date) -> int:
+    """One unpaid day = the daily rate derived from salary and
+    contracted-hours proration (annual / (52 × days-per-week))."""
+    if days <= 0:
+        raise PayrollError("unpaid leave days must be positive")
+    annual = dom.salary_at(session, employment.id, on)
+    daily = (Decimal(annual)
+             / (Decimal(52) * Decimal(str(employment.work_days_per_week))))
+    return int((daily * days).quantize(Decimal("1")))
+
+
+def pension_pence_for(employment: Employment, pensionable_gross: int
+                      ) -> int:
+    """Employment-configured contribution: fixed amount wins over the
+    percentage-of-gross rate."""
+    if employment.pension_fixed_pence:
+        return employment.pension_fixed_pence
+    return pensionable_gross * employment.pension_employee_bps // 10_000
+
+
 def generate(
     session: Session, employment: Employment, *,
     start: date, end: date, pay_date: date,
     bonus_pence: int = 0, allowance_pence: int = 0,
     unpaid_leave_pence: int = 0,
+    unpaid_leave_days: Decimal | None = None,
 ) -> PayrollRun:
     """Assemble a forecast run for a pay period."""
     if end < start:
         raise PayrollError("period end must be on/after start")
+    if unpaid_leave_days is not None:
+        unpaid_leave_pence += unpaid_leave_for_days(
+            session, employment, unpaid_leave_days, end)
     base = dom.gross_for_period(session, employment.id, start, end)
     ot_pay = ot.approved_total_pence(session, employment.id, start, end)
     earnings = base + ot_pay + bonus_pence + allowance_pence
     taxable_gross = earnings - unpaid_leave_pence
 
+    # Pension % applies on post-leave pensionable gross (issue #83).
+    pension_pence = pension_pence_for(employment, taxable_gross)
     tax_year = tax.tax_year_for(end)
     rules = tax.rule_set(session, tax_year, employment.jurisdiction)
     params = json.loads(rules.params)
@@ -80,9 +108,9 @@ def generate(
         period=tax.tax_month_for(end),
         ni_category=employment.ni_category,
         student_loan_plan=employment.student_loan_plan.value,
-        pension_mode=PensionMode.none, pension_pence=0)
-    net = taxable_gross - ded.tax_pence - ded.ni_pence \
-        - ded.student_loan_pence
+        pension_mode=PensionMode(employment.pension_mode),
+        pension_pence=pension_pence)
+    net = ded.net_pence
 
     run = PayrollRun(
         employment_id=employment.id, period_start=start,
@@ -104,6 +132,10 @@ def generate(
     if unpaid_leave_pence:
         _component(run, PayrollComponentKind.unpaid_leave,
                    "Unpaid leave", -unpaid_leave_pence)
+    if pension_pence:
+        _component(run, PayrollComponentKind.pension,
+                   f"Pension ({PensionMode(employment.pension_mode).value})",
+                   -pension_pence)
     _component(run, PayrollComponentKind.tax, "PAYE income tax",
                -ded.tax_pence)
     _component(run, PayrollComponentKind.ni, "National Insurance",

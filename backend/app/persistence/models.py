@@ -584,6 +584,13 @@ class StudentLoanPlan(enum.StrEnum):
     postgrad = "postgrad"
 
 
+class PensionMode(enum.StrEnum):
+    none = "none"
+    relief_at_source = "relief_at_source"  # post-tax; no PAYE/NI effect
+    net_pay = "net_pay"                    # reduces taxable, not NI gross
+    salary_sacrifice = "salary_sacrifice"  # reduces both tax and NI gross
+
+
 class Employment(TimestampMixin, Base):
     """A member's employment — payroll facts + payday rule ref (issue
     #78). Salary and tax code are effective-dated revision series, never
@@ -606,6 +613,15 @@ class Employment(TimestampMixin, Base):
         nullable=False)
     pension_scheme_ref: Mapped[str | None] = mapped_column(
         String(128), nullable=True)
+    pension_mode: Mapped[PensionMode] = mapped_column(
+        Enum(PensionMode), default=PensionMode.none, nullable=False)
+    pension_employee_bps: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False)
+    pension_fixed_pence: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False)
+    work_days_per_week: Mapped[Decimal] = mapped_column(
+        Numeric(3, 1), default=Decimal("5"), server_default="5",
+        nullable=False)
     overtime_multipliers: Mapped[str] = mapped_column(
         String(400), default="{}", server_default="{}", nullable=False)
     contracted_hours: Mapped[Decimal] = mapped_column(

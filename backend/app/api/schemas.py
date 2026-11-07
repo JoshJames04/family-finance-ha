@@ -19,6 +19,7 @@ from app.persistence.models import (
     OvertimeStatus,
     PayrollComponentKind,
     PayrollRunStatus,
+    PensionMode,
     Role,
     StudentLoanPlan,
     TaxJurisdiction,
@@ -406,6 +407,11 @@ class EmploymentIn(BaseModel):
     contracted_hours: Decimal = Field(gt=0, le=168)
     payday_rule: str | None = Field(default=None, max_length=400)
     overtime_multipliers: dict[DayType, int] | None = None
+    pension_mode: PensionMode = PensionMode.none
+    pension_employee_bps: int = Field(default=0, ge=0, le=10_000)
+    pension_fixed_pence: int = Field(default=0, ge=0)
+    work_days_per_week: Decimal = Field(default=Decimal("5"), gt=0,
+                                        le=7)
 
 
 class EmploymentPatch(BaseModel):
@@ -421,6 +427,12 @@ class EmploymentPatch(BaseModel):
                                              le=168)
     payday_rule: str | None = Field(default=None, max_length=400)
     overtime_multipliers: dict[DayType, int] | None = None
+    pension_mode: PensionMode | None = None
+    pension_employee_bps: int | None = Field(default=None, ge=0,
+                                            le=10_000)
+    pension_fixed_pence: int | None = Field(default=None, ge=0)
+    work_days_per_week: Decimal | None = Field(default=None, gt=0,
+                                               le=7)
     is_active: bool | None = None
 
 
@@ -436,6 +448,10 @@ class EmploymentOut(BaseModel):
     pension_scheme_ref: str | None
     contracted_hours: Decimal
     payday_rule: str | None
+    pension_mode: PensionMode
+    pension_employee_bps: int
+    pension_fixed_pence: int
+    work_days_per_week: Decimal
     is_active: bool
 
 
@@ -510,6 +526,8 @@ class PayrollRunIn(BaseModel):
     bonus: Money | None = None
     allowance: Money | None = None
     unpaid_leave: Money | None = None
+    unpaid_leave_days: Decimal | None = Field(default=None, gt=0,
+                                              le=31)
 
 
 class PayrollReconcileIn(BaseModel):
