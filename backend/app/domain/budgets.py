@@ -375,3 +375,43 @@ def accuracy_history(
                 "original_accuracy_pct": a["original_accuracy_pct"],
             })
     return out
+
+
+def accuracy_ranking(
+    session: Session, budgets: list[Budget],
+) -> list[dict[str, object]]:
+    """Per-category mean forecast accuracy across ``budgets``, worst
+    first — the systematically mis-forecast categories (issue #112).
+
+    The caller passes the budgets *visible* to the requesting profile;
+    private budgets never leak into a shared ranking.
+    """
+    acc: dict[int, list[float]] = {}
+    orig: dict[int, list[float]] = {}
+    for b in budgets:
+        actuals = actuals_for_budget(session, b)
+        for line in b.lines:
+            a = line_analysis(actuals.get(line.id, 0), line)
+            acc.setdefault(line.category_id, []).append(
+                float(str(a["accuracy_pct"])))
+            orig.setdefault(line.category_id, []).append(
+                float(str(a["original_accuracy_pct"])))
+    names = {c.id: c.name for c in session.execute(
+        select(Category).where(
+            Category.household_id == budgets[0].household_id)
+    ).scalars()} if budgets else {}
+    rows = [{
+        "category_id": cid,
+        "name": names.get(cid, f"Category {cid}"),
+        "periods": len(vals),
+        "mean_accuracy_pct": round(sum(vals) / len(vals), 2),
+        "mean_original_accuracy_pct": round(
+            sum(orig[cid]) / len(orig[cid]), 2),
+    } for cid, vals in acc.items()]
+    for r in rows:
+        r["revision_delta_pct"] = round(
+            float(str(r["mean_accuracy_pct"]))
+            - float(str(r["mean_original_accuracy_pct"])), 2)
+    rows.sort(key=lambda r: (
+        float(str(r["mean_accuracy_pct"])), int(str(r["category_id"]))))
+    return rows
