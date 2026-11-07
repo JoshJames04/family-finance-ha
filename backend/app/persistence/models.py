@@ -181,6 +181,7 @@ class TransactionSource(enum.StrEnum):
     starling = "starling"
     excel_import = "excel_import"
     system = "system"
+    manual_verification = "manual_verification"
 
 
 class Transaction(TimestampMixin, Base):
@@ -1194,3 +1195,27 @@ class Gift(Base):
 
     event: Mapped[SeasonalEvent] = relationship(back_populates="gifts")
     transaction: Mapped[Transaction | None] = relationship()
+
+
+class BalanceVerification(Base):
+    """Asserted-vs-derived balance check (issue #95). Corrections never
+    edit history: `correction_txn_id` points at the adjusting ledger row
+    the verification created (source `manual_verification`)."""
+
+    __tablename__ = "balance_verification"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    asserted_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    derived_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    variance_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    verified_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    correction_txn_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transaction.id"), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    account: Mapped[Account] = relationship()
+    correction: Mapped[Transaction | None] = relationship()
