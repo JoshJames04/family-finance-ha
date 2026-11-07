@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     backup_dir: Path | None = None
     backup_keep: int = 7
     backup_interval_hours: float = 24.0  # 0 disables the scheduler
+    # issue #70 job runner — scheduled feed sync cadence (Starling
+    # allows ~1000 req/day; 4h is comfortably inside) and the tick
+    # period the runner wakes on. 0 disables each.
+    sync_interval_minutes: float = 240.0
+    scheduler_tick_seconds: float = 60.0
     admin_token: SecretStr | None = None
     vault_key: SecretStr | None = None  # FF_VAULT_KEY; file fallback
     ingress: bool = False               # FF_INGRESS: addon mode

@@ -36,9 +36,11 @@ API_BASE = "https://api.starlingbank.com"
 class UpstreamError(ConnError):
     """HTTP error carrying the status code for state mapping."""
 
-    def __init__(self, status: int, message: str = "") -> None:
+    def __init__(self, status: int, message: str = "",
+                 retry_after: float | None = None) -> None:
         super().__init__(message or f"HTTP {status}")
         self.status = status
+        self.retry_after = retry_after
 
 
 def _get(token: str, path: str) -> dict[str, object]:
@@ -52,7 +54,14 @@ def _get(token: str, path: str) -> dict[str, object]:
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             raise TokenInvalid(f"HTTP {e.code}") from e
-        raise UpstreamError(e.code) from e
+        retry = None
+        try:
+            retry = float(e.headers.get("Retry-After", "") or "nan")
+        except (TypeError, ValueError):
+            retry = None
+        raise UpstreamError(
+            e.code, retry_after=retry if retry == retry else None
+            ) from e
     except (urllib.error.URLError, TimeoutError) as e:
         raise ValidatorUnavailable(str(e)) from e
 
@@ -155,7 +164,8 @@ def starling_fetch(client: BankClient, token: str,
                                       category_uid, since)
         except UpstreamError as e:
             if e.status == 429:
-                raise RateLimited(str(e)) from e
+                raise RateLimited(
+                    str(e), retry_after=e.retry_after) from e
             raise SyncError(str(e)) from e
         yield FeedPage(items, cursor_ref=watermark)
     return fetch

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.api.errors import install_error_handlers
 from app.api.v1 import v1_router
+from app.core import scheduler
 from app.core.health import (
     ComponentStatus,
     HealthRegistry,
@@ -21,6 +23,8 @@ from app.core.health import (
 )
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
+from app.domain import banks as bankdom
+from app.domain import vault
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
 from app.persistence.migrate import migrations_current, upgrade_head
@@ -103,11 +107,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         task = (asyncio.create_task(_snapshot_loop())
                 if settings.backup_interval_hours > 0 else None)
+
+        async def _scheduler_loop() -> None:
+            """Job runner (issue #70): periodic sync drain +
+            notification evaluate/dispatch/deliver. Deps resolve from
+            app.state so tests inject fakes; a failing tick logs and
+            sleeps, never kills the loop."""
+            from app.api.v1.notifications import _UrllibNotifier
+            from app.integrations.starling import StarlingClient
+            from app.persistence.session import get_session
+            while True:
+                await asyncio.sleep(settings.scheduler_tick_seconds)
+                try:
+                    client = getattr(app.state, "bank_client",
+                                     StarlingClient())
+                    notifier = getattr(
+                        app.state, "ha_notifier", None) or (
+                        _UrllibNotifier(
+                            settings.ha_url,
+                            settings.supervisor_token.get_secret_value()
+                            if settings.supervisor_token else None))
+                    ring = vault.keyring(settings)
+                    with contextlib.closing(
+                            next(get_session())) as s:
+                        scheduler.sync_tick(
+                            s, client=client,
+                            token_for=lambda sess, c, r=ring:
+                                bankdom.token(sess, c, r),
+                            interval_seconds=
+                                settings.sync_interval_minutes * 60)
+                        scheduler.notify_tick(s, notifier=notifier)
+                        s.commit()
+                except Exception:
+                    log.exception("scheduler tick failed")
+
+        sched = (asyncio.create_task(_scheduler_loop())
+                 if settings.scheduler_tick_seconds > 0 else None)
         try:
             yield
         finally:
             if task is not None:
                 task.cancel()
+            if sched is not None:
+                sched.cancel()
             engine.dispose()
 
     app = FastAPI(title="Family Finance", version=__version__, lifespan=lifespan)

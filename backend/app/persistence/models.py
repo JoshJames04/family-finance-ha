@@ -1674,6 +1674,15 @@ class SyncCursor(TimestampMixin, Base):
         Enum(TransactionSource), nullable=False)
     last_ref: Mapped[str | None] = mapped_column(String(128),
                                                  nullable=True)
+    # issue #70 monitoring: last good run, backoff window, queued
+    # manual refresh — a refresh requested during backoff waits for
+    # the window instead of bypassing it (AC).
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    refresh_requested: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
     last_date: Mapped[date_t | None] = mapped_column(Date,
                                                      nullable=True)
     status: Mapped[SyncStatus] = mapped_column(
