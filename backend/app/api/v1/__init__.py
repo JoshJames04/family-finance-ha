@@ -20,6 +20,7 @@ from app.api.v1 import (
     reports,
     scenarios,
     seasonal,
+    reconcile,
     subscriptions,
     sync,
     transactions,
@@ -50,3 +51,4 @@ v1_router.include_router(scenarios.router)
 v1_router.include_router(notifications.router)
 v1_router.include_router(categorisation.router)
 v1_router.include_router(sync.router)
+v1_router.include_router(reconcile.router)

@@ -1726,3 +1726,56 @@ class MergeCandidate(Base):
         DateTime, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
+
+
+class ReconStatus(enum.StrEnum):
+    """Reconciliation lifecycle (issue #69): `matched` closes the
+    loop (auto above confidence, or user-confirmed), `pending` sits
+    in the review queue, `dismissed` records a deliberate non-match."""
+
+    pending = "pending"
+    matched = "matched"
+    dismissed = "dismissed"
+
+
+class Reconciliation(Base):
+    """Links an actual transaction to the expected movement it
+    settles. Expected rows are re-materialised (issue #72), so the
+    expected side is a snapshot — label/date/amount + source
+    provenance — not an FK. ``candidates`` holds the ranked
+    alternatives shown in the review queue for pending rows."""
+
+    __tablename__ = "reconciliation"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), nullable=False, index=True)
+    status: Mapped[ReconStatus] = mapped_column(
+        Enum(ReconStatus), default=ReconStatus.pending,
+        nullable=False)
+    score: Mapped[int] = mapped_column(
+        Integer, nullable=False)             # 0-100
+    expected_source_type: Mapped[str | None] = mapped_column(
+        String(40), nullable=True)
+    expected_source_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    expected_label: Mapped[str | None] = mapped_column(
+        String(200), nullable=True)
+    expected_date: Mapped[date_t | None] = mapped_column(
+        Date, nullable=True)
+    expected_amount_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    amount_drift_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)              # actual − expected
+    date_drift_days: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)              # actual − expected
+    candidates: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict)  # ranked alternatives
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)

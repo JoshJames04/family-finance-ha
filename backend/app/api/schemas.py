@@ -1297,3 +1297,28 @@ class MergeCandidateOut(BaseModel):
 
 class MergeResolveIn(BaseModel):
     action: str = Field(pattern="^(merged|dismissed)$")
+
+
+class ReconciliationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    transaction_id: int
+    status: str
+    score: int
+    expected_source_type: str | None
+    expected_source_id: int | None
+    expected_label: str | None
+    expected_date: date | None
+    expected_amount_pence: int | None
+    amount_drift_pence: int | None
+    date_drift_days: int | None
+    candidates: dict[str, object]
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ReconStatsOut(BaseModel):
+    scanned: int
+    matched: int
+    queued: int
