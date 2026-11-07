@@ -1,0 +1,144 @@
+/*
+ * Family Finance design system — tokens + base layer.
+ *
+ * Semantic CSS variables drive both schemes; `[data-theme]` on <html>
+ * (managed by useTheme: system | light | dark) selects the palette.
+ * Tailwind utilities map onto the tokens via @theme inline, so
+ * components say `bg-surface text-fg-muted border-border` and never
+ * hard-code a scheme-specific colour.
+ */
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  color-scheme: light;
+  --bg: #f6f6f7;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --surface-3: #ececef;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --fg: #0a0a0c;
+  --fg-muted: #52525b;
+  --fg-subtle: #6b6b75;
+  --accent: #5145e5;
+  --accent-soft: #eeedff;
+  --accent-fg: #ffffff;
+  --positive: #047857;
+  --positive-soft: #e7f7f0;
+  --negative: #be123c;
+  --negative-soft: #fdecef;
+  --warning: #a35100;
+  --warning-soft: #fff4e0;
+  --info: #0369a1;
+  --info-soft: #e6f3fb;
+  --chart-line: #5145e5;
+  --chart-grid: #e4e4e7;
+  --shadow: 0 1px 2px rgb(10 10 12 / 0.04), 0 4px 16px rgb(10 10 12 / 0.04);
+  --overlay: rgb(10 10 12 / 0.4);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #09090b;
+  --surface: #111114;
+  --surface-2: #17171b;
+  --surface-3: #1f1f25;
+  --border: #25252c;
+  --border-strong: #34343d;
+  --fg: #fafafa;
+  --fg-muted: #a1a1aa;
+  --fg-subtle: #8b8b95;
+  --accent: #8f83ff;
+  --accent-soft: #1c1a3a;
+  --accent-fg: #0b0b10;
+  --positive: #34d399;
+  --positive-soft: #0f2a21;
+  --negative: #fb7185;
+  --negative-soft: #3a1219;
+  --warning: #fbbf24;
+  --warning-soft: #33260a;
+  --info: #38bdf8;
+  --info-soft: #0b2533;
+  --chart-line: #9d8cff;
+  --chart-grid: #25252c;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  --overlay: rgb(0 0 0 / 0.6);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --shadow-card: var(--shadow);
+  --radius-card: 14px;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+}
+
+@layer utilities {
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Hero gradient — the one bold surface; tinted so small white text
+     keeps AA contrast across the whole sweep. */
+  .bg-hero {
+    background:
+      linear-gradient(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.12)),
+      linear-gradient(135deg, #5b4bff 0%, #9f45f0 48%, #f04f86 100%);
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

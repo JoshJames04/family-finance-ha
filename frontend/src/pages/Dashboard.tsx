@@ -4,20 +4,29 @@
  * come from the registry — unavailable ones degrade cleanly. */
 import { Component, useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { ArrowDown, ArrowRight, ArrowUp, Eye, EyeOff, Inbox, Plus, SlidersHorizontal } from "lucide-react";
 import { api } from "../api/client";
 import { useApi, useHouseholds } from "../api/useApi";
+import { useReview } from "../api/useReview";
 import type { components } from "../api/schema";
-import { DataView } from "../components/DataView";
-import {
-  DEFAULT_ORDER,
-  WIDGETS,
-  widgetById,
-} from "../widgets/registry";
+import { Button } from "../components/Button";
+import { Sheet } from "../components/Dialog";
+import { PageHeader } from "../components/Display";
+import { cn } from "../lib/cn";
+import { formatLongDate } from "../lib/format";
+import { useShell } from "../shell/ShellContext";
+import { DEFAULT_ORDER, WIDGETS, widgetById } from "../widgets/registry";
 
 type Role = components["schemas"]["Role"];
 interface Layout { order: string[]; hidden: string[] }
 
 const LS_KEY = "ff.dashboard";
+const SPAN: Record<1 | 2 | 3, string> = {
+  1: "lg:col-span-1",
+  2: "md:col-span-2 lg:col-span-2",
+  3: "md:col-span-2 lg:col-span-3",
+};
 
 function loadLocal(): Layout {
   try {
@@ -39,7 +48,11 @@ class WidgetBoundary extends Component<
   }
   render() {
     return this.state.failed
-      ? <p className="ff-muted">{this.props.title} unavailable.</p>
+      ? (
+        <div className="grid h-full min-h-24 place-items-center rounded-[var(--radius-card)] border border-dashed border-border p-4 text-[13px] text-fg-subtle">
+          {this.props.title} unavailable.
+        </div>
+      )
       : this.props.children;
   }
 }
@@ -51,9 +64,33 @@ function normalise(l: Layout): Layout {
   return { order, hidden: l.hidden.filter((id) => ids.has(id)) };
 }
 
+function greeting(d: Date): string {
+  const h = d.getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
+
+function ReviewCallout() {
+  const review = useReview();
+  if (review.total === 0) return null;
+  return (
+    <Link
+      to="/review"
+      className="mb-4 flex items-center gap-3 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-[13.5px] text-fg transition-colors hover:border-warning/50"
+    >
+      <span className="grid size-8 place-items-center rounded-lg bg-warning/15 text-warning"><Inbox className="size-4" /></span>
+      <span className="flex-1">
+        <b className="font-semibold">{review.total} item{review.total === 1 ? "" : "s"} need{review.total === 1 ? "s" : ""} your review</b>
+        <span className="text-fg-muted"> — {review.openFlags.length > 0 ? "including a migration check before the workbook can be retired" : "matches, detections and unusual activity"}</span>
+      </span>
+      <ArrowRight className="size-4 text-fg-muted" />
+    </Link>
+  );
+}
+
 export function Dashboard() {
   const households = useHouseholds();
   const ready = households.data !== null;
+  const { openQuickAdd } = useShell();
   const remote = useApi(
     () => api.get("/api/v1/profiles/me/dashboard"), ready);
   const [layout, setLayout] = useState<Layout | null>(null);
@@ -98,63 +135,82 @@ export function Dashboard() {
     save({ ...layout, hidden });
   };
 
+  const allowed = (w: { roles?: Role[] }) =>
+    // Standalone (no resolved profile) is a single operator — see
+    // everything; members get role-gated widgets.
+    !w.roles || role === null || w.roles.includes(role);
+
   const visible = layout?.order
     .map(widgetById)
     .filter((w): w is NonNullable<typeof w> => w !== undefined)
     .filter((w) => !layout.hidden.includes(w.id))
-    // Standalone (no resolved profile) is a single operator — see
-    // everything; members get role-gated widgets.
-    .filter((w) => !w.roles || role === null || w.roles.includes(role))
+    .filter(allowed)
     ?? [];
 
+  const now = new Date();
   return (
-    <section>
-      <h1>Dashboard</h1>
-      <DataView state={households} empty="No household configured yet.">
-        {(hs) => <p className="ff-muted">Household: {hs[0]!.name}</p>}
-      </DataView>
-      <p>
-        <button type="button"
-          onClick={() => setCustomising((c) => !c)}>
-          {customising ? "Done" : "Customise"}
-        </button>
-      </p>
-      {customising && layout && (
-        <ul className="ff-list" aria-label="Customise widgets">
-          {layout.order.map((id) => {
-            const w = widgetById(id);
-            if (!w) return null;
-            const roleBlocked = w.roles != null
-              && role !== null && !w.roles.includes(role);
-            return (
-              <li key={id}>
-                <span>{w.title}</span>
-                {roleBlocked && (
-                  <span className="ff-muted"> admin only</span>
-                )}
-                <button aria-label={`Move ${w.title} up`}
-                  onClick={() => move(id, -1)}>↑</button>
-                <button aria-label={`Move ${w.title} down`}
-                  onClick={() => move(id, 1)}>↓</button>
-                <button aria-label={`${layout.hidden.includes(id) ? "Show" : "Hide"} ${w.title}`}
-                  onClick={() => toggleHide(id)}>
-                  {layout.hidden.includes(id) ? "show" : "hide"}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <div className="ff-card-grid">
+    <div>
+      <PageHeader
+        eyebrow={formatLongDate(now)}
+        title={greeting(now)}
+        description={households.data?.[0] ? `Here's where ${households.data[0].name} stands today.` : undefined}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setCustomising(true)}>
+              <SlidersHorizontal /> Customise
+            </Button>
+            <Button variant="primary" onClick={openQuickAdd} className="hidden md:inline-flex">
+              <Plus /> Add transaction
+            </Button>
+          </>
+        }
+      />
+      <ReviewCallout />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {visible.map((w) => (
-          <div className="ff-card" key={w.id} data-widget={w.id}>
-            <h2>{w.title}</h2>
+          <div key={w.id} data-widget={w.id} className={cn("min-w-0", SPAN[w.span])}>
             <WidgetBoundary title={w.title}>
-              <w.Component />
+              <w.Component title={w.title} />
             </WidgetBoundary>
           </div>
         ))}
       </div>
-    </section>
+
+      <Sheet open={customising} onOpenChange={setCustomising} title="Customise dashboard" side="right">
+        <div className="p-4">
+          <p className="mb-4 text-[13px] text-fg-muted">
+            Reorder or hide widgets. Your layout is saved to your profile.
+          </p>
+          {layout && (
+            <ul aria-label="Customise widgets" className="flex flex-col gap-1.5">
+              {layout.order.map((id, idx) => {
+                const w = widgetById(id);
+                if (!w) return null;
+                const hidden = layout.hidden.includes(id);
+                const roleBlocked = !allowed(w);
+                return (
+                  <li key={id} className={cn("flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2", hidden && "opacity-60")}>
+                    <span className="flex-1 truncate text-[13.5px] font-medium">{w.title}</span>
+                    {roleBlocked && <span className="text-[11.5px] text-fg-subtle">admin only</span>}
+                    <Button variant="ghost" size="icon-sm" aria-label={`Move ${w.title} up`} disabled={idx === 0} onClick={() => move(id, -1)}>
+                      <ArrowUp />
+                    </Button>
+                    <Button variant="ghost" size="icon-sm" aria-label={`Move ${w.title} down`} disabled={idx === layout.order.length - 1} onClick={() => move(id, 1)}>
+                      <ArrowDown />
+                    </Button>
+                    <Button variant="ghost" size="icon-sm" aria-label={`${hidden ? "Show" : "Hide"} ${w.title}`} onClick={() => toggleHide(id)}>
+                      {hidden ? <EyeOff /> : <Eye />}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <Button variant="ghost" className="mt-4" onClick={() => save({ order: DEFAULT_ORDER, hidden: [] })}>
+            Reset to default
+          </Button>
+        </div>
+      </Sheet>
+    </div>
   );
 }

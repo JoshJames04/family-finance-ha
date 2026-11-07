@@ -4,14 +4,27 @@
  * status badges, windowed rows, the expected↔actual match-confirm
  * queue, and a reason-enforced correction flow for reconciled rows —
  * never a silent edit. */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  Bookmark, Check, Download, FilterX, Lock, Pencil, Plus, Receipt, X,
+} from "lucide-react";
 import { api } from "../api/client";
 import { useApi, useHouseholds } from "../api/useApi";
+import { useAccounts, useCategories } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
-import { Badge } from "../components/Badge";
+import { Badge, type BadgeTone } from "../components/Badge";
 import { Money } from "../components/Money";
-import { formatDate } from "../lib/format";
+import { Button } from "../components/Button";
+import { Panel } from "../components/Panel";
+import { Dialog } from "../components/Dialog";
+import { Checkbox, Field, Input, SearchInput, Select } from "../components/Field";
+import { IconTile, PageHeader } from "../components/Display";
+import { Skeleton } from "../components/Feedback";
+import { cn } from "../lib/cn";
+import { formatDate, formatSmartDate } from "../lib/format";
+import { useShell } from "../shell/ShellContext";
 
 type Txn = components["schemas"]["TransactionOut"];
 type Category = components["schemas"]["CategoryOut"];
@@ -19,11 +32,16 @@ type Status = components["schemas"]["TransactionStatus"];
 type Recon = components["schemas"]["ReconciliationOut"];
 
 const STATUSES: Status[] = ["pending", "cleared", "reconciled", "void"];
+const STATUS_TONE: Record<Status, BadgeTone> = {
+  pending: "warning", cleared: "info", reconciled: "success", void: "error",
+};
 const SAVED_KEY = "ff.txnFilters";
-const ROW_PX = 46;
+const ROW_PX = 56;
+const PAGE_SIZE = 200;
 const OVERSCAN = 8;
 
 interface Filters { q: string; status: string; category_id: string }
+const EMPTY: Filters = { q: "", status: "", category_id: "" };
 
 function loadSaved(): Record<string, Filters> {
   try {
@@ -32,17 +50,19 @@ function loadSaved(): Record<string, Filters> {
 }
 
 /** Windowed row range for a scrollable container — renders only the
- * visible slice plus overscan, keeping large ledgers fast (#124). */
+ * visible slice plus overscan, keeping large ledgers fast (#124).
+ * Small lists render in full: windowing only pays off beyond ~80 rows. */
 function useWindowed(count: number) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const [height, setHeight] = useState(600);
+  const [height, setHeight] = useState(640);
   const onScroll = () => {
     const el = ref.current;
     if (!el) return;
     setScrollTop(el.scrollTop);
     setHeight(el.clientHeight);
   };
+  if (count <= 80) return { ref, onScroll, first: 0, last: count };
   const first = Math.max(0, Math.floor(scrollTop / ROW_PX) - OVERSCAN);
   const last = Math.min(
     count, Math.ceil((scrollTop + height) / ROW_PX) + OVERSCAN);
@@ -51,15 +71,19 @@ function useWindowed(count: number) {
 
 export function Transactions() {
   const households = useHouseholds();
-  const categories = useApi(
-    () => api.get("/api/v1/categories"), households.data !== null);
-  const [filters, setFilters] = useState<Filters>(
-    { q: "", status: "", category_id: "" });
+  const ready = households.data !== null;
+  const { dataVersion, openQuickAdd } = useShell();
+  const categories = useCategories();
+  const accounts = useAccounts();
+  const [filters, setFiltersRaw] = useState<Filters>(EMPTY);
   const [saved, setSaved] = useState<Record<string, Filters>>(loadSaved);
+  const [saving, setSaving] = useState(false);
   const [rev, setRev] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [correcting, setCorrecting] = useState<Txn | null>(null);
+  const [page, setPage] = useState(1);
+  const [loaded, setLoaded] = useState<Txn[]>([]);
   const state = useApi(
     () => api.get("/api/v1/transactions", {
       query: {
@@ -67,274 +91,420 @@ export function Transactions() {
         status: (filters.status || undefined) as Status | undefined,
         category_id: filters.category_id
           ? Number(filters.category_id) : undefined,
-        size: 200,
+        page,
+        size: PAGE_SIZE,
       },
     }),
-    households.data !== null,
-    [filters, rev],
+    ready,
+    [filters, rev, dataVersion, page],
   );
+  useEffect(() => {
+    if (!state.data) return;
+    const next = state.data.items;
+    setLoaded((prev) => (page === 1 ? next : [...prev, ...next]));
+  }, [state.data, page]);
+  useEffect(() => { setPage(1); }, [dataVersion]);
   const queue = useApi(
-    () => api.get("/api/v1/reconcile/queue"), households.data !== null,
-    [rev]);
-  const items = useMemo(() => state.data?.items ?? [], [state.data]);
+    () => api.get("/api/v1/reconcile/queue"), ready, [rev]);
+  const items = loaded;
+  const total = state.data?.total ?? 0;
+  const hasMore = items.length < total;
   const win = useWindowed(items.length);
-  const catName = useMemo(() => {
-    const m = new Map<number, string>();
-    for (const c of categories.data?.items ?? []) m.set(c.id, c.name);
-    return m;
-  }, [categories.data]);
+  const cats = categories.data?.items ?? [];
+  const multiAccount = (accounts.data?.items.length ?? 0) > 1;
+  const accountName = (id: number) =>
+    accounts.data?.items.find((a) => a.id === id)?.name ?? "";
+  const active = filters.q || filters.status || filters.category_id;
 
+  const refresh = () => { setPage(1); setRev((r) => r + 1); };
+  const setFilters = (f: Filters) => { setPage(1); setFiltersRaw(f); };
+  /** Inline edits patch the row in place — no refetch, scroll kept. */
   const patch = (id: number, body: object) =>
     api.patch("/api/v1/transactions/{txn_id}",
       { path: { txn_id: id }, body })
-      .then(() => setRev((r) => r + 1));
+      .then((updated) => {
+        if (updated && typeof updated === "object" && "id" in updated) {
+          setLoaded((rows) => rows.map((r) => (r.id === id ? { ...r, ...body } : r)));
+        } else refresh();
+      })
+      .catch((e: Error) => toast.error(e.message));
   const bulk = () => {
     if (!bulkCat || selected.size === 0) return;
+    const n = selected.size;
+    const ids = new Set(selected);
+    const categoryId = Number(bulkCat);
     void api.post("/api/v1/transactions/bulk", {
-      body: { ids: [...selected], category_id: Number(bulkCat) },
+      body: { ids: [...ids], category_id: categoryId },
     }).then(() => {
       setSelected(new Set());
-      setRev((r) => r + 1);
-    });
+      setBulkCat("");
+      setLoaded((rows) => rows.map((r) => (ids.has(r.id) ? { ...r, category_id: categoryId } : r)));
+      toast.success(`Categorised ${n} transaction${n === 1 ? "" : "s"}`);
+    }).catch((e: Error) => toast.error(e.message));
   };
   const reconAct = (rid: number, action: "confirm" | "dismiss") =>
     (action === "confirm"
       ? api.post("/api/v1/reconcile/{rid}/confirm", { path: { rid } })
       : api.post("/api/v1/reconcile/{rid}/dismiss", { path: { rid } })
-    ).then(() => setRev((r) => r + 1));
-  const saveFilter = () => {
-    const name = window.prompt("Filter name");
-    if (!name) return;
-    const next = { ...saved, [name]: filters };
-    setSaved(next);
-    localStorage.setItem(SAVED_KEY, JSON.stringify(next));
-  };
+    ).then(() => {
+      refresh();
+      toast.success(action === "confirm" ? "Match confirmed" : "Match dismissed");
+    }).catch((e: Error) => toast.error(e.message));
   const toggle = (id: number) => {
     const s = new Set(selected);
     if (s.has(id)) s.delete(id); else s.add(id);
     setSelected(s);
   };
+  const selectable = items.filter((t) => t.status !== "void");
+  const allSelected = selectable.length > 0 && selectable.every((t) => selected.has(t.id));
 
   return (
-    <section>
-      <h1>Transactions</h1>
-      <form
-        onSubmit={(e) => e.preventDefault()}
-        aria-label="Transaction filters"
-      >
-        <input
-          type="search"
-          placeholder="Search payee…"
-          aria-label="Search payee"
-          value={filters.q}
-          onChange={(e) =>
-            setFilters({ ...filters, q: e.target.value })}
-        />
-        <select
-          aria-label="Status"
-          value={filters.status}
-          onChange={(e) =>
-            setFilters({ ...filters, status: e.target.value })}
+    <div>
+      <PageHeader
+        title="Transactions"
+        description={state.data ? `${total} transaction${total === 1 ? "" : "s"}${active ? " matching filters" : ""}` : "Search, categorise and reconcile"}
+        actions={
+          <>
+            <a
+              href="./api/v1/transactions/export.csv"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
+            >
+              <Download /> Export
+            </a>
+            <Button variant="primary" onClick={openQuickAdd}><Plus /> Add</Button>
+          </>
+        }
+      />
+
+      {(queue.data?.length ?? 0) > 0 && (
+        <Panel
+          title={`Expected matches (${queue.data?.length ?? 0})`}
+          description="Scheduled movements that look like they've landed — confirm to reconcile."
+          flush
+          className="mb-4"
+          aria-label="Reconciliation queue"
         >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select
-          aria-label="Category"
-          value={filters.category_id}
-          onChange={(e) =>
-            setFilters({ ...filters, category_id: e.target.value })}
+          <ul className="divide-y divide-border">
+            {queue.data?.map((r: Recon) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                <IconTile label={r.expected_label ?? "transfer"} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13.5px] font-medium">{r.expected_label ?? "—"}</p>
+                  <p className="text-[12px] text-fg-subtle">
+                    Expected {r.expected_date ? formatSmartDate(r.expected_date) : "—"}
+                    {r.amount_drift_pence ? <> · drift <Money pence={r.amount_drift_pence} /></> : null}
+                  </p>
+                </div>
+                {r.expected_amount_pence != null && (
+                  <Money pence={r.expected_amount_pence} signed tone="auto" className="font-medium" />
+                )}
+                <Badge tone="accent">{r.score}% match</Badge>
+                <div className="flex gap-1.5">
+                  <Button size="sm" variant="primary" onClick={() => reconAct(r.id, "confirm")}>
+                    <Check /> Confirm
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => reconAct(r.id, "dismiss")}>
+                    Dismiss
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+
+      <Panel flush>
+        <form
+          onSubmit={(e) => e.preventDefault()}
+          aria-label="Transaction filters"
+          className="flex flex-wrap items-center gap-2 border-b border-border p-3"
         >
-          <option value="">All categories</option>
-          {(categories.data?.items ?? []).map((c: Category) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <select
-          aria-label="Saved filters"
-          value=""
-          onChange={(e) => {
-            const f = saved[e.target.value];
-            if (f) setFilters(f);
-          }}
-        >
-          <option value="">Saved filters…</option>
-          {Object.keys(saved).map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
-        <button type="button" onClick={saveFilter}>Save filter</button>
-      </form>
-      {selected.size > 0 && (
-        <p>
-          {selected.size} selected{" "}
-          <select
-            aria-label="Bulk category"
-            value={bulkCat}
-            onChange={(e) => setBulkCat(e.target.value)}
+          <SearchInput
+            placeholder="Search payee…"
+            aria-label="Search payee"
+            value={filters.q}
+            wrapperClassName="w-full sm:w-64"
+            onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+          />
+          <Select
+            aria-label="Status"
+            value={filters.status}
+            wrapperClassName="w-[calc(50%-4px)] sm:w-36"
+            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
           >
-            <option value="">Categorise as…</option>
-            {(categories.data?.items ?? []).map((c) => (
+            <option value="">All statuses</option>
+            {STATUSES.map((s) => <option key={s} value={s}>{s[0]!.toUpperCase() + s.slice(1)}</option>)}
+          </Select>
+          <Select
+            aria-label="Category"
+            value={filters.category_id}
+            wrapperClassName="w-[calc(50%-4px)] sm:w-48"
+            onChange={(e) => setFilters({ ...filters, category_id: e.target.value })}
+          >
+            <option value="">All categories</option>
+            {cats.map((c: Category) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
-          </select>
-          <button onClick={bulk}>Apply to selected</button>
-        </p>
-      )}
-      {(queue.data?.length ?? 0) > 0 && (
-          <section aria-label="Reconciliation queue">
-            <h2>Expected matches ({queue.data?.length ?? 0})</h2>
-            <table className="ff-table">
-              <thead>
-                <tr>
-                  <th>Expected</th>
-                  <th>When</th>
-                  <th className="ff-num">Expected</th>
-                  <th className="ff-num">Drift</th>
-                  <th>Match</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {queue.data?.map((r: Recon) => (
-                  <tr key={r.id}>
-                    <td>{r.expected_label ?? "—"}</td>
-                    <td>{r.expected_date ? formatDate(r.expected_date) : "—"}</td>
-                    <td className="ff-num">
-                      {r.expected_amount_pence != null
-                        ? <Money pence={r.expected_amount_pence} /> : "—"}
-                    </td>
-                    <td className="ff-num">
-                      {r.amount_drift_pence != null
-                        ? <Money pence={r.amount_drift_pence} /> : "—"}
-                    </td>
-                    <td><Badge tone="info">{r.score}%</Badge></td>
-                    <td>
-                      <button onClick={() => reconAct(r.id, "confirm")}>
-                        Confirm
-                      </button>{" "}
-                      <button onClick={() => reconAct(r.id, "dismiss")}>
-                        Dismiss
-                      </button>
-                    </td>
-                  </tr>
+          </Select>
+          <div className="flex items-center gap-2 sm:ml-auto">
+            {Object.keys(saved).length > 0 && (
+              <Select
+                aria-label="Saved filters"
+                value=""
+                wrapperClassName="w-40"
+                onChange={(e) => {
+                  const f = saved[e.target.value];
+                  if (f) setFilters(f);
+                }}
+              >
+                <option value="">Saved filters…</option>
+                {Object.keys(saved).map((n) => (
+                  <option key={n} value={n}>{n}</option>
                 ))}
-              </tbody>
-            </table>
-          </section>
-      )}
-      <DataView
-        state={{ ...state, data: state.data?.items ?? null }}
-        empty="No transactions recorded."
-      >
-        {(rows) => (
-          <div
-            ref={win.ref}
-            onScroll={win.onScroll}
-            className="ff-table-window"
-            role="region"
-            aria-label="Transaction list"
-            tabIndex={0}
-          >
-            <table className="ff-table">
-              <thead>
-                <tr>
-                  <th aria-label="Select" />
-                  <th>Date</th>
-                  <th>Payee</th>
-                  <th>Category</th>
-                  <th>Status</th>
-                  <th className="ff-num">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {win.first > 0 && (
-                  <tr aria-hidden="true">
-                    <td colSpan={6} style={{ height: win.first * ROW_PX, padding: 0, border: 0 }} />
-                  </tr>
-                )}
-                {rows.slice(win.first, win.last).map((t: Txn) => {
-                  const locked = t.status === "reconciled"
-                    || t.status === "void";
-                  return (
-                    <tr key={t.id} style={{ height: ROW_PX }}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${t.payee} ${formatDate(t.date)}`}
-                          checked={selected.has(t.id)}
-                          onChange={() => toggle(t.id)}
-                        />
-                      </td>
-                      <td>{formatDate(t.date)}</td>
-                      <td>
-                        {locked ? t.payee : (
-                          <InlineText
-                            value={t.payee}
-                            label={`Edit payee for ${t.payee}`}
-                            onSave={(v) => patch(t.id, { payee: v })}
-                          />
-                        )}
-                      </td>
-                      <td>
-                        {locked ? (catName.get(t.category_id ?? -1) ?? "—") : (
-                          <select
-                            aria-label={`Category for ${t.payee}`}
-                            value={t.category_id ?? ""}
-                            onChange={(e) =>
-                              void patch(t.id, {
-                                category_id: e.target.value
-                                  ? Number(e.target.value) : null,
-                              })}
-                          >
-                            <option value="">—</option>
-                            {(categories.data?.items ?? []).map((c) => (
-                              <option key={c.id} value={c.id}>{c.name}</option>
-                            ))}
-                          </select>
-                        )}
-                      </td>
-                      <td>
-                        <Badge tone={
-                          t.status === "reconciled" ? "success"
-                            : t.status === "void" ? "error"
-                            : t.status === "cleared" ? "info" : "neutral"
-                        }>{t.status}</Badge>
-                        {t.status === "reconciled" && (
-                          <button
-                            className="ff-inline-edit"
-                            aria-label={`Correct ${t.payee}`}
-                            onClick={() => setCorrecting(t)}
-                          >
-                            {" "}correct…
-                          </button>
-                        )}
-                      </td>
-                      <td className={`ff-num ${t.amount_pence < 0 ? "ff-neg" : "ff-pos"}`}>
-                        <Money pence={t.amount_pence} />
-                      </td>
-                    </tr>
-                  );
-                })}
-                {win.last < rows.length && (
-                  <tr aria-hidden="true">
-                    <td colSpan={6} style={{ height: (rows.length - win.last) * ROW_PX, padding: 0, border: 0 }} />
-                  </tr>
-                )}
-              </tbody>
-            </table>
+              </Select>
+            )}
+            {active && (
+              <Button variant="ghost" onClick={() => setFilters(EMPTY)}>
+                <FilterX /> Clear
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => setSaving(true)} disabled={!active}>
+              <Bookmark /> Save filter
+            </Button>
+          </div>
+        </form>
+
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent-soft px-3 py-2.5">
+            <span className="text-[13px] font-medium text-fg">{selected.size} selected</span>
+            <Select
+              aria-label="Bulk category"
+              value={bulkCat}
+              sizeVariant="sm"
+              wrapperClassName="w-48"
+              onChange={(e) => setBulkCat(e.target.value)}
+            >
+              <option value="">Categorise as…</option>
+              {cats.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+            <Button size="sm" variant="primary" onClick={bulk} disabled={!bulkCat}>Apply to selected</Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              <X /> Clear selection
+            </Button>
           </div>
         )}
-      </DataView>
+
+        <DataView
+          state={{
+            loading: state.loading && page === 1,
+            error: state.error,
+            data: state.data || items.length ? items : null,
+          }}
+          empty={active ? "No transactions match these filters" : "No transactions recorded"}
+          emptyDescription={active ? "Try a different search or clear the filters." : "Add one manually or connect a bank feed."}
+          emptyIcon={Receipt}
+          emptyAction={active
+            ? <Button variant="secondary" onClick={() => setFilters(EMPTY)}><FilterX /> Clear filters</Button>
+            : <Button variant="primary" onClick={openQuickAdd}><Plus /> Add transaction</Button>}
+          loading={<div className="space-y-3 p-4">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>}
+        >
+          {(rows) => (
+            <div
+              ref={win.ref}
+              onScroll={win.onScroll}
+              className="ff-table-window scrollbar-thin max-h-[calc(100dvh-300px)] min-h-[320px] overflow-auto"
+              role="region"
+              aria-label="Transaction list"
+              tabIndex={0}
+            >
+              <table className="ff-table w-full border-collapse text-[13.5px]">
+                <thead className="sticky top-0 z-[1] bg-surface text-left text-[12px] text-fg-subtle shadow-[0_1px_0_var(--border)]">
+                  <tr className="h-10">
+                    <th className="w-10 pl-4">
+                      <button
+                        type="button"
+                        className="text-[11px] font-medium text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
+                        onClick={() => setSelected(allSelected ? new Set() : new Set(selectable.map((t) => t.id)))}
+                      >
+                        {allSelected ? "None" : "All"}
+                      </button>
+                    </th>
+                    <th className="hidden w-28 px-3 font-medium md:table-cell">Date</th>
+                    <th className="px-3 font-medium">Payee</th>
+                    <th className="hidden w-56 px-3 font-medium lg:table-cell">Category</th>
+                    <th className="hidden w-36 px-3 font-medium sm:table-cell">Status</th>
+                    <th className="w-32 px-3 pr-4 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {win.first > 0 && (
+                    <tr aria-hidden="true">
+                      <td colSpan={6} style={{ height: win.first * ROW_PX, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                  {rows.slice(win.first, win.last).map((t: Txn) => {
+                    const locked = t.status === "reconciled" || t.status === "void";
+                    const cat = categories.byId.get(t.category_id ?? -1);
+                    return (
+                      <tr
+                        key={t.id}
+                        style={{ height: ROW_PX }}
+                        className={cn(
+                          "border-b border-border hover:bg-surface-2/60",
+                          selected.has(t.id) && "bg-accent-soft/60",
+                          t.status === "void" && "opacity-55",
+                        )}
+                      >
+                        <td className="pl-4">
+                          <Checkbox
+                            aria-label={`Select ${t.payee} ${formatDate(t.date)}`}
+                            checked={selected.has(t.id)}
+                            onChange={() => toggle(t.id)}
+                          />
+                        </td>
+                        <td className="tnum hidden px-3 whitespace-nowrap text-fg-muted md:table-cell">{formatSmartDate(t.date)}</td>
+                        <td className="max-w-0 px-3">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <IconTile label={cat?.name ?? t.payee} size="sm" />
+                            <div className="min-w-0 flex-1">
+                              {locked ? (
+                                <span className={cn("block truncate font-medium", t.status === "void" && "line-through")}>{t.payee}</span>
+                              ) : (
+                                <InlineText
+                                  value={t.payee}
+                                  label={`Edit payee for ${t.payee}`}
+                                  onSave={(v) => patch(t.id, { payee: v })}
+                                />
+                              )}
+                              <p className="truncate text-[12px] text-fg-subtle">
+                                <span className="md:hidden">{formatSmartDate(t.date)}</span>
+                                <span className="md:hidden lg:hidden">{cat ? ` · ${cat.name}` : ""}</span>
+                                {multiAccount && <span className="hidden md:inline">{accountName(t.account_id)}</span>}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="hidden px-3 lg:table-cell">
+                          {locked ? (
+                            <span className="text-fg-muted">{cat?.name ?? "—"}</span>
+                          ) : (
+                            <Select
+                              aria-label={`Category for ${t.payee}`}
+                              value={t.category_id ?? ""}
+                              sizeVariant="sm"
+                              className={cn("border-transparent bg-transparent hover:border-border", !t.category_id && "text-fg-subtle")}
+                              onChange={(e) =>
+                                void patch(t.id, {
+                                  category_id: e.target.value ? Number(e.target.value) : null,
+                                })}
+                            >
+                              <option value="">Uncategorised</option>
+                              {cats.map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </Select>
+                          )}
+                        </td>
+                        <td className="hidden px-3 sm:table-cell">
+                          <div className="flex items-center gap-1">
+                            <Badge tone={STATUS_TONE[t.status]}>{t.status}</Badge>
+                            {t.status === "reconciled" && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Correct ${t.payee}`}
+                                title="Issue a correction"
+                                onClick={() => setCorrecting(t)}
+                              >
+                                <Pencil />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 pr-4 text-right">
+                          <Money pence={t.amount_pence} signed tone="auto" className="font-medium" />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {win.last < rows.length && (
+                    <tr aria-hidden="true">
+                      <td colSpan={6} style={{ height: (rows.length - win.last) * ROW_PX, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {hasMore && (
+                <div className="flex items-center justify-center gap-3 border-t border-border p-3 text-[12.5px] text-fg-subtle">
+                  Showing {items.length} of {total}
+                  <Button size="sm" variant="secondary" disabled={state.loading} onClick={() => setPage((p) => p + 1)}>
+                    {state.loading ? "Loading…" : "Load more"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </DataView>
+      </Panel>
+
       {correcting && (
         <CorrectionForm
           txn={correcting}
-          categories={categories.data?.items ?? []}
-          onDone={() => { setCorrecting(null); setRev((r) => r + 1); }}
+          categories={cats}
+          onDone={() => { setCorrecting(null); refresh(); toast.success("Correction issued"); }}
           onCancel={() => setCorrecting(null)}
         />
       )}
-    </section>
+      <SaveFilterDialog
+        open={saving}
+        onOpenChange={setSaving}
+        onSave={(name) => {
+          const next = { ...saved, [name]: filters };
+          setSaved(next);
+          localStorage.setItem(SAVED_KEY, JSON.stringify(next));
+          toast.success(`Saved “${name}”`);
+        }}
+      />
+    </div>
+  );
+}
+
+function SaveFilterDialog({ open, onOpenChange, onSave }: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onSave: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => { onOpenChange(o); if (!o) setName(""); }}
+      title="Save filter"
+      description="Give these filters a name to reuse them later."
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" type="submit" form="ff-save-filter" disabled={!name.trim()}>Save</Button>
+        </>
+      }
+    >
+      <form
+        id="ff-save-filter"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!name.trim()) return;
+          onSave(name.trim());
+          setName("");
+          onOpenChange(false);
+        }}
+      >
+        <Field label="Name">
+          {(id) => <Input id={id} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Uncategorised this month" />}
+        </Field>
+      </form>
+    </Dialog>
   );
 }
 
@@ -372,60 +542,51 @@ function CorrectionForm({ txn, categories, onDone, onCancel }: {
     });
   };
   return (
-    <form
-      aria-label={`Correction for ${txn.payee}`}
-      onSubmit={submit}
-      className="ff-card"
+    <Dialog
+      open
+      onOpenChange={(o) => { if (!o) onCancel(); }}
+      title="Correct reconciled transaction"
+      description="The original is voided and a corrected entry re-enters review — history is never edited."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" type="submit" form="ff-correction" disabled={busy || !reason.trim()}>
+            {busy ? "Correcting…" : "Issue correction"}
+          </Button>
+        </>
+      }
     >
-      <h2>Correct reconciled transaction</h2>
-      <p className="ff-muted">
-        The original is voided and a corrected entry re-enters review —
-        history is never edited.
-      </p>
-      <label>
-        Reason (required)
-        <input
-          required
-          aria-label="Correction reason"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-      </label>
-      <label>
-        Payee
-        <input
-          aria-label="Corrected payee"
-          value={payee}
-          onChange={(e) => setPayee(e.target.value)}
-        />
-      </label>
-      <label>
-        Category
-        <select
-          aria-label="Corrected category"
-          value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-        >
-          <option value="">—</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Notes
-        <input
-          aria-label="Corrected notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </label>
-      {error && <p role="alert" className="ff-error">{error}</p>}
-      <button type="submit" disabled={busy || !reason.trim()}>
-        {busy ? "Correcting…" : "Issue correction"}
-      </button>{" "}
-      <button type="button" onClick={onCancel}>Cancel</button>
-    </form>
+      <form id="ff-correction" aria-label={`Correction for ${txn.payee}`} onSubmit={submit} className="grid gap-4">
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-2 p-3">
+          <Lock className="size-4 text-fg-subtle" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13.5px] font-medium">{txn.payee}</p>
+            <p className="text-[12px] text-fg-subtle">{formatSmartDate(txn.date)}</p>
+          </div>
+          <Money pence={txn.amount_pence} signed tone="auto" className="font-medium" />
+        </div>
+        <Field label="Reason (required)" hint="Recorded in the audit log.">
+          {(id) => <Input id={id} required aria-label="Correction reason" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />}
+        </Field>
+        <Field label="Payee">
+          {(id) => <Input id={id} aria-label="Corrected payee" value={payee} onChange={(e) => setPayee(e.target.value)} />}
+        </Field>
+        <Field label="Category">
+          {(id) => (
+            <Select id={id} aria-label="Corrected category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">Uncategorised</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field label="Notes">
+          {(id) => <Input id={id} aria-label="Corrected notes" value={notes} onChange={(e) => setNotes(e.target.value)} />}
+        </Field>
+        {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
+      </form>
+    </Dialog>
   );
 }
 
@@ -440,7 +601,8 @@ function InlineText({ value, label, onSave }: {
   if (!editing) {
     return (
       <button
-        className="ff-inline-edit"
+        type="button"
+        className="ff-inline-edit block max-w-full truncate rounded text-left font-medium hover:text-accent"
         aria-label={label}
         onClick={() => { setDraft(value); setEditing(true); }}
       >
@@ -449,8 +611,9 @@ function InlineText({ value, label, onSave }: {
     );
   }
   return (
-    <input
+    <Input
       autoFocus
+      sizeVariant="sm"
       aria-label={label}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
