@@ -40,6 +40,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     # Domain-rule violations → 409 Conflict
     from app.domain.accounts import AccountNotEmptyError
+    from app.domain.budgets import BudgetError
     from app.domain.categories import CategoryCycleError
     from app.domain.periods import (
         PeriodLockedError,
@@ -50,9 +51,9 @@ def install_error_handlers(app: FastAPI) -> None:
     from app.domain.transfers import TransferError
 
     domain_conflicts = (
-        AccountNotEmptyError, CategoryCycleError, PeriodLockedError,
-        ReconciledImmutableError, RefundError, InvalidTransitionError,
-        TransferError,
+        AccountNotEmptyError, BudgetError, CategoryCycleError,
+        PeriodLockedError, ReconciledImmutableError, RefundError,
+        InvalidTransitionError, TransferError,
     )
     for exc_type in domain_conflicts:
         @app.exception_handler(exc_type)
