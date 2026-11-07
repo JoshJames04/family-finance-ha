@@ -50,3 +50,7 @@ Thumbs.db
 *.tsbuildinfo
 frontend/test-results/
 .venv-ha/
+
+# Playwright e2e scratch DB + reports
+frontend/e2e/.data/
+frontend/playwright-report/
