@@ -2,13 +2,26 @@
 
 ## 1. Workflow
 
-- `main` is the protected release branch. All work lands via PR from
-  `feature/<issue>-<slug>`, `fix/<issue>-<slug>` or `spike/<issue>-<slug>`.
+- **Branch model (GitFlow-lite):**
+  - `main` — production/live only. Merges arrive exclusively via release PRs
+    from `develop` (or `hotfix/*` for production incidents). Never commit
+    directly.
+  - `develop` — integration branch and repository default. All feature,
+    fix and chore work lands here first via PR.
+  - `feature/<issue>-<slug>`, `fix/<issue>-<slug>`,
+    `chore/<issue>-<slug>`, `spike/<issue>-<slug>` — short-lived work
+    branches, PR'd into `develop`.
+  - `release/<version>` — optional stabilisation branch off `develop` when
+    a release needs hardening while `develop` keeps moving.
+  - `hotfix/<issue>-<slug>` — branched from `main`, PR'd back to `main`
+    **and** merged into `develop` so the fix is not lost.
 - Every PR references its issue (`Closes #123`) and uses the PR template.
-- Squash-merge to keep `main` history readable; PR title = commit summary
+- Squash-merge to keep history readable; PR title = commit summary
   (conventional-commit style, e.g. `feat(budgets): …`).
 - Small, reviewable PRs — an issue may land across several PRs; keep issues
   open until their full acceptance criteria are met.
+- Releasing: when `develop` is green and milestone-ready, open a release PR
+  `develop` → `main`, review the aggregate diff, merge, tag `vX.Y.Z`.
 
 ## 2. Definition of Ready
 
