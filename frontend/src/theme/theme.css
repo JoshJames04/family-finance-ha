@@ -58,3 +58,74 @@ body,
   font-family: var(--mdc-typography-font-family, "Roboto", "Segoe UI",
     system-ui, sans-serif);
 }
+
+/* ---- Design-system components (issue #122) ---- */
+
+.ff-card {
+  background: var(--ff-card);
+  border-radius: var(--ff-radius);
+  box-shadow: var(--ff-shadow);
+  padding: 16px;
+}
+.ff-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ff-card__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.ff-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ff-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.ff-badge--neutral {
+  background: var(--ff-bg-secondary);
+  color: var(--ff-text-secondary);
+}
+.ff-badge--info {
+  background: var(--ff-primary);
+  color: #ffffff;
+}
+:root[data-theme="dark"] .ff-badge--info {
+  background: var(--ff-primary-strong);
+  color: #111111;
+}
+.ff-badge--success {
+  background: var(--ff-success);
+  color: #ffffff;
+}
+.ff-badge--warning {
+  background: var(--ff-warning);
+  color: #212121;
+}
+.ff-badge--error {
+  background: var(--ff-error);
+  color: #ffffff;
+}
+
+.ff-money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ff-money--neg {
+  color: var(--ff-error-strong);
+}
+.ff-muted {
+  color: var(--ff-text-secondary);
+}
+.ff-error {
+  color: var(--ff-error-strong);
+}
