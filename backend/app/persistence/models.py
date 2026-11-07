@@ -102,6 +102,8 @@ class UserProfile(TimestampMixin, Base):
                                             nullable=False)
     password_hash: Mapped[str | None] = mapped_column(
         String(200), nullable=True)  # standalone-mode credential
+    dashboard_layout: Mapped[str | None] = mapped_column(
+        Text, nullable=True)  # per-member widget arrangement (#123)
 
     household: Mapped[Household] = relationship(back_populates="members")
     owned_accounts: Mapped[list[Account]] = relationship(

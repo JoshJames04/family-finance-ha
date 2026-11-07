@@ -743,6 +743,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/profiles/me/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dashboard
+         * @description The caller's dashboard arrangement (issue #123). No profile
+         *     (standalone/ingress-pending) → `layout: null`; the client falls
+         *     back to a local default.
+         */
+        get: operations["get_dashboard_api_v1_profiles_me_dashboard_get"];
+        /**
+         * Put Dashboard
+         * @description Persist the caller's dashboard arrangement. Any active profile
+         *     may arrange their own dashboard — no role gate.
+         */
+        put: operations["put_dashboard_api_v1_profiles_me_dashboard_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/profiles": {
         parameters: {
             query?: never;
@@ -3958,6 +3985,23 @@ export interface components {
              * Format: password
              */
             secret: string;
+        };
+        /**
+         * DashboardLayoutIn
+         * @description Per-member dashboard arrangement (issue #123): widget order +
+         *     hidden set. Keys are client-side registry ids — the API stores the
+         *     arrangement opaquely and bounds its size.
+         */
+        DashboardLayoutIn: {
+            /** Order */
+            order?: string[];
+            /** Hidden */
+            hidden?: string[];
+        };
+        /** DashboardOut */
+        DashboardOut: {
+            role: components["schemas"]["Role"] | null;
+            layout: components["schemas"]["DashboardLayoutIn"] | null;
         };
         /**
          * DayType
@@ -8076,6 +8120,75 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dashboard_api_v1_profiles_me_dashboard_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-profile-id"?: number | null;
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_dashboard_api_v1_profiles_me_dashboard_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardLayoutIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
+                };
             };
             /** @description Validation Error */
             422: {

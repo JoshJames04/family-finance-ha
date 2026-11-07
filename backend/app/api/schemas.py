@@ -410,6 +410,19 @@ class ProfileOut(BaseModel):
     is_active: bool
 
 
+class DashboardLayoutIn(BaseModel):
+    """Per-member dashboard arrangement (issue #123): widget order +
+    hidden set. Keys are client-side registry ids — the API stores the
+    arrangement opaquely and bounds its size."""
+    order: list[str] = Field(default_factory=list, max_length=50)
+    hidden: list[str] = Field(default_factory=list, max_length=50)
+
+
+class DashboardOut(BaseModel):
+    role: Role | None
+    layout: DashboardLayoutIn | None
+
+
 class ProfilePatch(BaseModel):
     role: Role | None = None
     display_name: str | None = Field(
