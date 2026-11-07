@@ -14,7 +14,7 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.persistence.models import Household
+from app.persistence.models import Household, UserProfile
 from app.persistence.session import get_session
 
 
@@ -44,3 +44,25 @@ def actor_header(
 
 
 ActorDep = Annotated[str, Depends(actor_header)]
+
+
+def resolve_profile(
+    session: Annotated[Session, Depends(get_session)],
+    household: HouseholdDep,
+    x_profile_id: Annotated[int | None, Header()] = None,
+) -> UserProfile | None:
+    """Optional member identity (pre-auth placeholder, like
+    X-Household-Id). None = anonymous → sees shared resources only.
+    A supplied id must resolve to an active profile in this household."""
+    from app.persistence.models import UserProfile
+    if x_profile_id is None:
+        return None
+    p = session.get(UserProfile, x_profile_id)
+    if p is None or p.household_id != household.id:
+        raise HTTPException(404, f"profile {x_profile_id} not found")
+    if not p.is_active:
+        raise HTTPException(403, "profile is deactivated")
+    return p
+
+
+ProfileDep = Annotated["UserProfile | None", Depends(resolve_profile)]
