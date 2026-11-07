@@ -14,8 +14,10 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import rbac
+from app.domain import transactions as txn_domain
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
+from app.domain.transactions import CorrectionError
 from app.persistence.models import (
     Account,
     Category,
@@ -228,6 +230,33 @@ def patch_transaction(
     emit(session, household.id, actor, "update", "transaction",
          t.id, changed | ({"status": new_status} if new_status else {}))
     return schemas.TransactionOut.model_validate(t)
+
+
+@router.post("/{txn_id}/correct", response_model=schemas.TransactionOut)
+def correct_transaction(
+    txn_id: int, body: schemas.TransactionCorrect,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
+) -> schemas.TransactionOut:
+    """Supersede a reconciled transaction with a corrected pending row
+    (issue #124). Reason is required — corrections are audited, the
+    original is voided, never edited."""
+    t = _get(session, household.id, txn_id, profile)
+    _write_account(session, household.id, t.account_id, profile)
+    try:
+        corrected = txn_domain.correct(
+            session, t, body.reason, payee=body.payee,
+            category_id=body.category_id, notes=body.notes)
+    except CorrectionError as e:
+        raise HTTPException(422, str(e)) from e
+    if body.category_id is not None:
+        from app.domain import categorise
+        categorise.learn(session, household.id, corrected.payee,
+                         body.category_id)
+    session.flush()
+    emit(session, household.id, actor, "correct", "transaction",
+         corrected.id, {"corrects": txn_id, "reason": body.reason})
+    return schemas.TransactionOut.model_validate(corrected)
 
 
 @router.post("/bulk", response_model=schemas.BulkResult)

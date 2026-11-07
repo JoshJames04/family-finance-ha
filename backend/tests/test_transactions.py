@@ -134,3 +134,50 @@ class TestLifecycle:
                           TransactionStatus.cleared)
         assert_transition(TransactionStatus.cleared,
                           TransactionStatus.reconciled)
+
+
+class TestCorrection:
+    """Issue #124: reconciled rows are corrected via a superseding row,
+    never edited; the original voids and the replacement re-enters
+    review as pending."""
+
+    def test_correct_supersedes(self, session: Session,
+                                account: Account) -> None:
+        from app.domain import transactions as dom
+        t = _txn(account, status=TransactionStatus.reconciled,
+                 category_id=None)
+        session.add(t)
+        session.flush()
+        corrected = dom.correct(session, t, "wrong payee",
+                                payee="Sainsbury's")
+        assert t.status is TransactionStatus.void
+        assert corrected.status is TransactionStatus.pending
+        assert corrected.corrects_id == t.id
+        assert corrected.payee == "Sainsbury's"
+        assert corrected.amount_pence == t.amount_pence
+        assert "wrong payee" in (corrected.notes or "")
+        assert corrected.id != t.id
+
+    def test_correct_keeps_fields(self, session: Session,
+                                  account: Account) -> None:
+        from app.domain import transactions as dom
+        cat = Category(household_id=account.household_id, name="Groceries")
+        session.add(cat)
+        session.flush()
+        t = _txn(account, status=TransactionStatus.reconciled,
+                 category_id=cat.id)
+        session.add(t)
+        session.flush()
+        corrected = dom.correct(session, t, "recat only")
+        assert corrected.payee == t.payee
+        assert corrected.category_id == cat.id
+
+    def test_non_reconciled_rejected(self, session: Session,
+                                     account: Account) -> None:
+        from app.domain import transactions as dom
+        from app.domain.transactions import CorrectionError
+        t = _txn(account, status=TransactionStatus.pending)
+        session.add(t)
+        session.flush()
+        with pytest.raises(CorrectionError):
+            dom.correct(session, t, "not needed")

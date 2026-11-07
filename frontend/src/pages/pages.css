@@ -110,6 +110,63 @@
   outline: 2px solid var(--ff-accent);
 }
 
+/* Transactions: windowed scroll container (#124) */
+.ff-table-window {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.ff-table-window .ff-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ff-card);
+  z-index: 1;
+}
+
+/* Budget page: table + forecast side panel (#125) */
+.ff-budget-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: var(--ff-space-4, 1rem);
+  align-items: start;
+}
+.ff-reason {
+  font-size: 0.8rem;
+}
+.ff-budget-table .ff-num {
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 900px) {
+  .ff-budget-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  /* Five values stay legible: rows become two-line cards */
+  .ff-budget-table thead {
+    display: none;
+  }
+  .ff-budget-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    row-gap: 0.15rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--ff-border, rgba(128, 128, 128, 0.25));
+  }
+  .ff-budget-table td {
+    border: 0;
+    padding: 0.1rem 0.25rem;
+  }
+  .ff-budget-table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.68rem;
+    color: var(--ff-text-secondary);
+  }
+  .ff-budget-table td[data-label="Category"] {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Forecast page: projection chart + financial calendar (#77) */
 .ff-projection-chart {
   width: 100%;
