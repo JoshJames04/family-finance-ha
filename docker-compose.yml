@@ -1,0 +1,38 @@
+# Local development stack: backend + frontend + stubbed Home Assistant API.
+# Usage: docker compose up --build   (then open http://localhost:5173)
+services:
+  ha-stub:
+    build: dev/ha-stub
+    ports:
+      - "8123:8123"
+
+  backend:
+    build:
+      context: backend
+      dockerfile: Dockerfile.dev
+    environment:
+      FF_ENV: dev
+      FF_DATA_DIR: /data
+      FF_HA_URL: http://ha-stub:8123
+      FF_SUPERVISOR_TOKEN: dev-supervisor-token
+    volumes:
+      - ff-data:/data
+      - ./backend:/app
+    ports:
+      - "8099:8099"
+    depends_on:
+      - ha-stub
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8099
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  ff-data:

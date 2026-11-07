@@ -78,6 +78,22 @@ All work flows through GitHub Issues: epics → user stories/tasks → pull
 requests against `main`. See [CONTRIBUTING](CONTRIBUTING.md) for branching,
 Definition of Ready/Done, labels and review standards.
 
+### Quickstart (dev environment)
+
+```bash
+# Boot backend + frontend + stubbed HA API (requires Docker)
+python scripts/dev.py up          # or: docker compose up --build -d
+python scripts/dev.py seed        # load synthetic fixture data
+# frontend → http://localhost:5173   backend → http://localhost:8099/docs
+
+# Backend tests (local venv)
+cd backend && pip install -e '.[dev]' && pytest
+```
+
+Layout: `backend/` (FastAPI), `frontend/` (Vite + React + TS), `addon/` (HA
+app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
+`tests/` (shared synthetic fixtures).
+
 ## Privacy
 
 This repository is private. No real financial data, workbook files, account
