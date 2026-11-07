@@ -108,14 +108,16 @@ def _budget_defects_ce(wb: Workbook) -> None:
     ws["B14"] = 2400000
 
     ws2 = _sheet(wb, "Budget-2027")  # forecast sheet → defect E
-    ws2.append(["Month", "Forecast", "Actual"])
+    ws2.append(["Month", "Forecast", "Notes"])
     for i, m in enumerate(MONTHS):
         r = 2 + i
         ws2.cell(row=r, column=1, value=m)
-        ws2.cell(row=r, column=2, value="=200000")  # forecast formula
-        # defect E: months 4-6 overwritten with literal actuals
-        ws2.cell(row=r, column=3,
-                 value=198500 + i * 200 if 3 <= i <= 5 else None)
+        # defect E: forecast formula for most months, but Apr–Jun were
+        # overwritten by literal actuals — forecast history lost
+        ws2.cell(row=r, column=2,
+                 value=198500 + i * 200 if 3 <= i <= 5 else "=200000")
+        if 3 <= i <= 5:
+            ws2.cell(row=r, column=3, value="actual overwritten")
 
 
 def _payroll_defects_df(wb: Workbook) -> None:
