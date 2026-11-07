@@ -20,6 +20,7 @@ from app.api.v1 import (
     reports,
     scenarios,
     seasonal,
+    banks,
     credentials,
     reconcile,
     subscriptions,
@@ -54,3 +55,4 @@ v1_router.include_router(categorisation.router)
 v1_router.include_router(sync.router)
 v1_router.include_router(reconcile.router)
 v1_router.include_router(credentials.router)
+v1_router.include_router(banks.router)
