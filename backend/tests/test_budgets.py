@@ -744,3 +744,100 @@ class TestReporting:
             headers=h).json()
         assert len(hist["points"]) == 1
         assert hist["points"][0]["accuracy_pct"] == 0.0  # 0 actual
+
+
+class TestApiContract:
+    """Issue #63 — transition matrix + problem-details + bulk edit."""
+
+    def test_transition_matrix(self, session: Session, household,
+                               category) -> None:
+        """Every illegal transition raises BudgetError at the service
+        layer — the domain is the enforcement point, not the route."""
+        b = _mk_budget(session, household)
+        line = dom.add_line(session, b, category.id,
+                            BudgetLineSide.expense, 1000)
+        # draft: revise/lock illegal
+        with pytest.raises(BudgetError):
+            dom.revise_line(session, line, 1, "r")
+        with pytest.raises(BudgetError):
+            dom.lock(session, b)
+        dom.approve(session, b)
+        # approved: approve again / add_line illegal
+        with pytest.raises(BudgetError):
+            dom.approve(session, b)
+        with pytest.raises(BudgetError):
+            dom.add_line(session, b, category.id,
+                         BudgetLineSide.expense, 1)
+        dom.lock(session, b)
+        # locked: everything illegal
+        with pytest.raises(BudgetError):
+            dom.lock(session, b)
+        with pytest.raises(BudgetError):
+            dom.approve(session, b)
+        with pytest.raises(BudgetError):
+            dom.revise_line(session, line, 1, "r")
+        assert line.original_pence == 1000
+
+    def test_domain_errors_are_problem_details(
+            self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        bid = client.post("/api/v1/budgets", json={
+            "name": "May", "period_type": "monthly",
+            "start_date": "2026-05-01", "end_date": "2026-05-31"},
+            headers=h).json()["id"]
+        # approve empty → 409 problem-detail
+        r = client.post(f"/api/v1/budgets/{bid}/approve", headers=h)
+        assert r.status_code == 409
+        body = r.json()
+        assert body["status"] == 409
+        assert "title" in body and "detail" in body
+        assert body["type"].startswith("about:") or "type" in body
+
+    def test_bulk_revise(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        cat = client.post("/api/v1/categories", json={"name": "A"},
+                          headers=h).json()
+        cat2 = client.post("/api/v1/categories", json={"name": "B"},
+                           headers=h).json()
+        bid = client.post("/api/v1/budgets", json={
+            "name": "May", "period_type": "monthly",
+            "start_date": "2026-05-01", "end_date": "2026-05-31"},
+            headers=h).json()["id"]
+        l1 = client.post(f"/api/v1/budgets/{bid}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 1000}, headers=h).json()["id"]
+        l2 = client.post(f"/api/v1/budgets/{bid}/lines", json={
+            "category_id": cat2["id"], "side": "expense",
+            "amount": 2000}, headers=h).json()["id"]
+        client.post(f"/api/v1/budgets/{bid}/approve", headers=h)
+        r = client.patch(f"/api/v1/budgets/{bid}/lines", json={
+            "revisions": [
+                {"line_id": l1, "amount": 1500, "reason": "up"},
+                {"line_id": l2, "amount": 1800, "reason": "down"},
+                {"line_id": 99999, "amount": 1, "reason": "ghost"},
+            ]}, headers=h)
+        assert r.status_code == 200
+        assert r.json() == {"updated": 2, "skipped": [99999]}
+        d = client.get(f"/api/v1/budgets/{bid}", headers=h).json()
+        revs = {li["id"]: li["revised_pence"] for li in d["lines"]}
+        assert revs == {l1: 1500, l2: 1800}
+        # bulk on draft budget → 409 (revise illegal while draft)
+        b2 = client.post("/api/v1/budgets", json={
+            "name": "Jun", "period_type": "monthly",
+            "start_date": "2026-06-01", "end_date": "2026-06-30"},
+            headers=h).json()["id"]
+        l3 = client.post(f"/api/v1/budgets/{b2}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 1000}, headers=h).json()["id"]
+        r = client.patch(f"/api/v1/budgets/{b2}/lines", json={
+            "revisions": [{"line_id": l3, "amount": 5,
+                           "reason": "x"}]}, headers=h)
+        assert r.status_code == 409
+        # empty revisions → 422
+        assert client.patch(f"/api/v1/budgets/{bid}/lines",
+                            json={"revisions": []},
+                            headers=h).status_code == 422

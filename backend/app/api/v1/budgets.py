@@ -380,3 +380,28 @@ def accuracy_history(
         category_id=category_id,
         points=[schemas.AccuracyPoint.model_validate(p)
                 for p in visible])
+
+
+@router.patch("/{budget_id}/lines",
+              response_model=schemas.BulkReviseResult)
+def bulk_revise_lines(
+    budget_id: int, body: schemas.BulkLineRevise,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
+) -> schemas.BulkReviseResult:
+    """Table-UX bulk edit: one request revises many lines. Invalid
+    transitions bubble as 409 problem-details like single edits."""
+    b = _get(session, household.id, budget_id, profile)
+    updated, skipped = 0, []
+    for item in body.revisions:
+        line = session.get(BudgetLine, item.line_id)
+        if line is None or line.budget_id != b.id:
+            skipped.append(item.line_id)
+            continue
+        dom.revise_line(session, line, item.amount.pence,
+                        item.reason)
+        updated += 1
+    emit(session, household.id, actor, "update", "budget", b.id,
+         {"bulk_revisions": updated, "skipped": skipped})
+    return schemas.BulkReviseResult(updated=updated,
+                                    skipped=skipped)
