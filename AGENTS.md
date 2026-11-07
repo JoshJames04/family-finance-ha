@@ -43,3 +43,13 @@ children done → epic Done; any child active → In Progress.
   or account numbers — the repo is public.
 - Credentials go through the vault (`domain/vault.py`) as opaque
   refs; bank tokens never persist on connection rows.
+
+
+## PR review & merge workflow (post-2026-11-07)
+
+- All PRs target `develop` directly (stacked bases retired — merges must land on the default branch for `Closes #N` to fire).
+- Every PR body must end with `Closes #<issue>` so merge auto-closes the issue.
+- Author is the repo owner — GitHub blocks self-review, so approval = the owner enabling **auto-merge** on the PR after review. Never pre-enable auto-merge; the owner clicks it (or instructs) after reviewing.
+- `develop` is protected: all check contexts required (`backend`, `frontend`, `migrations`, `e2e`, `image`, `hacs-validate`, `ha-integration` matrix, `docs-integrity`, `forbidden-files`, `secret-scan`, `version-consistency`); no review requirement (self-authored PRs can't satisfy it).
+- Merge order: bottom-up (#225 first). Merge commits only — squash rewrites SHAs and pollutes stacked diffs. Each merge shrinks the next PR's diff automatically.
+- Assign `JoshJames04` on every PR (`--add-assignee`); reviewer requests are ignored for self-authored PRs.

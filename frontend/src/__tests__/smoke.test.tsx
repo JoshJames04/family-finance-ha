@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import App from "../App";
-import { formatPence } from "../api/client";
+import { formatPence } from "../lib/format";
 
 const PAGE = { items: [], total: 0, page: 1, size: 1 };
 

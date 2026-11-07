@@ -149,11 +149,3 @@ export const api = {
     init?: CallInit<P, "delete">,
   ) => request("delete", path, init),
 };
-
-/** Integer pence → "£1,234.56" (en-GB, GBP). */
-export function formatPence(pence: number): string {
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-  }).format(pence / 100);
-}
