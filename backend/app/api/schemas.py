@@ -1256,3 +1256,44 @@ class CategoriseApplyOut(BaseModel):
 
 class PairRefundOut(BaseModel):
     linked: int
+
+
+class SyncCursorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    source: str
+    last_ref: str | None
+    last_date: date | None
+    status: str
+    error: str | None
+
+
+class SyncRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    source: str
+    status: str
+    fetched: int
+    inserted: int
+    deduped: int
+    merge_candidates: int
+    error: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class MergeCandidateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    existing_txn_id: int
+    incoming: dict[str, object]
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class MergeResolveIn(BaseModel):
+    action: str = Field(pattern="^(merged|dismissed)$")
