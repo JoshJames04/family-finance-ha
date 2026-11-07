@@ -49,12 +49,14 @@ def install_error_handlers(app: FastAPI) -> None:
     )
     from app.domain.refunds import RefundError
     from app.domain.transactions import InvalidTransitionError
+    from app.domain.transfer_rules import TransferRuleError
     from app.domain.transfers import TransferError
 
     domain_conflicts = (
         AccountNotEmptyError, BudgetError, CategoryCycleError,
         PayrollError, PeriodLockedError, ReconciledImmutableError,
         RefundError, InvalidTransitionError, TransferError,
+        TransferRuleError,
     )
     for exc_type in domain_conflicts:
         @app.exception_handler(exc_type)
