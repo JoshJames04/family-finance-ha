@@ -20,6 +20,10 @@ from typing import Protocol, cast
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
+from app.migration.defects import (
+    detect_annual_total_defects,
+    record_flags,
+)
 from app.migration.parse import parse_workbook
 from app.persistence.models import (
     ImportBatch,
@@ -79,6 +83,10 @@ def create_batch(
         for r in records
     ])
     session.flush()
+    # defect register checks run at staging — flags are metadata and
+    # are safe in a dry-run batch
+    record_flags(session, batch,
+                 detect_annual_total_defects(records))
     return batch, len(records)
 
 
