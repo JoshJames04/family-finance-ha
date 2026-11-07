@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     backup_interval_hours: float = 24.0  # 0 disables the scheduler
     admin_token: SecretStr | None = None
     vault_key: SecretStr | None = None  # FF_VAULT_KEY; file fallback
+    ingress: bool = False               # FF_INGRESS: addon mode
 
     @property
     def resolved_backup_dir(self) -> Path:

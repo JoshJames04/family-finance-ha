@@ -1403,3 +1403,11 @@ class AnomalyScanOut(BaseModel):
     scanned: int
     flagged: int
     suppressed: int
+
+
+class LoginIn(BaseModel):
+    """Standalone-mode credential pair (issue #29). ``username``
+    matches a profile's display name in the household."""
+
+    username: str
+    password: str

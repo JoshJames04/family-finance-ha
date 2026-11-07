@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
+from app.api.auth import revoke_sessions_for
 from app.api.deps import (
     ActorDep,
     HouseholdDep,
@@ -88,6 +89,7 @@ def update_profile(
         old = p.role.value
         p.role = body.role
         session.flush()
+        revoke_sessions_for(session, p.id)  # issue #29
         emit(session, household.id, actor, "role_change",
              "user_profile", p.id,
              {"from": old, "to": p.role.value})
@@ -112,6 +114,7 @@ def deactivate(
         raise HTTPException(422, "cannot deactivate yourself")
     p.is_active = False
     session.flush()
+    revoke_sessions_for(session, p.id)  # issue #29
     emit(session, household.id, actor, "deactivate",
          "user_profile", p.id, {"display_name": p.display_name})
     return schemas.ProfileOut.model_validate(p)

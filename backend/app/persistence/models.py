@@ -100,6 +100,8 @@ class UserProfile(TimestampMixin, Base):
                                        nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True,
                                             nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(
+        String(200), nullable=True)  # standalone-mode credential
 
     household: Mapped[Household] = relationship(back_populates="members")
     owned_accounts: Mapped[list[Account]] = relationship(
@@ -1943,4 +1945,25 @@ class AnomalyFlag(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+class AuthSession(TimestampMixin, Base):
+    """Server-side standalone session (issue #29). The cookie
+    carries only the opaque ``token``; role changes and
+    deactivation revoke rows so sessions die with the privilege
+    that created them."""
+
+    __tablename__ = "auth_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=False, index=True)
+    token: Mapped[str] = mapped_column(
+        String(96), nullable=False, unique=True)
+    role_at_issue: Mapped[str] = mapped_column(
+        String(20), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
