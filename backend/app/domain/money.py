@@ -121,5 +121,23 @@ class Money:
             ),
         )
 
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, _core: core_schema.CoreSchema, _handler: Any
+    ) -> dict[str, Any]:
+        """OpenAPI shape — accepted forms at the wire boundary."""
+        return {
+            "anyOf": [
+                {"type": "integer",
+                 "description": "minor units (pence)"},
+                {"type": "string", "pattern": r"^-?\d+(\.\d{1,2})?$",
+                 "description": "pounds, max 2dp"},
+                {"type": "object", "additionalProperties": False,
+                 "properties": {"pence": {"type": "integer"}},
+                 "required": ["pence"]},
+            ],
+            "title": "Money",
+        }
+
 
 ZERO = Money.of_pence(0)
