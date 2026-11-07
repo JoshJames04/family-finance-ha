@@ -10,16 +10,15 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import Connection
 
 from app.persistence.migrate import alembic_config, current_revision
 
-REVISIONS = [
-    "0001_app_meta", "0002_core_schema", "0003_transactions",
-    "0004_transfers", "0005_recurring", "0006_refunds",
-    "0007_reporting_periods", "0008_audit", "0009_import",
-]
+_DUMMY = alembic_config("sqlite:///:memory:")
+REVISIONS = [r.revision for r in reversed(list(
+    ScriptDirectory.from_config(_DUMMY).walk_revisions()))]
 
 
 @pytest.fixture()
@@ -78,7 +77,7 @@ class TestLinearChain:
 
     def test_step_down_preserves_tables(self, cfg: Config) -> None:
         command.upgrade(cfg, "head")
-        command.downgrade(cfg, "-1")  # drop 0009_import tables
+        command.downgrade(cfg, "-1")  # drop the latest revision's tables
         eng = _eng(cfg)
         with eng.connect() as conn:
             assert conn.execute(text(
@@ -86,7 +85,10 @@ class TestLinearChain:
                 " AND name='transaction'")).first() is not None
             assert conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table'"
-                " AND name='import_batch'")).first() is None
+                " AND name='budget'")).first() is None
+            assert conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+                " AND name='import_batch'")).first() is not None
 
 
 class TestSeededUpgrade:
