@@ -668,3 +668,24 @@ class TaxCodeRevision(Base):
 
     employment: Mapped[Employment] = relationship(
         back_populates="tax_code_revisions")
+
+
+class TaxRuleSet(Base):
+    """Versioned UK statutory parameters per tax year × jurisdiction
+    (issue #81). Rows are immutable — a new year or correction lands as
+    a new (year, jurisdiction, version) row, never an edit."""
+
+    __tablename__ = "tax_rule_set"
+    __table_args__ = (
+        UniqueConstraint("tax_year", "jurisdiction", "version",
+                         name="uq_ruleset_year_jur_ver"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tax_year: Mapped[str] = mapped_column(String(9), nullable=False)
+    jurisdiction: Mapped[TaxJurisdiction] = mapped_column(
+        Enum(TaxJurisdiction), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    params: Mapped[str] = mapped_column(String(8000), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
