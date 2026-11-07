@@ -1274,6 +1274,9 @@ class Subscription(TimestampMixin, Base):
     prices: Mapped[list[SubscriptionPrice]] = relationship(
         back_populates="subscription", cascade="all, delete-orphan",
         order_by="SubscriptionPrice.date")
+    price_changes: Mapped[list[PriceChangeEvent]] = relationship(
+        back_populates="subscription",
+        order_by="PriceChangeEvent.detected_date")
 
 
 class SubscriptionPrice(Base):
@@ -1363,3 +1366,37 @@ class DetectionCandidate(TimestampMixin, Base):
 
     household: Mapped[Household] = relationship()
     subscription: Mapped[Subscription | None] = relationship()
+
+
+class PriceChangeEvent(Base):
+    """One detected price move on a subscription (issue #108).
+
+    Emitted when a matching charge lands outside the subscription's
+    tolerance — exactly once per change (the constraint stops double
+    firing if the same day's charge is re-imported). Variable-amount
+    direct debits never produce these: they cannot be confirmed into
+    the register."""
+
+    __tablename__ = "price_change_event"
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "detected_date",
+                         name="uq_pricechange_once"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("subscription.id"), nullable=False, index=True)
+    detected_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    old_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    subscription: Mapped[Subscription] = relationship(
+        back_populates="price_changes")
+
+    @property
+    def delta_pence(self) -> int:
+        return self.new_pence - self.old_pence

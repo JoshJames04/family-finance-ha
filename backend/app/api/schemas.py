@@ -983,3 +983,13 @@ class CandidateConfirmIn(BaseModel):
 
 class CandidateDismissIn(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
+
+
+class PriceChangeEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    subscription_id: int
+    detected_date: date
+    old_pence: int
+    new_pence: int
+    delta_pence: int
