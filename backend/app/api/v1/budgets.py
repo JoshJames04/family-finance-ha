@@ -343,3 +343,39 @@ def share_budget(
     emit(session, household.id, actor, "update", "budget", b.id,
          {"shared": True})
     return schemas.BudgetOut.model_validate(b)
+
+
+@router.get("/{budget_id}/report",
+            response_model=schemas.BudgetReport)
+def budget_report(
+    budget_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+    warn_pct: Annotated[float, Query(ge=0, le=100)] = 10.0,
+    over_pct: Annotated[float, Query(ge=0, le=100)] = 20.0,
+) -> schemas.BudgetReport:
+    b = _get(session, household.id, budget_id, profile)
+    rows = dom.report_for_budget(session, b, warn_pct, over_pct)
+    return schemas.BudgetReport(
+        budget_id=b.id,
+        lines=[schemas.BudgetReportLine.model_validate(r)
+               for r in rows])
+
+
+@router.get("/reports/accuracy/{category_id}",
+            response_model=schemas.AccuracyHistory)
+def accuracy_history(
+    category_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+) -> schemas.AccuracyHistory:
+    cat = session.get(Category, category_id)
+    if cat is None or cat.household_id != household.id:
+        raise HTTPException(404, "category not found")
+    pts = dom.accuracy_history(session, household.id, category_id)
+    # private budgets must not leak into an aggregate for other members
+    visible = [p for p in pts
+               if _visible(session.get(Budget, int(str(p["budget_id"]))),
+                           profile)]
+    return schemas.AccuracyHistory(
+        category_id=category_id,
+        points=[schemas.AccuracyPoint.model_validate(p)
+                for p in visible])
