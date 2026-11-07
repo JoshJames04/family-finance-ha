@@ -1101,3 +1101,62 @@ class MonthlyAggregateOut(BaseModel):
 class NetWorthOut(BaseModel):
     net_worth_pence: int
 
+
+
+class ScenarioIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class ScenarioOpIn(BaseModel):
+    kind: str = Field(pattern="^(add|remove|shift)$")
+    expected_movement_id: int | None = None
+    account_id: int | None = None
+    expected_date: date | None = None
+    amount: Money | None = None
+    label: str | None = Field(default=None, max_length=200)
+
+
+class ScenarioOpOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    scenario_id: int
+    kind: str
+    expected_movement_id: int | None
+    account_id: int | None
+    expected_date: date | None
+    amount_pence: int | None
+    label: str | None
+
+
+class ScenarioOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    name: str
+
+
+class PaydayDeltaOut(BaseModel):
+    date: date
+    baseline_balance_pence: int
+    scenario_balance_pence: int
+    delta_pence: int
+
+
+class ScenarioDiffOut(BaseModel):
+    min_balance_changed: bool
+    baseline_min_balance_pence: int
+    baseline_min_balance_date: date | None
+    scenario_min_balance_pence: int
+    scenario_min_balance_date: date | None
+    min_balance_delta_pence: int
+    safe_to_spend_delta_pence: int
+    paydays: list[PaydayDeltaOut]
+
+
+class ScenarioRunOut(BaseModel):
+    scenario_id: int
+    account_id: int
+    days: int
+    baseline: ProjectionOut
+    projection: ProjectionOut
+    diff: ScenarioDiffOut

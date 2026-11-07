@@ -10,6 +10,7 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.domain import accounts as accts
+from app.domain import projection
 from app.domain.accounts import current_balance
 from app.persistence.models import Account
 
@@ -79,9 +80,12 @@ def get_projection(
 ) -> schemas.ProjectionOut:
     """Deterministic per-account daily projection + safe-to-spend
     (issue #74)."""
-    from app.domain import projection
     a = _get(session, household.id, account_id)
-    p = projection.project(session, a, days)
+    return projection_out(projection.project(session, a, days))
+
+
+def projection_out(p: projection.Projection) -> schemas.ProjectionOut:
+    """Shared dataclass→schema mapper (scenarios diff two of these)."""
     return schemas.ProjectionOut(
         account_id=p.account_id,
         start_balance_pence=p.start_balance_pence,
