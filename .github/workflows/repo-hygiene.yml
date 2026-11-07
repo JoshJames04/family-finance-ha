@@ -46,7 +46,7 @@ jobs:
             README.md CONTRIBUTING.md SECURITY.md LICENSE
             docs/PRD.md docs/ARCHITECTURE.md docs/DATA-MODEL.md
             docs/HA-DEPLOYMENT.md docs/MIGRATION.md docs/ROADMAP.md
-            docs/SECURITY.md docs/adr/README.md
+            docs/SECURITY.md docs/RELEASE.md docs/adr/README.md
             .github/PULL_REQUEST_TEMPLATE.md
             .github/ISSUE_TEMPLATE/epic.md
             .github/ISSUE_TEMPLATE/user_story.md
