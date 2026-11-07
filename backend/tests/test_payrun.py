@@ -131,6 +131,95 @@ def component_variance_has(run: PayrollRun,
                for v in payrun.component_variance(run))
 
 
+def _pension_emp(session: Session, household: Household, mode: str,
+                 bps: int = 0, fixed: int = 0) -> Employment:
+    p = UserProfile(household_id=household.id, display_name="P")
+    session.add(p)
+    session.flush()
+    e = Employment(household_id=household.id, profile_id=p.id,
+                   employer="Acme", jurisdiction="england_wales",
+                   contracted_hours=Decimal("37.5"),
+                   pension_mode=mode, pension_employee_bps=bps,
+                   pension_fixed_pence=fixed)
+    session.add(e)
+    session.flush()
+    dom.add_salary_revision(session, e, date(2025, 1, 1), 3_600_000)
+    dom.add_tax_code_revision(session, e, date(2025, 1, 1), "1257L")
+    return e
+
+
+class TestPensionAndLeave:
+    """Issue #83 — each component an explicit line; ordering vs the
+    tax engine verified per mode."""
+
+    def _kinds(self, run):
+        return {c.kind: c.forecast_pence for c in run.components}
+
+    def test_net_pay_percent(self, session: Session,
+                             household: Household) -> None:
+        e = _pension_emp(session, household, "net_pay", bps=500)
+        run = payrun.generate(session, e, start=APR_S, end=APR_E,
+                              pay_date=PAY)
+        k = self._kinds(run)
+        # 5% of £2,958.90 = £147.94; taxable £2,810.96 → tax £352.69
+        assert k[PayrollComponentKind.pension] == -14_794
+        assert k[PayrollComponentKind.tax] == -35_269
+        assert k[PayrollComponentKind.ni] == -15_291  # NI on full gross
+
+    def test_sacrifice_reduces_ni(self, session: Session,
+                                  household: Household) -> None:
+        e = _pension_emp(session, household, "salary_sacrifice",
+                         bps=500)
+        run = payrun.generate(session, e, start=APR_S, end=APR_E,
+                              pay_date=PAY)
+        k = self._kinds(run)
+        assert k[PayrollComponentKind.pension] == -14_794
+        assert k[PayrollComponentKind.tax] == -35_269
+        assert k[PayrollComponentKind.ni] == -14_107  # NI reduced too
+
+    def test_ras_tax_unchanged_net_reduced(
+            self, session: Session, household: Household) -> None:
+        e = _pension_emp(session, household, "relief_at_source",
+                         bps=500)
+        run = payrun.generate(session, e, start=APR_S, end=APR_E,
+                              pay_date=PAY)
+        k = self._kinds(run)
+        assert k[PayrollComponentKind.tax] == -38_228   # same as none
+        assert k[PayrollComponentKind.pension] == -14_794
+        assert run.net_pence == 295_890 - 38_228 - 15_291 - 14_794
+
+    def test_fixed_beats_percent(self, session: Session,
+                                 household: Household) -> None:
+        e = _pension_emp(session, household, "net_pay", bps=500,
+                         fixed=20_000)
+        run = payrun.generate(session, e, start=APR_S, end=APR_E,
+                              pay_date=PAY)
+        assert self._kinds(run)[PayrollComponentKind.pension] == -20_000
+
+    def test_unpaid_leave_day_proration(
+            self, session: Session, household: Household) -> None:
+        """AC: unpaid day reduces gross per contracted-hours
+        proration — £36k / (52×5) = £138.46/day, then pension % and
+        tax apply on the reduced base."""
+        e = _pension_emp(session, household, "net_pay", bps=500)
+        run = payrun.generate(session, e, start=APR_S, end=APR_E,
+                              pay_date=PAY,
+                              unpaid_leave_days=Decimal("1"))
+        k = self._kinds(run)
+        assert k[PayrollComponentKind.unpaid_leave] == -13_846
+        # pensionable = £2,958.90 − £138.46 = £2,820.44 → 5% = £141.02
+        assert k[PayrollComponentKind.pension] == -14_102
+        # taxable 282044−14102 = 267942 → PA 104750 → tax £326.38
+        assert k[PayrollComponentKind.tax] == -32_638
+        assert run.gross_pence == 295_890  # earnings line unaffected
+
+    def test_zero_config_no_pension_line(
+            self, session: Session, emp: Employment) -> None:
+        run = payrun.generate(session, emp, start=APR_S, end=APR_E,
+                              pay_date=PAY)
+        assert PayrollComponentKind.pension not in self._kinds(run)
+
+
 class TestImmutability:
     def test_reconciled_cannot_re_reconcile(
             self, session: Session, emp: Employment) -> None:
