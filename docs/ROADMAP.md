@@ -1,6 +1,8 @@
 # Roadmap — Family Finance
 
-Milestones mirror GitHub [Milestones](../../milestones). Phases are ordered by
+Milestones mirror GitHub
+[Milestones](https://github.com/JoshJames04/family-finance-ha/milestones).
+Phases are ordered by
 dependency, not by feature desirability — see
 [Prioritisation](#3-priorities) for the critical path.
 
