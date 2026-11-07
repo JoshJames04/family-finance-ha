@@ -38,7 +38,9 @@ type JsonBody<
 type QueryOf<
   P extends keyof paths,
   M extends keyof paths[P] & string,
-> = paths[P][M] extends { parameters: { query: infer Q } } ? Q : never;
+> = paths[P][M] extends { parameters: { query: infer Q } } ? Q
+  : paths[P][M] extends { parameters: { query?: infer Q } }
+    ? NonNullable<Q> : never;
 
 /** Path params type for templated routes (`never` → omit). */
 type PathOf<
@@ -144,6 +146,10 @@ export const api = {
     request("post", path, init),
   put: <P extends PathsWith<"put">>(path: P, init?: CallInit<P, "put">) =>
     request("put", path, init),
+  patch: <P extends PathsWith<"patch">>(
+    path: P,
+    init?: CallInit<P, "patch">,
+  ) => request("patch", path, init),
   delete: <P extends PathsWith<"delete">>(
     path: P,
     init?: CallInit<P, "delete">,
