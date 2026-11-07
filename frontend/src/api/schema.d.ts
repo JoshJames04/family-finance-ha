@@ -2454,6 +2454,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/payees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Payees
+         * @description Distinct payees with transaction counts, most-used first.
+         */
+        get: operations["list_payees_api_v1_payees_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payees/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename Payee
+         * @description Rename/merge a payee across editable transactions.
+         */
+        post: operations["rename_payee_api_v1_payees_rename_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/categorisation/rules": {
         parameters: {
             query?: never;
@@ -5199,6 +5239,27 @@ export interface components {
             scenario_balance_pence: number;
             /** Delta Pence */
             delta_pence: number;
+        };
+        /** PayeeOut */
+        PayeeOut: {
+            /** Payee */
+            payee: string;
+            /** Transaction Count */
+            transaction_count: number;
+        };
+        /** PayeeRenameIn */
+        PayeeRenameIn: {
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+        };
+        /** PayeeRenameOut */
+        PayeeRenameOut: {
+            /** Renamed */
+            renamed: number;
+            /** Skipped */
+            skipped: number;
         };
         /**
          * PaymentStatus
@@ -12196,6 +12257,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationDeliveryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_payees_api_v1_payees_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayeeOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_payee_api_v1_payees_rename_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayeeRenameIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayeeRenameOut"];
                 };
             };
             /** @description Validation Error */

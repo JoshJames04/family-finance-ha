@@ -6,6 +6,8 @@ import { Budget } from "./pages/Budget";
 import { Accounts } from "./pages/Accounts";
 import { Banking } from "./pages/Banking";
 import { Shared } from "./pages/Shared";
+import { Payees } from "./pages/Payees";
+import { Rules } from "./pages/Rules";
 import { Upcoming } from "./pages/Upcoming";
 import { Bills } from "./pages/Bills";
 import { Forecast } from "./pages/Forecast";
@@ -38,6 +40,8 @@ export default function App() {
         <Route path="accounts" element={<Accounts />} />
         <Route path="banking" element={<Banking />} />
         <Route path="shared" element={<Shared />} />
+        <Route path="payees" element={<Payees />} />
+        <Route path="rules" element={<Rules />} />
         <Route path="salary" element={<Salary />} />
         <Route path="energy" element={<Energy />} />
         <Route path="reports" element={<Reports />} />

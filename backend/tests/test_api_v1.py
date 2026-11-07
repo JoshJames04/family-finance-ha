@@ -274,6 +274,78 @@ class TestTransfersAndCommitments:
         assert body["next_date"] >= date.today().isoformat()
 
 
+class TestPayees:
+    """Canonical payee list + rename/merge (issue #276)."""
+
+    def _mk(self, client: TestClient, aid: int, payee: str,
+            status: str | None = None) -> dict:
+        r = client.post("/api/v1/transactions", json={
+            "account_id": aid, "date": "2026-05-10",
+            "amount": -500, "payee": payee})
+        assert r.status_code == 201, r.text
+        body = r.json()
+        if status:
+            path = ["cleared", "reconciled"] if status == "reconciled" \
+                else [status]
+            for st in path:
+                r = client.patch(f"/api/v1/transactions/{body['id']}",
+                                 json={"status": st})
+                assert r.status_code == 200, r.text
+                body = r.json()
+        return body
+
+    def test_list_and_rename(self, client: TestClient) -> None:
+        _mk_household(client)
+        aid = _mk_account(client)
+        self._mk(client, aid, "TESCO STORES")
+        self._mk(client, aid, "TESCO STORES")
+        self._mk(client, aid, "Sainsburys")
+        payees = client.get("/api/v1/payees").json()
+        by_name = {p["payee"]: p["transaction_count"] for p in payees}
+        assert by_name["TESCO STORES"] == 2
+        assert by_name["Sainsburys"] == 1
+        r = client.post("/api/v1/payees/rename", json={
+            "source": "TESCO STORES", "target": "Tesco"})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"renamed": 2, "skipped": 0}
+        payees = client.get("/api/v1/payees").json()
+        names = [p["payee"] for p in payees]
+        assert "Tesco" in names and "TESCO STORES" not in names
+
+    def test_rename_skips_reconciled(self, client: TestClient) -> None:
+        _mk_household(client)
+        aid = _mk_account(client)
+        self._mk(client, aid, "Old Name")
+        self._mk(client, aid, "Old Name", status="reconciled")
+        r = client.post("/api/v1/payees/rename", json={
+            "source": "Old Name", "target": "New Name"})
+        assert r.json() == {"renamed": 1, "skipped": 1}
+        remaining = client.get("/api/v1/transactions?q=Old%20Name")
+        assert remaining.json()["total"] == 1
+
+    def test_rename_cross_household(self, client: TestClient) -> None:
+        _mk_household(client)
+        aid = _mk_account(client)
+        self._mk(client, aid, "Shared Payee")
+        # a second household's same-name payee must not be touched
+        other = _mk_household(client)
+        oaid = int(client.post("/api/v1/accounts", json={
+            "name": "Other", "type": "joint", "opening_balance": 0,
+            "opening_date": "2026-01-01"},
+            headers={"X-Household-Id": str(other)}).json()["id"])
+        r = client.post("/api/v1/transactions", json={
+            "account_id": oaid, "date": "2026-05-10",
+            "amount": -100, "payee": "Shared Payee"},
+            headers={"X-Household-Id": str(other)})
+        assert r.status_code == 201, r.text
+        r = client.post("/api/v1/payees/rename", json={
+            "source": "Shared Payee", "target": "Mine Only"})
+        assert r.json()["renamed"] == 1
+        theirs = client.get("/api/v1/payees",
+                            headers={"X-Household-Id": str(other)})
+        assert "Shared Payee" in [p["payee"] for p in theirs.json()]
+
+
 class TestScopeAndAudit:
     def test_cross_household_isolation(self, client: TestClient) -> None:
         h1 = _mk_household(client)
