@@ -86,6 +86,26 @@ def assert_can(profile: UserProfile | None, action: Action,
             f"{action.value} on {scope.value} denied")
 
 
+def visible(owner_profile_id: int | None,
+            profile: UserProfile | None) -> bool:
+    """Query-layer scope filter (issue #32): private(owner) rows are
+    invisible to other members — not hidden, not found."""
+    scope = scope_of(owner_profile_id,
+                     profile.id if profile is not None else None)
+    return can(profile, Action.read, scope)
+
+
+def write_allowed(owner_profile_id: int | None,
+                  profile: UserProfile | None) -> bool:
+    """Mutation gate (issue #32). ``None`` profile keeps the pre-auth
+    compat posture (open single-user mode); any *resolved* identity
+    is fully enforced — a viewer can never mutate."""
+    if profile is None:
+        return True
+    scope = scope_of(owner_profile_id, profile.id)
+    return can(profile, Action.write, scope)
+
+
 def manage_profiles_allowed(
         profile: UserProfile | None,
         active_admin_exists: bool) -> bool:
