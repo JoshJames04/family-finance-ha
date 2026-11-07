@@ -25,7 +25,6 @@ from app.persistence.session import init_session_factory
 log = logging.getLogger(__name__)
 
 api = APIRouter(prefix="/api/v1")
-api.include_router(v1_router)
 
 
 @api.get("/version")
@@ -111,6 +110,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
+    # Mount at call time, not import time — a circular import edge
+    # can reach app.main before app.api.v1 finishes building
+    # v1_router, and an import-time include would freeze a partial
+    # route table into every app created afterwards.
+    app.include_router(v1_router, prefix="/api/v1")
     app.include_router(api)
 
     registry.register(
