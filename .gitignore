@@ -49,3 +49,4 @@ Thumbs.db
 # TypeScript build info
 *.tsbuildinfo
 frontend/test-results/
+.venv-ha/

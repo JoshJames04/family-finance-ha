@@ -1,0 +1,3 @@
+# HA integration test harness (issue #100).
+# Pinned: phacc release tracks a specific HA core version.
+pytest-homeassistant-custom-component==0.13.316
