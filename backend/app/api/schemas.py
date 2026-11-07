@@ -658,3 +658,20 @@ class TransferRuleOut(BaseModel):
 class EvaluateResult(BaseModel):
     amount_pence: int | None
     confidence: Confidence
+
+
+class PayrollOverrideIn(BaseModel):
+    """Run-scoped manual adjustment: signed delta on a component kind."""
+    kind: PayrollComponentKind
+    delta: Money
+    reason: str = Field(min_length=1, max_length=300)
+
+
+class PayrollOverrideOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    run_id: int
+    kind: PayrollComponentKind
+    delta_pence: int
+    reason: str
+    actor: str

@@ -28,6 +28,7 @@ from app.persistence.models import (
     Employment,
     PayrollComponent,
     PayrollComponentKind,
+    PayrollOverride,
     PayrollRun,
     PayrollRunStatus,
 )
@@ -233,3 +234,59 @@ def runs_for_employment(session: Session, employment_id: int
             PayrollRun.employment_id == employment_id)
         .order_by(PayrollRun.period_start, PayrollRun.id)
     ).scalars().all())
+
+
+def apply_override(
+    session: Session, run: PayrollRun, *,
+    kind: PayrollComponentKind, delta_pence: int,
+    reason: str, actor: str,
+) -> PayrollOverride:
+    """Append a run-scoped manual adjustment (issue #85).
+
+    The override is a distinct component line (label carries the
+    reason) plus an auditable ``payroll_override`` row. Deltas on
+    earnings kinds move gross; every delta moves net by its own signed
+    amount. Reconciled runs must be re-opened first; corrected runs
+    are immutable forever.
+    """
+    if run.status is PayrollRunStatus.corrected:
+        raise PayrollError(
+            f"payroll run {run.id} is corrected — immutable")
+    if run.status is PayrollRunStatus.reconciled:
+        raise PayrollError(
+            f"payroll run {run.id} is reconciled — re-open it before "
+            "applying an override")
+    if delta_pence == 0:
+        raise PayrollError("override delta must be non-zero")
+    if not reason.strip():
+        raise PayrollError("override requires a reason")
+    ov = PayrollOverride(run_id=run.id, kind=kind,
+                         delta_pence=delta_pence,
+                         reason=reason.strip(), actor=actor)
+    session.add(ov)
+    run.components.append(PayrollComponent(
+        kind=kind, label=f"Manual override — {reason.strip()}",
+        forecast_pence=delta_pence))
+    if kind in EARNING:
+        run.gross_pence += delta_pence
+    run.net_pence += delta_pence
+    session.flush()
+    return ov
+
+
+def reopen(session: Session, run: PayrollRun) -> PayrollRun:
+    """Re-open a reconciled run for manual adjustment (issue #85).
+
+    Actuals are preserved — they are data, not state; the run becomes
+    mutable again so an override can be applied, after which it can be
+    reconciled again. Corrected runs cannot re-open."""
+    if run.status is PayrollRunStatus.corrected:
+        raise PayrollError(
+            f"payroll run {run.id} is corrected — immutable")
+    if run.status is not PayrollRunStatus.reconciled:
+        raise PayrollError(
+            f"payroll run {run.id} is {run.status} — only a "
+            "reconciled run needs re-opening")
+    run.status = PayrollRunStatus.forecast
+    session.flush()
+    return run
