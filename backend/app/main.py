@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
 from app import __version__
 from app.api.errors import install_error_handlers
@@ -28,6 +29,7 @@ from app.domain import vault
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
 from app.persistence.migrate import migrations_current, upgrade_head
+from app.persistence.models import BankConnection
 from app.persistence.session import init_session_factory
 
 log = logging.getLogger(__name__)
@@ -130,10 +132,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     ring = vault.keyring(settings)
                     with contextlib.closing(
                             next(get_session())) as s:
+                        def _tok(sess: Session,
+                                 c: BankConnection,
+                                 r: vault.Keyring = ring) -> str:
+                            return bankdom.token(sess, c, r)
                         scheduler.sync_tick(
-                            s, client=client,
-                            token_for=lambda sess, c, r=ring:
-                                bankdom.token(sess, c, r),
+                            s, client=client, token_for=_tok,
                             interval_seconds=
                                 settings.sync_interval_minutes * 60)
                         scheduler.notify_tick(s, notifier=notifier)
@@ -207,6 +211,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         log.info("readiness: %s", body["status"])
         return JSONResponse(body, status_code=200 if ready else 503)
+
+    # issue #23: serve the SPA bundle when present. Registered LAST
+    # so every API/probe route wins; unknown non-/api paths fall
+    # back to index.html for client-side routing under ingress.
+    web_dir = settings.resolved_web_dir
+    if web_dir is not None:
+        from fastapi.responses import FileResponse
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa(full_path: str) -> FileResponse:
+            if full_path.startswith(("api/", "api")):
+                return FileResponse(web_dir / "index.html",
+                                    status_code=404)
+            cand = (web_dir / full_path).resolve()
+            if cand.is_file() and cand.is_relative_to(
+                    web_dir.resolve()):
+                return FileResponse(cand)
+            return FileResponse(web_dir / "index.html")
 
     return app
 

@@ -199,6 +199,7 @@ class TestRouteCoverage:
         ("POST", "/api/v1/auth/logout"),
         ("GET", "/healthz"),              # supervisor/k8s probes
         ("GET", "/readyz"),
+        ("GET", "/{full_path:path}"),     # issue #23: public SPA shell
     }
     AUTH_DEPS = {deps.resolve_profile, auth.current_profile,
                  auth.require_profile, deps.require_admin}

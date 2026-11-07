@@ -73,6 +73,29 @@ jobs:
         working-directory: frontend
         run: npx playwright test
 
+  image:
+    # issue #23: prove the add-on image builds + serves the SPA
+    # on every PR (the multi-arch matrix stays in release.yml).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build add-on image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: ff:ci
+      - name: Smoke — healthz + SPA index
+        run: |
+          set -euo pipefail
+          docker run -d --name ff -p 8099:8099             -e FF_ENV=ci -e FF_DATA_DIR=/tmp ff:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8099/healthz && break || sleep 1
+          done
+          curl -sf http://localhost:8099/ | grep -qi "html"
+
   frontend:
     runs-on: ubuntu-latest
     steps:
