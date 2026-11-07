@@ -6,6 +6,7 @@ import { Budget } from "./pages/Budget";
 import { Accounts } from "./pages/Accounts";
 import { Upcoming } from "./pages/Upcoming";
 import { Catalogue } from "./pages/Catalogue";
+import { Gifts } from "./pages/Gifts";
 import { useTheme } from "./theme/useTheme";
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="budget" element={<Budget />} />
         <Route path="accounts" element={<Accounts />} />
         <Route path="upcoming" element={<Upcoming />} />
+        <Route path="gifts" element={<Gifts />} />
         <Route path="catalogue" element={<Catalogue />} />
         <Route path="*" element={<Dashboard />} />
       </Route>
