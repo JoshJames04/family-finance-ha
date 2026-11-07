@@ -16,6 +16,7 @@ import enum
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -59,12 +60,15 @@ class Deductions:
     ni_pence: int
     student_loan_pence: int
     pension_pence: int
+    # Contribution deducted from NET pay — nonzero only for relief at
+    # source; net_pay/sacrifice already sit inside taxable_gross.
+    net_pension_deduction_pence: int = 0
 
     @property
     def net_pence(self) -> int:
         return (self.taxable_gross_pence - self.tax_pence
                 - self.ni_pence - self.student_loan_pence
-                - self.pension_pence)
+                - self.net_pension_deduction_pence)
 
 
 def parse_tax_code(raw: str) -> TaxCode:
@@ -233,10 +237,26 @@ def compute_period(
     return Deductions(
         taxable_gross_pence=taxable_gross, tax_pence=tax,
         ni_pence=ni_pence, student_loan_pence=sl_pence,
-        pension_pence=pension_pence)
+        pension_pence=pension_pence,
+        net_pension_deduction_pence=(
+            pension_pence
+            if pension_mode is PensionMode.relief_at_source else 0))
 
 
 @lru_cache(maxsize=1)
 def embedded_rule_sets() -> tuple[dict[str, Any], ...]:
     raw = json.loads(_DATA.read_text(encoding="utf-8"))
     return tuple(raw["sets"])
+
+
+def tax_year_for(d: date) -> str:
+    """UK tax year label for a date — 6 Apr 2025…5 Apr 2026 → '2025-26'."""
+    start = d.year if (d.month, d.day) >= (4, 6) else d.year - 1
+    return f"{start}-{str(start + 1)[2:]}"
+
+
+def tax_month_for(d: date) -> int:
+    """HMRC tax month 1..12 (month 1 = 6 Apr–5 May) for a date."""
+    anchor = (d.month - 1 if d.month > 1 else 12) if d.day < 6 \
+        else d.month
+    return ((anchor - 4) % 12) + 1

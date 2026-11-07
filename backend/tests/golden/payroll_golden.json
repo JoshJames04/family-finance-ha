@@ -142,7 +142,7 @@
       "gross_pence": 250000, "code": "1257L", "period": 1,
       "ni_category": "A", "plan": "none",
       "pension_mode": "net_pay", "pension_pence": 12500,
-      "expect": {"tax": 26550, "ni": 11620, "sl": 0, "net": 186830}
+      "expect": {"tax": 26550, "ni": 11620, "sl": 0, "net": 199330}
     },
     {
       "desc": "Salary sacrifice 5%: tax AND NI reduced",
@@ -150,7 +150,7 @@
       "gross_pence": 250000, "code": "1257L", "period": 1,
       "ni_category": "A", "plan": "none",
       "pension_mode": "salary_sacrifice", "pension_pence": 12500,
-      "expect": {"tax": 26550, "ni": 10620, "sl": 0, "net": 187830}
+      "expect": {"tax": 26550, "ni": 10620, "sl": 0, "net": 200330}
     }
   ]
 }

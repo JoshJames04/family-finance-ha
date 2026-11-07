@@ -17,6 +17,8 @@ from app.persistence.models import (
     DayType,
     Frequency,
     OvertimeStatus,
+    PayrollComponentKind,
+    PayrollRunStatus,
     Role,
     StudentLoanPlan,
     TaxJurisdiction,
@@ -499,3 +501,44 @@ class OvertimeOut(BaseModel):
     hourly_rate_pence: int
     pay_pence: int
     notes: str | None
+
+
+class PayrollRunIn(BaseModel):
+    period_start: date
+    period_end: date
+    pay_date: date
+    bonus: Money | None = None
+    allowance: Money | None = None
+    unpaid_leave: Money | None = None
+
+
+class PayrollReconcileIn(BaseModel):
+    """actual amounts keyed by component kind, e.g. {"tax": 29500}.
+    Absent kinds are assumed to match forecast."""
+    actuals: dict[PayrollComponentKind, int] = Field(default_factory=dict)
+
+
+class PayrollComponentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    kind: PayrollComponentKind
+    label: str
+    forecast_pence: int
+    actual_pence: int | None
+    variance_pence: int | None
+
+
+class PayrollRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    period_start: date_t
+    period_end: date_t
+    pay_date: date_t
+    status: PayrollRunStatus
+    tax_year: str
+    rule_set_version: int
+    gross_pence: int
+    net_pence: int
+    corrects_id: int | None
+    components: list[PayrollComponentOut] = []
