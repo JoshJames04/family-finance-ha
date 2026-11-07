@@ -82,6 +82,34 @@ jobs:
           npm test
           npm run build
 
+  ha-integration:
+    # Custom component scaffold: config flow + coordinator availability
+    # under the real HA test harness (issue #100).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect integration presence
+        id: check
+        run: |
+          if [ -f custom_components/family_finance/manifest.json ]; then
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::No custom_components found - skipping HA job"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.present == 'yes'
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: tests/requirements_test.txt
+      - name: Install test harness
+        if: steps.check.outputs.present == 'yes'
+        run: pip install -r tests/requirements_test.txt
+      - name: Integration tests
+        if: steps.check.outputs.present == 'yes'
+        run: pytest tests/ha -v
+
   migrations:
     # Every schema change must prove upgrade AND downgrade on a scratch DB.
     runs-on: ubuntu-latest
