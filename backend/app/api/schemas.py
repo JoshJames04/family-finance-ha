@@ -1361,3 +1361,21 @@ class BankConnectionOut(BaseModel):
 class BankConnectIn(BaseModel):
     provider: str = Field(pattern="^starling$")
     token: SecretStr
+
+
+class BankMappingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    connection_id: int
+    external_uid: str
+    external_label: str
+    external_kind: str
+    account_id: int | None
+    status: str
+    balance_pence: int | None
+    balance_at: datetime | None
+
+
+class MappingLinkIn(BaseModel):
+    account_id: int | None = None
+    create_account: bool = False   # mint an internal Account if set

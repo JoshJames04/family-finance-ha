@@ -1850,3 +1850,48 @@ class BankConnection(TimestampMixin, Base):
         DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(
         String(500), nullable=True)
+
+
+class MappingStatus(enum.StrEnum):
+    """Discovery lifecycle (issue #66): proposed until the user
+    links it to an internal account, ignored if deliberately
+    skipped, closed when the provider stops returning it."""
+
+    proposed = "proposed"
+    linked = "linked"
+    ignored = "ignored"
+    closed = "closed"
+
+
+class BankAccountMapping(TimestampMixin, Base):
+    """A provider account/space discovered for a connection. Maps
+    to one internal ``Account`` when the user confirms; balance is
+    a point-in-time provider read (never a ledger write)."""
+
+    __tablename__ = "bank_account_mapping"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "external_uid",
+                         name="uq_mapping_conn_ext"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("bank_connection.id"), nullable=False,
+        index=True)
+    external_uid: Mapped[str] = mapped_column(
+        String(64), nullable=False)
+    external_label: Mapped[str] = mapped_column(
+        String(200), nullable=False)
+    external_kind: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="account")
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True)
+    status: Mapped[MappingStatus] = mapped_column(
+        Enum(MappingStatus), default=MappingStatus.proposed,
+        nullable=False)
+    balance_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    balance_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
