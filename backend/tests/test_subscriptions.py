@@ -179,6 +179,10 @@ class TestApi:
             "/api/v1/subscriptions?include_cancelled=false",
             headers=h).json()
         assert active == []
+        # cancelled → drops out of the annualised total entirely
+        rep = client.get("/api/v1/subscriptions/annualised",
+                         headers=h).json()
+        assert rep["total_annualised_pence"] == 0
 
     def test_double_cancel_409(self, client: TestClient,
                                h: dict) -> None:
@@ -191,3 +195,44 @@ class TestApi:
                         headers=h, json={"date": "2026-03-21"})
         assert r.status_code == 409
         assert r.json()["type"] == "about:blank"
+
+
+class TestAnnualised:
+    """Issue #109 — the true yearly cost of the register."""
+
+    def test_per_frequency_annualisation(
+            self, session: Session, household: Household) -> None:
+        cases = [(Frequency.weekly, 52), (Frequency.fortnightly, 26),
+                 (Frequency.monthly, 12), (Frequency.quarterly, 4),
+                 (Frequency.annually, 1)]
+        for freq, periods in cases:
+            s = subs.create(
+                session, household.id, payee=f"{freq}-thing",
+                frequency=freq, expected_pence=100,
+                next_renewal_date=date(2026, 4, 1))
+            assert subs.annualised_pence(s) == 100 * periods
+
+    def test_mixed_set_exact_total(
+            self, session: Session, household: Household) -> None:
+        subs.create(session, household.id, payee="Monthly",
+                    frequency=Frequency.monthly, expected_pence=1_099,
+                    next_renewal_date=date(2026, 4, 1))
+        subs.create(session, household.id, payee="Annual",
+                    frequency=Frequency.annually, expected_pence=24_000,
+                    next_renewal_date=date(2026, 4, 1))
+        subs.create(session, household.id, payee="Weekly",
+                    frequency=Frequency.weekly, expected_pence=450,
+                    next_renewal_date=date(2026, 4, 1))
+        rows, total = subs.annualised_report(session, household.id)
+        assert len(rows) == 3
+        # 1099*12 + 24000*1 + 450*52 = 13188 + 24000 + 23400
+        assert total == 60_588
+
+    def test_cancelled_excluded(
+            self, session: Session, household: Household) -> None:
+        s = subs.create(session, household.id, payee="Dead",
+                        frequency=Frequency.monthly, expected_pence=999,
+                        next_renewal_date=date(2026, 4, 1))
+        subs.cancel(s, date(2026, 3, 20))
+        rows, total = subs.annualised_report(session, household.id)
+        assert rows == [] and total == 0

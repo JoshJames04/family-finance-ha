@@ -109,6 +109,23 @@ def list_candidates(
             for c in rows]
 
 
+@router.get("/annualised",
+            response_model=schemas.AnnualisedOut)
+def annualised(
+    household: HouseholdDep, session: SessionDep,
+) -> schemas.AnnualisedOut:
+    rows, total = subs.annualised_report(session, household.id)
+    return schemas.AnnualisedOut(
+        per_subscription=[
+            schemas.AnnualisedSubOut(
+                subscription_id=s.id, payee=s.payee,
+                frequency=s.frequency,
+                expected_pence=s.expected_pence,
+                annualised_pence=a)
+            for s, a in rows],
+        total_annualised_pence=total)
+
+
 @router.get(
     "/price-changes",
     response_model=list[schemas.PriceChangeEventOut])
