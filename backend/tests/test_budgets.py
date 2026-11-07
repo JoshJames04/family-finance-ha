@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
@@ -430,3 +431,119 @@ class TestTemplatesAndCopy:
         d = client.get(f"/api/v1/budgets/{c.json()['budget']['id']}",
                        headers=h).json()
         assert d["lines"][0]["original_pence"] == 40000
+
+
+class TestRollover:
+    """Issue #60 — surplus/deficit carries, source never mutated."""
+
+    def _setup(self, session: Session, household, category):
+        acct = Account(household_id=household.id, name="A",
+                       type=AccountType.joint, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1), archived=False)
+        session.add(acct)
+        session.flush()
+        session.add(Transaction(
+            account_id=acct.id, date=date(2026, 5, 10),
+            amount_pence=-46000, payee="X", category_id=category.id,
+            status=TransactionStatus.cleared))
+        session.flush()
+        may = _mk_budget(session, household)
+        lm = dom.add_line(session, may, category.id,
+                          BudgetLineSide.expense, 50000)
+        lm.rollover = True
+        dom.approve(session, may)
+        june = dom.create_budget(
+            session, household.id, "June", BudgetPeriodType.monthly,
+            date(2026, 6, 1), date(2026, 6, 30))
+        lj = dom.add_line(session, june, category.id,
+                          BudgetLineSide.expense, 50000)
+        return may, june, lm, lj
+
+    def test_surplus_carry(self, session: Session, household,
+                           category) -> None:
+        may, june, lm, lj = self._setup(session, household, category)
+        # spent 46000 of 50000 → carry +4000 into June revised
+        events = dom.apply_rollover(session, may, june)
+        assert events[0]["carry_pence"] == 4000
+        assert lj.revised_pence == 54000
+        assert "rollover" in (lj.revision_reason or "")
+        # source untouched
+        assert may.status == BudgetStatus.approved
+        assert lm.original_pence == 50000
+
+    def test_deficit_carry(self, session: Session, household,
+                           category) -> None:
+        may, june, lm, lj = self._setup(session, household, category)
+        # overspend: effective 50000, actual 56000 → carry −6000
+        acct = session.execute(
+            select(Account)).scalar_one()
+        session.add(Transaction(
+            account_id=acct.id, date=date(2026, 5, 20),
+            amount_pence=-10000, payee="Y", category_id=category.id,
+            status=TransactionStatus.cleared))
+        session.flush()
+        dom.apply_rollover(session, may, june)
+        assert lj.revised_pence == 44000
+
+    def test_opt_out_lines_ignored(self, session: Session, household,
+                                   category) -> None:
+        may, june, lm, lj = self._setup(session, household, category)
+        lm.rollover = False
+        events = dom.apply_rollover(session, may, june)
+        assert events == [] and lj.revised_pence is None
+
+    def test_draft_source_rejected(self, session: Session, household,
+                                   category) -> None:
+        may, june, lm, lj = self._setup(session, household, category)
+        may.status = BudgetStatus.draft
+        with pytest.raises(BudgetError):
+            dom.apply_rollover(session, may, june)
+
+    def test_rollover_over_locked_source_boundary(
+            self, session: Session, household, category) -> None:
+        may, june, lm, lj = self._setup(session, household, category)
+        session.add(ReportingPeriod(
+            household_id=household.id, label="2026-05",
+            start_date=date(2026, 5, 1), end_date=date(2026, 5, 31),
+            locked=True))
+        session.flush()
+        # source locked is fine — rollover only reads it
+        events = dom.apply_rollover(session, may, june)
+        assert events[0]["carry_pence"] == 4000
+
+    def test_locked_target_rejected(self, session: Session, household,
+                                    category) -> None:
+        may, june, lm, lj = self._setup(session, household, category)
+        dom.approve(session, june)
+        dom.lock(session, june)
+        with pytest.raises(BudgetError):
+            dom.apply_rollover(session, may, june)
+
+    def test_api_rollover(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        cat = client.post("/api/v1/categories", json={"name": "Food"},
+                          headers=h).json()
+        b1 = client.post("/api/v1/budgets", json={
+            "name": "May", "period_type": "monthly",
+            "start_date": "2026-05-01", "end_date": "2026-05-31"},
+            headers=h).json()["id"]
+        client.post(f"/api/v1/budgets/{b1}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 50000, "rollover": True}, headers=h)
+        client.post(f"/api/v1/budgets/{b1}/approve", headers=h)
+        b2 = client.post("/api/v1/budgets", json={
+            "name": "June", "period_type": "monthly",
+            "start_date": "2026-06-01", "end_date": "2026-06-30"},
+            headers=h).json()["id"]
+        client.post(f"/api/v1/budgets/{b2}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 50000}, headers=h)
+        r = client.post(f"/api/v1/budgets/{b2}/rollover",
+                        json={"source_budget_id": b1}, headers=h)
+        assert r.status_code == 200 and r.json()["applied"] == 1
+        d = client.get(f"/api/v1/budgets/{b2}", headers=h).json()
+        # nothing spent → full 50000 surplus carries onto original
+        assert d["lines"][0]["revised_pence"] == 100000
