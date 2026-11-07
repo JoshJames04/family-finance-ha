@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -172,6 +172,111 @@ def contributions(session: Session, household_id: int, *,
             ExpectedMovement.source_type ==
             ExpectedSource.transfer_rule,
             ExpectedMovement.expected_date >= start,
-            ExpectedMovement.expected_date <= end)
+            ExpectedMovement.expected_date <= end,
+            ExpectedMovement.dismissed_at.is_(None))
         .order_by(ExpectedMovement.expected_date)).scalars().all()
     return [status(session, m, today) for m in movements]
+
+
+# ---------- outstanding obligations (issue #88) --------------------
+
+
+@dataclass(frozen=True)
+class OutstandingItem:
+    movement_id: int
+    account_id: int | None
+    label: str
+    due_date: date
+    age_days: int
+    outstanding_pence: int
+
+
+@dataclass(frozen=True)
+class Requirement:
+    """Per-account: scheduled in-legs vs satisfied, by due date."""
+    account_id: int
+    due_date: date
+    scheduled_pence: int
+    satisfied_pence: int
+    outstanding_pence: int
+
+
+def outstanding(session: Session, household_id: int, *,
+                today: date | None = None) -> list[OutstandingItem]:
+    """Past-due, unmatched (or partially matched) expected movements —
+    the "what's late" list the alert hook consumes. Dismissed
+    movements are excluded."""
+    today = today or date.today()
+    rows = session.execute(
+        select(ExpectedMovement).where(
+            ExpectedMovement.household_id == household_id,
+            ExpectedMovement.expected_date < today,
+            ExpectedMovement.dismissed_at.is_(None))
+        .order_by(ExpectedMovement.expected_date)).scalars().all()
+    out: list[OutstandingItem] = []
+    for mv in rows:
+        s = status(session, mv, today)
+        if s.state in (ContributionState.overdue,
+                       ContributionState.partial):
+            out.append(OutstandingItem(
+                movement_id=mv.id, account_id=mv.account_id,
+                label=mv.label, due_date=mv.expected_date,
+                age_days=(today - mv.expected_date).days,
+                outstanding_pence=s.outstanding_pence))
+    return out
+
+
+def requirement_totals(session: Session, household_id: int, *,
+                       start: date, end: date,
+                       today: date | None = None
+                       ) -> list[Requirement]:
+    """Per (account, due date): scheduled in-leg amounts vs satisfied —
+    "the bills account needs £X by dd/MM". Reconciles:
+    outstanding = scheduled − satisfied, per row."""
+    rows = session.execute(
+        select(ExpectedMovement).where(
+            ExpectedMovement.household_id == household_id,
+            ExpectedMovement.source_type ==
+            ExpectedSource.transfer_rule,
+            ExpectedMovement.amount_pence > 0,
+            ExpectedMovement.account_id.is_not(None),
+            ExpectedMovement.expected_date >= start,
+            ExpectedMovement.expected_date <= end,
+            ExpectedMovement.dismissed_at.is_(None))
+        .order_by(ExpectedMovement.account_id,
+                  ExpectedMovement.expected_date)).scalars().all()
+    return [Requirement(
+        account_id=mv.account_id if mv.account_id is not None else 0,
+        due_date=mv.expected_date,
+        scheduled_pence=mv.amount_pence,
+        satisfied_pence=(s := status(session, mv, today)).matched_pence,
+        outstanding_pence=s.outstanding_pence)
+        for mv in rows]
+
+
+def write_off(session: Session, movement: ExpectedMovement,
+              *, when: datetime) -> ExpectedMovement:
+    """Abandon an obligation: excluded from outstanding and
+    requirement totals thereafter. Audited by the caller."""
+    if movement.dismissed_at is not None:
+        raise MatchError(
+            f"expected movement {movement.id} already written off")
+    movement.dismissed_at = when
+    session.flush()
+    return movement
+
+
+def reschedule(session: Session, movement: ExpectedMovement,
+               new_date: date, *, today: date | None = None
+               ) -> ExpectedMovement:
+    """Move a due date forward for an obligation the household will
+    still honour. Past movements and dismissed ones cannot be moved."""
+    today = today or date.today()
+    if movement.dismissed_at is not None:
+        raise MatchError(
+            f"expected movement {movement.id} is written off")
+    if new_date <= movement.expected_date:
+        raise MatchError("new due date must be after the current one")
+    movement.expected_date = new_date
+    session.flush()
+    return movement
