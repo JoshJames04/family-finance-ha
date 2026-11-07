@@ -21,6 +21,8 @@ from app.persistence.models import (
     BudgetLineSide,
     BudgetPeriodType,
     BudgetStatus,
+    CandidateStatus,
+    CandidateType,
     Confidence,
     DayType,
     ExpectedSource,
@@ -948,3 +950,36 @@ class SubscriptionPriceOut(BaseModel):
     date: date
     amount_pence: int
     transaction_id: int | None
+
+
+class DetectionScanIn(BaseModel):
+    min_occurrences: int = Field(default=3, ge=2, le=12)
+
+
+class DetectionCandidateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    payee: str
+    frequency: Frequency
+    expected_pence: int
+    tolerance_pct: int
+    candidate_type: CandidateType
+    confidence: int
+    occurrence_count: int
+    first_seen: date
+    last_seen: date
+    status: CandidateStatus
+    subscription_id: int | None
+    category_id: int | None
+    account_id: int | None
+    notes: str | None
+
+
+class CandidateConfirmIn(BaseModel):
+    category_id: int | None = None
+    account_id: int | None = None
+    tolerance_pct: int | None = Field(default=None, ge=0, le=100)
+
+
+class CandidateDismissIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
