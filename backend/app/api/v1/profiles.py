@@ -57,6 +57,21 @@ def create_profile(
     return schemas.ProfileOut.model_validate(p)
 
 
+def _sole_active_admin(session: Session, household_id: int,
+                       p: UserProfile) -> bool:
+    """Issue #32 edge case: the last active admin can neither be
+    demoted nor deactivated — the household would lose management."""
+    if not (p.is_active and p.role == Role.admin):
+        return False
+    others = session.scalar(
+        select(func.count(UserProfile.id)).where(
+            UserProfile.household_id == household_id,
+            UserProfile.role == Role.admin,
+            UserProfile.is_active,
+            UserProfile.id != p.id))
+    return not others
+
+
 def _active_admin_exists(session: Session, household_id: int) -> bool:
     return bool(session.scalar(
         select(func.count(UserProfile.id)).where(
@@ -86,6 +101,9 @@ def update_profile(
     _guard(actor_profile, session, household.id)
     p = _get(session, household.id, profile_id)
     if body.role is not None and body.role != p.role:
+        if (body.role != Role.admin
+                and _sole_active_admin(session, household.id, p)):
+            raise HTTPException(422, "cannot demote the last admin")
         old = p.role.value
         p.role = body.role
         session.flush()
@@ -112,6 +130,8 @@ def deactivate(
     p = _get(session, household.id, profile_id)
     if actor_profile is not None and p.id == actor_profile.id:
         raise HTTPException(422, "cannot deactivate yourself")
+    if _sole_active_admin(session, household.id, p):
+        raise HTTPException(422, "cannot deactivate the last admin")
     p.is_active = False
     session.flush()
     revoke_sessions_for(session, p.id)  # issue #29

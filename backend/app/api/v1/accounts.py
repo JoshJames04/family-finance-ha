@@ -8,32 +8,48 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import (
+    ActorDep,
+    HouseholdDep,
+    ProfileDep,
+    SessionDep,
+)
 from app.domain import accounts as accts
-from app.domain import projection
+from app.domain import projection, rbac
 from app.domain.accounts import current_balance
-from app.persistence.models import Account
+from app.persistence.models import Account, Role, UserProfile
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 
 def _get(
-    session: Session, household_id: int, account_id: int
+    session: Session, household_id: int, account_id: int,
+    profile: UserProfile | None = None,
 ) -> Account:
     a = session.get(Account, account_id)
-    if a is None or a.household_id != household_id:
+    if (a is None or a.household_id != household_id
+            or not rbac.visible(a.owner_profile_id, profile)):
         raise HTTPException(404, f"account {account_id} not found")
     return a
+
+
+def _write(a: Account, profile: UserProfile | None) -> None:
+    """Mutation gate on a resolved resource (issue #32)."""
+    if not rbac.write_allowed(a.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
 
 
 @router.get("", response_model=schemas.Page[schemas.AccountOut])
 def list_accounts(
     household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     include_archived: Annotated[bool, Query()] = False,
 ) -> schemas.Page[schemas.AccountOut]:
     rows = (accts.all_accounts(session, household.id)
             if include_archived
             else accts.active_accounts(session, household.id))
+    rows = [a for a in rows
+            if rbac.visible(a.owner_profile_id, profile)]
     return schemas.Page(
         items=[schemas.AccountOut.model_validate(a) for a in rows],
         total=len(rows), page=1, size=len(rows) or 1)
@@ -42,8 +58,10 @@ def list_accounts(
 @router.post("", response_model=schemas.AccountOut, status_code=201)
 def create_account(
     body: schemas.AccountIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.AccountOut:
+    if not rbac.write_allowed(body.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     a = accts.open_account(
         session, household.id, body.name, body.type,
         body.opening_balance.pence, body.opening_date,
@@ -58,16 +76,18 @@ def create_account(
 @router.get("/{account_id}", response_model=schemas.AccountOut)
 def get_account(
     account_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> schemas.AccountOut:
     return schemas.AccountOut.model_validate(
-        _get(session, household.id, account_id))
+        _get(session, household.id, account_id, profile))
 
 
 @router.get("/{account_id}/balance")
 def get_balance(
     account_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> dict[str, int]:
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
     return {"account_id": a.id,
             "balance_pence": current_balance(session, a.id)}
 
@@ -76,11 +96,12 @@ def get_balance(
             response_model=schemas.ProjectionOut)
 def get_projection(
     account_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     days: Annotated[int, Query(ge=1, le=731)] = 90,
 ) -> schemas.ProjectionOut:
     """Deterministic per-account daily projection + safe-to-spend
     (issue #74)."""
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
     return projection_out(projection.project(session, a, days))
 
 
@@ -107,8 +128,10 @@ def projection_out(p: projection.Projection) -> schemas.ProjectionOut:
 def verify_account_balance(
     account_id: int, body: schemas.BalanceVerifyIn,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.BalanceVerificationOut:
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
+    _write(a, profile)
     v = accts.verify_balance(
         session, a, body.asserted_balance.pence, body.verified_date,
         correct=body.correct, note=body.note)
@@ -122,8 +145,9 @@ def verify_account_balance(
             response_model=schemas.Page[schemas.BalanceVerificationOut])
 def account_verifications(
     account_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> schemas.Page[schemas.BalanceVerificationOut]:
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
     rows = accts.verifications(session, a.id)
     return schemas.Page(
         items=[schemas.BalanceVerificationOut.model_validate(v)
@@ -135,9 +159,17 @@ def account_verifications(
 def patch_account(
     account_id: int, body: schemas.AccountPatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.AccountOut:
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
+    _write(a, profile)
     changed = body.model_dump(exclude_unset=True)
+    new_owner = changed.get("owner_profile_id")
+    if "owner_profile_id" in changed and profile is not None:
+        # Scope change: non-admin may only toggle own/None (issue #32).
+        if profile.role != Role.admin and new_owner not in (
+                None, profile.id):
+            raise HTTPException(403, "cannot reassign ownership")
     for k, v in changed.items():
         setattr(a, k, v)
     emit(session, household.id, actor, "update", "account", a.id, changed)
@@ -147,9 +179,10 @@ def patch_account(
 @router.post("/{account_id}/archive", response_model=schemas.AccountOut)
 def archive_account(
     account_id: int, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.AccountOut:
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
+    _write(a, profile)
     accts.archive(session, a)
     emit(session, household.id, actor, "archive", "account", a.id)
     return schemas.AccountOut.model_validate(a)
@@ -158,9 +191,10 @@ def archive_account(
 @router.post("/{account_id}/reopen", response_model=schemas.AccountOut)
 def reopen_account(
     account_id: int, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.AccountOut:
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
+    _write(a, profile)
     accts.reopen(session, a)
     emit(session, household.id, actor, "reopen", "account", a.id)
     return schemas.AccountOut.model_validate(a)
@@ -169,9 +203,10 @@ def reopen_account(
 @router.delete("/{account_id}", status_code=204)
 def delete_account(
     account_id: int, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> None:
-    a = _get(session, household.id, account_id)
+    a = _get(session, household.id, account_id, profile)
+    _write(a, profile)
     accts.delete_account(session, a)  # raises 409 if non-empty
     emit(session, household.id, actor, "delete", "account", a.id)
 
@@ -180,10 +215,11 @@ def delete_account(
              response_model=schemas.AccountOut)
 def merge_account(
     account_id: int, target_id: int, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.AccountOut:
-    src = _get(session, household.id, account_id)
-    tgt = _get(session, household.id, target_id)
+    src = _get(session, household.id, account_id, profile)
+    tgt = _get(session, household.id, target_id, profile)
+    _write(src, profile)
     accts.merge_accounts(session, src, tgt)
     emit(session, household.id, actor, "merge", "account", src.id,
          {"into": tgt.id})
@@ -194,10 +230,11 @@ def merge_account(
             response_model=schemas.Page[schemas.TransactionOut])
 def account_transactions(
     account_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> schemas.Page[schemas.TransactionOut]:
-    _get(session, household.id, account_id)
+    _get(session, household.id, account_id, profile)
     from app.persistence.models import Transaction
     base = select(Transaction).where(Transaction.account_id == account_id)
     total = len(list(session.execute(base).scalars().all()))

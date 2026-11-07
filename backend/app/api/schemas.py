@@ -75,6 +75,7 @@ class AccountPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     institution_ref: str | None = Field(default=None, max_length=128)
     min_balance_pence: int | None = None
+    owner_profile_id: int | None = None  # private↔shared (audited)
 
 
 class AccountOut(BaseModel):

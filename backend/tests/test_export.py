@@ -133,7 +133,9 @@ class TestScope:
         ada_aid = _account(client, h, "Ada Private",
                            owner_profile_id=ada)
         _txn(client, h, shared_aid, "2025-01-05", -100, "SharedShop")
-        _txn(client, h, ada_aid, "2025-01-06", -200, "AdaShop")
+        # Private-account writes need the owner's identity now (#32).
+        _txn(client, {**h, "X-Profile-Id": str(ada)}, ada_aid,
+             "2025-01-06", -200, "AdaShop")
 
         anonymous = _export(client, h)
         assert {r["payee"] for r in anonymous} == {"SharedShop"}
@@ -153,7 +155,8 @@ class TestScope:
         ada = _member(client, h, "Ada")
         ada_aid = _account(client, h, "Ada Private",
                            owner_profile_id=ada)
-        _txn(client, h, ada_aid, "2025-01-06", -200, "AdaShop")
+        _txn(client, {**h, "X-Profile-Id": str(ada)}, ada_aid,
+             "2025-01-06", -200, "AdaShop")
         admin = _member(client, h, "Root", role="admin")
         view = _export(client, h, {"X-Profile-Id": str(admin)})
         assert {r["payee"] for r in view} == {"AdaShop"}

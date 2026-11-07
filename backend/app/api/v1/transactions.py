@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import rbac
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
 from app.persistence.models import (
@@ -20,26 +21,42 @@ from app.persistence.models import (
     Category,
     Role,
     Transaction,
+    UserProfile,
 )
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 def _get(
-    session: Session, household_id: int, txn_id: int
+    session: Session, household_id: int, txn_id: int,
+    profile: UserProfile | None = None,
 ) -> Transaction:
     t = session.get(Transaction, txn_id)
     if t is None:
         raise HTTPException(404, f"transaction {txn_id} not found")
     a = session.get(Account, t.account_id)
-    if a is None or a.household_id != household_id:
+    if (a is None or a.household_id != household_id
+            or not rbac.visible(a.owner_profile_id, profile)):
         raise HTTPException(404, f"transaction {txn_id} not found")
     return t
+
+
+def _write_account(session: Session, household_id: int,
+                   account_id: int,
+                   profile: UserProfile | None) -> None:
+    """Mutation gate on the owning account's scope (issue #32)."""
+    a = session.get(Account, account_id)
+    if (a is None or a.household_id != household_id
+            or not rbac.visible(a.owner_profile_id, profile)):
+        raise HTTPException(404, "account not found")
+    if not rbac.write_allowed(a.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
 
 
 @router.get("", response_model=schemas.Page[schemas.TransactionOut])
 def list_transactions(
     household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     account_id: Annotated[int | None, Query()] = None,
     category_id: Annotated[int | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
@@ -58,6 +75,14 @@ def list_transactions(
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household.id)
     )
+    # Private-account rows are invisible to other members (issue
+    # #32) — same scope filter as the export endpoint.
+    if profile is None:
+        stmt = stmt.where(Account.owner_profile_id.is_(None))
+    elif profile.role != Role.admin:
+        stmt = stmt.where(
+            Account.owner_profile_id.is_(None)
+            | (Account.owner_profile_id == profile.id))
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
     if category_id is not None:
@@ -146,8 +171,9 @@ def export_transactions(
 @router.post("", response_model=schemas.TransactionOut, status_code=201)
 def create_transaction(
     body: schemas.TransactionIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.TransactionOut:
+    _write_account(session, household.id, body.account_id, profile)
     a = session.get(Account, body.account_id)
     if a is None or a.household_id != household.id:
         raise HTTPException(404, f"account {body.account_id} not found")
@@ -161,7 +187,8 @@ def create_transaction(
     session.flush()
     if body.refund_of_id is not None:
         from app.domain.refunds import link_refund
-        orig = _get(session, household.id, body.refund_of_id)
+        orig = _get(session, household.id, body.refund_of_id,
+                    profile)
         link_refund(session, t, orig)
     emit(session, household.id, actor, "create", "transaction", t.id,
          {"account_id": a.id, "amount_pence": t.amount_pence})
@@ -171,17 +198,20 @@ def create_transaction(
 @router.get("/{txn_id}", response_model=schemas.TransactionOut)
 def get_transaction(
     txn_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> schemas.TransactionOut:
     return schemas.TransactionOut.model_validate(
-        _get(session, household.id, txn_id))
+        _get(session, household.id, txn_id, profile))
 
 
 @router.patch("/{txn_id}", response_model=schemas.TransactionOut)
 def patch_transaction(
     txn_id: int, body: schemas.TransactionPatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> schemas.TransactionOut:
-    t = _get(session, household.id, txn_id)
+    t = _get(session, household.id, txn_id, profile)
+    _write_account(session, household.id, t.account_id, profile)
     assert_editable(session, t)
     changed = body.model_dump(exclude_unset=True)
     new_status = changed.pop("status", None)
@@ -203,14 +233,16 @@ def patch_transaction(
 @router.post("/bulk", response_model=schemas.BulkResult)
 def bulk_transactions(
     body: schemas.BulkTransactionOp, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.BulkResult:
     """Categorise / status-change many rows; per-row failures reported."""
     applied: list[int] = []
     rejected: list[dict[str, str]] = []
     for txn_id in body.ids:
         try:
-            t = _get(session, household.id, txn_id)
+            t = _get(session, household.id, txn_id, profile)
+            _write_account(session, household.id, t.account_id,
+                           profile)
             assert_editable(session, t)
             if body.category_id is not None:
                 from app.domain import categorise
