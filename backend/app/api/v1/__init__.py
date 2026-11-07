@@ -15,6 +15,7 @@ from app.api.v1 import (
     credentials,
     diagnostics,
     employments,
+    energy,
     expected,
     goals,
     households,
@@ -60,3 +61,4 @@ v1_router.include_router(credentials.router)
 v1_router.include_router(banks.router)
 v1_router.include_router(anomalies.router)
 v1_router.include_router(diagnostics.router)
+v1_router.include_router(energy.router)
