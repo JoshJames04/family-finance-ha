@@ -335,3 +335,21 @@ class ReportingPeriod(TimestampMixin, Base):
                                          nullable=False)
 
     household: Mapped[Household] = relationship()
+
+
+class AuditEvent(Base):
+    """Append-only mutation log (Epic 2 consumer: audit middleware/report)."""
+
+    __tablename__ = "audit_event"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(40), nullable=False,
+                                            index=True)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
