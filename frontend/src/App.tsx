@@ -5,6 +5,7 @@ import { Transactions } from "./pages/Transactions";
 import { Budget } from "./pages/Budget";
 import { Accounts } from "./pages/Accounts";
 import { Upcoming } from "./pages/Upcoming";
+import { Bills } from "./pages/Bills";
 import { Forecast } from "./pages/Forecast";
 import { Review } from "./pages/Review";
 import { Subscriptions } from "./pages/Subscriptions";
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="forecast" element={<Forecast />} />
         <Route path="review" element={<Review />} />
         <Route path="upcoming" element={<Upcoming />} />
+        <Route path="bills" element={<Bills />} />
         <Route path="subscriptions" element={<Subscriptions />} />
         <Route path="goals" element={<Goals />} />
         <Route path="gifts" element={<Gifts />} />

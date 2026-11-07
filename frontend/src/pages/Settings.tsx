@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import {
-  Download, HardDrive, Monitor, Moon, Palette, Plus, Sun, Tags,
+  Download, HardDrive, Monitor, Moon, Palette, Pencil, Plus, Sun, Tags,
   UserRound, Users,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -36,6 +36,7 @@ export function Settings() {
   const [rev, setRev] = useState(0);
   const [addingMember, setAddingMember] = useState(false);
   const [addingCategory, setAddingCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready, [rev]);
   const categories = useApi(() => api.get("/api/v1/categories"), ready, [rev]);
   const version = useApi(() => api.get("/api/v1/version"), ready);
@@ -128,7 +129,12 @@ export function Settings() {
                       <span className={c.archived ? "flex-1 text-[13.5px] font-medium text-fg-subtle line-through" : "flex-1 text-[13.5px] font-medium"}>
                         {c.name}
                         {c.is_system && <Badge tone="neutral" className="ml-2">system</Badge>}
+                        {cats.some((ch) => ch.parent_id === c.id) && (
+                          <Badge tone="info" className="ml-2">section</Badge>
+                        )}
                       </span>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingCategory(c)}
+                        aria-label={`Edit ${c.name}`}><Pencil /></Button>
                       <Button size="sm" variant="ghost" onClick={() => archiveCategory(c)}
                         aria-label={`${c.archived ? "Restore" : "Archive"} ${c.name}`}>
                         {c.archived ? "Restore" : "Archive"}
@@ -137,6 +143,8 @@ export function Settings() {
                     {cats.filter((ch) => ch.parent_id === c.id).map((ch) => (
                       <div key={ch.id} className="flex items-center gap-3 py-2 pr-4 pl-13">
                         <span className={ch.archived ? "flex-1 text-[13px] text-fg-subtle line-through" : "flex-1 text-[13px] text-fg-muted"}>{ch.name}</span>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingCategory(ch)}
+                          aria-label={`Edit ${ch.name}`}><Pencil /></Button>
                         <Button size="sm" variant="ghost" onClick={() => archiveCategory(ch)}
                           aria-label={`${ch.archived ? "Restore" : "Archive"} ${ch.name}`}>
                           {ch.archived ? "Restore" : "Archive"}
@@ -203,6 +211,12 @@ export function Settings() {
 
       <AddMemberDialog open={addingMember} onOpenChange={setAddingMember} onSaved={refresh} />
       <AddCategoryDialog open={addingCategory} onOpenChange={setAddingCategory} parents={parents.filter((c) => !c.archived)} onSaved={refresh} />
+      <EditCategoryDialog
+        category={editingCategory}
+        categories={cats}
+        onClose={() => setEditingCategory(null)}
+        onSaved={() => { setEditingCategory(null); refresh(); }}
+      />
     </div>
   );
 }
@@ -290,6 +304,75 @@ function AddCategoryDialog({ open, onOpenChange, parents, onSaved }: {
             {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
         )}</Field>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Rename / reparent an existing category (issue #273). Parent options
+ * exclude the category itself and — since hierarchy is one level deep —
+ * any category that already has a parent; a category with children is
+ * also excluded from being nested, keeping depth at one. */
+function EditCategoryDialog({ category, categories, onClose, onSaved }: {
+  category: Category | null;
+  categories: Category[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [parentId, setParentId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openFor, setOpenFor] = useState<number | null>(null);
+  // Sync local state when a different category is opened for editing.
+  if (category && category.id !== openFor) {
+    setOpenFor(category.id);
+    setName(category.name);
+    setParentId(category.parent_id != null ? String(category.parent_id) : "");
+  }
+  if (!category) return null;
+  const hasChildren = categories.some((c) => c.parent_id === category.id);
+  const parentOptions = categories.filter((c) =>
+    c.id !== category.id && c.parent_id === null && !c.archived &&
+    !c.is_system);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    api.patch("/api/v1/categories/{category_id}", {
+      path: { category_id: category.id },
+      body: {
+        name: name.trim(),
+        parent_id: hasChildren ? null : (parentId ? Number(parentId) : null),
+      },
+    })
+      .then(() => { toast.success(`${name.trim()} saved`); onSaved(); })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={`Edit ${category.name}`}
+      description="Rename it or move it under a top-level category to form a budget section."
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-edit-cat" disabled={!name.trim() || busy}>{busy ? "Saving…" : "Save"}</Button>
+      </>}>
+      <form id="ff-edit-cat" onSubmit={submit} className="grid gap-4">
+        <Field label="Name">{(id) => <Input id={id} autoFocus value={name} onChange={(e) => setName(e.target.value)} />}</Field>
+        {hasChildren ? (
+          <p className="text-[12.5px] text-fg-subtle">
+            This category is a section — remove its {categories.filter((c) => c.parent_id === category.id).length} child
+            categor{categories.filter((c) => c.parent_id === category.id).length === 1 ? "y" : "ies"} first to nest it.
+          </p>
+        ) : category.is_system ? (
+          <p className="text-[12.5px] text-fg-subtle">System categories can be renamed but not re-parented.</p>
+        ) : (
+          <Field label="Parent" hint="Nest under a top-level category, or leave at top level.">{(id) => (
+            <Select id={id} value={parentId} onChange={(e) => setParentId(e.target.value)}>
+              <option value="">Top level</option>
+              {parentOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </Select>
+          )}</Field>
+        )}
       </form>
     </Dialog>
   );
