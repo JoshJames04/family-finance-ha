@@ -14,6 +14,10 @@ Deliberate exceptions (each documented where it lives):
   legs never carry that column.
 - ``transfers.legs_balance`` — deliberately sums a transfer's own legs
   to prove they net to zero.
+- ``analytics._monthly_net`` — balance accumulation for materialised
+  net worth; legs dated either side of a month boundary are in-flight
+  money still owned by the household (same basis as
+  ``net_worth_at``/``current_balance``).
 
 ``tests/test_double_counting.py`` statically enforces this contract:
 every ``func.sum(Transaction.amount_pence)`` site must either call
