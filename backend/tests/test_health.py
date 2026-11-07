@@ -24,24 +24,19 @@ def test_readyz_ok_with_db(tmp_path: Path) -> None:
 
 def test_readyz_degraded_when_component_fails_post_start(tmp_path: Path) -> None:
     """A component failing after startup degrades readiness (503)."""
-    from app.core.health import ComponentStatus, registry
+    from app.core.health import ComponentStatus
 
     settings = Settings.load({"FF_DATA_DIR": str(tmp_path)})
-    with TestClient(create_app(settings)) as client:
-        registry.register(
+    app = create_app(settings)
+    with TestClient(app) as client:
+        app.state.registry.register(
             "database",
             lambda: ComponentStatus("database", False, "connection lost"),
         )
-        try:
-            r = client.get("/readyz")
-            assert r.status_code == 503
-            assert r.json()["status"] == "degraded"
-            assert r.json()["components"]["database"]["ok"] is False
-        finally:
-            registry.register(
-                "database",
-                lambda: ComponentStatus("database", True),
-            )
+        r = client.get("/readyz")
+        assert r.status_code == 503
+        assert r.json()["status"] == "degraded"
+        assert r.json()["components"]["database"]["ok"] is False
 
 
 def test_app_refuses_to_start_on_unreachable_db(tmp_path: Path) -> None:
