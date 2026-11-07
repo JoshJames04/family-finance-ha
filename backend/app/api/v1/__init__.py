@@ -10,6 +10,7 @@ from app.api.v1 import (
     commitments,
     employments,
     expected,
+    goals,
     households,
     profiles,
     transactions,
@@ -29,4 +30,5 @@ v1_router.include_router(profiles.router)
 v1_router.include_router(admin.router)
 v1_router.include_router(employments.router)
 v1_router.include_router(expected.router)
+v1_router.include_router(goals.router)
 v1_router.include_router(transfer_rules.router)
