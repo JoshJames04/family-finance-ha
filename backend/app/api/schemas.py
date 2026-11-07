@@ -746,6 +746,12 @@ class RequirementOut(BaseModel):
     outstanding_pence: int
 
 
+class MemberContributionOut(BaseModel):
+    profile_id: int
+    display_name: str
+    contributed_pence: int
+
+
 class RescheduleIn(BaseModel):
     due_date: date
 
