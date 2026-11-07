@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.api.errors import install_error_handlers
+from app.api.v1 import v1_router
 from app.core.health import ComponentStatus, database_check, registry
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
@@ -22,6 +23,7 @@ from app.persistence.session import init_session_factory
 log = logging.getLogger(__name__)
 
 api = APIRouter(prefix="/api/v1")
+api.include_router(v1_router)
 
 
 @api.get("/version")

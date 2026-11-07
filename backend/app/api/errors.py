@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -35,7 +36,28 @@ def install_error_handlers(app: FastAPI) -> None:
                              exc: RequestValidationError) -> JSONResponse:
         return problem(422, "Validation failed",
                        detail="Request failed schema validation",
-                       errors=exc.errors())
+                       errors=jsonable_encoder(exc.errors()))
+
+    # Domain-rule violations → 409 Conflict
+    from app.domain.accounts import AccountNotEmptyError
+    from app.domain.categories import CategoryCycleError
+    from app.domain.periods import (
+        PeriodLockedError,
+        ReconciledImmutableError,
+    )
+    from app.domain.refunds import RefundError
+    from app.domain.transactions import InvalidTransitionError
+    from app.domain.transfers import TransferError
+
+    domain_conflicts = (
+        AccountNotEmptyError, CategoryCycleError, PeriodLockedError,
+        ReconciledImmutableError, RefundError, InvalidTransitionError,
+        TransferError,
+    )
+    for exc_type in domain_conflicts:
+        @app.exception_handler(exc_type)
+        async def domain_exc(_: Request, exc: Exception) -> JSONResponse:
+            return problem(409, "Domain rule violated", detail=str(exc))
 
     @app.exception_handler(Exception)
     async def unhandled(_: Request, exc: Exception) -> JSONResponse:
