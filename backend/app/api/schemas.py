@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime
 from datetime import date as date_t
 from decimal import Decimal
 from typing import Annotated, Any, Literal
@@ -1171,3 +1171,54 @@ class ForecastRowOut(BaseModel):
     input_start: date | None
     input_end: date | None
     input_months: int
+
+
+class NotificationRuleIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    kind: str = Field(pattern="^(spend_above|balance_below)$")
+    params: dict[str, object] = Field(default_factory=dict)
+    target_profile_id: int | None = None
+    channel: str = Field(default="ha_notify", max_length=40)
+    digest: bool = False
+    digest_window_minutes: int = Field(default=60, ge=1, le=10080)
+
+
+class NotificationRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    name: str
+    kind: str
+    params: dict[str, object]
+    target_profile_id: int | None
+    channel: str
+    digest: bool
+    digest_window_minutes: int
+    enabled: bool
+
+
+class NotificationEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    rule_id: int
+    dedup_key: str
+    payload: dict[str, object]
+    state: str
+    delivery_id: int | None
+    created_at: datetime
+    delivered_at: datetime | None
+    snoozed_until: datetime | None
+
+
+class NotificationDeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    rule_id: int
+    channel: str
+    event_count: int
+    created_at: datetime
+
+
+class DispatchOut(BaseModel):
+    deliveries: list[NotificationDeliveryOut]
+    events_delivered: int

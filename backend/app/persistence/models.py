@@ -13,6 +13,7 @@ from datetime import date as date_t
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Date,
@@ -1482,3 +1483,104 @@ class MonthlyAggregate(TimestampMixin, Base):
                                                nullable=False)
     net_worth_pence: Mapped[int] = mapped_column(Integer, default=0,
                                                  nullable=False)
+
+
+class NotificationKind(enum.StrEnum):
+    """Trigger kinds the rules engine evaluates (issue #116)."""
+    spend_above = "spend_above"      # a transaction over threshold_pence
+    balance_below = "balance_below"  # account balance under threshold
+
+
+class NotificationState(enum.StrEnum):
+    pending = "pending"      # raised, awaiting dispatch/digest window
+    delivered = "delivered"  # included in a delivery batch
+    acked = "acked"          # member acknowledged
+    snoozed = "snoozed"      # muted until snoozed_until
+
+
+class NotificationRule(TimestampMixin, Base):
+    """A notification rule (issue #116): kind + JSON params + optional
+    member target + digest config. ``params`` is a JSON object per
+    kind (e.g. ``{"threshold_pence": 50000, "account_id": 3}``)."""
+
+    __tablename__ = "notification_rule"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[NotificationKind] = mapped_column(
+        Enum(NotificationKind), nullable=False)
+    params: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False,
+                                         default=dict)
+    target_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=True)
+    channel: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="ha_notify")
+    digest: Mapped[bool] = mapped_column(Boolean, default=False,
+                                         nullable=False)
+    digest_window_minutes: Mapped[int] = mapped_column(
+        Integer, default=60, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True,
+                                          nullable=False)
+
+    events: Mapped[list[NotificationEvent]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan")
+
+
+class NotificationDelivery(Base):
+    """One dispatched notification — a single event for immediate
+    rules, or a digest covering N events (issue #116 batching)."""
+
+    __tablename__ = "notification_delivery"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("notification_rule.id"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(40), nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    events: Mapped[list[NotificationEvent]] = relationship(
+        back_populates="delivery")
+
+
+class NotificationEvent(Base):
+    """A raised trigger instance (issue #116). Idempotency anchor:
+    ``(rule_id, dedup_key)`` is unique — re-evaluating the same
+    triggering entity can never raise a second event."""
+
+    __tablename__ = "notification_event"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "dedup_key",
+                         name="uq_notify_event_dedup"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("notification_rule.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    dedup_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False,
+                                          default=dict)
+    state: Mapped[NotificationState] = mapped_column(
+        Enum(NotificationState), default=NotificationState.pending,
+        nullable=False)
+    delivery_id: Mapped[int | None] = mapped_column(
+        ForeignKey("notification_delivery.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    acked_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+    rule: Mapped[NotificationRule] = relationship(
+        back_populates="events")
+    delivery: Mapped[NotificationDelivery | None] = relationship(
+        back_populates="events")
