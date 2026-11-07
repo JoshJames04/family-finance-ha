@@ -13,6 +13,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.reporting import external_only
 from app.persistence.models import Transaction
 
 
@@ -72,15 +73,13 @@ def category_spend(
     net=True  — refunds reduce spend (refund-of rows are included).
     net=False — gross spend only (refund-of rows excluded).
     """
-    stmt = (
+    stmt = external_only(
         select(func.coalesce(func.sum(Transaction.amount_pence), 0))
         .where(
             Transaction.category_id == category_id,
             Transaction.date >= start,
             Transaction.date <= end,
-            Transaction.transfer_id.is_(None),
-        )
-    )
+        ))
     if not net:
         stmt = stmt.where(Transaction.refund_of_id.is_(None))
     return int(session.execute(stmt).scalar_one())
