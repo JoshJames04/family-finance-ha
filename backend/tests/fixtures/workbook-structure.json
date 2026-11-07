@@ -3,6 +3,13 @@
     "Josh - 2024": {
       "state": "hidden",
       "dimensions": "A1:Q58",
+      "tables": {
+        "tblIncome2024": "B5:P11",
+        "tblPersonal2024": "B14:P28",
+        "tblOther2024": "B44:P53",
+        "tblTotals2024": "B55:P58",
+        "tblShared2024": "B30:P42"
+      },
       "signature_rows": [
         "n...............s",
         ".s...............",
@@ -276,6 +283,14 @@
     "Josh - 2025": {
       "state": "visible",
       "dimensions": "A1:T66",
+      "tables": {
+        "tblIncome2025": "B5:P11",
+        "tblPersonal2025": "B14:P28",
+        "tblOther2025": "B50:P59",
+        "tblTotals2025": "B61:P66",
+        "tblHouse2025": "B30:P41",
+        "tblShared2025": "B43:P48"
+      },
       "signature_rows": [
         "n...............s...",
         "..s.................",
@@ -550,6 +565,14 @@
     "Josh - 2026": {
       "state": "visible",
       "dimensions": "A1:Q76",
+      "tables": {
+        "tblIncome2026": "B5:P11",
+        "tblPersonal2026": "B14:P29",
+        "tblOther2026": "B58:P66",
+        "tblTotals2026": "B68:P76",
+        "tblHouse2026": "B31:P42",
+        "tblShared2026": "B44:P56"
+      },
       "signature_rows": [
         "n...............s",
         "..s..............",
@@ -822,6 +845,14 @@
     "Josh - 2027": {
       "state": "visible",
       "dimensions": "A1:Q75",
+      "tables": {
+        "tblIncome202641": "B5:P11",
+        "tblPersonal202643": "B14:P29",
+        "tblOther202644": "B57:P65",
+        "tblTotals202645": "B67:P75",
+        "tblHouse202646": "B31:P41",
+        "tblShared202647": "B43:P55"
+      },
       "signature_rows": [
         "n...............s",
         "..s..............",
@@ -1094,6 +1125,9 @@
     "Overtime": {
       "state": "visible",
       "dimensions": "A1:L58",
+      "tables": {
+        "tblOvertime": "B5:I58"
+      },
       "signature_rows": [
         "............",
         "............",
@@ -1251,6 +1285,9 @@
     "Salary History": {
       "state": "visible",
       "dimensions": "A1:I16",
+      "tables": {
+        "tblEmploymentHistory": "B9:I16"
+      },
       "signature_rows": [
         ".........",
         ".........",
@@ -1281,6 +1318,11 @@
     "Slow Boat": {
       "state": "hidden",
       "dimensions": "A1:AC96",
+      "tables": {
+        "slowBoatIncomeTbl": "B6:G96",
+        "deliveryChargeTbl": "J6:AC96",
+        "hourlyRateTbl": "B1:C4"
+      },
       "signature_rows": [
         ".ss..........................",
         ".nn.s........................",
@@ -1480,6 +1522,9 @@
     "Monthly Model": {
       "state": "hidden",
       "dimensions": "A1:AB39",
+      "tables": {
+        "tblMonthlyModel": "B3:AA39"
+      },
       "signature_rows": [
         "............................",
         "............................",
@@ -1927,6 +1972,11 @@
     "Tax Tables": {
       "state": "hidden",
       "dimensions": "A1:M38",
+      "tables": {
+        "tblPAYE_Bands": "B4:F20",
+        "tblNI_Bands": "H4:M12",
+        "tblStudentLoanPlans": "B26:E38"
+      },
       "signature_rows": [
         ".............",
         ".s.....s.....",
@@ -1984,6 +2034,9 @@
     "FAMILY_LOAN_LEDGER": {
       "state": "hidden",
       "dimensions": "A1:F32",
+      "tables": {
+        "Table33": "B10:D18"
+      },
       "signature_rows": [
         "......",
         ".s....",
@@ -2111,6 +2164,11 @@
     "Xmas": {
       "state": "hidden",
       "dimensions": "A1:P24",
+      "tables": {
+        "xmas2025": "B5:E24",
+        "xmas2026": "H5:K6",
+        "xmas2027": "M5:P6"
+      },
       "signature_rows": [
         "................",
         ".s.....s....s...",
@@ -2158,6 +2216,12 @@
     "MEMBER2_BUDGET": {
       "state": "hidden",
       "dimensions": "A1:Q32",
+      "tables": {
+        "tblIncome7": "B5:P9",
+        "tblDaily8": "B12:P18",
+        "tblOther9": "B20:P25",
+        "tblTotals10": "B27:P29"
+      },
       "signature_rows": [
         "................s",
         ".s...............",

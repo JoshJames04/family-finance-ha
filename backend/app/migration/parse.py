@@ -69,17 +69,24 @@ def _classify_row(
 ) -> tuple[RowClass, bool]:
     if any("#REF!" in str(v) for v in values.values()):
         return RowClass.unknown, True
-    if _AGG_LABEL.search(label) or any(
-            isinstance(v, str) and v.startswith(("=SUM(", "=SUBTOTAL("))
-            for v in values.values()):
+    if _AGG_LABEL.search(label):
         return RowClass.aggregate, False
-    if len(values) > 1 and all(
-            isinstance(v, str) and v.startswith("=")
-            for v in values.values()):
+    formulas = sum(
+        1 for v in values.values()
+        if isinstance(v, str) and v.startswith("="))
+    numerics = sum(
+        1 for v in values.values() if isinstance(v, (int, float)))
+    if formulas and not numerics:
         return RowClass.aggregate, False  # fully computed row
     if any(col in formula_cols and isinstance(v, (int, float))
            for col, v in values.items()):
         return RowClass.forecast_overwritten, True
+    # A literal-dominant grid row is data even when a trailing cell is
+    # a row-total formula (=SUM(C:N)) — that formula is bookkeeping,
+    # not the row's subject (defect A lives in those cells, and the
+    # extractor recomputes rather than trusting them).
+    if numerics and numerics > formulas:
+        return RowClass.actual, False
     if any(isinstance(v, (int, float, str)) for v in values.values()):
         return RowClass.actual, False
     return RowClass.unknown, True

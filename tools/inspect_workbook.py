@@ -152,6 +152,8 @@ def main(path: Path) -> None:
         spec["sheets"][a] = {
             "state": ws.sheet_state,
             "dimensions": ws.calculate_dimension(),
+            # Excel table names/refs are structural (no personal data)
+            "tables": {t.name: t.ref for t in ws.tables.values()},
             **sig,
         }
         doc.append(
