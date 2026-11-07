@@ -41,7 +41,15 @@ DOMAIN = Path(__file__).parents[1] / "app" / "domain"
 # must be justified in app/domain/reporting.py's docstring. (Python's
 # builtin sum() sites like transfers.legs_balance are not SQL
 # aggregates and never appear here.)
-ALLOWLIST = {"current_balance", "refundable_balance"}
+# contributed_pence deliberately sums INTERNAL transfer legs (goal
+# contributions are transfers by design); repaid_pence aggregates
+# Repayment rows, not Transaction rows — the guard doesn't apply.
+ALLOWLIST = {
+    "current_balance",
+    "refundable_balance",
+    "contributed_pence",
+    "repaid_pence",
+}
 
 
 def _sum_sites(path: Path) -> list[tuple[str, int]]:
