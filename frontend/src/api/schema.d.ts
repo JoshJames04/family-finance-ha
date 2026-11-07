@@ -1305,6 +1305,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/forecast/warnings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overdraft Warnings
+         * @description Projected floor breaches with suggested rescue sources —
+         *     computed fresh so warnings resolve when inputs change (#75).
+         */
+        get: operations["overdraft_warnings_api_v1_forecast_warnings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/savings-goals": {
         parameters: {
             query?: never;
@@ -2870,6 +2891,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/energy/tariffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tariffs */
+        get: operations["list_tariffs_api_v1_energy_tariffs_get"];
+        put?: never;
+        /**
+         * Upsert Tariff
+         * @description Effective-dated upsert — posting the same date replaces the rate
+         *     (corrections), a later date supersedes (a real price change).
+         */
+        post: operations["upsert_tariff_api_v1_energy_tariffs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/energy/readings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Readings */
+        get: operations["list_readings_api_v1_energy_readings_get"];
+        put?: never;
+        /**
+         * Upsert Reading
+         * @description Idempotent per-day ingest — the HA statistics feed or a manual
+         *     entry can re-post the same day safely; last write wins.
+         */
+        post: operations["upsert_reading_api_v1_energy_readings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/energy/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Estimate
+         * @description Estimated cost over an inclusive window (default: current
+         *     month-to-date). Priced per-day under the effective tariff so a
+         *     mid-window rate change splits naturally.
+         */
+        get: operations["get_estimate_api_v1_energy_estimate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/energy/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Config */
+        get: operations["get_config_api_v1_energy_config_get"];
+        /** Put Config */
+        put: operations["put_config_api_v1_energy_config_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/energy/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Report
+         * @description Month-to-date estimate vs the configured energy budget with a
+         *     month-end projection (issue #104). The projection extrapolates the
+         *     average metered daily consumption at the current tariff.
+         */
+        get: operations["get_report_api_v1_energy_report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -3953,6 +4080,179 @@ export interface components {
             /** Is Active */
             is_active?: boolean | null;
         };
+        /** EnergyConfigIn */
+        EnergyConfigIn: {
+            /** Meter Entity */
+            meter_entity?: string | null;
+            /** Budget Category Id */
+            budget_category_id?: number | null;
+        };
+        /** EnergyConfigOut */
+        EnergyConfigOut: {
+            /** Meter Entity */
+            meter_entity: string | null;
+            /** Budget Category Id */
+            budget_category_id: number | null;
+        };
+        /** EnergyDayOut */
+        EnergyDayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Wh */
+            wh: number;
+            /** Unit Pence */
+            unit_pence: number;
+            /** Standing Pence */
+            standing_pence: number;
+            /** Tariff Id */
+            tariff_id: number;
+        };
+        /**
+         * EnergyEstimateOut
+         * @description Estimated (never billed) cost over an inclusive window — the
+         *     ``estimate`` tag keeps it distinct from supplier-bill transactions.
+         */
+        EnergyEstimateOut: {
+            /**
+             * Kind
+             * @default estimate
+             * @constant
+             */
+            kind: "estimate";
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Days */
+            days: components["schemas"]["EnergyDayOut"][];
+            /** Unit Pence */
+            unit_pence: number;
+            /** Standing Pence */
+            standing_pence: number;
+            /** Total Pence */
+            total_pence: number;
+            /** Missing Days */
+            missing_days: number;
+        };
+        /**
+         * EnergyMonthReportOut
+         * @description Issue #104 — month-to-date vs budget + month-end projection.
+         *     All estimate figures are estimates, not billed amounts.
+         */
+        EnergyMonthReportOut: {
+            /**
+             * Kind
+             * @default estimate
+             * @constant
+             */
+            kind: "estimate";
+            /**
+             * Month Start
+             * Format: date
+             */
+            month_start: string;
+            /**
+             * Month End
+             * Format: date
+             */
+            month_end: string;
+            /**
+             * Through
+             * Format: date
+             */
+            through: string;
+            /** Unit Pence */
+            unit_pence: number;
+            /** Standing Pence */
+            standing_pence: number;
+            /** Total Pence */
+            total_pence: number;
+            /** Missing Days */
+            missing_days: number;
+            /** Budget Pence */
+            budget_pence: number | null;
+            /** Variance Pence */
+            variance_pence: number | null;
+            /** Projected Total Pence */
+            projected_total_pence: number | null;
+            /** Projected Variance Pence */
+            projected_variance_pence: number | null;
+            /** Avg Daily Wh */
+            avg_daily_wh: number | null;
+        };
+        /**
+         * EnergyReadingIn
+         * @description One day's metered consumption in whole watt-hours.
+         */
+        EnergyReadingIn: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Wh */
+            wh: number;
+            /**
+             * Source
+             * @default manual
+             */
+            source: string;
+        };
+        /** EnergyReadingOut */
+        EnergyReadingOut: {
+            /** Id */
+            id: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Wh */
+            wh: number;
+            /** Source */
+            source: string;
+        };
+        /**
+         * EnergyTariffIn
+         * @description Effective-dated tariff (issue #103). ``unit_rate_millipence`` is
+         *     pence×1000 per kWh — UK quotes like 24.501p/kWh stay exact.
+         */
+        EnergyTariffIn: {
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /** Unit Rate Millipence */
+            unit_rate_millipence: number;
+            /** Money */
+            standing_charge: number | string | {
+                pence: number;
+            };
+        };
+        /** EnergyTariffOut */
+        EnergyTariffOut: {
+            /** Id */
+            id: number;
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /** Unit Rate Millipence */
+            unit_rate_millipence: number;
+            /** Standing Charge Pence */
+            standing_charge_pence: number;
+        };
         /** EvaluateResult */
         EvaluateResult: {
             /** Amount Pence */
@@ -4504,6 +4804,26 @@ export interface components {
             age_days: number;
             /** Outstanding Pence */
             outstanding_pence: number;
+        };
+        /** OverdraftWarningOut */
+        OverdraftWarningOut: {
+            /** Account Id */
+            account_id: number;
+            /** Name */
+            name: string;
+            /**
+             * First Dip Date
+             * Format: date
+             */
+            first_dip_date: string;
+            /** Floor Pence */
+            floor_pence: number;
+            /** Min Balance Pence */
+            min_balance_pence: number;
+            /** Deficit Pence */
+            deficit_pence: number;
+            /** Suggested Sources */
+            suggested_sources: components["schemas"]["WarningSourceOut"][];
         };
         /** OvertimeIn */
         OvertimeIn: {
@@ -5765,6 +6085,15 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WarningSourceOut */
+        WarningSourceOut: {
+            /** Account Id */
+            account_id: number;
+            /** Name */
+            name: string;
+            /** Available Pence */
+            available_pence: number;
         };
     };
     responses: never;
@@ -9015,6 +9344,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overdraft_warnings_api_v1_forecast_warnings_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverdraftWarningOut"][];
                 };
             };
             /** @description Validation Error */
@@ -12553,6 +12915,277 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tariffs_api_v1_energy_tariffs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyTariffOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_tariff_api_v1_energy_tariffs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnergyTariffIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyTariffOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_readings_api_v1_energy_readings_get: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyReadingOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_reading_api_v1_energy_readings_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnergyReadingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyReadingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_estimate_api_v1_energy_estimate_get: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyEstimateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_config_api_v1_energy_config_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_config_api_v1_energy_config_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnergyConfigIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_api_v1_energy_report_get: {
+        parameters: {
+            query?: {
+                as_of?: string | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyMonthReportOut"];
                 };
             };
             /** @description Validation Error */
