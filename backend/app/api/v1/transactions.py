@@ -38,6 +38,10 @@ def list_transactions(
     date_from: Annotated[date | None, Query()] = None,
     date_to: Annotated[date | None, Query()] = None,
     q: Annotated[str | None, Query(max_length=200)] = None,
+    direction: Annotated[str | None, Query(
+        pattern="^(income|expense)$")] = None,
+    internal: Annotated[str | None, Query(
+        pattern="^(only|exclude)$")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> schemas.Page[schemas.TransactionOut]:
@@ -58,6 +62,14 @@ def list_transactions(
         stmt = stmt.where(Transaction.date <= date_to)
     if q:
         stmt = stmt.where(Transaction.payee.ilike(f"%{q}%"))
+    if direction == "income":
+        stmt = stmt.where(Transaction.amount_pence > 0)
+    elif direction == "expense":
+        stmt = stmt.where(Transaction.amount_pence < 0)
+    if internal == "only":
+        stmt = stmt.where(Transaction.transfer_id.isnot(None))
+    elif internal == "exclude":
+        stmt = stmt.where(Transaction.transfer_id.is_(None))
     total = int(session.execute(
         select(func.count()).select_from(stmt.subquery())
     ).scalar_one())
