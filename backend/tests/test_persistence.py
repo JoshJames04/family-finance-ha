@@ -83,7 +83,11 @@ def test_migrations_upgrade_and_downgrade(db_url: str) -> None:
 
     command.downgrade(cfg, "-1")
     engine2 = create_app_engine(db_url)
-    assert current_revision(engine2) is None
+    assert current_revision(engine2) == "0001_app_meta"
+
+    command.downgrade(cfg, "base")
+    engine2b = create_app_engine(db_url)
+    assert current_revision(engine2b) is None
 
     command.upgrade(cfg, "head")
     engine3 = create_app_engine(db_url)
