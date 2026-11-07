@@ -888,6 +888,8 @@ class ExpectedMovement(Base):
     source_type: Mapped[ExpectedSource] = mapped_column(
         Enum(ExpectedSource), nullable=False)
     source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    dismissed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now())
 
