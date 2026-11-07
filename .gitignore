@@ -8,6 +8,8 @@
 *.key
 secrets.yaml
 data/
+# Embedded statutory parameter files are code data, not user data
+!backend/app/domain/data/
 *.sqlite
 *.sqlite3
 *.db
