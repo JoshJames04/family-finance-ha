@@ -99,3 +99,13 @@
 .ff-error {
   color: var(--ff-error-strong);
 }
+
+/* Transactions: inline payee edit (#124) */
+.ff-inline-edit {
+  all: unset;
+  cursor: text;
+  border-bottom: 1px dashed var(--ff-text-secondary);
+}
+.ff-inline-edit:focus-visible {
+  outline: 2px solid var(--ff-accent);
+}
