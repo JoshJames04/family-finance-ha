@@ -14,6 +14,7 @@ from app.api.v1 import (
     goals,
     households,
     loans,
+    notifications,
     profiles,
     reports,
     scenarios,
@@ -44,3 +45,4 @@ v1_router.include_router(seasonal.router)
 v1_router.include_router(transfer_rules.router)
 v1_router.include_router(subscriptions.router)
 v1_router.include_router(scenarios.router)
+v1_router.include_router(notifications.router)
