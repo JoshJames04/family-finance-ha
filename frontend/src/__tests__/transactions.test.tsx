@@ -23,7 +23,18 @@ const TXNS = Array.from({ length: 21 }, (_, i) => ({
   transfer_id: null,
 }));
 
-function stubFetch(calls: { url: string; method: string; body: string }[]) {
+const QUEUE = [{
+  id: 9, account_id: 1, transaction_id: 21, status: "pending",
+  score: 92, expected_source_type: "transfer_rule",
+  expected_source_id: 3, expected_label: "Savings transfer",
+  expected_date: "2026-04-01", expected_amount_pence: -20000,
+  amount_drift_pence: 100, date_drift_days: 0, candidates: {},
+}];
+
+function stubFetch(
+  calls: { url: string; method: string; body: string }[],
+  opts: { queue?: boolean } = {},
+) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
       const url = String(input);
@@ -35,11 +46,13 @@ function stubFetch(calls: { url: string; method: string; body: string }[]) {
       }
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
-        : url.includes("/api/v1/categories")
-          ? { items: CATS, total: CATS.length, page: 1, size: 500 }
-          : url.includes("/api/v1/transactions")
-            ? { items: TXNS, total: TXNS.length, page: 1, size: 500 }
-            : { items: [], total: 0 };
+        : url.includes("/api/v1/reconcile/queue")
+          ? (opts.queue ? QUEUE : [])
+          : url.includes("/api/v1/categories")
+            ? { items: CATS, total: CATS.length, page: 1, size: 500 }
+            : url.includes("/api/v1/transactions")
+              ? { items: TXNS, total: TXNS.length, page: 1, size: 500 }
+              : { items: [], total: 0 };
       calls.push({ url, method, body: "" });
       return Promise.resolve(new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json" } }));
@@ -90,5 +103,38 @@ describe("Transactions", () => {
     expect(
       screen.queryByLabelText(/Edit payee for Shop 21/),
     ).toBeNull();
+  });
+  it("correction flow demands a reason and posts /correct", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Transactions /></MemoryRouter>);
+    await user.click(
+      await screen.findByLabelText("Correct Shop 21"));
+    const reason = await screen.findByLabelText("Correction reason");
+    // Submit disabled until a reason is entered.
+    const submit = screen.getByRole("button",
+      { name: "Issue correction" });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    await user.type(reason, "mis-keyed payee");
+    expect(submit.hasAttribute("disabled")).toBe(false);
+    await user.click(submit);
+    await waitFor(() => {
+      const call = calls.find((c) => c.url.includes("/correct"));
+      expect(call).toBeDefined();
+      expect(JSON.parse(call!.body).reason).toBe("mis-keyed payee");
+    });
+  });
+  it("reconcile queue renders and confirm posts to /confirm", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls, { queue: true });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Transactions /></MemoryRouter>);
+    await screen.findByText("Savings transfer");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(calls.some((c) =>
+        c.url.includes("/reconcile/9/confirm")
+        && c.method === "POST")).toBe(true));
   });
 });

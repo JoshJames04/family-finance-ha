@@ -110,6 +110,18 @@
   outline: 2px solid var(--ff-accent);
 }
 
+/* Transactions: windowed scroll container (#124) */
+.ff-table-window {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.ff-table-window .ff-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ff-card);
+  z-index: 1;
+}
+
 /* Forecast page: projection chart + financial calendar (#77) */
 .ff-projection-chart {
   width: 100%;

@@ -236,6 +236,8 @@ class Transaction(TimestampMixin, Base):
         ForeignKey("transaction.id"), nullable=True, index=True)
     suggested_category_id: Mapped[int | None] = mapped_column(
         ForeignKey("category.id"), nullable=True)
+    corrects_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transaction.id"), nullable=True, index=True)
 
     account: Mapped[Account] = relationship(back_populates="transactions")
     category: Mapped[Category | None] = relationship(
@@ -246,9 +248,12 @@ class Transaction(TimestampMixin, Base):
     transfer: Mapped[Transfer | None] = relationship(
         back_populates="legs")
     refund_of: Mapped[Transaction | None] = relationship(
-        remote_side=[id], back_populates="refunds")
+        remote_side=[id], back_populates="refunds",
+        foreign_keys=[refund_of_id])
     refunds: Mapped[list[Transaction]] = relationship(
-        back_populates="refund_of")
+        back_populates="refund_of", foreign_keys=[refund_of_id])
+    corrects: Mapped[Transaction | None] = relationship(
+        remote_side=[id], foreign_keys=[corrects_id])
 
 
 class Transfer(TimestampMixin, Base):

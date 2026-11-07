@@ -185,6 +185,15 @@ class TransactionPatch(BaseModel):
     status: TransactionStatus | None = None
 
 
+class TransactionCorrect(BaseModel):
+    """Correction request for a reconciled transaction (issue #124):
+    the reason is mandatory — corrections are audit events, not edits."""
+    reason: str = Field(min_length=1, max_length=500)
+    payee: str | None = Field(default=None, min_length=1, max_length=200)
+    category_id: int | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class TransactionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -201,6 +210,7 @@ class TransactionOut(BaseModel):
     transfer_id: int | None
     refund_of_id: int | None
     suggested_category_id: int | None
+    corrects_id: int | None
 
 
 class BulkTransactionOp(BaseModel):
