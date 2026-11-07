@@ -74,7 +74,8 @@ def create_batch(
             batch_id=batch.id, sheet=r.sheet, cell_range=r.cell_range,
             raw_value=r.raw,
             interpreted_value=json.dumps(
-                [[c.col, c.raw] for c in r.values]),
+                [[c.col, c.raw] for c in r.values],
+                default=str),  # dates/decimals → string, never crash
             classification=r.classification, review_flag=r.review_flag,
         )
         for r in records
@@ -90,6 +91,8 @@ class Extractor(Protocol):
     """Maps staged records of one sheet to domain entities."""
 
     sheet: str
+    #: row classes this extractor consumes (default {actual}).
+    accept_classes: set[RowClass]
 
     def map_record(
         self, session: Session, batch: ImportBatch, record: ImportRecord
@@ -112,11 +115,13 @@ def commit_batch(
     for rec in batch.records:
         if rec.target_entity is not None:
             continue  # already mapped — idempotent re-commit
-        if rec.classification != RowClass.actual:
-            continue  # aggregates/unknown/flagged never synthesised
         ex = by_sheet.get(rec.sheet)
         if ex is None:
             continue  # unmapped sheet — stays staged for its extractor
+        accept = getattr(ex, "accept_classes", {RowClass.actual})
+        if rec.classification not in accept:
+            continue  # aggregates/unknown never synthesised unless the
+            # extractor explicitly opts in (it must preserve the flag)
         target = ex.map_record(session, batch, rec)
         if target is not None:
             rec.target_entity, rec.target_id = target
