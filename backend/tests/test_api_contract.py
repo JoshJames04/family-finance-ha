@@ -14,7 +14,6 @@ from typing import Any
 
 import jsonschema
 import schemathesis
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from hypothesis import HealthCheck, settings
 
@@ -51,8 +50,22 @@ def _ops(app: Any) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
     spec = get_openapi(title="t", version="0", routes=app.routes)
     spec_ops = {(m.upper(), p) for p, ms in spec["paths"].items()
                 for m in ms}
-    route_ops = {(m, r.path) for r in app.routes
-                 if isinstance(r, APIRoute) for m in r.methods}
+    # FastAPI ≥0.130 defers include_router expansion: app.routes holds
+    # lazy `_IncludedRouter` objects whose effective contexts carry
+    # path/methods — expand recursively, staying version-agnostic.
+    route_ops: set[tuple[str, str]] = set()
+    stack = list(app.routes)
+    while stack:
+        r = stack.pop()
+        if not getattr(r, "include_in_schema", True):
+            continue
+        if getattr(r, "methods", None) and getattr(r, "path", None):
+            route_ops.update((m, r.path) for m in r.methods)
+            continue
+        stack.extend(getattr(r, "routes", []) or [])
+        eff = getattr(r, "effective_route_contexts", None)
+        if callable(eff):
+            stack.extend(eff())
     return spec_ops, route_ops
 
 
@@ -65,20 +78,11 @@ class TestSpecCoverage:
             f"(routes={len(route_ops)})")
 
     def test_no_phantom_spec_paths(self) -> None:
-        import sys
-        from collections import Counter
-
-        app = _fresh_app()
-        spec_ops, route_ops = _ops(app)
+        spec_ops, route_ops = _ops(_fresh_app())
         phantom = spec_ops - route_ops
-        kinds = Counter(f"{type(r).__module__}.{type(r).__qualname__}"
-                        for r in app.routes)
-        fapi = [k for k in sys.modules if k == "fastapi.routing"]
         assert not phantom, (
             f"spec paths with no route: {phantom} "
-            f"(spec={len(spec_ops)}, routes={len(route_ops)}, "
-            f"kinds={kinds}, fastapi_mods={fapi}, "
-            f"APIRoute_id={id(APIRoute)})")
+            f"(spec={len(spec_ops)}, routes={len(route_ops)})")
 
 
 # ---------- uniform problem-details ------------------------------

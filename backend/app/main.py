@@ -14,7 +14,11 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.api.errors import install_error_handlers
 from app.api.v1 import v1_router
-from app.core.health import ComponentStatus, database_check, registry
+from app.core.health import (
+    ComponentStatus,
+    HealthRegistry,
+    database_check,
+)
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
 from app.persistence import backup
@@ -117,6 +121,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(v1_router, prefix="/api/v1")
     app.include_router(api)
 
+    # Per-app registry: a module-level registry is shared across every
+    # create_app() in the process, so checks registered last would
+    # answer readiness for ALL apps (issue #135).
+    registry = HealthRegistry()
+    app.state.registry = registry
     registry.register(
         "database", lambda: database_check(settings.resolved_database_url)
     )
@@ -142,7 +151,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/readyz")
     def readyz(request: Request) -> JSONResponse:
-        results = registry.run()
+        results = request.app.state.registry.run()
         ready = all(r.ok for r in results)
         body = {
             "status": "ready" if ready else "degraded",
