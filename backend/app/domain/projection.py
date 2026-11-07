@@ -21,7 +21,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain.accounts import current_balance
+from app.domain.accounts import active_accounts, current_balance
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -152,3 +152,83 @@ def project(session: Session, account: Account, days: int,
     balance = current_balance(session, account.id)
     return _assemble(account, balance, movements, negatives,
                      payday, today, end)
+
+
+@dataclass(frozen=True)
+class SourceSuggestion:
+    account_id: int
+    name: str
+    available_pence: int    # surplus above own floor on the dip date
+
+
+@dataclass(frozen=True)
+class OverdraftWarning:
+    account_id: int
+    name: str
+    first_dip_date: date
+    floor_pence: int            # threshold or 0 when unset
+    min_balance_pence: int
+    deficit_pence: int          # floor − min balance
+    suggested_sources: list[SourceSuggestion]
+
+
+def _floor(account: Account) -> int:
+    return account.min_balance_pence or 0
+
+
+def _balance_on(p: Projection, on: date) -> int:
+    """Projected balance at ``on`` — the day's own value, or the last
+    projected day when ``on`` sits inside the window."""
+    for d in p.days:
+        if d.date == on:
+            return d.balance_pence
+        if d.date > on:
+            break
+    return p.days[-1].balance_pence if p.days else p.start_balance_pence
+
+
+def warnings(session: Session, household_id: int, days: int = 90,
+             from_date: date | None = None,
+             ) -> list[OverdraftWarning]:
+    """Overdraft/minimum-balance warnings per account (issue #75).
+
+    A warning fires when the projected series dips below the account's
+    floor (``min_balance_pence`` threshold, else zero). Suggested
+    rescue sources are the other active household accounts ordered by
+    surplus-above-their-own-floor on the dip date — a multi-account
+    chain until the deficit is covered.
+
+    Purely computed: warnings resolve automatically when the ledger or
+    movement stream changes — nothing is persisted.
+    """
+    accounts = active_accounts(session, household_id)
+    projections = {a.id: project(session, a, days, from_date)
+                   for a in accounts}
+    out: list[OverdraftWarning] = []
+    for a in accounts:
+        floor = _floor(a)
+        p = projections[a.id]
+        dip = next((d for d in p.days if d.balance_pence < floor), None)
+        if dip is None:
+            continue
+        deficit = floor - p.min_balance_pence
+        sources: list[SourceSuggestion] = []
+        remaining = deficit
+        others = sorted(
+            (b for b in accounts if b.id != a.id),
+            key=lambda b: -(
+                _balance_on(projections[b.id], dip.date) - _floor(b)))
+        for b in others:
+            if remaining <= 0:
+                break
+            avail = (_balance_on(projections[b.id], dip.date)
+                     - _floor(b))
+            if avail <= 0:
+                continue
+            sources.append(SourceSuggestion(b.id, b.name, avail))
+            remaining -= avail
+        out.append(OverdraftWarning(
+            account_id=a.id, name=a.name, first_dip_date=dip.date,
+            floor_pence=floor, min_balance_pence=p.min_balance_pence,
+            deficit_pence=deficit, suggested_sources=sources))
+    return out

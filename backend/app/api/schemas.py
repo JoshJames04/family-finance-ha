@@ -111,6 +111,22 @@ class ProjectionOut(BaseModel):
     days: list[ProjectionDayOut]
 
 
+class WarningSourceOut(BaseModel):
+    account_id: int
+    name: str
+    available_pence: int
+
+
+class OverdraftWarningOut(BaseModel):
+    account_id: int
+    name: str
+    first_dip_date: date
+    floor_pence: int
+    min_balance_pence: int
+    deficit_pence: int
+    suggested_sources: list[WarningSourceOut]
+
+
 class BalanceVerifyIn(BaseModel):
     asserted_balance: Money
     verified_date: date
@@ -1439,3 +1455,84 @@ class LoginIn(BaseModel):
 
     username: str
     password: str
+
+
+class EnergyTariffIn(BaseModel):
+    """Effective-dated tariff (issue #103). ``unit_rate_millipence`` is
+    pence×1000 per kWh — UK quotes like 24.501p/kWh stay exact."""
+    effective_from: date_t
+    unit_rate_millipence: int = Field(ge=0)
+    standing_charge: Money
+
+
+class EnergyTariffOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    effective_from: date_t
+    unit_rate_millipence: int
+    standing_charge_pence: int
+
+
+class EnergyReadingIn(BaseModel):
+    """One day's metered consumption in whole watt-hours."""
+    date: date_t
+    wh: int = Field(ge=0)
+    source: str = Field(default="manual", max_length=30)
+
+
+class EnergyReadingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    date: date_t
+    wh: int
+    source: str
+
+
+class EnergyDayOut(BaseModel):
+    date: date_t
+    wh: int
+    unit_pence: int
+    standing_pence: int
+    tariff_id: int
+
+
+class EnergyEstimateOut(BaseModel):
+    """Estimated (never billed) cost over an inclusive window — the
+    ``estimate`` tag keeps it distinct from supplier-bill transactions."""
+    kind: Literal["estimate"] = "estimate"
+    start: date_t
+    end: date_t
+    days: list[EnergyDayOut]
+    unit_pence: int
+    standing_pence: int
+    total_pence: int
+    missing_days: int
+
+
+class EnergyConfigIn(BaseModel):
+    meter_entity: str | None = Field(default=None, max_length=200)
+    budget_category_id: int | None = None
+
+
+class EnergyConfigOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    meter_entity: str | None
+    budget_category_id: int | None
+
+
+class EnergyMonthReportOut(BaseModel):
+    """Issue #104 — month-to-date vs budget + month-end projection.
+    All estimate figures are estimates, not billed amounts."""
+    kind: Literal["estimate"] = "estimate"
+    month_start: date_t
+    month_end: date_t
+    through: date_t
+    unit_pence: int
+    standing_pence: int
+    total_pence: int
+    missing_days: int
+    budget_pence: int | None
+    variance_pence: int | None
+    projected_total_pence: int | None
+    projected_variance_pence: int | None
+    avg_daily_wh: int | None

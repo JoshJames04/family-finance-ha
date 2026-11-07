@@ -109,3 +109,95 @@
 .ff-inline-edit:focus-visible {
   outline: 2px solid var(--ff-accent);
 }
+
+/* Forecast page: projection chart + financial calendar (#77) */
+.ff-projection-chart {
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+  display: block;
+  margin-block: var(--ff-space-4, 1rem);
+}
+
+.ff-chart-line {
+  stroke: var(--ff-accent);
+  stroke-width: 2;
+}
+
+.ff-chart-zero {
+  stroke: var(--ff-text-secondary);
+  stroke-width: 1;
+}
+
+.ff-chart-threshold {
+  stroke: var(--ff-warning);
+  stroke-width: 1;
+}
+
+.ff-chart-min {
+  fill: var(--ff-warning);
+}
+
+.ff-chart-minlabel,
+.ff-chart-axis {
+  fill: var(--ff-text-secondary);
+  font-size: 11px;
+}
+
+.ff-cal {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.ff-cal th {
+  font-size: 0.8rem;
+  color: var(--ff-text-secondary);
+  padding: 0.25rem;
+  text-align: left;
+}
+
+.ff-cal td {
+  border: 1px solid var(--ff-border, rgba(128, 128, 128, 0.25));
+  padding: 0.25rem;
+  vertical-align: top;
+  height: 3.5rem;
+}
+
+.ff-cal-sel {
+  outline: 2px solid var(--ff-accent);
+}
+
+.ff-cal-day {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.ff-cal-day:focus-visible {
+  outline: 2px solid var(--ff-accent);
+}
+
+.ff-cal-num {
+  font-size: 0.75rem;
+  color: var(--ff-text-secondary);
+}
+
+.ff-cal-dot {
+  display: block;
+  width: 100%;
+  height: 0.3rem;
+  border-radius: 2px;
+}
+
+.ff-cal-dot.ff-pos {
+  background: var(--ff-success-strong);
+}
+
+.ff-cal-dot.ff-neg {
+  background: var(--ff-warning);
+}
