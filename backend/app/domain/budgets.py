@@ -16,6 +16,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.reporting import external_only
 from app.persistence.models import (
     Budget,
     BudgetLine,
@@ -160,13 +161,14 @@ def actuals_for_budget(session: Session, budget: Budget) -> dict[int, int]:
     so nothing is double-counted inside a single budget."""
     out: dict[int, int] = {}
     for line in budget.lines:
-        q = select(func.coalesce(func.sum(Transaction.amount_pence), 0)
-                   ).where(
-            Transaction.category_id == line.category_id,
-            Transaction.date >= budget.start_date,
-            Transaction.date <= budget.end_date,
-            Transaction.status != TransactionStatus.void,
-        )
+        q = external_only(
+            select(func.coalesce(func.sum(Transaction.amount_pence), 0))
+            .where(
+                Transaction.category_id == line.category_id,
+                Transaction.date >= budget.start_date,
+                Transaction.date <= budget.end_date,
+                Transaction.status != TransactionStatus.void,
+            ))
         total = int(session.execute(q).scalar_one())
         # expense lines measure outflow (negative ledger values);
         # income lines measure inflow (positive values)
