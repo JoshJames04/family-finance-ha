@@ -675,3 +675,20 @@ class PayrollOverrideOut(BaseModel):
     delta_pence: int
     reason: str
     actor: str
+
+
+class ContributionMatchIn(BaseModel):
+    transaction_id: int
+    amount: Money | None = None
+
+
+class ContributionStatusOut(BaseModel):
+    movement_id: int
+    expected_pence: int
+    matched_pence: int
+    outstanding_pence: int
+    state: str
+
+
+class MatchResult(BaseModel):
+    matched: int
