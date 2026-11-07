@@ -15,10 +15,13 @@ from app.api.v1 import (
     credentials,
     diagnostics,
     employments,
+    energy,
     expected,
+    forecast,
     goals,
     households,
     loans,
+    migration,
     notifications,
     profiles,
     reconcile,
@@ -44,8 +47,10 @@ v1_router.include_router(profiles.router)
 v1_router.include_router(admin.router)
 v1_router.include_router(employments.router)
 v1_router.include_router(expected.router)
+v1_router.include_router(forecast.router)
 v1_router.include_router(goals.router)
 v1_router.include_router(loans.router)
+v1_router.include_router(migration.router)
 v1_router.include_router(reports.router)
 v1_router.include_router(analytics.router)
 v1_router.include_router(seasonal.router)
@@ -60,3 +65,4 @@ v1_router.include_router(credentials.router)
 v1_router.include_router(banks.router)
 v1_router.include_router(anomalies.router)
 v1_router.include_router(diagnostics.router)
+v1_router.include_router(energy.router)

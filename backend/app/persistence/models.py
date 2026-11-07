@@ -1498,6 +1498,17 @@ class NotificationKind(enum.StrEnum):
     """Trigger kinds the rules engine evaluates (issue #116)."""
     spend_above = "spend_above"      # a transaction over threshold_pence
     balance_below = "balance_below"  # account balance under threshold
+    # issue #117 — scheduled/date-driven kinds
+    weekly_digest = "weekly_digest"    # params: {"weekday": 0..6}
+    payday_reminder = "payday_reminder"  # params: {"days_before": n}
+    bill_reminder = "bill_reminder"    # params: {"days_before": n}
+    # issue #118 — condition alerts (severity + optional all-clear)
+    low_projected_balance = "low_projected_balance"
+    budget_overspend = "budget_overspend"
+    unusual_transaction = "unusual_transaction"
+    price_change = "price_change"
+    missed_transfer = "missed_transfer"
+    sync_failure = "sync_failure"
 
 
 class NotificationState(enum.StrEnum):
@@ -1988,3 +1999,69 @@ class AuthSession(TimestampMixin, Base):
         DateTime, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
+
+
+class EnergyTariff(Base):
+    """Effective-dated electricity tariff (issue #103): pence-precision
+    standing charge per day + millipence-precision unit rate per kWh
+    (UK quotes e.g. 24.501p/kWh — integer millipence keeps the maths
+    exact). Later rows supersede earlier ones from ``effective_from``."""
+
+    __tablename__ = "energy_tariff"
+    __table_args__ = (
+        CheckConstraint("unit_rate_millipence >= 0",
+                        name="ck_tariff_unit"),
+        CheckConstraint("standing_charge_pence >= 0",
+                        name="ck_tariff_standing"),
+        UniqueConstraint("household_id", "effective_from",
+                         name="uq_tariff_eff"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    effective_from: Mapped[date_t] = mapped_column(Date, nullable=False)
+    unit_rate_millipence: Mapped[int] = mapped_column(
+        Integer, nullable=False)
+    standing_charge_pence: Mapped[int] = mapped_column(
+        Integer, nullable=False)
+
+
+class EnergyReading(Base):
+    """Metered consumption for one day, in whole watt-hours (HA energy
+    statistics report kWh to ~3dp → Wh keeps it an integer). ``source``
+    records how it arrived — ``ha_statistics`` for the integration feed,
+    ``manual`` for operator entry (issue #103)."""
+
+    __tablename__ = "energy_reading"
+    __table_args__ = (
+        CheckConstraint("wh >= 0", name="ck_reading_wh"),
+        UniqueConstraint("household_id", "date",
+                         name="uq_reading_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    wh: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(30), nullable=False,
+                                        default="manual")
+
+
+class EnergyConfig(TimestampMixin, Base):
+    """One-per-household energy settings (issues #103/#104): the HA
+    statistics entity the consumption feed reads, and the budget
+    category energy spend is compared against."""
+
+    __tablename__ = "energy_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, unique=True)
+    meter_entity: Mapped[str | None] = mapped_column(
+        String(200), nullable=True)
+    budget_category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True)
+
+    budget_category: Mapped[Category | None] = relationship()
