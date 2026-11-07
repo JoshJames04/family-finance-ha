@@ -58,6 +58,57 @@ class FamilyFinanceClient:
         except aiohttp.ClientError as exc:
             raise FamilyFinanceError(str(exc)) from exc
 
+    async def _post(self, path: str, payload: dict[str, Any]) -> Any:
+        try:
+            async with self._session.post(
+                f"{self._base}{path}",
+                headers=self._headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise FamilyFinanceAuthError(
+                        f"auth rejected ({resp.status})",
+                        status=resp.status)
+                if resp.status >= 400:
+                    body = await resp.text()
+                    raise FamilyFinanceError(
+                        f"HTTP {resp.status}: {body[:300]}",
+                        status=resp.status)
+                return await resp.json()
+        except aiohttp.ClientError as exc:
+            raise FamilyFinanceError(str(exc)) from exc
+
+    async def async_add_transaction(
+        self, account_id: int, txn_date: date, amount_pence: int,
+        payee: str, category_id: int | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /transactions — audited app-side (issue #102)."""
+        return await self._post("/api/v1/transactions", {
+            "account_id": account_id,
+            "date": txn_date.isoformat(),
+            "amount": amount_pence,
+            "payee": payee,
+            "category_id": category_id,
+            "notes": notes,
+        })
+
+    async def async_record_overtime(
+        self, employment_id: int, work_date: date, hours: float,
+        multiplier_bps: int | None = None,
+        day_type: str | None = None, notes: str | None = None,
+    ) -> dict[str, Any]:
+        """POST overtime entry — audited app-side (issue #102)."""
+        return await self._post(
+            f"/api/v1/employments/{employment_id}/overtime-entries", {
+                "work_date": work_date.isoformat(),
+                "hours": hours,
+                "multiplier_bps": multiplier_bps,
+                "day_type": day_type,
+                "notes": notes,
+            })
+
     async def _get_optional(self, path: str) -> Any | None:
         """GET that returns None on 404 — a household may simply not
         have the resource yet (e.g. no approved budget)."""

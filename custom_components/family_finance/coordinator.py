@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import (
 
 from .api import FamilyFinanceClient, FamilyFinanceError
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .events import process_failure, process_summary
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,11 +31,18 @@ class FamilyFinanceCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass, _LOGGER, name=DOMAIN, config_entry=entry,
             update_interval=DEFAULT_SCAN_INTERVAL)
         self.client = client
+        self._failed = False
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            return await self.client.async_fetch_summary()
+            new = await self.client.async_fetch_summary()
         except FamilyFinanceError as exc:
+            process_failure(self.hass, self._failed)
+            self._failed = True
             # UpdateFailed → last_update_success=False → unavailable
             raise UpdateFailed(
                 f"Family Finance unreachable: {exc}") from exc
+        # automation events compare consecutive payloads (issue #102)
+        process_summary(self.hass, self.data, new)
+        self._failed = False
+        return new
