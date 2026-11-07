@@ -20,6 +20,7 @@ from app.persistence.models import (
     AccountType,
     BudgetLineSide,
     BudgetPeriodType,
+    BudgetStatus,
     Category,
     ReportingPeriod,
     Transaction,
@@ -321,3 +322,111 @@ class TestTripleValue:
                   if e.entity_type == "budget_line"
                   and e.entity_id == lid][-1]
         assert "energy rise" in (ev.payload or "")
+
+
+class TestTemplatesAndCopy:
+    """Issue #59 — template decoupling + copy-forward fidelity."""
+
+    def test_template_apply_and_decouple(
+            self, session: Session, household, category) -> None:
+        t = dom.create_template(session, household.id, "Monthly")
+        dom.add_template_line(session, t, category.id,
+                              BudgetLineSide.expense, 40000)
+        b = _mk_budget(session, household)
+        created, warnings = dom.apply_template(session, b, t)
+        assert len(created) == 1 and warnings == []
+        assert b.lines[0].original_pence == 40000
+        assert b.from_template_id == t.id
+        # editing the template must not mutate the budget (AC)
+        dom.update_template_line(session, t.lines[0], 999)
+        session.refresh(b.lines[0])
+        assert b.lines[0].original_pence == 40000
+
+    def test_partial_application_skips_duplicates(
+            self, session: Session, household, category) -> None:
+        cat2 = Category(household_id=household.id, name="Travel",
+                        is_system=False, archived=False)
+        session.add(cat2)
+        session.flush()
+        t = dom.create_template(session, household.id, "T")
+        dom.add_template_line(session, t, category.id,
+                              BudgetLineSide.expense, 40000)
+        dom.add_template_line(session, t, cat2.id,
+                              BudgetLineSide.expense, 30000)
+        b = _mk_budget(session, household)
+        dom.add_line(session, b, category.id,
+                     BudgetLineSide.expense, 50000)
+        created, warnings = dom.apply_template(session, b, t)
+        assert len(created) == 1
+        assert created[0].category_id == cat2.id
+        assert any("already a line" in w for w in warnings)
+
+    def test_copy_forward_fidelity(
+            self, session: Session, household, category) -> None:
+        src = _mk_budget(session, household)
+        line = dom.add_line(session, src, category.id,
+                            BudgetLineSide.expense, 50000)
+        dom.approve(session, src)
+        dom.revise_line(session, line, 70000, "rise")
+        new, warnings = dom.copy_forward(
+            session, src, "June", date(2026, 6, 1), date(2026, 6, 30))
+        assert warnings == []
+        assert new.status == BudgetStatus.draft
+        assert new.copied_from_id == src.id
+        assert len(new.lines) == 1
+        nl = new.lines[0]
+        assert nl.original_pence == 50000     # original→original
+        assert nl.revised_pence is None        # fresh cycle, no revision
+        assert nl.category_id == category.id
+
+    def test_copy_across_archived_category_warns(
+            self, session: Session, household, category) -> None:
+        src = _mk_budget(session, household)
+        dom.add_line(session, src, category.id,
+                     BudgetLineSide.expense, 50000)
+        category.archived = True
+        session.flush()
+        new, warnings = dom.copy_forward(
+            session, src, "June", date(2026, 6, 1), date(2026, 6, 30))
+        assert len(new.lines) == 1  # cloned for history
+        assert any("archived" in w for w in warnings)
+
+    def test_apply_template_to_approved_rejected(
+            self, session: Session, household, category) -> None:
+        t = dom.create_template(session, household.id, "T")
+        dom.add_template_line(session, t, category.id,
+                              BudgetLineSide.expense, 1)
+        b = _mk_budget(session, household)
+        dom.add_line(session, b, category.id,
+                     BudgetLineSide.expense, 50000)
+        dom.approve(session, b)
+        with pytest.raises(BudgetError):
+            dom.apply_template(session, b, t)
+
+    def test_api_template_flow(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        cat = client.post("/api/v1/categories", json={"name": "Food"},
+                          headers=h).json()
+        tid = client.post("/api/v1/budgets/templates",
+                          json={"name": "Monthly"},
+                          headers=h).json()["id"]
+        client.post(f"/api/v1/budgets/templates/{tid}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 40000}, headers=h)
+        bid = client.post("/api/v1/budgets", json={
+            "name": "May", "period_type": "monthly",
+            "start_date": "2026-05-01", "end_date": "2026-05-31"},
+            headers=h).json()["id"]
+        r = client.post(f"/api/v1/budgets/{bid}/apply-template",
+                        json={"template_id": tid}, headers=h)
+        assert r.status_code == 200 and r.json()["created"] == 1
+        c = client.post(f"/api/v1/budgets/{bid}/copy-forward", json={
+            "name": "June", "start_date": "2026-06-01",
+            "end_date": "2026-06-30"}, headers=h)
+        assert c.status_code == 201
+        assert c.json()["budget"]["status"] == "draft"
+        d = client.get(f"/api/v1/budgets/{c.json()['budget']['id']}",
+                       headers=h).json()
+        assert d["lines"][0]["original_pence"] == 40000
