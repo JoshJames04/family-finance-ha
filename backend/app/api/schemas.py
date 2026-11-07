@@ -85,6 +85,25 @@ class AccountOut(BaseModel):
     archived: bool
 
 
+class BalanceVerifyIn(BaseModel):
+    asserted_balance: Money
+    verified_date: date
+    correct: bool = False
+    note: str | None = Field(default=None, max_length=500)
+
+
+class BalanceVerificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    asserted_pence: int
+    derived_pence: int
+    variance_pence: int
+    verified_date: date
+    correction_txn_id: int | None
+    note: str | None
+
+
 class CategoryIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     parent_id: int | None = None
