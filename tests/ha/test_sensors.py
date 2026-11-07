@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er

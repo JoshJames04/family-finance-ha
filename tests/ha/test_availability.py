@@ -7,7 +7,6 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import AsyncMock
 
-import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
