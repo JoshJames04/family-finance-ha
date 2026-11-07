@@ -285,6 +285,6 @@ def rollover(
     events = dom.apply_rollover(session, src, target)
     for e in events:
         emit(session, household.id, actor, "rollover", "budget_line",
-             e["line_id"], e)
+             int(str(e["line_id"])), e)
     return schemas.RolloverResult(applied=len(events),
                                   carries=events)
