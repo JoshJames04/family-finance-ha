@@ -1343,3 +1343,21 @@ class CredentialStoreIn(BaseModel):
     and validation-error echoes."""
     ref: str = Field(min_length=1, max_length=128)
     secret: SecretStr
+
+
+class BankConnectionOut(BaseModel):
+    """Never carries token material — the token lives in the vault
+    and is write-only (issue #65 schema-level guarantee)."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    provider: str
+    label: str | None
+    status: str
+    scopes: str
+    last_validated_at: datetime | None
+    last_error: str | None
+
+
+class BankConnectIn(BaseModel):
+    provider: str = Field(pattern="^starling$")
+    token: SecretStr

@@ -1803,3 +1803,50 @@ class VaultEntry(TimestampMixin, Base):
         LargeBinary, nullable=False)
     key_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1)
+
+
+class BankProvider(enum.StrEnum):
+    starling = "starling"
+
+
+class ConnStatus(enum.StrEnum):
+    """Connection lifecycle (issue #65): pending while unvalidated,
+    connected when the token verified, degraded on transient API
+    failures (429/5xx — sync retries), revoked on 401/403 or user
+    disconnect — terminal until re-authenticated."""
+
+    pending = "pending"
+    connected = "connected"
+    degraded = "degraded"
+    revoked = "revoked"
+
+
+class BankConnection(TimestampMixin, Base):
+    """One bank link. The token lives in the vault under
+    ``vault_ref`` — never on this row, never serialised. Sync only
+    runs while status is ``connected`` or ``degraded``."""
+
+    __tablename__ = "bank_connection"
+    __table_args__ = (
+        UniqueConstraint("household_id", "provider",
+                         name="uq_bankconn_household_provider"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    provider: Mapped[BankProvider] = mapped_column(
+        Enum(BankProvider), nullable=False)
+    vault_ref: Mapped[str] = mapped_column(
+        String(128), nullable=False)
+    label: Mapped[str | None] = mapped_column(
+        String(200), nullable=True)
+    status: Mapped[ConnStatus] = mapped_column(
+        Enum(ConnStatus), default=ConnStatus.pending,
+        nullable=False)
+    scopes: Mapped[str] = mapped_column(
+        String(400), nullable=False, default="")  # verified at auth
+    last_validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(
+        String(500), nullable=True)
