@@ -44,8 +44,7 @@ def account(session: Session, household: Household) -> Account:
 
 def _feed(*items: sync_domain.FeedItem):
     """One page per call — the simplest possible feed."""
-    pages = [list(items)]
-    yield from pages
+    yield sync_domain.FeedPage(list(items))
 
 
 def _item(ref: str | None, pence: int, payee: str = "Shop",
@@ -140,7 +139,7 @@ class TestResume:
                  [_item("r4", -1_300)]]
 
         def flaky(cursor):
-            yield pages[0]
+            yield sync_domain.FeedPage(pages[0])
             raise sync_domain.RateLimited("429")
 
         run = sync_domain.sync_account(
@@ -152,7 +151,8 @@ class TestResume:
         assert cursor.last_ref == "r2"
 
         def rest(c):
-            yield from pages[1:]
+            for p in pages[1:]:
+                yield sync_domain.FeedPage(p)
 
         run2 = sync_domain.sync_account(
             session, account, SRC, rest)

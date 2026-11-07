@@ -24,6 +24,7 @@ from app.persistence.models import (
     Household,
     MappingStatus,
     Transaction,
+    TransactionSource,
 )
 
 
@@ -165,3 +166,61 @@ class TestBalances:
         n = discovery.sync_balances(session, conn, client, "pat-1")
         assert n == 0
         assert client.calls == 0    # proposed rows aren't polled
+
+
+class TestFeedMapping:
+    def test_feed_items_map_direction_and_status(self) -> None:
+        """Spike #64 contract: unsigned amount + direction ->
+        signed pence; feed status -> TransactionStatus."""
+        from app.integrations.starling import StarlingClient
+        from app.persistence.models import TransactionStatus
+        raw = [
+            {"feedItemUid": "u1",
+             "amount": {"currency": "GBP", "minorUnits": 1250},
+             "direction": "IN", "status": "SETTLED",
+             "counterPartyName": "Employer Ltd",
+             "transactionTime": "2025-05-02T09:00:00.000Z"},
+            {"feedItemUid": "u2",
+             "amount": {"currency": "GBP", "minorUnits": 500},
+             "direction": "OUT", "status": "PENDING",
+             "counterPartyName": "Shop",
+             "transactionTime": "2025-05-03T12:00:00.000Z"}]
+        client = StarlingClient()
+        client_items = [client._map(r) for r in raw]
+        assert client_items[0] is not None
+        assert client_items[1] is not None
+        assert client_items[0].amount_pence == 1250
+        assert client_items[1].amount_pence == -500
+        assert client_items[0].status == TransactionStatus.cleared
+        assert client_items[1].status == TransactionStatus.pending
+        assert client_items[0].payee == "Employer Ltd"
+        assert client_items[0].external_ref == "u1"
+
+    def test_pending_to_settled_updates_in_place(
+            self, session: Session, household: Household) -> None:
+        """AC: a re-fetched ref (PENDING -> SETTLED) updates the
+        mutable fields — dedup-or-update, not pure skip."""
+        from app.domain import sync as sd
+        from app.persistence.models import TransactionStatus as TS
+        a = Account(household_id=household.id, name="C",
+                    type="personal", opening_balance_pence=0,
+                    opening_date=date(2025, 1, 1))
+        session.add(a)
+        session.flush()
+        src = TransactionSource.starling
+        pend = [sd.FeedItem("u1", date(2025, 5, 2), -500, "Shop",
+                            status=TS.pending)]
+        sd.sync_account(session, a, src,
+                        lambda c: iter([sd.FeedPage(pend)]))
+        t = session.scalar(select(Transaction))
+        assert t is not None
+        assert t.status == TS.pending
+        settled = [sd.FeedItem("u1", date(2025, 5, 2), -500,
+                               "Shop", status=TS.cleared)]
+        run = sd.sync_account(
+            session, a, src,
+            lambda c: iter([sd.FeedPage(settled)]))
+        assert run.inserted == 0
+        assert run.deduped == 1
+        session.refresh(t)
+        assert t.status == TS.cleared   # updated, not duplicated

@@ -1886,6 +1886,8 @@ class BankAccountMapping(TimestampMixin, Base):
         String(200), nullable=False)
     external_kind: Mapped[str] = mapped_column(
         String(40), nullable=False, default="account")
+    external_category_uid: Mapped[str | None] = mapped_column(
+        String(64), nullable=True)
     account_id: Mapped[int | None] = mapped_column(
         ForeignKey("account.id"), nullable=True)
     status: Mapped[MappingStatus] = mapped_column(

@@ -53,6 +53,16 @@ class FeedItem:
     date: date
     amount_pence: int
     payee: str
+    status: TransactionStatus | None = None
+
+
+@dataclass(frozen=True)
+class FeedPage:
+    """One fetched batch. ``cursor_ref`` is the feed's own
+    resumption token (e.g. Starling's changesSince watermark); when
+    absent the cursor falls back to the last item's ref."""
+    items: list[FeedItem]
+    cursor_ref: str | None = None
 
 
 def cursor_for(session: Session, account_id: int,
@@ -90,11 +100,16 @@ def _ingest_item(session: Session, account: Account,
     run.fetched += 1
     if item.external_ref is not None:
         dup = session.scalar(
-            select(Transaction.id).where(
+            select(Transaction).where(
                 Transaction.account_id == account.id,
                 Transaction.source == source,
                 Transaction.external_ref == item.external_ref))
         if dup is not None:
+            # changes-feed re-delivers mutated items — refresh the
+            # mutable fields rather than pure-skip (spike #64:
+            # PENDING -> SETTLED arrives as the same ref again)
+            if item.status is not None and dup.status != item.status:
+                dup.status = item.status
             run.deduped += 1
             return
     existing = _fuzzy_match(session, account.id, item)
@@ -111,8 +126,8 @@ def _ingest_item(session: Session, account: Account,
     session.add(Transaction(
         account_id=account.id, date=item.date,
         amount_pence=item.amount_pence, payee=item.payee,
-        status=TransactionStatus.cleared, source=source,
-        external_ref=item.external_ref))
+        status=item.status or TransactionStatus.cleared,
+        source=source, external_ref=item.external_ref))
     session.flush()
     run.inserted += 1
 
@@ -120,11 +135,11 @@ def _ingest_item(session: Session, account: Account,
 def sync_account(
     session: Session, account: Account,
     source: TransactionSource,
-    fetch: Callable[[SyncCursor], Iterator[list[FeedItem]]],
+    fetch: Callable[[SyncCursor], Iterator[FeedPage]],
 ) -> SyncRun:
     """Pull pages from ``fetch`` until exhaustion or failure.
 
-    ``fetch`` yields pages (lists); each completed page advances the
+    ``fetch`` yields ``FeedPage``s; each completed page advances the
     cursor so a later resume continues where this run stopped (AC 3).
     ``RateLimited``/``SyncError`` mark the run failed — resumable."""
     cursor = cursor_for(session, account.id, source)
@@ -135,11 +150,14 @@ def sync_account(
     cursor.error = None
     try:
         for page in fetch(cursor):
-            for item in page:
+            for item in page.items:
                 _ingest_item(session, account, source, item, run)
-            if page:
-                cursor.last_ref = page[-1].external_ref
-                cursor.last_date = page[-1].date
+            if page.cursor_ref:
+                cursor.last_ref = page.cursor_ref
+            elif page.items:
+                cursor.last_ref = page.items[-1].external_ref
+            if page.items:
+                cursor.last_date = page.items[-1].date
             session.flush()          # page checkpoint
         run.status = SyncStatus.completed
         cursor.status = SyncStatus.completed
