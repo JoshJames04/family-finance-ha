@@ -370,3 +370,18 @@ class BulkLineRevise(BaseModel):
 class BulkReviseResult(BaseModel):
     updated: int
     skipped: list[int] = []  # line ids not found in budget
+
+
+class BackupOut(BaseModel):
+    name: str
+    bytes: int
+    ok: bool
+
+
+class RestoreRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class RestoreAccepted(BaseModel):
+    name: str
+    applies_on_next_start: bool = True

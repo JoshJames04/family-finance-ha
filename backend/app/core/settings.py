@@ -36,6 +36,27 @@ class Settings(BaseSettings):
     ha_url: str = "http://supervisor/core"
     supervisor_token: SecretStr | None = None
     options_file: Path | None = None
+    backup_dir: Path | None = None
+    backup_keep: int = 7
+    backup_interval_hours: float = 24.0  # 0 disables the scheduler
+    admin_token: SecretStr | None = None
+
+    @property
+    def resolved_backup_dir(self) -> Path:
+        return self.backup_dir or (self.data_dir / "backups")
+
+    @property
+    def restore_marker(self) -> Path:
+        return self.data_dir / "restore.pending"
+
+    @property
+    def database_path(self) -> Path | None:
+        """SQLite file behind ``resolved_database_url``, if file-based."""
+        url = self.resolved_database_url
+        if not url.startswith("sqlite:///"):
+            return None
+        path = Path(url.removeprefix("sqlite:///"))
+        return None if path.name == ":memory:" else path
 
     @property
     def resolved_database_url(self) -> str:

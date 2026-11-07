@@ -54,13 +54,23 @@ Same image runs standalone for HA Container users:
 ## 5. Backup, upgrade, rollback
 
 - App data participates in HA backup/restore; plus app-level scheduled
-  `VACUUM INTO` snapshots with rotation (see Epic 17).
-- Upgrades: DB migrations run at app start, pre-migration snapshot
-  automatically created; failed migration → automatic restore of snapshot and
-  refuse to start (logged, health endpoint reports failure).
+  `VACUUM INTO` snapshots (`FF_BACKUP_INTERVAL_HOURS`, default 24h) with
+  keep-N rotation (`FF_BACKUP_KEEP`, default 7) under
+  `<data_dir>/backups` (see Epic 17).
+- Upgrades: DB migrations run at app start; a pre-migration snapshot is
+  taken automatically. A failed migration restores the snapshot, boots
+  the app degraded, and `GET /readyz` reports `503` via the `boot`
+  component — data is never left half-migrated. An unreachable DB file
+  still fails fast at boot.
+- Manual backup/restore: `POST /api/v1/admin/backups` and
+  `POST /api/v1/admin/restore`, gated by `X-Admin-Token`
+  (`FF_ADMIN_TOKEN`; fail-closed when unset) and audited. Restore never
+  replaces the live file — it verifies the snapshot's integrity and
+  writes `<data_dir>/restore.pending`, applied at the next boot before
+  the engine opens.
 - Rollback: install previous image; downgrade migrations tested in CI.
-- Data corruption guard: integrity check (`PRAGMA integrity_check`) on boot
-  and scheduled.
+- Data corruption guard: integrity check (`PRAGMA integrity_check`) on
+  boot and on every snapshot.
 
 ## 6. Environments
 
