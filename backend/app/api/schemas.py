@@ -819,6 +819,7 @@ class RepaymentOut(BaseModel):
     amount_pence: int
     transaction_id: int | None
     notes: str | None
+    balance_after_pence: int | None = None
 
 
 class LoanPositionOut(BaseModel):
@@ -827,6 +828,18 @@ class LoanPositionOut(BaseModel):
     accrued_interest_pence: int
     expected_to_date_pence: int
     drift_pence: int
+
+
+class PayoffPoint(BaseModel):
+    months: int | None
+    payoff_date: date | None
+
+
+class LoanProjectionOut(BaseModel):
+    baseline: PayoffPoint
+    with_extra: PayoffPoint
+    extra_monthly_pence: int
+    months_saved: int | None
 
 
 class SeasonalEventIn(BaseModel):
