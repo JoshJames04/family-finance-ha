@@ -310,3 +310,28 @@ class RecurringCommitment(TimestampMixin, Base):
     household: Mapped[Household] = relationship()
     account: Mapped[Account] = relationship()
     category: Mapped[Category | None] = relationship()
+
+
+class ReportingPeriod(TimestampMixin, Base):
+    """A closed calendar window (e.g. "May 2026"). Locked periods freeze
+    budget originals (Epic 5) and make contained transactions editable
+    only via corrections."""
+
+    __tablename__ = "reporting_period"
+    __table_args__ = (
+        UniqueConstraint("household_id", "label",
+                         name="uq_period_household_label"),
+        CheckConstraint("end_date >= start_date",
+                        name="ck_period_range"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(40), nullable=False)
+    start_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False,
+                                         nullable=False)
+
+    household: Mapped[Household] = relationship()
