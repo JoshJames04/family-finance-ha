@@ -186,4 +186,5 @@ jobs:
           FF_DATABASE_URL: sqlite:///./ci_migrations.db
         run: |
           pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
+          test "$(alembic heads | wc -l)" -eq 1 || { echo "Multiple migration heads"; alembic heads; exit 1; }
           alembic upgrade head && alembic downgrade -1 && alembic upgrade head
