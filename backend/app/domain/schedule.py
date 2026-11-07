@@ -15,7 +15,7 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.domain import transfer_rules
+from app.domain import goals, transfer_rules
 from app.domain.recurring import occurrences
 from app.persistence.models import (
     AmountKind,
@@ -26,6 +26,7 @@ from app.persistence.models import (
     PayrollRun,
     PayrollRunStatus,
     RecurringCommitment,
+    SavingsGoal,
     TransferRule,
 )
 
@@ -160,6 +161,32 @@ def rematerialize_budget_derived_rules(
     return affected
 
 
+def rematerialize_goal(
+    session: Session, goal: SavingsGoal, *,
+    today: date | None = None,
+) -> int:
+    """Sinking-fund monthly expectations into the pot account —
+    `estimated` (the need recomputes as contributions land)."""
+    today = today or date.today()
+    _drop_future(session, ExpectedSource.savings_goal, goal.id, today)
+    if not goal.active:
+        session.flush()
+        return 0
+    n = 0
+    for d, pence in goals.sinking_schedule(session, goal, today=today):
+        if d < today:
+            continue
+        session.add(_emit_row(
+            goal.household_id, account_id=goal.account_id,
+            expected_date=d, amount_pence=pence,
+            label=f"{goal.name} contribution",
+            confidence=Confidence.estimated,
+            source=ExpectedSource.savings_goal, source_id=goal.id))
+        n += 1
+    session.flush()
+    return n
+
+
 def materialize_all(
     session: Session, household: Household, *,
     today: date | None = None, horizon_days: int = DEFAULT_HORIZON_DAYS,
@@ -186,6 +213,12 @@ def materialize_all(
     ).scalars().all():
         n += rematerialize_transfer_rule(session, rule, today=today,
                                          horizon_days=horizon_days)
+    for g in session.execute(
+            select(SavingsGoal).where(
+                SavingsGoal.household_id == household.id,
+                SavingsGoal.active.is_(True))
+    ).scalars().all():
+        n += rematerialize_goal(session, g, today=today)
     return n
 
 

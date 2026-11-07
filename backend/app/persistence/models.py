@@ -857,6 +857,7 @@ class ExpectedSource(enum.StrEnum):
     commitment = "commitment"
     payroll_run = "payroll_run"
     transfer_rule = "transfer_rule"
+    savings_goal = "savings_goal"
     manual = "manual"
 
 
@@ -1001,3 +1002,45 @@ class ExpectedMatch(Base):
 
     movement: Mapped[ExpectedMovement] = relationship()
     transaction: Mapped[Transaction] = relationship()
+
+
+class GoalType(enum.StrEnum):
+    emergency = "emergency"
+    holiday = "holiday"
+    christmas = "christmas"
+    annual_reserve = "annual_reserve"
+    general = "general"
+
+
+class SavingsGoal(TimestampMixin, Base):
+    """A savings target against a linked pot account (issue #91).
+    Contributions are DERIVED from real inbound transfer legs — the
+    same leg appears in the account view, so nothing is double-booked.
+    Dated goals are sinking funds: target ÷ months → monthly need,
+    materialised into the expected stream."""
+
+    __tablename__ = "savings_goal"
+    __table_args__ = (
+        CheckConstraint("target_pence > 0",
+                        name="ck_savings_goal_target"),
+        CheckConstraint("target_date IS NULL OR target_date >= start_date",
+                        name="ck_savings_goal_dates"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    goal_type: Mapped[GoalType] = mapped_column(Enum(GoalType),
+                                                nullable=False)
+    target_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_date: Mapped[date_t | None] = mapped_column(Date,
+                                                       nullable=True)
+    start_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                         nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    account: Mapped[Account] = relationship()
