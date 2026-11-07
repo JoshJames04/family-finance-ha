@@ -85,7 +85,7 @@
 }
 
 .ff-pos {
-  color: var(--ff-success);
+  color: var(--ff-success-strong);
 }
 
 .ff-neg {
@@ -97,5 +97,5 @@
 }
 
 .ff-error {
-  color: var(--ff-error);
+  color: var(--ff-error-strong);
 }

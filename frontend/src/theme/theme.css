@@ -21,6 +21,12 @@
   --ff-success: var(--success-color, #43a047);
   --ff-radius: var(--ha-card-border-radius, 12px);
   --ff-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+  /* Strong variants: WCAG-AA-safe where the base token is too light
+     to carry white text or serve as text on the light palette
+     (issue #127). */
+  --ff-primary-strong: var(--dark-primary-color, #01579b);
+  --ff-success-strong: #2e7d32;
+  --ff-error-strong: #b71c1c;
 }
 
 :root[data-theme="dark"] {
@@ -37,6 +43,9 @@
   --ff-warning: var(--warning-color, #ffa600);
   --ff-success: var(--success-color, #43a047);
   --ff-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+  --ff-primary-strong: var(--dark-primary-color, #4fc3f7);
+  --ff-success-strong: #81c784;
+  --ff-error-strong: #ef5350;
 }
 
 html,
