@@ -44,6 +44,7 @@ def install_error_handlers(app: FastAPI) -> None:
     from app.domain.categories import CategoryCycleError
     from app.domain.contributions import MatchError
     from app.domain.detection import DetectionError
+    from app.domain.energy import EnergyError
     from app.domain.goals import GoalError
     from app.domain.loans import LoanError
     from app.domain.payroll import PayrollError
@@ -63,7 +64,7 @@ def install_error_handlers(app: FastAPI) -> None:
         PayrollError, PeriodLockedError, ReconciledImmutableError,
         RefundError, InvalidTransitionError, TransferError,
         TransferRuleError, MatchError, GoalError, LoanError,
-        SeasonalError, SubscriptionError, DetectionError,
+        SeasonalError, SubscriptionError, DetectionError, EnergyError,
     )
     for exc_type in domain_conflicts:
         @app.exception_handler(exc_type)
