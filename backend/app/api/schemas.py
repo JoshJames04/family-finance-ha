@@ -14,7 +14,9 @@ from app.persistence.models import (
     BudgetLineSide,
     BudgetPeriodType,
     BudgetStatus,
+    DayType,
     Frequency,
+    OvertimeStatus,
     Role,
     StudentLoanPlan,
     TaxJurisdiction,
@@ -401,6 +403,7 @@ class EmploymentIn(BaseModel):
     pension_scheme_ref: str | None = Field(default=None, max_length=128)
     contracted_hours: Decimal = Field(gt=0, le=168)
     payday_rule: str | None = Field(default=None, max_length=400)
+    overtime_multipliers: dict[DayType, int] | None = None
 
 
 class EmploymentPatch(BaseModel):
@@ -415,6 +418,7 @@ class EmploymentPatch(BaseModel):
     contracted_hours: Decimal | None = Field(default=None, gt=0,
                                              le=168)
     payday_rule: str | None = Field(default=None, max_length=400)
+    overtime_multipliers: dict[DayType, int] | None = None
     is_active: bool | None = None
 
 
@@ -473,3 +477,25 @@ class GrossPeriodOut(BaseModel):
     start: date_t
     end: date_t
     gross_pence: int
+
+
+class OvertimeIn(BaseModel):
+    work_date: date
+    hours: Decimal = Field(gt=0, le=24)
+    multiplier_bps: int | None = Field(default=None, gt=0, le=100_000)
+    day_type: DayType | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class OvertimeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    work_date: date_t
+    hours: Decimal
+    multiplier_bps: int
+    day_type: DayType
+    status: OvertimeStatus
+    hourly_rate_pence: int
+    pay_pence: int
+    notes: str | None

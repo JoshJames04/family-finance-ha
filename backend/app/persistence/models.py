@@ -606,6 +606,8 @@ class Employment(TimestampMixin, Base):
         nullable=False)
     pension_scheme_ref: Mapped[str | None] = mapped_column(
         String(128), nullable=True)
+    overtime_multipliers: Mapped[str] = mapped_column(
+        String(400), default="{}", server_default="{}", nullable=False)
     contracted_hours: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False)
     payday_rule: Mapped[str | None] = mapped_column(
@@ -689,3 +691,54 @@ class TaxRuleSet(Base):
     params: Mapped[str] = mapped_column(String(8000), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now())
+
+
+class OvertimeStatus(enum.StrEnum):
+    draft = "draft"
+    submitted = "submitted"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class DayType(enum.StrEnum):
+    weekday = "weekday"
+    saturday = "saturday"
+    sunday = "sunday"
+    bank_holiday = "bank_holiday"
+
+
+class OvertimeEntry(TimestampMixin, Base):
+    """A member's overtime claim (issue #79). Multiplier and hourly rate
+    are snapshotted at entry creation so a later salary change never
+    silently re-rates an approved entry — corrections need a new
+    draft→approved cycle."""
+
+    __tablename__ = "overtime_entry"
+    __table_args__ = (
+        CheckConstraint("hours > 0", name="ck_overtime_hours_pos"),
+        CheckConstraint("multiplier_bps > 0",
+                        name="ck_overtime_mult_pos"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employment_id: Mapped[int] = mapped_column(
+        ForeignKey("employment.id"), nullable=False, index=True)
+    work_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    hours: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    multiplier_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    day_type: Mapped[DayType] = mapped_column(Enum(DayType),
+                                              nullable=False)
+    status: Mapped[OvertimeStatus] = mapped_column(
+        Enum(OvertimeStatus), default=OvertimeStatus.draft,
+        nullable=False)
+    hourly_rate_pence: Mapped[int] = mapped_column(Integer,
+                                                   nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000),
+                                              nullable=True)
+
+    employment: Mapped[Employment] = relationship()
+
+    @property
+    def pay_pence(self) -> int:
+        return int(Decimal(str(self.hours)) * self.hourly_rate_pence
+                   * self.multiplier_bps // Decimal(10_000))
