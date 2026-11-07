@@ -742,3 +742,90 @@ class OvertimeEntry(TimestampMixin, Base):
     def pay_pence(self) -> int:
         return int(Decimal(str(self.hours)) * self.hourly_rate_pence
                    * self.multiplier_bps // Decimal(10_000))
+
+
+class PayrollRunStatus(enum.StrEnum):
+    forecast = "forecast"
+    reconciled = "reconciled"
+    corrected = "corrected"
+
+
+class PayrollComponentKind(enum.StrEnum):
+    base_salary = "base_salary"
+    overtime = "overtime"
+    bonus = "bonus"
+    allowance = "allowance"
+    unpaid_leave = "unpaid_leave"
+    pension = "pension"
+    tax = "tax"
+    ni = "ni"
+    student_loan = "student_loan"
+
+
+class PayrollRun(TimestampMixin, Base):
+    """One pay period for an employment (issue #82): forecast →
+    payslip → reconciled. Components carry forecast vs actual so a
+    payslip discrepancy shows exactly which component diverged.
+    Reconciled runs are immutable — fixes land via a correcting run
+    (`corrects_id`), never an edit."""
+
+    __tablename__ = "payroll_run"
+    __table_args__ = (
+        CheckConstraint("period_end >= period_start",
+                        name="ck_payrun_period"),
+        UniqueConstraint("employment_id", "period_start",
+                         "period_end", "corrects_id",
+                         name="uq_payrun_emp_period"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employment_id: Mapped[int] = mapped_column(
+        ForeignKey("employment.id"), nullable=False, index=True)
+    period_start: Mapped[date_t] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date_t] = mapped_column(Date, nullable=False)
+    pay_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    status: Mapped[PayrollRunStatus] = mapped_column(
+        Enum(PayrollRunStatus), default=PayrollRunStatus.forecast,
+        nullable=False)
+    tax_year: Mapped[str] = mapped_column(String(9), nullable=False)
+    rule_set_version: Mapped[int] = mapped_column(Integer,
+                                                  nullable=False)
+    gross_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    net_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    corrects_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payroll_run.id"), nullable=True)
+
+    employment: Mapped[Employment] = relationship()
+    components: Mapped[list[PayrollComponent]] = relationship(
+        back_populates="run", cascade="all, delete-orphan")
+
+
+class PayrollComponent(Base):
+    """One line of a payroll run — earnings (+), deductions (-)."""
+
+    __tablename__ = "payroll_component"
+    __table_args__ = (
+        UniqueConstraint("run_id", "kind", "label",
+                         name="uq_paycomp_run_kind_label"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("payroll_run.id"), nullable=False, index=True)
+    kind: Mapped[PayrollComponentKind] = mapped_column(
+        Enum(PayrollComponentKind), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    forecast_pence: Mapped[int] = mapped_column(Integer,
+                                                nullable=False)
+    actual_pence: Mapped[int | None] = mapped_column(Integer,
+                                                     nullable=True)
+
+    run: Mapped[PayrollRun] = relationship(
+        back_populates="components")
+
+    @property
+    def variance_pence(self) -> int | None:
+        """actual − forecast; None until the payslip lands."""
+        if self.actual_pence is None:
+            return None
+        return self.actual_pence - self.forecast_pence
