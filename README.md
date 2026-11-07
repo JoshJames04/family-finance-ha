@@ -68,6 +68,7 @@ Full rationale and trade-offs are documented in
 - [Home Assistant Deployment](docs/HA-DEPLOYMENT.md)
 - [Excel Migration Strategy](docs/MIGRATION.md)
 - [Security Model](docs/SECURITY.md)
+- [Release Process](docs/RELEASE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Contributing & Standards](CONTRIBUTING.md)
 - [Architecture Decision Records](docs/adr/)
