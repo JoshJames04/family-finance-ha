@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from openpyxl.utils import range_boundaries
@@ -27,9 +27,18 @@ from app.persistence.models import (
     BudgetPeriodType,
     BudgetStatus,
     Category,
+    DayType,
     ImportBatch,
     ImportRecord,
+    OvertimeEntry,
+    OvertimeStatus,
+    PayrollComponent,
+    PayrollComponentKind,
+    PayrollRun,
+    PayrollRunStatus,
     RowClass,
+    SalaryRevision,
+    TaxRuleSet,
     Transaction,
     TransactionSource,
     TransactionStatus,
@@ -263,3 +272,324 @@ class BudgetYearExtractor:
             if first is None:
                 first = line
         return ("budget_line", first.id) if first is not None else None
+
+
+# --- issue #47: salary / overtime / payroll / tax tables ------------------
+
+def _as_date(v: Any) -> date | None:
+    """Staged cell → date. Datetimes serialise as 'YYYY-MM-DD …'."""
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
+def _pay_date(work: date) -> date:
+    """The workbook's payroll attribution rule (replicated, not read
+    from its formula — defect F): worked before the 15th → paid on the
+    28th of the same month, else the 28th of next month; a weekend 28th
+    snaps back to Friday."""
+    if work.day < 15:
+        base = date(work.year, work.month, 28)
+    elif work.month == 12:
+        base = date(work.year + 1, 1, 28)
+    else:
+        base = date(work.year, work.month + 1, 28)
+    return (base - timedelta(days=base.weekday() - 4)
+            if base.weekday() > 4 else base)
+
+
+def cached_values(path: str) -> dict[tuple[str, int, int], Any]:
+    """Excel's last-calculated formula results, keyed
+    (sheet, row, col). Staged records deliberately keep formulas
+    visible (data_only=False); extractors resolve a formula cell's
+    *value* through this map. The workbook is opened read-only here
+    too — nothing is written back."""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        return {(ws.title, c.row, c.column): c.value
+                for ws in wb.worksheets
+                for row in ws.iter_rows() for c in row
+                if c.value is not None}
+    finally:
+        wb.close()
+
+
+def _num(v: Any) -> float | None:
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+def _cached_num(cache: dict[tuple[str, int, int], Any],
+                sheet: str, row: int,
+                col: int) -> float | None:
+    v = cache.get((sheet, row, col))
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+class SalaryHistoryExtractor:
+    """tblEmploymentHistory rows → effective-dated SalaryRevision.
+    Surrounding payroll parameters (pension %/type, loan plans, NI
+    category, weekly hours) ride along in ``notes`` as JSON — they are
+    financially meaningful context the flat revision model lacks
+    columns for."""
+
+    sheet: str
+
+    def __init__(self, sheet: str, employment_id: int) -> None:
+        self.sheet = sheet
+        self.employment_id = employment_id
+
+    def map_record(
+        self, session: Session, batch: ImportBatch, record: ImportRecord
+    ) -> tuple[str, int] | None:
+        vals = record_values(record)
+        eff, salary = _as_date(vals.get(2)), _num(vals.get(3))
+        if eff is None or salary is None:
+            return None
+        rev = session.execute(
+            select(SalaryRevision).where(
+                SalaryRevision.employment_id == self.employment_id,
+                SalaryRevision.effective_date == eff)
+        ).scalar_one_or_none()
+        if rev is None:
+            rev = SalaryRevision(employment_id=self.employment_id,
+                                 effective_date=eff,
+                                 annual_salary_pence=0)
+            session.add(rev)
+        rev.annual_salary_pence = round(salary * 100)
+        rev.notes = json.dumps({
+            "pension_pct": vals.get(4), "pension_type": vals.get(5),
+            "student_loan_plan": vals.get(6),
+            "postgrad_loan_plan": vals.get(7),
+            "ni_category": vals.get(8), "weekly_hours": vals.get(9),
+            "source": "excel_import"})
+        session.flush()
+        return "salary_revision", rev.id
+
+
+class OvertimeExtractor:
+    """tblOvertime rows → OvertimeEntry. Date/hours are literals;
+    multiplier + hourly rate resolve through ``cache`` when the cell
+    holds a formula. Day type derives from the worked date; the pay
+    period is recomputed with the workbook's own 15th/28th rule
+    (``_pay_date``) and recorded in notes — never the workbook's
+    possibly-stale 'Payroll Date' formula result."""
+
+    def __init__(self, sheet: str, employment_id: int,
+                 cache: dict[tuple[str, int, int], Any],
+                 today: date | None = None) -> None:
+        self.sheet = sheet
+        self.employment_id = employment_id
+        self.cache = cache
+        self.today = today or date.today()
+
+    def map_record(
+        self, session: Session, batch: ImportBatch, record: ImportRecord
+    ) -> tuple[str, int] | None:
+        vals = record_values(record)
+        work, hours = _as_date(vals.get(2)), _num(vals.get(5))
+        if work is None or hours is None or hours <= 0:
+            return None
+        m = _ROW_RE.search(record.cell_range)
+        row = int(m.group(1)) if m else 0
+        mult = _num(vals.get(6)) or _cached_num(
+            self.cache, self.sheet, row, 6)
+        rate = _num(vals.get(7)) or _cached_num(
+            self.cache, self.sheet, row, 7)
+        if mult is None or rate is None:
+            return None
+        day_type = (DayType.saturday if work.weekday() == 5 else
+                    DayType.sunday if work.weekday() == 6 else
+                    DayType.weekday)
+        actual = _as_date(vals.get(4))
+        entry = OvertimeEntry(
+            employment_id=self.employment_id,
+            work_date=work, hours=hours,
+            multiplier_bps=round(mult * 10_000),
+            day_type=day_type,
+            status=(OvertimeStatus.approved if work <= self.today
+                    else OvertimeStatus.draft),
+            hourly_rate_pence=round(rate * 100),
+            notes=json.dumps({
+                "payroll_date": _pay_date(work).isoformat(),
+                "actual_date": actual.isoformat() if actual else None,
+                "source": "excel_import"}))
+        session.add(entry)
+        session.flush()
+        return "overtime_entry", entry.id
+
+
+class TaxTablesExtractor:
+    """The three reference tables (tblPAYE_Bands / tblNI_Bands /
+    tblStudentLoanPlans) → versioned TaxRuleSet.params JSON per tax
+    year. Hard-coded formula constants are never imported as rules
+    (defect D) — only literal band rows qualify. Each row upserts its
+    year's set, so partial imports stay consistent."""
+
+    def __init__(self, sheet: str, jurisdiction: str,
+                 tables: dict[str, str]) -> None:
+        self.sheet = sheet
+        self.jurisdiction = jurisdiction
+        # (row bounds, col bounds, name) — the sheet packs PAYE + NI
+        # side-by-side so one staged row record spans two tables and
+        # must be partitioned by column, not just row.
+        self._tables: list[tuple[int, int, int, int, str]] = []
+        for tname, ref in tables.items():
+            c0, r0, c1, r1 = range_boundaries(ref)
+            if r0 is None or r1 is None or c0 is None or c1 is None:
+                continue
+            self._tables.append((r0, r1, c0, c1, tname.lower()))
+        self._bands: dict[str, dict[str, list[Any]]] = {}
+
+    def _upsert(self, session: Session, year: str) -> TaxRuleSet:
+        rs = session.execute(
+            select(TaxRuleSet).where(
+                TaxRuleSet.tax_year == year,
+                TaxRuleSet.jurisdiction == self.jurisdiction,
+                TaxRuleSet.version == 1)
+        ).scalar_one_or_none()
+        if rs is None:
+            rs = TaxRuleSet(tax_year=year,
+                            jurisdiction=self.jurisdiction,
+                            version=1, params="{}")
+            session.add(rs)
+        rs.params = json.dumps(self._bands[year], sort_keys=True)
+        session.flush()
+        return rs
+
+    def map_record(
+        self, session: Session, batch: ImportBatch, record: ImportRecord
+    ) -> tuple[str, int] | None:
+        m = _ROW_RE.search(record.cell_range)
+        row = int(m.group(1)) if m else 0
+        vals = record_values(record)
+        target: tuple[str, int] | None = None
+        for r0, r1, c0, c1, tname in self._tables:
+            if not r0 <= row <= r1:
+                continue
+            cells = {c: v for c, v in vals.items() if c0 <= c <= c1}
+            if not cells or any(
+                    isinstance(v, str) and v.startswith("=")
+                    for v in cells.values()):
+                continue  # defect D guard: formulas never become rules
+            year = str(cells.get(2) or cells.get(8) or "")
+            if not year or year.lower().startswith("tax"):
+                continue
+            acc = self._bands.setdefault(
+                year, {"paye": [], "ni": [], "student_loan": []})
+            if tname.startswith("tblpaye"):
+                acc["paye"].append({"order": _num(cells.get(3)),
+                                    "limits": [_num(cells.get(4)),
+                                               _num(cells.get(5))],
+                                    "rate": _num(cells.get(6))})
+            elif tname.startswith("tblni"):
+                acc["ni"].append({"category": cells.get(9),
+                                  "order": _num(cells.get(10)),
+                                  "limits": [_num(cells.get(11)),
+                                             _num(cells.get(12))],
+                                  "rate": _num(cells.get(13))})
+            elif tname.startswith("tblstudent"):
+                acc["student_loan"].append(
+                    {"plan": cells.get(3),
+                     "threshold": _num(cells.get(4)),
+                     "rate": _num(cells.get(5))})
+            else:
+                continue
+            rs = self._upsert(session, year)
+            target = target or ("tax_rule_set", rs.id)
+        return target
+
+
+class PayrollExtractor:
+    """tblMonthlyModel rows → PayrollRun + PayrollComponent lines.
+    Inputs are literals; computed amounts resolve through ``cache``
+    (Excel's saved results — the model's whole output is formulas).
+    Status is recomputed by pay date (reconciled when paid, else
+    forecast) — the workbook's own status cells are not trusted."""
+
+    # Monthly Model rows are formula-dominant (computed payroll output)
+    # so they stage as aggregate — they ARE the data here, resolved via
+    # cache, not fabricated totals.
+    accept_classes = {RowClass.actual, RowClass.forecast_overwritten,
+                      RowClass.aggregate}
+
+    def __init__(self, sheet: str, employment_id: int, jurisdiction: str,
+                 cache: dict[tuple[str, int, int], Any],
+                 today: date | None = None) -> None:
+        self.sheet = sheet
+        self.employment_id = employment_id
+        self.jurisdiction = jurisdiction
+        self.cache = cache
+        self.today = today or date.today()
+
+    def _component(self, run: PayrollRun, row: int, col: int,
+                   kind: PayrollComponentKind, label: str,
+                   reconciled: bool) -> None:
+        v = _cached_num(self.cache, self.sheet, row, col)
+        if v is None or v == 0:
+            return
+        pence = round(v * 100)
+        run.components.append(PayrollComponent(
+            kind=kind, label=label, forecast_pence=pence,
+            actual_pence=pence if reconciled else None))
+
+    def map_record(
+        self, session: Session, batch: ImportBatch, record: ImportRecord
+    ) -> tuple[str, int] | None:
+        vals = record_values(record)
+        month = _as_date(vals.get(2))
+        if month is None:
+            return None
+        m = _ROW_RE.search(record.cell_range)
+        row = int(m.group(1)) if m else 0
+        gross = _cached_num(self.cache, self.sheet, row, 17)
+        net = _cached_num(self.cache, self.sheet, row, 27)
+        if gross is None or net is None:
+            return None
+        start = date(month.year, month.month, 1)
+        end = date(month.year, month.month,
+                   monthrange(month.year, month.month)[1])
+        # payroll month M is paid on the (Friday-snapped) 28th of M
+        pay = _pay_date(date(month.year, month.month, 1))
+        ty = self.cache.get((self.sheet, row, 3)) or (
+            f"{month.year}/{month.year + 1 - 2000}"
+            if month.month >= 4 else
+            f"{month.year - 1}/{month.year - 2000}")
+        version = session.execute(
+            select(TaxRuleSet.version).where(
+                TaxRuleSet.tax_year == str(ty),
+                TaxRuleSet.jurisdiction == self.jurisdiction)
+            .order_by(TaxRuleSet.version.desc())
+        ).scalars().first() or 1
+        reconciled = pay <= self.today
+        run = session.execute(
+            select(PayrollRun).where(
+                PayrollRun.employment_id == self.employment_id,
+                PayrollRun.period_start == start,
+                PayrollRun.period_end == end,
+                PayrollRun.corrects_id.is_(None))
+        ).scalar_one_or_none()
+        if run is None:
+            run = PayrollRun(
+                employment_id=self.employment_id,
+                period_start=start, period_end=end, pay_date=pay,
+                status=(PayrollRunStatus.reconciled if reconciled
+                        else PayrollRunStatus.forecast),
+                tax_year=str(ty), rule_set_version=version,
+                gross_pence=round(gross * 100),
+                net_pence=round(net * 100))
+            session.add(run)
+            session.flush()
+        K = PayrollComponentKind
+        for col, kind, label in (
+                (16, K.overtime, "Overtime"), (7, K.bonus, "Bonus"),
+                (19, K.allowance, "Allowance"),
+                (9, K.allowance, "Manual adjustment"),
+                (8, K.unpaid_leave, "Unpaid leave"),
+                (18, K.pension, "Pension"), (22, K.tax, "PAYE"),
+                (24, K.ni, "NI"), (25, K.student_loan, "Student loan")):
+            self._component(run, row, col, kind, label, reconciled)
+        session.flush()
+        return "payroll_run", run.id
