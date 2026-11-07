@@ -42,10 +42,18 @@ def upgrade() -> None:
         sa.Column("external_ref", sa.String(length=128), nullable=True),
         sa.Column("import_record_id", sa.Integer(), nullable=True),
         sa.Column("transfer_id", sa.Integer(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(),
+                  server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(),
+                  server_default=sa.func.now()),
         sa.UniqueConstraint("account_id", "source", "external_ref",
                             name="uq_transaction_dedup"),
+        sa.CheckConstraint(
+            "status IN ('pending','cleared','reconciled','void')",
+            name="ck_transaction_status"),
+        sa.CheckConstraint(
+            "source IN ('manual','starling','excel_import','system')",
+            name="ck_transaction_source"),
     )
     op.create_index("ix_transaction_account_id", "transaction",
                     ["account_id"])

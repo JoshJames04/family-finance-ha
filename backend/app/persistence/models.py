@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import enum
 from datetime import date, datetime
+from datetime import date as date_t
 
 from sqlalchemy import (
     Boolean,
@@ -188,13 +189,19 @@ class Transaction(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("account_id", "source", "external_ref",
                          name="uq_transaction_dedup"),
+        CheckConstraint(
+            "status IN ('pending','cleared','reconciled','void')",
+            name="ck_transaction_status"),
+        CheckConstraint(
+            "source IN ('manual','starling','excel_import','system')",
+            name="ck_transaction_source"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     account_id: Mapped[int] = mapped_column(
         ForeignKey("account.id"), nullable=False, index=True)
-    date: Mapped[date] = mapped_column(Date, nullable=False)
-    settled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    settled_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
     amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     payee: Mapped[str] = mapped_column(String(200), nullable=False)
     category_id: Mapped[int | None] = mapped_column(

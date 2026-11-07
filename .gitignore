@@ -40,3 +40,6 @@ Thumbs.db
 # Tooling
 .turbo/
 *.log
+
+# TypeScript build info
+*.tsbuildinfo
