@@ -129,6 +129,10 @@ class Account(TimestampMixin, Base):
                                                       nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False,
                                            nullable=False)
+    # NULL = no threshold; set → projection warns when the daily
+    # series dips below (issue #74).
+    min_balance_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
 
     household: Mapped[Household] = relationship(back_populates="accounts")
     owner: Mapped[UserProfile | None] = relationship(
