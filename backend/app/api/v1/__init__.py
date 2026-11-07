@@ -6,18 +6,27 @@ from app.api.v1 import (
     accounts,
     admin,
     analytics,
+    anomalies,
+    banks,
     budgets,
     categories,
+    categorisation,
     commitments,
+    credentials,
+    diagnostics,
     employments,
     expected,
     goals,
     households,
     loans,
+    notifications,
     profiles,
+    reconcile,
     reports,
+    scenarios,
     seasonal,
     subscriptions,
+    sync,
     transactions,
     transfer_rules,
     transfers,
@@ -42,3 +51,12 @@ v1_router.include_router(analytics.router)
 v1_router.include_router(seasonal.router)
 v1_router.include_router(transfer_rules.router)
 v1_router.include_router(subscriptions.router)
+v1_router.include_router(scenarios.router)
+v1_router.include_router(notifications.router)
+v1_router.include_router(categorisation.router)
+v1_router.include_router(sync.router)
+v1_router.include_router(reconcile.router)
+v1_router.include_router(credentials.router)
+v1_router.include_router(banks.router)
+v1_router.include_router(anomalies.router)
+v1_router.include_router(diagnostics.router)
