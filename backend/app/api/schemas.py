@@ -1385,6 +1385,17 @@ class BankConnectIn(BaseModel):
     provider: str = Field(pattern="^starling$")
     token: SecretStr
 
+    @field_validator("token")
+    @classmethod
+    def _header_safe_token(cls, v: SecretStr) -> SecretStr:
+        try:
+            v.get_secret_value().encode("latin-1")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                "token contains characters not encodable for HTTP "
+                "headers") from exc
+        return v
+
 
 class BankMappingOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
