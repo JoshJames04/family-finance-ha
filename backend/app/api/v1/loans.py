@@ -108,9 +108,36 @@ def add_repayment(
 def list_repayments(
     lid: int, household: HouseholdDep, session: SessionDep,
 ) -> list[schemas.RepaymentOut]:
+    """History with running outstanding after each entry (#94)."""
     ln = _get(session, household.id, lid)
-    return [schemas.RepaymentOut.model_validate(r)
-            for r in ln.repayments]
+    out = []
+    for r, bal in loans.repayment_balances(session, ln):
+        row = schemas.RepaymentOut.model_validate(r)
+        row.balance_after_pence = bal
+        out.append(row)
+    return out
+
+
+@router.get("/{lid}/projection",
+            response_model=schemas.LoanProjectionOut)
+def loan_projection(
+    lid: int, household: HouseholdDep, session: SessionDep,
+    extra_monthly: Annotated[int, Query(ge=0)] = 0,
+) -> schemas.LoanProjectionOut:
+    """What-if: debt-free date at expected rate vs rate + extra (#94)."""
+    ln = _get(session, household.id, lid)
+    base = loans.projected_payoff(session, ln)
+    extra = loans.projected_payoff(
+        session, ln, extra_monthly_pence=extra_monthly)
+    saved = (base.months - extra.months
+             if base.months is not None and extra.months is not None
+             else None)
+    return schemas.LoanProjectionOut(
+        baseline=schemas.PayoffPoint(
+            months=base.months, payoff_date=base.payoff_date),
+        with_extra=schemas.PayoffPoint(
+            months=extra.months, payoff_date=extra.payoff_date),
+        extra_monthly_pence=extra_monthly, months_saved=saved)
 
 
 @router.delete("/{lid}/repayments/{rid}", status_code=204)

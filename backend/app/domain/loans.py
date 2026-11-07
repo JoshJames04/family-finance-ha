@@ -76,6 +76,54 @@ def schedule_drift(session: Session, loan: Loan,
                  drift_pence=expected - actual)
 
 
+@dataclass(frozen=True)
+class Projection:
+    months: int | None          # None = never pays off on this rate
+    payoff_date: date | None
+
+
+def projected_payoff(
+    session: Session, loan: Loan, *,
+    extra_monthly_pence: int = 0, on: date | None = None,
+    max_months: int = 600,
+) -> Projection:
+    """Simulated debt-free date at expected + extra per month (#94).
+
+    Each simulated month m: balance = principal + interest accrued to
+    then − repayments to date − (expected + extra)×m. Payoff is the
+    first month at or below zero. ``None`` months means the rate
+    never covers the principal."""
+    on = on or date.today()
+    rate = (loan.expected_payment_pence or 0) + extra_monthly_pence
+    if rate <= 0:
+        return Projection(months=None, payoff_date=None)
+    base = repaid_pence(session, loan, on)
+    anchor = date(on.year, on.month, 1)
+    for m in range(1, max_months + 1):
+        future = date(anchor.year + (anchor.month - 1 + m) // 12,
+                      (anchor.month - 1 + m) % 12 + 1, 1)
+        due = (loan.principal_pence + accrued_interest(loan, future)
+               - base - rate * m)
+        if due <= 0:
+            return Projection(months=m, payoff_date=future)
+    return Projection(months=None, payoff_date=None)
+
+
+def repayment_balances(
+    session: Session, loan: Loan,
+) -> list[tuple[Repayment, int]]:
+    """Repayment history with running outstanding after each entry
+    (#94) — balance recomputed at each repayment's own date."""
+    out: list[tuple[Repayment, int]] = []
+    for r in sorted(loan.repayments,
+                    key=lambda x: (x.date, x.id)):
+        due = (loan.principal_pence
+               + accrued_interest(loan, r.date)
+               - repaid_pence(session, loan, before=r.date))
+        out.append((r, max(0, due)))
+    return out
+
+
 def link_repayment(session: Session, repayment: Repayment,
                    tx: Transaction) -> Repayment:
     """Bind a repayment to the real transaction it represents."""
