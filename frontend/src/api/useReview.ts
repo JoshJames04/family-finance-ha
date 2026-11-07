@@ -3,7 +3,7 @@
  * waits on a human decision, counted in one place for the nav badge,
  * the dashboard callout and the Review page. */
 import { api } from "./client";
-import { useApi, useHouseholds, type ApiState } from "./useApi";
+import { useApi, useIdentity, type ApiState } from "./useApi";
 import type { components } from "./schema";
 
 type Flag = components["schemas"]["FlagOut"];
@@ -24,7 +24,7 @@ export interface ReviewData {
 }
 
 export function useReview(rev = 0): ReviewData {
-  const ready = useHouseholds().data !== null;
+  const ready = useIdentity().data !== null;
   const flags = useApi(() => api.get("/api/v1/migration/flags"), ready, [rev]);
   const anomalies = useApi(() => api.get("/api/v1/anomalies/queue"), ready, [rev]);
   const recon = useApi(() => api.get("/api/v1/reconcile/queue"), ready, [rev]);
