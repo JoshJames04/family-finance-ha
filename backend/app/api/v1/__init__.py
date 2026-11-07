@@ -16,6 +16,7 @@ from app.api.v1 import (
     loans,
     profiles,
     reports,
+    scenarios,
     seasonal,
     subscriptions,
     transactions,
@@ -42,3 +43,4 @@ v1_router.include_router(analytics.router)
 v1_router.include_router(seasonal.router)
 v1_router.include_router(transfer_rules.router)
 v1_router.include_router(subscriptions.router)
+v1_router.include_router(scenarios.router)

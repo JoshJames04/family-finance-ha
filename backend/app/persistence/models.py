@@ -1406,6 +1406,60 @@ class PriceChangeEvent(Base):
         return self.new_pence - self.old_pence
 
 
+class ScenarioOpKind(enum.StrEnum):
+    """How a scenario op mutates the movement stream (issue #76)."""
+    add = "add"          # synthetic movement on (date, amount, account)
+    remove = "remove"    # suppress a real expected movement
+    shift = "shift"      # move a real expected movement to a new date
+
+
+class Scenario(TimestampMixin, Base):
+    """A saved what-if layer (issue #76). Ops live here, never on real
+    ExpectedMovement rows — sandbox data is strictly separate."""
+
+    __tablename__ = "scenario"
+    __table_args__ = (
+        UniqueConstraint("household_id", "name",
+                         name="uq_scenario_household_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    ops: Mapped[list[ScenarioOp]] = relationship(
+        back_populates="scenario", cascade="all, delete-orphan")
+
+
+class ScenarioOp(Base):
+    """One scenario operation (issue #76). For ``add`` the synthetic
+    movement fields carry the payload; for ``remove``/``shift`` the
+    ``expected_movement_id`` references the real movement (which is
+    itself never modified)."""
+
+    __tablename__ = "scenario_op"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scenario_id: Mapped[int] = mapped_column(
+        ForeignKey("scenario.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    kind: Mapped[ScenarioOpKind] = mapped_column(
+        Enum(ScenarioOpKind), nullable=False)
+    expected_movement_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True)
+    expected_date: Mapped[date_t | None] = mapped_column(
+        Date, nullable=True)
+    amount_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    scenario: Mapped[Scenario] = relationship(back_populates="ops")
+
+
 class MonthlyAggregate(TimestampMixin, Base):
     """Materialised per-month analytics (issue #111). Rebuildable
     identically from raw transactions + loans — never edited by hand."""
