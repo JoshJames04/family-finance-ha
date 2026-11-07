@@ -945,3 +945,28 @@ class TransferRule(TimestampMixin, Base):
         foreign_keys=[source_account_id])
     dest_account: Mapped[Account] = relationship(
         foreign_keys=[dest_account_id])
+
+
+class PayrollOverride(Base):
+    """A run-scoped manual adjustment (issue #85): signed delta against
+    a component kind, with mandatory reason + actor. Never carried into
+    future forecasts — each override lives on exactly one run."""
+
+    __tablename__ = "payroll_override"
+    __table_args__ = (
+        CheckConstraint("delta_pence != 0",
+                        name="ck_payroll_override_nonzero"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("payroll_run.id"), nullable=False, index=True)
+    kind: Mapped[PayrollComponentKind] = mapped_column(
+        Enum(PayrollComponentKind), nullable=False)
+    delta_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(300), nullable=False)
+    actor: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    run: Mapped[PayrollRun] = relationship()
