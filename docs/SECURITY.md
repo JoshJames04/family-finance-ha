@@ -16,6 +16,18 @@ mobile lock screens).
 - **AuthN:** trust HA's authenticated session at the ingress layer; in
   standalone mode, app-managed auth. Never trust a header without verifying
   HA actually injected it.
+- **Ingress trust boundary (spike #27):** `X-Remote-User-*` headers are
+  trustworthy only because the Supervisor strips client copies and
+  re-injects its own. Header trust therefore reduces to *source trust* —
+  the backend accepts them only from `172.30.32.2`, and any deployment
+  exposing the app outside the supervisor network must disable
+  header-based auth entirely. The middleware treats remote-user headers
+  on a non-supervisor socket as spoof attempts, not missing auth.
+- **Identity key:** `X-Remote-User-Id` (UUID) is the stable profile key;
+  username/display-name are refreshed decoration, never lookup keys.
+- **Standalone sessions:** Secure + HttpOnly + SameSite=Strict cookies,
+  server-side session store, rotation on privilege change, absolute
+  expiry; logout invalidates server-side.
 - **AuthZ:** application-level RBAC — `admin` / `member` / `viewer` —
   enforced in the API on every request. HA dashboard visibility is **not**
   a security boundary.

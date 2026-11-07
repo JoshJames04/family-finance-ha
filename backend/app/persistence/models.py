@@ -13,6 +13,7 @@ from datetime import date as date_t
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Date,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -98,6 +100,8 @@ class UserProfile(TimestampMixin, Base):
                                        nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True,
                                             nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(
+        String(200), nullable=True)  # standalone-mode credential
 
     household: Mapped[Household] = relationship(back_populates="members")
     owned_accounts: Mapped[list[Account]] = relationship(
@@ -170,7 +174,8 @@ class Category(TimestampMixin, Base):
     children: Mapped[list[Category]] = relationship(
         back_populates="parent")
     transactions: Mapped[list[Transaction]] = relationship(
-        back_populates="category")
+        back_populates="category",
+        foreign_keys="Transaction.category_id")
 
 
 class TransactionStatus(enum.StrEnum):
@@ -229,10 +234,15 @@ class Transaction(TimestampMixin, Base):
         ForeignKey("transfer.id"), nullable=True, index=True)
     refund_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("transaction.id"), nullable=True, index=True)
+    suggested_category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True)
 
     account: Mapped[Account] = relationship(back_populates="transactions")
     category: Mapped[Category | None] = relationship(
-        back_populates="transactions")
+        back_populates="transactions",
+        foreign_keys="Transaction.category_id")
+    suggested_category: Mapped[Category | None] = relationship(
+        foreign_keys="Transaction.suggested_category_id")
     transfer: Mapped[Transfer | None] = relationship(
         back_populates="legs")
     refund_of: Mapped[Transaction | None] = relationship(
@@ -1406,6 +1416,60 @@ class PriceChangeEvent(Base):
         return self.new_pence - self.old_pence
 
 
+class ScenarioOpKind(enum.StrEnum):
+    """How a scenario op mutates the movement stream (issue #76)."""
+    add = "add"          # synthetic movement on (date, amount, account)
+    remove = "remove"    # suppress a real expected movement
+    shift = "shift"      # move a real expected movement to a new date
+
+
+class Scenario(TimestampMixin, Base):
+    """A saved what-if layer (issue #76). Ops live here, never on real
+    ExpectedMovement rows — sandbox data is strictly separate."""
+
+    __tablename__ = "scenario"
+    __table_args__ = (
+        UniqueConstraint("household_id", "name",
+                         name="uq_scenario_household_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    ops: Mapped[list[ScenarioOp]] = relationship(
+        back_populates="scenario", cascade="all, delete-orphan")
+
+
+class ScenarioOp(Base):
+    """One scenario operation (issue #76). For ``add`` the synthetic
+    movement fields carry the payload; for ``remove``/``shift`` the
+    ``expected_movement_id`` references the real movement (which is
+    itself never modified)."""
+
+    __tablename__ = "scenario_op"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scenario_id: Mapped[int] = mapped_column(
+        ForeignKey("scenario.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    kind: Mapped[ScenarioOpKind] = mapped_column(
+        Enum(ScenarioOpKind), nullable=False)
+    expected_movement_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True)
+    expected_date: Mapped[date_t | None] = mapped_column(
+        Date, nullable=True)
+    amount_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    scenario: Mapped[Scenario] = relationship(back_populates="ops")
+
+
 class MonthlyAggregate(TimestampMixin, Base):
     """Materialised per-month analytics (issue #111). Rebuildable
     identically from raw transactions + loans — never edited by hand."""
@@ -1428,3 +1492,499 @@ class MonthlyAggregate(TimestampMixin, Base):
                                                nullable=False)
     net_worth_pence: Mapped[int] = mapped_column(Integer, default=0,
                                                  nullable=False)
+
+
+class NotificationKind(enum.StrEnum):
+    """Trigger kinds the rules engine evaluates (issue #116)."""
+    spend_above = "spend_above"      # a transaction over threshold_pence
+    balance_below = "balance_below"  # account balance under threshold
+
+
+class NotificationState(enum.StrEnum):
+    pending = "pending"      # raised, awaiting dispatch/digest window
+    delivered = "delivered"  # included in a delivery batch
+    acked = "acked"          # member acknowledged
+    snoozed = "snoozed"      # muted until snoozed_until
+
+
+class NotificationRule(TimestampMixin, Base):
+    """A notification rule (issue #116): kind + JSON params + optional
+    member target + digest config. ``params`` is a JSON object per
+    kind (e.g. ``{"threshold_pence": 50000, "account_id": 3}``)."""
+
+    __tablename__ = "notification_rule"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[NotificationKind] = mapped_column(
+        Enum(NotificationKind), nullable=False)
+    params: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False,
+                                         default=dict)
+    target_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=True)
+    channel: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="ha_notify")
+    digest: Mapped[bool] = mapped_column(Boolean, default=False,
+                                         nullable=False)
+    digest_window_minutes: Mapped[int] = mapped_column(
+        Integer, default=60, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True,
+                                          nullable=False)
+    # issue #119: HA notify service suffix (None → broadcast via
+    # notify.notify); privacy-safe strips amounts/payees/digits.
+    service: Mapped[str | None] = mapped_column(
+        String(80), nullable=True)
+    privacy_safe: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False)
+
+    events: Mapped[list[NotificationEvent]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan")
+
+
+class NotificationDelivery(Base):
+    """One dispatched notification — a single event for immediate
+    rules, or a digest covering N events (issue #116 batching)."""
+
+    __tablename__ = "notification_delivery"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("notification_rule.id"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(40), nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # issue #119 transport lifecycle: pending → sent | failed
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    events: Mapped[list[NotificationEvent]] = relationship(
+        back_populates="delivery")
+
+
+class NotificationEvent(Base):
+    """A raised trigger instance (issue #116). Idempotency anchor:
+    ``(rule_id, dedup_key)`` is unique — re-evaluating the same
+    triggering entity can never raise a second event."""
+
+    __tablename__ = "notification_event"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "dedup_key",
+                         name="uq_notify_event_dedup"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("notification_rule.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    dedup_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False,
+                                          default=dict)
+    state: Mapped[NotificationState] = mapped_column(
+        Enum(NotificationState), default=NotificationState.pending,
+        nullable=False)
+    delivery_id: Mapped[int | None] = mapped_column(
+        ForeignKey("notification_delivery.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    acked_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+    rule: Mapped[NotificationRule] = relationship(
+        back_populates="events")
+    delivery: Mapped[NotificationDelivery | None] = relationship(
+        back_populates="events")
+
+
+class MatchType(enum.StrEnum):
+    """How a categorisation rule's pattern compares to a payee."""
+    contains = "contains"
+    exact = "exact"
+    regex = "regex"
+
+
+class RuleSource(enum.StrEnum):
+    manual = "manual"    # user-authored rule
+    learned = "learned"  # created/strengthened by confirmed corrections
+
+
+class CategorisationRule(TimestampMixin, Base):
+    """payee pattern → category (issue #68). Priority-ordered
+    (lower wins); ``times_confirmed`` breaks ties — confirmed
+    corrections literally strengthen a rule's future suggestions.
+    ``auto_apply=False`` rules only fill ``suggested_category_id`` —
+    never a silent categorisation."""
+
+    __tablename__ = "categorisation_rule"
+    # No pattern-uniqueness constraint: overlapping patterns at
+    # different priorities are the whole point of precedence.
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    pattern: Mapped[str] = mapped_column(String(200), nullable=False)
+    match_type: Mapped[MatchType] = mapped_column(
+        Enum(MatchType), default=MatchType.contains, nullable=False)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("category.id"), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=100,
+                                          nullable=False)
+    auto_apply: Mapped[bool] = mapped_column(Boolean, default=False,
+                                             nullable=False)
+    times_confirmed: Mapped[int] = mapped_column(Integer, default=0,
+                                                 nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True,
+                                          nullable=False)
+    source: Mapped[RuleSource] = mapped_column(
+        Enum(RuleSource), default=RuleSource.manual, nullable=False)
+
+
+class SyncStatus(enum.StrEnum):
+    running = "running"
+    completed = "completed"
+    failed = "failed"      # resumable — cursor holds the resume point
+
+
+class SyncCursor(TimestampMixin, Base):
+    """Resumable sync state per (account, source) (issue #67).
+    ``last_ref``/``last_date`` mark the last committed page; a run
+    that dies mid-feed resumes from here without re-ingesting."""
+
+    __tablename__ = "sync_cursor"
+    __table_args__ = (
+        UniqueConstraint("account_id", "source",
+                         name="uq_synccursor_account_source"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    source: Mapped[TransactionSource] = mapped_column(
+        Enum(TransactionSource), nullable=False)
+    last_ref: Mapped[str | None] = mapped_column(String(128),
+                                                 nullable=True)
+    # issue #70 monitoring: last good run, backoff window, queued
+    # manual refresh — a refresh requested during backoff waits for
+    # the window instead of bypassing it (AC).
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    refresh_requested: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
+    last_date: Mapped[date_t | None] = mapped_column(Date,
+                                                     nullable=True)
+    status: Mapped[SyncStatus] = mapped_column(
+        Enum(SyncStatus), default=SyncStatus.completed,
+        nullable=False)
+    error: Mapped[str | None] = mapped_column(String(500),
+                                              nullable=True)
+
+
+class SyncRun(Base):
+    """One ingest attempt — counters + status for monitoring."""
+
+    __tablename__ = "sync_run"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    source: Mapped[TransactionSource] = mapped_column(
+        Enum(TransactionSource), nullable=False)
+    status: Mapped[SyncStatus] = mapped_column(
+        Enum(SyncStatus), default=SyncStatus.running, nullable=False)
+    fetched: Mapped[int] = mapped_column(Integer, default=0,
+                                         nullable=False)
+    inserted: Mapped[int] = mapped_column(Integer, default=0,
+                                          nullable=False)
+    deduped: Mapped[int] = mapped_column(Integer, default=0,
+                                         nullable=False)
+    merge_candidates: Mapped[int] = mapped_column(Integer, default=0,
+                                                  nullable=False)
+    error: Mapped[str | None] = mapped_column(String(500),
+                                              nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+class MergeStatus(enum.StrEnum):
+    pending = "pending"
+    merged = "merged"
+    dismissed = "dismissed"
+
+
+class MergeCandidate(Base):
+    """A fuzzy overlap: an incoming feed row matching an existing
+    transaction on (account, date, amount, payee). Flagged for
+    review — never auto-deleted, never double-counted (the incoming
+    row is NOT inserted)."""
+
+    __tablename__ = "merge_candidate"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    existing_txn_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), nullable=False)
+    incoming: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False)
+    status: Mapped[MergeStatus] = mapped_column(
+        Enum(MergeStatus), default=MergeStatus.pending,
+        nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+class ReconStatus(enum.StrEnum):
+    """Reconciliation lifecycle (issue #69): `matched` closes the
+    loop (auto above confidence, or user-confirmed), `pending` sits
+    in the review queue, `dismissed` records a deliberate non-match."""
+
+    pending = "pending"
+    matched = "matched"
+    dismissed = "dismissed"
+
+
+class Reconciliation(Base):
+    """Links an actual transaction to the expected movement it
+    settles. Expected rows are re-materialised (issue #72), so the
+    expected side is a snapshot — label/date/amount + source
+    provenance — not an FK. ``candidates`` holds the ranked
+    alternatives shown in the review queue for pending rows."""
+
+    __tablename__ = "reconciliation"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), nullable=False, index=True)
+    status: Mapped[ReconStatus] = mapped_column(
+        Enum(ReconStatus), default=ReconStatus.pending,
+        nullable=False)
+    score: Mapped[int] = mapped_column(
+        Integer, nullable=False)             # 0-100
+    expected_source_type: Mapped[str | None] = mapped_column(
+        String(40), nullable=True)
+    expected_source_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    expected_label: Mapped[str | None] = mapped_column(
+        String(200), nullable=True)
+    expected_date: Mapped[date_t | None] = mapped_column(
+        Date, nullable=True)
+    expected_amount_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    amount_drift_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)              # actual − expected
+    date_drift_days: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)              # actual − expected
+    candidates: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict)  # ranked alternatives
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+class VaultEntry(TimestampMixin, Base):
+    """Encrypted credential material (issue #30). ``ref`` is the
+    opaque handle the rest of the system holds — a VaultEntry's
+    ciphertext is never serialised anywhere. ``key_version`` records
+    which keyring generation produced ``ciphertext`` so rotation can
+    re-encrypt lazily."""
+
+    __tablename__ = "vault_entry"
+    __table_args__ = (
+        UniqueConstraint("household_id", "ref",
+                         name="uq_vault_household_ref"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    ciphertext: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False)
+    key_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1)
+
+
+class BankProvider(enum.StrEnum):
+    starling = "starling"
+
+
+class ConnStatus(enum.StrEnum):
+    """Connection lifecycle (issue #65): pending while unvalidated,
+    connected when the token verified, degraded on transient API
+    failures (429/5xx — sync retries), revoked on 401/403 or user
+    disconnect — terminal until re-authenticated."""
+
+    pending = "pending"
+    connected = "connected"
+    degraded = "degraded"
+    revoked = "revoked"
+
+
+class BankConnection(TimestampMixin, Base):
+    """One bank link. The token lives in the vault under
+    ``vault_ref`` — never on this row, never serialised. Sync only
+    runs while status is ``connected`` or ``degraded``."""
+
+    __tablename__ = "bank_connection"
+    __table_args__ = (
+        UniqueConstraint("household_id", "provider",
+                         name="uq_bankconn_household_provider"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    provider: Mapped[BankProvider] = mapped_column(
+        Enum(BankProvider), nullable=False)
+    vault_ref: Mapped[str] = mapped_column(
+        String(128), nullable=False)
+    label: Mapped[str | None] = mapped_column(
+        String(200), nullable=True)
+    status: Mapped[ConnStatus] = mapped_column(
+        Enum(ConnStatus), default=ConnStatus.pending,
+        nullable=False)
+    scopes: Mapped[str] = mapped_column(
+        String(400), nullable=False, default="")  # verified at auth
+    last_validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(
+        String(500), nullable=True)
+
+
+class MappingStatus(enum.StrEnum):
+    """Discovery lifecycle (issue #66): proposed until the user
+    links it to an internal account, ignored if deliberately
+    skipped, closed when the provider stops returning it."""
+
+    proposed = "proposed"
+    linked = "linked"
+    ignored = "ignored"
+    closed = "closed"
+
+
+class BankAccountMapping(TimestampMixin, Base):
+    """A provider account/space discovered for a connection. Maps
+    to one internal ``Account`` when the user confirms; balance is
+    a point-in-time provider read (never a ledger write)."""
+
+    __tablename__ = "bank_account_mapping"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "external_uid",
+                         name="uq_mapping_conn_ext"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("bank_connection.id"), nullable=False,
+        index=True)
+    external_uid: Mapped[str] = mapped_column(
+        String(64), nullable=False)
+    external_label: Mapped[str] = mapped_column(
+        String(200), nullable=False)
+    external_kind: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="account")
+    external_category_uid: Mapped[str | None] = mapped_column(
+        String(64), nullable=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True)
+    status: Mapped[MappingStatus] = mapped_column(
+        Enum(MappingStatus), default=MappingStatus.proposed,
+        nullable=False)
+    balance_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    balance_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+class AnomalyTrigger(enum.StrEnum):
+    """Explainable detection triggers (issue #114) — each flag
+    records which rule fired and the values behind it."""
+
+    amount_outlier = "amount_outlier"      # > k·MAD within payee
+    category_outlier = "category_outlier"  # > k·MAD within category
+    new_payee_large = "new_payee_large"    # unseen payee, large amt
+    burst = "burst"                        # freq spike same payee
+
+
+class AnomalyStatus(enum.StrEnum):
+    pending = "pending"
+    confirmed = "confirmed"   # user says genuinely unusual
+    dismissed = "dismissed"   # user says normal — feeds tuning
+
+
+class AnomalyFlag(Base):
+    """A suspicious transaction queued for review. ``detail`` holds
+    the trigger's computed values (median, deviation, counts) so the
+    flag can explain itself — the explanation is never absent."""
+
+    __tablename__ = "anomaly_flag"
+    __table_args__ = (
+        UniqueConstraint("transaction_id", "trigger",
+                         name="uq_anomaly_txn_trigger"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), nullable=False, index=True)
+    trigger: Mapped[AnomalyTrigger] = mapped_column(
+        Enum(AnomalyTrigger), nullable=False)
+    status: Mapped[AnomalyStatus] = mapped_column(
+        Enum(AnomalyStatus), default=AnomalyStatus.pending,
+        nullable=False)
+    detail: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+class AuthSession(TimestampMixin, Base):
+    """Server-side standalone session (issue #29). The cookie
+    carries only the opaque ``token``; role changes and
+    deactivation revoke rows so sessions die with the privilege
+    that created them."""
+
+    __tablename__ = "auth_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=False, index=True)
+    token: Mapped[str] = mapped_column(
+        String(96), nullable=False, unique=True)
+    role_at_issue: Mapped[str] = mapped_column(
+        String(20), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)

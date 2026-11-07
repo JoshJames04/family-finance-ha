@@ -15,7 +15,7 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.persistence.models import Household, UserProfile
+from app.persistence.models import Household, Role, UserProfile
 from app.persistence.session import get_session
 
 
@@ -48,19 +48,26 @@ ActorDep = Annotated[str, Depends(actor_header)]
 
 
 def resolve_profile(
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     household: HouseholdDep,
     x_profile_id: Annotated[int | None, Header()] = None,
 ) -> UserProfile | None:
-    """Optional member identity (pre-auth placeholder, like
-    X-Household-Id). None = anonymous → sees shared resources only.
-    A supplied id must resolve to an active profile in this household."""
-    from app.persistence.models import UserProfile
-    if x_profile_id is None:
+    """Member identity. The middleware-resolved profile
+    (supervisor headers in ingress mode, session cookie in
+    standalone) wins. ``X-Profile-Id`` is the standalone/dev compat
+    path — it is disabled under ingress, where only supervisor
+    identity may resolve (spoof hole, issue #29)."""
+    pid = getattr(request.state, "profile_id", None)
+    if pid is None and request.app.state.settings.ingress:
         return None
-    p = session.get(UserProfile, x_profile_id)
+    if pid is None:
+        if x_profile_id is None:
+            return None
+        pid = x_profile_id
+    p = session.get(UserProfile, pid)
     if p is None or p.household_id != household.id:
-        raise HTTPException(404, f"profile {x_profile_id} not found")
+        raise HTTPException(404, f"profile {pid} not found")
     if not p.is_active:
         raise HTTPException(403, "profile is deactivated")
     return p
@@ -69,10 +76,18 @@ def resolve_profile(
 ProfileDep = Annotated["UserProfile | None", Depends(resolve_profile)]
 
 
-def require_admin(request: Request) -> None:
-    """Pre-RBAC admin gate (issue #24): the ``X-Admin-Token`` header must
-    match ``FF_ADMIN_TOKEN``. Fail-closed: when no token is configured
-    every admin route refuses. Epic 2 replaces this with real roles."""
+def require_admin(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+) -> None:
+    """Admin gate: the middleware-resolved profile's role, or the
+    legacy ``X-Admin-Token`` header matching ``FF_ADMIN_TOKEN``.
+    Fail-closed either way (issue #29)."""
+    pid = getattr(request.state, "profile_id", None)
+    if pid is not None:
+        p = session.get(UserProfile, pid)
+        if p is not None and p.is_active and p.role == Role.admin:
+            return
     settings = request.app.state.settings
     expected = settings.admin_token
     given = request.headers.get("x-admin-token")

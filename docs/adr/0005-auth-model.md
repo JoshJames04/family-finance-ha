@@ -1,7 +1,7 @@
 # ADR-0005: Authentication & Authorisation Model
 
-Status: Proposed
-Date: 2026-11-06
+Status: Accepted
+Date: 2026-11-06 (validated by spike #27 on 2026-11-07)
 
 ## Context
 
@@ -24,6 +24,21 @@ boundary. Standalone mode has no HA session at all.
 Two auth paths, one identity/permission layer. RBAC:
 `admin` > `member` > `viewer`; data scope `shared | private(owner)` enforced
 in repository queries and API dependencies — never UI-filtered.
+
+Spike #27 validated the concrete mechanics
+(docs/spikes/0027-ha-auth.md):
+
+- Ingress injects `X-Remote-User-Id` (stable UUID — the profile key),
+  `X-Remote-User-Name`, `X-Remote-User-Display-Name` and
+  `X-Remote-User-Groups` after stripping client-supplied copies —
+  smuggling is impossible *through* ingress, so the verification duty is
+  asserting the request arrived from `172.30.32.2` (and ignoring
+  remote-user headers on any other socket).
+- First-run bootstrap: first auto-provisioned profile becomes `admin`.
+- Standalone mode: app-managed sessions (Secure/HttpOnly/SameSite cookie,
+  server-side store + rotation); credentials via local password hash, or
+  `POST /auth` against the Supervisor when `auth_api` is reachable — the
+  same profile/RBAC layer regardless.
 
 ## Consequences
 

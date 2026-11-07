@@ -37,7 +37,8 @@ jobs:
       - name: Build single-arch image
         uses: docker/build-push-action@v6
         with:
-          context: backend
+          context: .
+          file: Dockerfile
           load: true
           tags: ff:ci
           build-args: VERSION=${{ needs.verify.outputs.version }}
@@ -50,6 +51,7 @@ jobs:
             curl -sf http://localhost:8099/healthz && break || sleep 1
           done
           curl -sf http://localhost:8099/healthz
+          curl -sf http://localhost:8099/ | grep -qi "html"
           api_v=$(curl -sf http://localhost:8099/api/v1/version \
                   | python -c "import json,sys;print(json.load(sys.stdin)['version'])")
           [ "$api_v" = "${{ needs.verify.outputs.version }}" ]
@@ -72,7 +74,8 @@ jobs:
       - name: Multi-arch build + push
         uses: docker/build-push-action@v6
         with:
-          context: backend
+          context: .
+          file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: VERSION=${{ needs.verify.outputs.version }}

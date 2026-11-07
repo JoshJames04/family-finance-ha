@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime
 from datetime import date as date_t
 from decimal import Decimal
 from typing import Annotated, Any, Literal
@@ -12,6 +12,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
     field_validator,
 )
 
@@ -74,6 +75,7 @@ class AccountPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     institution_ref: str | None = Field(default=None, max_length=128)
     min_balance_pence: int | None = None
+    owner_profile_id: int | None = None  # private↔shared (audited)
 
 
 class AccountOut(BaseModel):
@@ -198,6 +200,7 @@ class TransactionOut(BaseModel):
     external_ref: str | None
     transfer_id: int | None
     refund_of_id: int | None
+    suggested_category_id: int | None
 
 
 class BulkTransactionOp(BaseModel):
@@ -395,6 +398,12 @@ class ProfileOut(BaseModel):
     display_name: str
     role: Role
     is_active: bool
+
+
+class ProfilePatch(BaseModel):
+    role: Role | None = None
+    display_name: str | None = Field(
+        default=None, min_length=1, max_length=120)
 
 
 class ShareBudgetIn(BaseModel):
@@ -1117,3 +1126,332 @@ class MonthlyAggregateOut(BaseModel):
 class NetWorthOut(BaseModel):
     net_worth_pence: int
 
+
+
+class ScenarioIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class ScenarioOpIn(BaseModel):
+    kind: str = Field(pattern="^(add|remove|shift)$")
+    expected_movement_id: int | None = None
+    account_id: int | None = None
+    expected_date: date | None = None
+    amount: Money | None = None
+    label: str | None = Field(default=None, max_length=200)
+
+
+class ScenarioOpOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    scenario_id: int
+    kind: str
+    expected_movement_id: int | None
+    account_id: int | None
+    expected_date: date | None
+    amount_pence: int | None
+    label: str | None
+
+
+class ScenarioOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    name: str
+
+
+class PaydayDeltaOut(BaseModel):
+    date: date
+    baseline_balance_pence: int
+    scenario_balance_pence: int
+    delta_pence: int
+
+
+class ScenarioDiffOut(BaseModel):
+    min_balance_changed: bool
+    baseline_min_balance_pence: int
+    baseline_min_balance_date: date | None
+    scenario_min_balance_pence: int
+    scenario_min_balance_date: date | None
+    min_balance_delta_pence: int
+    safe_to_spend_delta_pence: int
+    paydays: list[PaydayDeltaOut]
+
+
+class ScenarioRunOut(BaseModel):
+    scenario_id: int
+    account_id: int
+    days: int
+    baseline: ProjectionOut
+    projection: ProjectionOut
+    diff: ScenarioDiffOut
+
+
+class ForecastRowOut(BaseModel):
+    category_id: int | None
+    month: date
+    amount_pence: int
+    method: str
+    confidence: str
+    input_start: date | None
+    input_end: date | None
+    input_months: int
+
+
+class NotificationRuleIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    kind: str = Field(pattern="^(spend_above|balance_below)$")
+    params: dict[str, object] = Field(default_factory=dict)
+    target_profile_id: int | None = None
+    channel: str = Field(default="ha_notify", max_length=40)
+    digest: bool = False
+    digest_window_minutes: int = Field(default=60, ge=1, le=10080)
+    service: str | None = Field(default=None, max_length=80)
+    privacy_safe: bool = True
+
+
+class NotificationRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    name: str
+    kind: str
+    params: dict[str, object]
+    target_profile_id: int | None
+    channel: str
+    digest: bool
+    digest_window_minutes: int
+    enabled: bool
+    service: str | None
+    privacy_safe: bool
+
+
+class NotificationEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    rule_id: int
+    dedup_key: str
+    payload: dict[str, object]
+    state: str
+    delivery_id: int | None
+    created_at: datetime
+    delivered_at: datetime | None
+    snoozed_until: datetime | None
+
+
+class NotificationDeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    rule_id: int
+    channel: str
+    event_count: int
+    status: str
+    error: str | None
+    sent_at: datetime | None
+    created_at: datetime
+
+
+class DispatchOut(BaseModel):
+    deliveries: list[NotificationDeliveryOut]
+    events_delivered: int
+
+
+class DeliverOut(BaseModel):
+    sent: int
+    failed: int
+
+
+class CategorisationRuleIn(BaseModel):
+    pattern: str = Field(min_length=1, max_length=200)
+    match_type: str = Field(default="contains",
+                            pattern="^(contains|exact|regex)$")
+    category_id: int
+    priority: int = 100
+    auto_apply: bool = False
+
+
+class CategorisationRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    pattern: str
+    match_type: str
+    category_id: int
+    priority: int
+    auto_apply: bool
+    times_confirmed: int
+    enabled: bool
+    source: str
+
+
+class CategoriseApplyOut(BaseModel):
+    auto_applied: int
+    suggested: int
+    unmatched: int
+
+
+class PairRefundOut(BaseModel):
+    linked: int
+
+
+class SyncCursorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    source: str
+    last_ref: str | None
+    last_date: date | None
+    status: str
+    error: str | None
+    # issue #70: last-good + backoff/queue visibility
+    last_success_at: datetime | None = None
+    retry_at: datetime | None = None
+    refresh_requested: bool = False
+
+
+class SyncRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    source: str
+    status: str
+    fetched: int
+    inserted: int
+    deduped: int
+    merge_candidates: int
+    error: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class MergeCandidateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    existing_txn_id: int
+    incoming: dict[str, object]
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class MergeResolveIn(BaseModel):
+    action: str = Field(pattern="^(merged|dismissed)$")
+
+
+class ReconciliationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    transaction_id: int
+    status: str
+    score: int
+    expected_source_type: str | None
+    expected_source_id: int | None
+    expected_label: str | None
+    expected_date: date | None
+    expected_amount_pence: int | None
+    amount_drift_pence: int | None
+    date_drift_days: int | None
+    candidates: dict[str, object]
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ReconStatsOut(BaseModel):
+    scanned: int
+    matched: int
+    queued: int
+
+
+class CredentialRefOut(BaseModel):
+    """The only credential shape an API response may carry — the
+    opaque handle. There is deliberately no field capable of
+    holding secret material (issue #30 schema-level guarantee)."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    ref: str
+    key_version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CredentialStoreIn(BaseModel):
+    """Write-only input: the secret enters here and is never
+    serialised back out. ``SecretStr`` also keeps it out of reprs
+    and validation-error echoes."""
+    ref: str = Field(min_length=1, max_length=128)
+    secret: SecretStr
+
+
+class BankConnectionOut(BaseModel):
+    """Never carries token material — the token lives in the vault
+    and is write-only (issue #65 schema-level guarantee)."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    provider: str
+    label: str | None
+    status: str
+    scopes: str
+    last_validated_at: datetime | None
+    last_error: str | None
+
+
+class BankConnectIn(BaseModel):
+    provider: str = Field(pattern="^starling$")
+    token: SecretStr
+
+    @field_validator("token")
+    @classmethod
+    def _header_safe_token(cls, v: SecretStr) -> SecretStr:
+        try:
+            v.get_secret_value().encode("latin-1")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                "token contains characters not encodable for HTTP "
+                "headers") from exc
+        return v
+
+
+class BankMappingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    connection_id: int
+    external_uid: str
+    external_label: str
+    external_kind: str
+    account_id: int | None
+    status: str
+    balance_pence: int | None
+    balance_at: datetime | None
+
+
+class MappingLinkIn(BaseModel):
+    account_id: int | None = None
+    create_account: bool = False   # mint an internal Account if set
+
+
+class AnomalyFlagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    transaction_id: int
+    trigger: str
+    status: str
+    detail: dict[str, object]
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class AnomalyScanOut(BaseModel):
+    scanned: int
+    flagged: int
+    suppressed: int
+
+
+class LoginIn(BaseModel):
+    """Standalone-mode credential pair (issue #29). ``username``
+    matches a profile's display name in the household."""
+
+    username: str
+    password: str
