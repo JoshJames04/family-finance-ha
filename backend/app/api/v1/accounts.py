@@ -71,6 +71,33 @@ def get_balance(
             "balance_pence": current_balance(session, a.id)}
 
 
+@router.get("/{account_id}/projection",
+            response_model=schemas.ProjectionOut)
+def get_projection(
+    account_id: int, household: HouseholdDep, session: SessionDep,
+    days: Annotated[int, Query(ge=1, le=731)] = 90,
+) -> schemas.ProjectionOut:
+    """Deterministic per-account daily projection + safe-to-spend
+    (issue #74)."""
+    from app.domain import projection
+    a = _get(session, household.id, account_id)
+    p = projection.project(session, a, days)
+    return schemas.ProjectionOut(
+        account_id=p.account_id,
+        start_balance_pence=p.start_balance_pence,
+        next_payday=p.next_payday,
+        committed_until_payday_pence=p.committed_until_payday_pence,
+        safe_to_spend_pence=p.safe_to_spend_pence,
+        min_balance_pence=p.min_balance_pence,
+        min_balance_date=p.min_balance_date,
+        threshold_pence=p.threshold_pence,
+        below_threshold=p.below_threshold,
+        days=[schemas.ProjectionDayOut(
+            date=d.date, movements_pence=d.movements_pence,
+            balance_pence=d.balance_pence) for d in p.days],
+    )
+
+
 @router.post("/{account_id}/verify-balance",
              response_model=schemas.BalanceVerificationOut, status_code=201)
 def verify_account_balance(
