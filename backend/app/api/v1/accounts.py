@@ -71,6 +71,35 @@ def get_balance(
             "balance_pence": current_balance(session, a.id)}
 
 
+@router.post("/{account_id}/verify-balance",
+             response_model=schemas.BalanceVerificationOut, status_code=201)
+def verify_account_balance(
+    account_id: int, body: schemas.BalanceVerifyIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.BalanceVerificationOut:
+    a = _get(session, household.id, account_id)
+    v = accts.verify_balance(
+        session, a, body.asserted_balance.pence, body.verified_date,
+        correct=body.correct, note=body.note)
+    emit(session, household.id, actor, "verify_balance", "account", a.id,
+         {"verification_id": v.id, "variance_pence": v.variance_pence,
+          "corrected": v.correction_txn_id is not None})
+    return schemas.BalanceVerificationOut.model_validate(v)
+
+
+@router.get("/{account_id}/verifications",
+            response_model=schemas.Page[schemas.BalanceVerificationOut])
+def account_verifications(
+    account_id: int, household: HouseholdDep, session: SessionDep,
+) -> schemas.Page[schemas.BalanceVerificationOut]:
+    a = _get(session, household.id, account_id)
+    rows = accts.verifications(session, a.id)
+    return schemas.Page(
+        items=[schemas.BalanceVerificationOut.model_validate(v)
+               for v in rows],
+        total=len(rows), page=1, size=len(rows) or 1)
+
+
 @router.patch("/{account_id}", response_model=schemas.AccountOut)
 def patch_account(
     account_id: int, body: schemas.AccountPatch,
