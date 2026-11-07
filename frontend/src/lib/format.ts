@@ -135,6 +135,7 @@ const weekdayDayMonthFmt = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",
 });
+const weekdayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "long" });
 const longDateFmt = new Intl.DateTimeFormat("en-GB", {
   weekday: "long",
   day: "numeric",
@@ -188,6 +189,13 @@ export function formatSmartDate(iso: string, now: Date = new Date()): string {
 /** ISO → "Mon 10 Nov". */
 export function formatWeekdayDayMonth(iso: string): string {
   return safe(iso, weekdayDayMonthFmt);
+}
+
+/** ISO → weekday name ("Monday"). */
+export function formatWeekday(iso: string): string {
+  const d = parseISODate(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return weekdayFmt.format(d);
 }
 
 /** Date → "Saturday 7 November". */

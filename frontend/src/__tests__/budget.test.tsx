@@ -28,9 +28,14 @@ const ACTUALS = {
     accuracy_pct: 40, original_accuracy_pct: 40 } },
 };
 
+const FLAT_CATS = { items: [
+  { id: 1, household_id: 1, parent_id: null,
+    name: "Food", is_system: false, archived: false },
+], total: 1 };
+
 function stubFetch(
   calls: { url: string; method: string; body: string }[],
-  opts: { locked?: boolean } = {},
+  opts: { locked?: boolean; categories?: object; detail?: object } = {},
 ) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -42,7 +47,7 @@ function stubFetch(
           { status: 200, headers: { "Content-Type": "application/json" } }));
       }
       const detail = opts.locked
-        ? { ...DETAIL, status: "locked" } : DETAIL;
+        ? { ...DETAIL, status: "locked" } : (opts.detail ?? DETAIL);
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
         : url.includes("/actuals")
@@ -52,10 +57,7 @@ function stubFetch(
             : url.includes("/api/v1/budgets")
               ? BUDGETS
               : url.includes("/api/v1/categories")
-                ? { items: [
-                    { id: 1, household_id: 1, parent_id: null,
-                      name: "Food", is_system: false, archived: false },
-                  ], total: 1 }
+                ? (opts.categories ?? FLAT_CATS)
                 : url.includes("expected-movements")
                   ? []
                   : { items: [], total: 0 };
@@ -102,5 +104,36 @@ describe("Budget", () => {
     render(<MemoryRouter><Budget /></MemoryRouter>);
     await screen.findByText("locked — read-only");
     expect(screen.queryByLabelText("Revise Food")).toBeNull();
+  });
+  it("groups lines into sections with subtotals when parents exist", async () => {
+    const detail = {
+      ...DETAIL,
+      lines: [
+        { id: 11, category_id: 1, side: "expense", original_pence: 30000,
+          revised_pence: null, rollover: false, effective_pence: 30000 },
+        { id: 12, category_id: 2, side: "expense", original_pence: 15000,
+          revised_pence: null, rollover: false, effective_pence: 15000 },
+      ],
+    };
+    const categories = { items: [
+      { id: 10, household_id: 1, parent_id: null,
+        name: "Household Bills", is_system: false, archived: false },
+      { id: 1, household_id: 1, parent_id: 10,
+        name: "Food", is_system: false, archived: false },
+      { id: 2, household_id: 1, parent_id: 10,
+        name: "Electric", is_system: false, archived: false },
+    ], total: 3 };
+    stubFetch([], { detail, categories });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    // Section header with subtotal, both children under it.
+    const header = await screen.findByRole("button", { name: /Household Bills/ });
+    expect(screen.getByText("Food")).toBeTruthy();
+    expect(screen.getByText("Electric")).toBeTruthy();
+    // Collapse hides the rows; expand brings them back.
+    await user.click(header);
+    await waitFor(() => expect(screen.queryByText("Food")).toBeNull());
+    await user.click(await screen.findByRole("button", { name: /Household Bills/ }));
+    await screen.findByText("Food");
   });
 });

@@ -3,9 +3,9 @@
  * revision editing, visible lock state, and an expected-movements
  * side panel for the selected period — the money picture at a glance,
  * not a spreadsheet wall. */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CalendarDays, ChevronLeft, ChevronRight, Lock, Pencil, Target } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Lock, Pencil, Target } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
 import {
@@ -30,6 +30,7 @@ import {
 
 type Line = components["schemas"]["BudgetLineOut"];
 type Movement = components["schemas"]["ExpectedMovementOut"];
+type Cat = components["schemas"]["CategoryOut"];
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   draft: "neutral", approved: "success", locked: "neutral",
@@ -37,6 +38,81 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 
 function ownerKey(b: BudgetT): string {
   return b.owner_profile_id == null ? "shared" : String(b.owner_profile_id);
+}
+
+/** The category this line's category rolls up to — its direct parent,
+ * or the category itself when it is a top-level grouping bucket (a
+ * parent of other categories). Ungrouped lines return null. */
+function sectionParent(cat: Cat | undefined, byId: Map<number, Cat>): Cat | null {
+  if (!cat) return null;
+  if (cat.parent_id != null) return byId.get(cat.parent_id) ?? null;
+  // A top-level category that is itself a parent of budgeted categories
+  // belongs to its own section.
+  if ([...byId.values()].some((c) => c.parent_id === cat.id)) return cat;
+  return null;
+}
+
+type Section = {
+  key: string;
+  name: string;
+  rows: Line[];
+  original: number;
+  revised: number;
+  actual: number;
+  variance: number;
+};
+
+/** Group lines into named sections by their categories' parents. When
+ * no line has a parent the result is a single flat pseudo-section, so
+ * callers can render without headers — zero visual regression. */
+function groupLines(
+  rows: Line[],
+  byId: Map<number, Cat>,
+  analyses: Record<string, LineAnalysis>,
+): Section[] {
+  const groups = new Map<string, { name: string; rows: Line[] }>();
+  for (const l of rows) {
+    const parent = sectionParent(byId.get(l.category_id), byId);
+    const key = parent ? String(parent.id) : "";
+    const name = parent?.name ?? "Other categories";
+    const g = groups.get(key) ?? { name, rows: [] };
+    g.rows.push(l);
+    groups.set(key, g);
+  }
+  const sections = [...groups.entries()].map(([key, g]) => ({
+    key,
+    name: g.name,
+    rows: g.rows,
+    original: g.rows.reduce((s, l) => s + l.original_pence, 0),
+    revised: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.effective_pence ?? l.revised_pence ?? l.original_pence), 0),
+    actual: g.rows.reduce((s, l) => s + Math.abs(analyses[String(l.id)]?.actual_pence ?? 0), 0),
+    variance: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.variance_pence ?? 0), 0),
+  }));
+  // Named sections alphabetically; the ungrouped bucket always last.
+  return sections.sort((a, b) =>
+    a.key === "" ? 1 : b.key === "" ? -1 : a.name.localeCompare(b.name));
+}
+
+/** Collapsed-section state persisted per budget so a period's layout is
+ * remembered between visits (issue #272). */
+function useCollapsedSections(budgetId: number | null): [Record<string, boolean>, (key: string) => void] {
+  const storeKey = `budget-sections:${budgetId ?? "none"}`;
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(sessionStorage.getItem(storeKey) ?? "{}"); }
+    catch { return {}; }
+  });
+  useEffect(() => {
+    try { setCollapsed(JSON.parse(sessionStorage.getItem(storeKey) ?? "{}")); }
+    catch { setCollapsed({}); }
+  }, [storeKey]);
+  const toggle = (key: string) => {
+    setCollapsed((c) => {
+      const next = { ...c, [key]: !c[key] };
+      try { sessionStorage.setItem(storeKey, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  };
+  return [collapsed, toggle];
 }
 
 export function Budget() {
@@ -73,6 +149,7 @@ export function Budget() {
   const locked = detail.data
     ? detail.data.status === "locked" || detail.data.read_only
     : false;
+  const [collapsed, toggleSection] = useCollapsedSections(id);
 
   /* ---- period navigation ---- */
   const owners = useMemo(() => [...new Set(items.map(ownerKey))], [items]);
@@ -237,6 +314,70 @@ export function Budget() {
                             {sides.map((side) => {
                               const rows = d.lines.filter((l) => l.side === side.key);
                               if (rows.length === 0) return null;
+                              const sections = groupLines(rows, categories.byId, analyses);
+                              // Only show section furniture when real grouping
+                              // exists — one ungrouped bucket renders flat.
+                              const sectioned = sections.some((s) => s.key !== "");
+                              const renderLine = (l: Line) => {
+                                const an = analyses[String(l.id)];
+                                const name = categories.byId.get(l.category_id)?.name ?? `Category ${l.category_id}`;
+                                const v = an?.variance_pence ?? 0;
+                                const plan = an?.effective_pence ?? l.revised_pence ?? l.original_pence;
+                                const actual = Math.abs(an?.actual_pence ?? 0);
+                                // Accuracy is meaningless for an empty plan with no spend.
+                                const acc = plan === 0 && actual === 0 ? null : an?.accuracy_pct ?? null;
+                                return (
+                                  <tr key={l.id} className="border-b border-border last:border-0 hover:bg-surface-2/60">
+                                    <td className="py-2.5 pl-4" data-label="Category">
+                                      <div className="flex items-center gap-2.5">
+                                        <IconTile label={name} size="sm" />
+                                        <div className="min-w-0">
+                                          <p className="font-medium">{name}</p>
+                                          {an?.revision_reason && (
+                                            <p className="ff-reason truncate text-[12px] text-fg-subtle">
+                                              Revised: {an.revision_reason}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="tnum px-3 text-right text-fg-muted" data-label="Original">
+                                      <Money pence={l.original_pence} />
+                                    </td>
+                                    <td className="px-3 text-right" data-label="Revised">
+                                      {locked ? (
+                                        l.revised_pence != null ? <Money pence={l.revised_pence} /> : <span className="text-fg-subtle">—</span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          className="group ff-inline-edit inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-surface-3"
+                                          aria-label={`Revise ${name}`}
+                                          onClick={() => setRevising(l)}
+                                        >
+                                          {l.revised_pence != null
+                                            ? <Money pence={l.revised_pence} className="font-medium" />
+                                            : <span className="text-fg-subtle">—</span>}
+                                          <Pencil className="size-3 text-fg-subtle opacity-0 group-hover:opacity-100" />
+                                        </button>
+                                      )}
+                                    </td>
+                                    <td className="px-3 text-right font-medium" data-label="Actual">
+                                      {an != null ? <Money pence={an.actual_pence} /> : "—"}
+                                    </td>
+                                    <td className="px-3 text-right" data-label="Variance">
+                                      {an != null ? <Money pence={v} tone="variance" signed /> : "—"}
+                                    </td>
+                                    <td className="px-3 pr-4" data-label="Accuracy">
+                                      {acc == null ? <span className="text-fg-subtle">—</span> : (
+                                        <div className="flex items-center gap-2">
+                                          <Progress value={actual} max={plan} className="flex-1" label={`${name} used`} />
+                                          <span className="tnum w-10 text-right text-[12.5px] text-fg-muted">{acc}%</span>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              };
                               return (
                                 <Panel key={side.key} title={side.label} flush
                                   description={`${rows.length} line${rows.length === 1 ? "" : "s"}`}>
@@ -253,64 +394,36 @@ export function Budget() {
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {rows.map((l: Line) => {
-                                          const an = analyses[String(l.id)];
-                                          const name = categories.byId.get(l.category_id)?.name ?? `Category ${l.category_id}`;
-                                          const v = an?.variance_pence ?? 0;
-                                          const plan = an?.effective_pence ?? l.revised_pence ?? l.original_pence;
-                                          const actual = Math.abs(an?.actual_pence ?? 0);
-                                          // Accuracy is meaningless for an empty plan with no spend.
-                                          const acc = plan === 0 && actual === 0 ? null : an?.accuracy_pct ?? null;
+                                        {sections.map((sec) => {
+                                          if (!sectioned) {
+                                            return <Fragment key={sec.key || "flat"}>{sec.rows.map(renderLine)}</Fragment>;
+                                          }
+                                          const isCollapsed = !!collapsed[sec.key || "other"];
                                           return (
-                                            <tr key={l.id} className="border-b border-border last:border-0 hover:bg-surface-2/60">
-                                              <td className="py-2.5 pl-4" data-label="Category">
-                                                <div className="flex items-center gap-2.5">
-                                                  <IconTile label={name} size="sm" />
-                                                  <div className="min-w-0">
-                                                    <p className="font-medium">{name}</p>
-                                                    {an?.revision_reason && (
-                                                      <p className="ff-reason truncate text-[12px] text-fg-subtle">
-                                                        Revised: {an.revision_reason}
-                                                      </p>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              </td>
-                                              <td className="tnum px-3 text-right text-fg-muted" data-label="Original">
-                                                <Money pence={l.original_pence} />
-                                              </td>
-                                              <td className="px-3 text-right" data-label="Revised">
-                                                {locked ? (
-                                                  l.revised_pence != null ? <Money pence={l.revised_pence} /> : <span className="text-fg-subtle">—</span>
-                                                ) : (
+                                            <Fragment key={sec.key || "other"}>
+                                              <tr className="border-b border-border bg-surface-2/50">
+                                                <td colSpan={6} className="p-0">
                                                   <button
                                                     type="button"
-                                                    className="group ff-inline-edit inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-surface-3"
-                                                    aria-label={`Revise ${name}`}
-                                                    onClick={() => setRevising(l)}
+                                                    aria-expanded={!isCollapsed}
+                                                    onClick={() => toggleSection(sec.key || "other")}
+                                                    className="flex w-full items-center gap-2.5 px-4 py-2 text-left hover:bg-surface-3/60"
                                                   >
-                                                    {l.revised_pence != null
-                                                      ? <Money pence={l.revised_pence} className="font-medium" />
-                                                      : <span className="text-fg-subtle">—</span>}
-                                                    <Pencil className="size-3 text-fg-subtle opacity-0 group-hover:opacity-100" />
+                                                    <ChevronDown className={cn("size-3.5 text-fg-subtle transition-transform", isCollapsed && "-rotate-90")} />
+                                                    <IconTile label={sec.name} size="sm" />
+                                                    <span className="font-semibold tracking-tight">{sec.name}</span>
+                                                    <span className="text-[12px] text-fg-subtle">{sec.rows.length}</span>
+                                                    <span className="ml-auto flex items-center gap-4 text-[12.5px]">
+                                                      <span className="text-fg-subtle">
+                                                        <Money pence={sec.actual} /> of <Money pence={sec.revised || sec.original} />
+                                                      </span>
+                                                      <Money pence={sec.variance} tone="variance" signed className="w-20 text-right" />
+                                                    </span>
                                                   </button>
-                                                )}
-                                              </td>
-                                              <td className="px-3 text-right font-medium" data-label="Actual">
-                                                {an != null ? <Money pence={an.actual_pence} /> : "—"}
-                                              </td>
-                                              <td className="px-3 text-right" data-label="Variance">
-                                                {an != null ? <Money pence={v} tone="variance" signed /> : "—"}
-                                              </td>
-                                              <td className="px-3 pr-4" data-label="Accuracy">
-                                                {acc == null ? <span className="text-fg-subtle">—</span> : (
-                                                  <div className="flex items-center gap-2">
-                                                    <Progress value={actual} max={plan} className="flex-1" label={`${name} used`} />
-                                                    <span className="tnum w-10 text-right text-[12.5px] text-fg-muted">{acc}%</span>
-                                                  </div>
-                                                )}
-                                              </td>
-                                            </tr>
+                                                </td>
+                                              </tr>
+                                              {!isCollapsed && sec.rows.map(renderLine)}
+                                            </Fragment>
                                           );
                                         })}
                                       </tbody>
