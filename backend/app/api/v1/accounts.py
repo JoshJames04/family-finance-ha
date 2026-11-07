@@ -165,11 +165,11 @@ def patch_account(
     _write(a, profile)
     changed = body.model_dump(exclude_unset=True)
     new_owner = changed.get("owner_profile_id")
-    if "owner_profile_id" in changed and profile is not None:
-        # Scope change: non-admin may only toggle own/None (issue #32).
-        if profile.role != Role.admin and new_owner not in (
-                None, profile.id):
-            raise HTTPException(403, "cannot reassign ownership")
+    if ("owner_profile_id" in changed and profile is not None
+            # Scope change: non-admin may only toggle own/None (#32).
+            and profile.role != Role.admin
+            and new_owner not in (None, profile.id)):
+        raise HTTPException(403, "cannot reassign ownership")
     for k, v in changed.items():
         setattr(a, k, v)
     emit(session, household.id, actor, "update", "account", a.id, changed)
