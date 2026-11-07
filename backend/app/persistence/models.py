@@ -1111,3 +1111,86 @@ class Repayment(Base):
 
     loan: Mapped[Loan] = relationship(back_populates="repayments")
     transaction: Mapped[Transaction | None] = relationship()
+
+
+class PurchaseStatus(enum.StrEnum):
+    idea = "idea"
+    planned = "planned"
+    purchased = "purchased"
+    wrapped = "wrapped"
+    given = "given"
+
+
+class PaymentStatus(enum.StrEnum):
+    unpaid = "unpaid"
+    paid = "paid"
+    refunded = "refunded"
+
+
+class SeasonalEvent(TimestampMixin, Base):
+    """A yearly event with its own budget — type is free text so a
+    second event kind (birthdays, weddings…) needs no schema change
+    (issue #96). Optional link to the savings goal funding it."""
+
+    __tablename__ = "seasonal_event"
+    __table_args__ = (
+        CheckConstraint("budget_pence >= 0",
+                        name="ck_seasonal_event_budget"),
+        CheckConstraint("year BETWEEN 1900 AND 2200",
+                        name="ck_seasonal_event_year"),
+        UniqueConstraint("household_id", "type", "year",
+                         name="uq_seasonal_event_household_type_year"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    type: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    budget_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    savings_goal_id: Mapped[int | None] = mapped_column(
+        ForeignKey("savings_goal.id"), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    savings_goal: Mapped[SavingsGoal | None] = relationship()
+    gifts: Mapped[list[Gift]] = relationship(
+        back_populates="event", cascade="all, delete-orphan",
+        order_by="Gift.id")
+
+
+class Gift(Base):
+    """One gift idea inside a seasonal event: recipient, planned vs
+    actual cost, purchase + payment status, optional transaction link
+    once bought (issue #96)."""
+
+    __tablename__ = "gift"
+    __table_args__ = (
+        CheckConstraint("planned_pence >= 0",
+                        name="ck_gift_planned"),
+        CheckConstraint("actual_pence IS NULL OR actual_pence >= 0",
+                        name="ck_gift_actual"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("seasonal_event.id"), nullable=False, index=True)
+    recipient: Mapped[str] = mapped_column(String(120), nullable=False)
+    idea: Mapped[str] = mapped_column(String(300), nullable=False)
+    planned_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    actual_pence: Mapped[int | None] = mapped_column(Integer,
+                                                    nullable=True)
+    purchase_status: Mapped[PurchaseStatus] = mapped_column(
+        Enum(PurchaseStatus), default=PurchaseStatus.idea,
+        nullable=False)
+    payment_status: Mapped[PaymentStatus] = mapped_column(
+        Enum(PaymentStatus), default=PaymentStatus.unpaid,
+        nullable=False)
+    transaction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transaction.id"), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    event: Mapped[SeasonalEvent] = relationship(back_populates="gifts")
+    transaction: Mapped[Transaction | None] = relationship()

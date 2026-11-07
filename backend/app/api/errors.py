@@ -51,6 +51,7 @@ def install_error_handlers(app: FastAPI) -> None:
         ReconciledImmutableError,
     )
     from app.domain.refunds import RefundError
+    from app.domain.seasonal import SeasonalError
     from app.domain.transactions import InvalidTransitionError
     from app.domain.transfer_rules import TransferRuleError
     from app.domain.transfers import TransferError
@@ -60,6 +61,7 @@ def install_error_handlers(app: FastAPI) -> None:
         PayrollError, PeriodLockedError, ReconciledImmutableError,
         RefundError, InvalidTransitionError, TransferError,
         TransferRuleError, MatchError, GoalError, LoanError,
+        SeasonalError,
     )
     for exc_type in domain_conflicts:
         @app.exception_handler(exc_type)
