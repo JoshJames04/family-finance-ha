@@ -8,7 +8,6 @@ from __future__ import annotations
 import csv
 import io
 from collections.abc import Iterator
-from datetime import date
 from pathlib import Path
 
 import pytest

@@ -1,4 +1,5 @@
-import { api, formatPence } from "../api/client";
+import { api } from "../api/client";
+import { formatPence } from "../lib/format";
 import { useApi, useHouseholds } from "../api/useApi";
 import { DataView } from "../components/DataView";
 import "./pages.css";
