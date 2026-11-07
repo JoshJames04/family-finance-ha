@@ -65,10 +65,10 @@ class TestDefectPatterns:
 
     def test_e_forecast_overwritten(self, wb: Workbook) -> None:
         ws = wb["Budget-2027"]
-        # months 4-6 (rows 5-7) have literal actuals where others are blank
-        assert all(isinstance(ws.cell(row=r, column=3).value, int)
+        # months 4-6 (rows 5-7) are literal actuals in the forecast column
+        assert all(isinstance(ws.cell(row=r, column=2).value, int)
                    for r in (5, 6, 7))
-        assert all(ws.cell(row=r, column=3).value is None
+        assert all(ws.cell(row=r, column=2).value == "=200000"
                    for r in (2, 3, 4, 8, 9, 10, 11, 12, 13))
 
     def test_f_out_of_range_period(self, wb: Workbook) -> None:
