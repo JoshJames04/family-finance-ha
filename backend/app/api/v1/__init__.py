@@ -12,6 +12,7 @@ from app.api.v1 import (
     expected,
     goals,
     households,
+    loans,
     profiles,
     transactions,
     transfer_rules,
@@ -31,4 +32,5 @@ v1_router.include_router(admin.router)
 v1_router.include_router(employments.router)
 v1_router.include_router(expected.router)
 v1_router.include_router(goals.router)
+v1_router.include_router(loans.router)
 v1_router.include_router(transfer_rules.router)
