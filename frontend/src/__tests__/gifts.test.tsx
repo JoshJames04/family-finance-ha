@@ -10,7 +10,23 @@ import { Gifts } from "../pages/Gifts";
 const EVENTS = [
   { id: 4, year: 2026, type: "christmas", name: "Christmas 2026",
     budget_pence: 60000, savings_goal_id: null, notes: null },
+  { id: 3, year: 2025, type: "christmas", name: "Christmas 2025",
+    budget_pence: 50000, savings_goal_id: null, notes: null },
 ];
+
+const COMPARISON = {
+  earlier: { planned_pence: 8000, actual_pence: 8000,
+    committed_pence: 8000, remaining_pence: 42000 },
+  later: { planned_pence: 7500, actual_pence: 5700,
+    committed_pence: 5700, remaining_pence: 54300 },
+  actual_delta_pence: -2300,
+  earlier_avg_gift_pence: 2666, later_avg_gift_pence: 2850,
+  recipients: [
+    { recipient: "Mum", earlier_actual_pence: 4000,
+      later_actual_pence: 5700, delta_pence: 1700,
+      earlier_gifts: 1, later_gifts: 2 },
+  ],
+};
 
 const GIFTS = [
   { id: 11, event_id: 4, recipient: "Sam", idea: "Lego set",
@@ -49,7 +65,9 @@ function stubFetch(posts: { url: string; body: string }[]) {
       }
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
-        : url.includes("/totals")
+        : url.includes("/compare/")
+          ? COMPARISON
+          : url.includes("/totals")
           ? TOTALS
           : url.includes("/gifts")
             ? GIFTS
@@ -82,6 +100,18 @@ describe("Gifts", () => {
       expect(posts.some((p) =>
         p.url.includes("/gifts/12/transition") && p.body.includes("planned"),
       )).toBe(true));
+  });
+  it("YoY comparison renders on selection (#99)", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Gifts /></MemoryRouter>);
+    const sel = await screen.findByLabelText(/Compare with/);
+    await user.selectOptions(sel, "3");
+    const region = await screen.findByRole("region", {
+      name: "Year-on-year comparison" });
+    expect(region.textContent).toContain("+£17.00");
+    expect(region.textContent).toContain("-£23.00");
+    expect(region.textContent).toContain("Mum");
   });
   it("pay button POSTs the pay endpoint", async () => {
     const posts: { url: string; body: string }[] = [];

@@ -914,6 +914,25 @@ class EventTotalsOut(BaseModel):
     remaining_pence: int
 
 
+class RecipientComparisonOut(BaseModel):
+    recipient: str
+    earlier_actual_pence: int
+    later_actual_pence: int
+    delta_pence: int
+    earlier_gifts: int
+    later_gifts: int
+
+
+class EventComparisonOut(BaseModel):
+    """Year-on-year comparison of two seasonal events (issue #99)."""
+    earlier: EventTotalsOut
+    later: EventTotalsOut
+    actual_delta_pence: int
+    earlier_avg_gift_pence: int | None
+    later_avg_gift_pence: int | None
+    recipients: list[RecipientComparisonOut]
+
+
 class GiftIn(BaseModel):
     recipient: str = Field(min_length=1, max_length=120)
     idea: str = Field(min_length=1, max_length=300)

@@ -85,6 +85,28 @@ def event_totals(
     return schemas.EventTotalsOut(**vars(seasonal.totals(session, e)))
 
 
+@router.get("/{eid}/compare/{other_id}",
+            response_model=schemas.EventComparisonOut)
+def compare_events(
+    eid: int, other_id: int, household: HouseholdDep,
+    session: SessionDep,
+) -> schemas.EventComparisonOut:
+    """YoY comparison of this event vs another (issue #99): totals,
+    per-recipient drift, average spend per priced gift."""
+    a = _event(session, household.id, eid)
+    b = _event(session, household.id, other_id)
+    earlier, later = (a, b) if a.year < b.year else (b, a)
+    c = seasonal.compare(session, earlier, later)
+    return schemas.EventComparisonOut(
+        earlier=schemas.EventTotalsOut(**vars(c.earlier)),
+        later=schemas.EventTotalsOut(**vars(c.later)),
+        actual_delta_pence=c.actual_delta_pence,
+        earlier_avg_gift_pence=c.earlier_avg_gift_pence,
+        later_avg_gift_pence=c.later_avg_gift_pence,
+        recipients=[schemas.RecipientComparisonOut(**vars(r))
+                    for r in c.recipients])
+
+
 @router.post("/{eid}/gifts",
              response_model=schemas.GiftOut, status_code=201)
 def add_gift(

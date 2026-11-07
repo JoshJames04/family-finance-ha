@@ -13,6 +13,7 @@ import { formatPence } from "../lib/format";
 type Event = components["schemas"]["SeasonalEventOut"];
 type Gift = components["schemas"]["GiftOut"];
 type PurchaseStatus = components["schemas"]["PurchaseStatus"];
+type Comparison = components["schemas"]["EventComparisonOut"];
 
 const NEXT: Partial<Record<PurchaseStatus, PurchaseStatus>> = {
   idea: "planned",
@@ -23,6 +24,45 @@ const NEXT: Partial<Record<PurchaseStatus, PurchaseStatus>> = {
 
 function variance(g: Gift): number | null {
   return g.actual_pence === null ? null : g.actual_pence - g.planned_pence;
+}
+
+/** YoY table (issue #99): totals, per-recipient drift, avg/gift. */
+function ComparisonTable({ c }: { c: Comparison }) {
+  const delta = (n: number) =>
+    `${n >= 0 ? "+" : ""}${formatPence(n)}`;
+  return (
+    <section aria-label="Year-on-year comparison">
+      <h2>Year-on-year</h2>
+      <p className="ff-muted">
+        Earlier <Money pence={c.earlier.actual_pence} /> → later{" "}
+        <Money pence={c.later.actual_pence} /> ({delta(c.actual_delta_pence)})
+        {" · "}avg/gift{" "}
+        {c.earlier_avg_gift_pence === null ? "—"
+          : formatPence(c.earlier_avg_gift_pence)} →{" "}
+        {c.later_avg_gift_pence === null ? "—"
+          : formatPence(c.later_avg_gift_pence)}
+      </p>
+      <table>
+        <thead>
+          <tr><th>Recipient</th><th>Earlier</th><th>Later</th><th>Δ</th></tr>
+        </thead>
+        <tbody>
+          {c.recipients.map((r) => (
+            <tr key={r.recipient}>
+              <td>{r.recipient}</td>
+              <td className="ff-num">
+                <Money pence={r.earlier_actual_pence} />
+              </td>
+              <td className="ff-num">
+                <Money pence={r.later_actual_pence} />
+              </td>
+              <td className="ff-num">{delta(r.delta_pence)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
 }
 
 export function Gifts() {
@@ -44,6 +84,17 @@ export function Gifts() {
       { path: { eid: event! } }),
     event !== null,
     [event, rev],
+  );
+  const [cmpId, setCmpId] = useState<number | null>(null);
+  const eventObj = (events.data ?? []).find((e) => e.id === event);
+  const cmpCandidates = (events.data ?? []).filter(
+    (e) => eventObj && e.id !== event && e.type === eventObj.type);
+  const cmp = useApi(
+    () => api.get(
+      "/api/v1/seasonal-events/{eid}/compare/{other_id}",
+      { path: { eid: event!, other_id: cmpId! } }),
+    event !== null && cmpId !== null,
+    [event, cmpId],
   );
   const byRecipient = useMemo(() => {
     const m = new Map<string, Gift[]>();
@@ -89,6 +140,22 @@ export function Gifts() {
           </p>
         )}
       </DataView>
+      {cmpCandidates.length > 0 && (
+        <label>
+          Compare with{" "}
+          <select
+            value={cmpId ?? ""}
+            onChange={(e) =>
+              setCmpId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">—</option>
+            {cmpCandidates.map((ev) => (
+              <option key={ev.id} value={ev.id}>{ev.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {cmp.data && <ComparisonTable c={cmp.data} />}
       <DataView state={gifts} empty="No gifts planned yet.">
         {() => (
           <>
