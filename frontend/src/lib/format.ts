@@ -44,3 +44,13 @@ export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : dateTimeFmt.format(d);
 }
+
+const monthFmt = new Intl.DateTimeFormat("en-GB", {
+  month: "long",
+  year: "numeric",
+});
+
+/** (year, month 0-based) → "March 2025" — calendar headings. */
+export function formatMonth(year: number, month: number): string {
+  return monthFmt.format(new Date(Date.UTC(year, month, 1)));
+}
