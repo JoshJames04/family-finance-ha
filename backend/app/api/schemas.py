@@ -297,4 +297,4 @@ class RolloverIn(BaseModel):
 
 class RolloverResult(BaseModel):
     applied: int
-    carries: list[dict]
+    carries: list[dict[str, object]]

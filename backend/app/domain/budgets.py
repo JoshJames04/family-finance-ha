@@ -273,7 +273,7 @@ def copy_forward(
 # ---------- rollover (issue #60) ---------------------------------------
 def apply_rollover(
     session: Session, source: Budget, target: Budget
-) -> list[dict]:
+) -> list[dict[str, object]]:
     """Carry per-line surplus/deficit into the target budget's revised.
 
     carry = source.effective - source.actual  (underspend → positive).
@@ -288,7 +288,7 @@ def apply_rollover(
         raise BudgetError("target budget is locked")
     actuals = actuals_for_budget(session, source)
     src_lines = {sl.category_id: sl for sl in source.lines}
-    events: list[dict] = []
+    events: list[dict[str, object]] = []
     for tl in target.lines:
         sl = src_lines.get(tl.category_id)
         if sl is None or not sl.rollover:
