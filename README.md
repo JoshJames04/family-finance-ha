@@ -9,7 +9,8 @@ spending — all in one place, under your control.
 > GitHub Issues; delivery is tracked on the
 > [Family Finance project board](https://github.com/users/JoshJames04/projects/1)
 > (Backlog / Board / Current Sprint / Roadmap / By Epic views) with phases in
-> [Milestones](../../milestones) and the [Roadmap](docs/ROADMAP.md).
+> [Milestones](https://github.com/JoshJames04/family-finance-ha/milestones) and
+> the [Roadmap](docs/ROADMAP.md).
 
 ## Why this exists
 
