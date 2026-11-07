@@ -631,6 +631,28 @@ export interface paths {
         patch: operations["patch_transaction_api_v1_transactions__txn_id__patch"];
         trace?: never;
     };
+    "/api/v1/transactions/{txn_id}/correct": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct Transaction
+         * @description Supersede a reconciled transaction with a corrected pending row
+         *     (issue #124). Reason is required — corrections are audited, the
+         *     original is voided, never edited.
+         */
+        post: operations["correct_transaction_api_v1_transactions__txn_id__correct_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/bulk": {
         parameters: {
             query?: never;
@@ -716,6 +738,33 @@ export interface paths {
         post?: never;
         /** Deactivate Commitment */
         delete: operations["deactivate_commitment_api_v1_commitments__cid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/profiles/me/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dashboard
+         * @description The caller's dashboard arrangement (issue #123). No profile
+         *     (standalone/ingress-pending) → `layout: null`; the client falls
+         *     back to a local default.
+         */
+        get: operations["get_dashboard_api_v1_profiles_me_dashboard_get"];
+        /**
+         * Put Dashboard
+         * @description Persist the caller's dashboard arrangement. Any active profile
+         *     may arrange their own dashboard — no role gate.
+         */
+        put: operations["put_dashboard_api_v1_profiles_me_dashboard_put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3938,6 +3987,23 @@ export interface components {
             secret: string;
         };
         /**
+         * DashboardLayoutIn
+         * @description Per-member dashboard arrangement (issue #123): widget order +
+         *     hidden set. Keys are client-side registry ids — the API stores the
+         *     arrangement opaquely and bounds its size.
+         */
+        DashboardLayoutIn: {
+            /** Order */
+            order?: string[];
+            /** Hidden */
+            hidden?: string[];
+        };
+        /** DashboardOut */
+        DashboardOut: {
+            role: components["schemas"]["Role"] | null;
+            layout: components["schemas"]["DashboardLayoutIn"] | null;
+        };
+        /**
          * DayType
          * @enum {string}
          */
@@ -5948,6 +6014,21 @@ export interface components {
          * @enum {string}
          */
         TaxJurisdiction: "england_wales" | "scotland" | "northern_ireland";
+        /**
+         * TransactionCorrect
+         * @description Correction request for a reconciled transaction (issue #124):
+         *     the reason is mandatory — corrections are audit events, not edits.
+         */
+        TransactionCorrect: {
+            /** Reason */
+            reason: string;
+            /** Payee */
+            payee?: string | null;
+            /** Category Id */
+            category_id?: number | null;
+            /** Notes */
+            notes?: string | null;
+        };
         /** TransactionIn */
         TransactionIn: {
             /** Account Id */
@@ -6003,6 +6084,8 @@ export interface components {
             refund_of_id: number | null;
             /** Suggested Category Id */
             suggested_category_id: number | null;
+            /** Corrects Id */
+            corrects_id: number | null;
         };
         /** TransactionPatch */
         TransactionPatch: {
@@ -7766,6 +7849,45 @@ export interface operations {
             };
         };
     };
+    correct_transaction_api_v1_transactions__txn_id__correct_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                txn_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransactionCorrect"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     bulk_transactions_api_v1_transactions_bulk_post: {
         parameters: {
             query?: never;
@@ -7998,6 +8120,75 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dashboard_api_v1_profiles_me_dashboard_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-profile-id"?: number | null;
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_dashboard_api_v1_profiles_me_dashboard_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardLayoutIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
+                };
             };
             /** @description Validation Error */
             422: {

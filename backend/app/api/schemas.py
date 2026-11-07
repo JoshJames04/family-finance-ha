@@ -185,6 +185,15 @@ class TransactionPatch(BaseModel):
     status: TransactionStatus | None = None
 
 
+class TransactionCorrect(BaseModel):
+    """Correction request for a reconciled transaction (issue #124):
+    the reason is mandatory — corrections are audit events, not edits."""
+    reason: str = Field(min_length=1, max_length=500)
+    payee: str | None = Field(default=None, min_length=1, max_length=200)
+    category_id: int | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class TransactionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -201,6 +210,7 @@ class TransactionOut(BaseModel):
     transfer_id: int | None
     refund_of_id: int | None
     suggested_category_id: int | None
+    corrects_id: int | None
 
 
 class BulkTransactionOp(BaseModel):
@@ -398,6 +408,19 @@ class ProfileOut(BaseModel):
     display_name: str
     role: Role
     is_active: bool
+
+
+class DashboardLayoutIn(BaseModel):
+    """Per-member dashboard arrangement (issue #123): widget order +
+    hidden set. Keys are client-side registry ids — the API stores the
+    arrangement opaquely and bounds its size."""
+    order: list[str] = Field(default_factory=list, max_length=50)
+    hidden: list[str] = Field(default_factory=list, max_length=50)
+
+
+class DashboardOut(BaseModel):
+    role: Role | None
+    layout: DashboardLayoutIn | None
 
 
 class ProfilePatch(BaseModel):
