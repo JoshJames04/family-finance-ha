@@ -1160,3 +1160,14 @@ class ScenarioRunOut(BaseModel):
     baseline: ProjectionOut
     projection: ProjectionOut
     diff: ScenarioDiffOut
+
+
+class ForecastRowOut(BaseModel):
+    category_id: int | None
+    month: date
+    amount_pence: int
+    method: str
+    confidence: str
+    input_start: date | None
+    input_end: date | None
+    input_months: int
