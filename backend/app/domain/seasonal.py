@@ -90,3 +90,45 @@ def totals(session: Session, event: SeasonalEvent) -> EventTotals:
         actual_pence=int(rows[1] or 0),
         committed_pence=int(rows[2] or 0),
         remaining_pence=event.budget_pence - int(rows[2] or 0))
+
+
+def rollover(
+    session: Session,
+    event: SeasonalEvent,
+    year: int,
+    *,
+    copy_planned: bool = False,
+    carry_remaining: bool = False,
+) -> SeasonalEvent:
+    """Seed next year's event from this one (issue #98).
+
+    Recipients + ideas carry over as fresh ``idea``-status gifts; last
+    year's amounts do NOT carry by default — ``copy_planned`` opts in.
+    ``carry_remaining`` folds unspent budget into the new event's
+    budget (remaining-budget policy); otherwise the budget resets to
+    the same figure and any surplus stays in the sinking fund.
+    """
+    clash = session.execute(
+        select(SeasonalEvent).where(
+            SeasonalEvent.household_id == event.household_id,
+            SeasonalEvent.type == event.type,
+            SeasonalEvent.year == year)
+    ).scalar_one_or_none()
+    if clash is not None:
+        raise SeasonalError(
+            f"{event.type} {year} already exists (id={clash.id})")
+    budget = event.budget_pence
+    if carry_remaining:
+        budget += max(0, totals(session, event).remaining_pence)
+    new = SeasonalEvent(
+        household_id=event.household_id, year=year, type=event.type,
+        name=event.name, budget_pence=budget,
+        savings_goal_id=event.savings_goal_id, notes=event.notes)
+    session.add(new)
+    session.flush()
+    for g in event.gifts:
+        session.add(Gift(
+            event_id=new.id, recipient=g.recipient, idea=g.idea,
+            planned_pence=g.planned_pence if copy_planned else 0))
+    session.flush()
+    return new

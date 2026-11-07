@@ -111,6 +111,21 @@ def list_gifts(
     return list(e.gifts)
 
 
+@router.post("/{eid}/rollover",
+             response_model=schemas.SeasonalEventOut, status_code=201)
+def rollover_event(
+    eid: int, body: schemas.EventRolloverIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> SeasonalEvent:
+    e = _event(session, household.id, eid)
+    new = seasonal.rollover(
+        session, e, body.year, copy_planned=body.copy_planned,
+        carry_remaining=body.carry_remaining)
+    emit(session, household.id, actor, "rollover", "seasonal_event",
+         new.id, {"from_event_id": e.id, "year": new.year})
+    return new
+
+
 @router.post("/{eid}/gifts/{gid}/transition",
              response_model=schemas.GiftOut)
 def transition_gift(
