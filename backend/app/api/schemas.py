@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from datetime import date as date_t
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +16,8 @@ from app.persistence.models import (
     BudgetStatus,
     Frequency,
     Role,
+    StudentLoanPlan,
+    TaxJurisdiction,
     TransactionSource,
     TransactionStatus,
 )
@@ -387,3 +390,86 @@ class RestoreRequest(BaseModel):
 class RestoreAccepted(BaseModel):
     name: str
     applies_on_next_start: bool = True
+
+
+class EmploymentIn(BaseModel):
+    profile_id: int
+    employer: str = Field(min_length=1, max_length=200)
+    jurisdiction: TaxJurisdiction = TaxJurisdiction.england_wales
+    ni_category: str = Field(default="A", min_length=1, max_length=2)
+    student_loan_plan: StudentLoanPlan = StudentLoanPlan.none
+    pension_scheme_ref: str | None = Field(default=None, max_length=128)
+    contracted_hours: Decimal = Field(gt=0, le=168)
+    payday_rule: str | None = Field(default=None, max_length=400)
+
+
+class EmploymentPatch(BaseModel):
+    employer: str | None = Field(default=None, min_length=1,
+                                 max_length=200)
+    jurisdiction: TaxJurisdiction | None = None
+    ni_category: str | None = Field(default=None, min_length=1,
+                                    max_length=2)
+    student_loan_plan: StudentLoanPlan | None = None
+    pension_scheme_ref: str | None = Field(default=None,
+                                           max_length=128)
+    contracted_hours: Decimal | None = Field(default=None, gt=0,
+                                             le=168)
+    payday_rule: str | None = Field(default=None, max_length=400)
+    is_active: bool | None = None
+
+
+class EmploymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    household_id: int
+    profile_id: int
+    employer: str
+    jurisdiction: TaxJurisdiction
+    ni_category: str
+    student_loan_plan: StudentLoanPlan
+    pension_scheme_ref: str | None
+    contracted_hours: Decimal
+    payday_rule: str | None
+    is_active: bool
+
+
+class SalaryRevisionIn(BaseModel):
+    effective_date: date
+    annual_salary: Money
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class TaxCodeRevisionIn(BaseModel):
+    effective_date: date
+    tax_code: str = Field(min_length=1, max_length=12)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class SalaryRevisionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    effective_date: date_t
+    annual_salary_pence: int
+    notes: str | None
+
+
+class TaxCodeRevisionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    effective_date: date_t
+    tax_code: str
+    notes: str | None
+
+
+class SalaryAtOut(BaseModel):
+    on: date_t
+    annual_salary_pence: int
+    hourly_rate_pence: int
+
+
+class GrossPeriodOut(BaseModel):
+    start: date_t
+    end: date_t
+    gross_pence: int

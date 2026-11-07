@@ -8,6 +8,7 @@ from app.api.v1 import (
     budgets,
     categories,
     commitments,
+    employments,
     households,
     profiles,
     transactions,
@@ -24,3 +25,4 @@ v1_router.include_router(transfers.router)
 v1_router.include_router(commitments.router)
 v1_router.include_router(profiles.router)
 v1_router.include_router(admin.router)
+v1_router.include_router(employments.router)
