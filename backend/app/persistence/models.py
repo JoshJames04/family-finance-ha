@@ -245,3 +245,62 @@ class Transfer(TimestampMixin, Base):
 
     household: Mapped[Household] = relationship()
     legs: Mapped[list[Transaction]] = relationship(back_populates="transfer")
+
+
+class Frequency(enum.StrEnum):
+    weekly = "weekly"
+    fortnightly = "fortnightly"
+    monthly = "monthly"
+    quarterly = "quarterly"
+    annually = "annually"
+
+
+class RecurringCommitment(TimestampMixin, Base):
+    """A scheduled obligation/income. Fixed pence amount OR a formula
+    string (e.g. payroll net) — exactly one required (CHECK). End
+    conditions optional: end_date and/or occurrence_count."""
+
+    __tablename__ = "recurring_commitment"
+    __table_args__ = (
+        CheckConstraint(
+            "(amount_pence IS NOT NULL) <> (formula IS NOT NULL)",
+            name="ck_recurring_amount_xor_formula"),
+        CheckConstraint(
+            "frequency IN ('weekly','fortnightly','monthly','quarterly',"
+            "'annually')", name="ck_recurring_frequency"),
+        CheckConstraint(
+            "day_of_month IS NULL OR day_of_month BETWEEN 1 AND 31",
+            name="ck_recurring_dom"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True)
+    amount_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    formula: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    frequency: Mapped[Frequency] = mapped_column(Enum(Frequency),
+                                                 nullable=False)
+    day_of_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    last_generated: Mapped[date_t | None] = mapped_column(Date,
+                                                          nullable=True)
+    end_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    occurrence_count: Mapped[int | None] = mapped_column(Integer,
+                                                         nullable=True)
+    generated_count: Mapped[int] = mapped_column(Integer, default=0,
+                                                 nullable=False)
+    source: Mapped[TransactionSource] = mapped_column(
+        Enum(TransactionSource), default=TransactionSource.manual,
+        nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                         nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+    household: Mapped[Household] = relationship()
+    account: Mapped[Account] = relationship()
+    category: Mapped[Category | None] = relationship()
