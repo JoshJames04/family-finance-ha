@@ -42,6 +42,9 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "perf: performance measurement (issue #132) — report-only, non-gating",
+]
 
 [tool.ruff]
 line-length = 100

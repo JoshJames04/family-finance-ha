@@ -49,6 +49,10 @@ jobs:
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
         run: python scripts/verify_restore.py
+      - name: Perf report (issue #132, non-gating)
+        if: steps.check.outputs.present == 'yes'
+        continue-on-error: true
+        run: python tools/perf_check.py
 
   e2e:
     runs-on: ubuntu-latest
