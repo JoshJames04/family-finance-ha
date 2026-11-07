@@ -1,7 +1,9 @@
-"""Employments: CRUD + effective-dated salary/tax-code revisions."""
+"""Employments: CRUD + effective-dated salary/tax-code revisions +
+overtime entries."""
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 from typing import Annotated
@@ -13,9 +15,13 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import overtime as ot
 from app.domain import payroll as dom
 from app.persistence.models import (
+    DayType,
     Employment,
+    OvertimeEntry,
+    OvertimeStatus,
     UserProfile,
 )
 
@@ -63,7 +69,10 @@ def create_employment(
                    student_loan_plan=body.student_loan_plan,
                    pension_scheme_ref=body.pension_scheme_ref,
                    contracted_hours=body.contracted_hours,
-                   payday_rule=body.payday_rule)
+                   payday_rule=body.payday_rule,
+                   overtime_multipliers=json.dumps(
+                       {k.value: int(v) for k, v in
+                        (body.overtime_multipliers or {}).items()}))
     dom.create_employment(session, e)
     emit(session, household.id, actor, "create", "employment", e.id,
          {"profile_id": p.id, "employer": e.employer})
@@ -84,6 +93,10 @@ def patch_employment(
 ) -> schemas.EmploymentOut:
     e = _get(session, household.id, emp_id)
     changed = body.model_dump(exclude_unset=True)
+    if "overtime_multipliers" in changed:
+        changed["overtime_multipliers"] = json.dumps(
+            {DayType(k).value: int(v) for k, v in
+             (changed["overtime_multipliers"] or {}).items()})
     for k, v in changed.items():
         setattr(e, k, v)
     session.flush()
@@ -167,3 +180,63 @@ def gross_for_period(
     return schemas.GrossPeriodOut(
         start=start, end=end,
         gross_pence=dom.gross_for_period(session, e.id, start, end))
+
+
+def _entry(session: Session, emp_id: int, entry_id: int
+           ) -> OvertimeEntry:
+    o = session.get(OvertimeEntry, entry_id)
+    if o is None or o.employment_id != emp_id:
+        raise HTTPException(404, f"overtime entry {entry_id} not found")
+    return o
+
+
+@router.get("/{emp_id}/overtime-entries",
+            response_model=list[schemas.OvertimeOut])
+def list_overtime(
+    emp_id: int, household: HouseholdDep, session: SessionDep,
+    status: OvertimeStatus | None = None,
+) -> list[schemas.OvertimeOut]:
+    e = _get(session, household.id, emp_id)
+    stmt = select(OvertimeEntry).where(
+        OvertimeEntry.employment_id == e.id)
+    if status is not None:
+        stmt = stmt.where(OvertimeEntry.status == status)
+    rows = session.execute(
+        stmt.order_by(OvertimeEntry.work_date)).scalars().all()
+    return [schemas.OvertimeOut.model_validate(r) for r in rows]
+
+
+@router.post("/{emp_id}/overtime-entries",
+             response_model=schemas.OvertimeOut, status_code=201)
+def create_overtime(
+    emp_id: int, body: schemas.OvertimeIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.OvertimeOut:
+    e = _get(session, household.id, emp_id)
+    o = ot.create_entry(
+        session, e, work_date=body.work_date, hours=body.hours,
+        multiplier_bps=body.multiplier_bps, day_type=body.day_type,
+        notes=body.notes)
+    emit(session, household.id, actor, "create", "overtime_entry",
+         o.id, {"employment_id": e.id, "work_date": str(o.work_date),
+                "day_type": o.day_type.value, "hours": str(o.hours)})
+    return schemas.OvertimeOut.model_validate(o)
+
+
+@router.post("/{emp_id}/overtime-entries/{entry_id}/{action}",
+             response_model=schemas.OvertimeOut)
+def overtime_transition(
+    emp_id: int, entry_id: int, action: str,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.OvertimeOut:
+    _get(session, household.id, emp_id)
+    o = _entry(session, emp_id, entry_id)
+    handlers = {"submit": ot.submit, "approve": ot.approve,
+                "reject": ot.reject}
+    if action not in handlers:
+        raise HTTPException(404, f"unknown action {action!r}")
+    handlers[action](o)
+    session.flush()
+    emit(session, household.id, actor, action, "overtime_entry", o.id,
+         {"employment_id": emp_id, "status": o.status.value})
+    return schemas.OvertimeOut.model_validate(o)
