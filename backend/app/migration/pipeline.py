@@ -15,9 +15,9 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
 from app.migration.parse import parse_workbook
@@ -135,12 +135,12 @@ def rollback_batch(session: Session, batch: ImportBatch) -> int:
     ]
     n = 0
     if txn_ids:
-        n = int(session.execute(
+        n = int(cast(CursorResult[int], session.execute(
             update(Transaction)
             .where(Transaction.id.in_(txn_ids),
                    Transaction.status != TransactionStatus.reconciled)
             .values(status=TransactionStatus.void)
-        ).rowcount or 0)
+        )).rowcount or 0)
     for r in batch.records:
         r.target_entity = None
         r.target_id = None
