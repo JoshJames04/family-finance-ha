@@ -442,3 +442,78 @@ class MigrationFlag(Base):
                                                       nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now())
+
+
+class BudgetPeriodType(enum.StrEnum):
+    monthly = "monthly"
+    annual = "annual"
+    custom = "custom"
+
+
+class BudgetStatus(enum.StrEnum):
+    draft = "draft"
+    approved = "approved"
+    locked = "locked"
+
+
+class BudgetLineSide(enum.StrEnum):
+    income = "income"
+    expense = "expense"
+
+
+class Budget(TimestampMixin, Base):
+    """A household/member budget over a period (issue #57).
+
+    draft → approved → locked. Approval freezes line originals; a locked
+    reporting period makes the budget read-only everywhere."""
+
+    __tablename__ = "budget"
+    __table_args__ = (
+        CheckConstraint("end_date >= start_date", name="ck_budget_range"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    owner_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    period_type: Mapped[BudgetPeriodType] = mapped_column(
+        Enum(BudgetPeriodType), nullable=False)
+    start_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    status: Mapped[BudgetStatus] = mapped_column(
+        Enum(BudgetStatus), default=BudgetStatus.draft, nullable=False)
+
+    household: Mapped[Household] = relationship()
+    lines: Mapped[list[BudgetLine]] = relationship(
+        back_populates="budget", cascade="all, delete-orphan")
+
+
+class BudgetLine(TimestampMixin, Base):
+    """One category line inside a budget. ``original_pence`` freezes on
+    approval; ``revised_pence`` carries post-approval changes."""
+
+    __tablename__ = "budget_line"
+    __table_args__ = (
+        UniqueConstraint("budget_id", "category_id",
+                         name="uq_line_budget_category"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    budget_id: Mapped[int] = mapped_column(
+        ForeignKey("budget.id"), nullable=False, index=True)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("category.id"), nullable=False)
+    side: Mapped[BudgetLineSide] = mapped_column(
+        Enum(BudgetLineSide), nullable=False)
+    original_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    revised_pence: Mapped[int | None] = mapped_column(Integer,
+                                                      nullable=True)
+
+    budget: Mapped[Budget] = relationship(back_populates="lines")
+
+    @property
+    def effective_pence(self) -> int:
+        return (self.revised_pence if self.revised_pence is not None
+                else self.original_pence)

@@ -10,6 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.money import Money
 from app.persistence.models import (
     AccountType,
+    BudgetLineSide,
+    BudgetPeriodType,
+    BudgetStatus,
     Frequency,
     TransactionSource,
     TransactionStatus,
@@ -180,3 +183,52 @@ class CommitmentOut(BaseModel):
 class MaterialiseResult(BaseModel):
     created: list[int]
     next_date: date
+
+
+class BudgetIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    period_type: BudgetPeriodType
+    start_date: date
+    end_date: date
+    owner_profile_id: int | None = None
+
+
+class BudgetLineIn(BaseModel):
+    category_id: int
+    side: BudgetLineSide
+    amount: Money
+
+
+class BudgetLineRevise(BaseModel):
+    amount: Money
+
+
+class BudgetLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    category_id: int
+    side: BudgetLineSide
+    original_pence: int
+    revised_pence: int | None
+    effective_pence: int
+
+
+class BudgetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    owner_profile_id: int | None
+    name: str
+    period_type: BudgetPeriodType
+    start_date: date
+    end_date: date
+    status: BudgetStatus
+
+
+class BudgetDetail(BudgetOut):
+    lines: list[BudgetLineOut]
+    read_only: bool
+
+
+class BudgetActuals(BaseModel):
+    budget_id: int
+    totals: dict[int, int]  # line_id → actual pence
