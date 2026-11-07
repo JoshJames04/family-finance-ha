@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -15,7 +14,6 @@ from custom_components.family_finance.api import (
     FamilyFinanceError,
 )
 from custom_components.family_finance.const import (
-    CONF_HOUSEHOLD_ID,
     CONF_URL,
     DOMAIN,
 )

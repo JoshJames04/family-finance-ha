@@ -22,7 +22,7 @@ pytest_plugins = "pytest_homeassistant_custom_component"
 # setup (including phacc's session-scoped ones) — ordering can't be
 # won. Neutralise the guard for this suite: the API client is fully
 # mocked, so no real network traffic occurs anyway.
-import pytest_socket  # noqa: E402
+import pytest_socket
 
 pytest_socket.disable_socket = lambda allow_unix_socket=False: None  # type: ignore[attr-defined]
 

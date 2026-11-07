@@ -9,6 +9,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import FamilyFinanceClient
 from .const import DOMAIN, PLATFORMS
 from .coordinator import FamilyFinanceCoordinator
+from .services import async_register_services
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -18,6 +19,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = FamilyFinanceCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    async_register_services(hass)
     await hass.config_entries.async_forward_entry_setups(
         entry, PLATFORMS)
     return True
