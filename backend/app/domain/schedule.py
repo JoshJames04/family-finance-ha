@@ -16,7 +16,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.domain import goals, transfer_rules
-from app.domain.recurring import occurrences
+from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
     AmountKind,
     Confidence,
@@ -27,6 +27,8 @@ from app.persistence.models import (
     PayrollRunStatus,
     RecurringCommitment,
     SavingsGoal,
+    Subscription,
+    SubscriptionStatus,
     TransferRule,
 )
 
@@ -187,6 +189,35 @@ def rematerialize_goal(
     return n
 
 
+def rematerialize_subscription(
+    session: Session, sub: Subscription, *,
+    today: date | None = None, horizon_days: int = DEFAULT_HORIZON_DAYS,
+) -> int:
+    """Renewal expectations out to the horizon — scheduled confidence
+    (a register entry is an asserted obligation). Cancelled subs emit
+    nothing: history stays, the forecast forgets."""
+    today = today or date.today()
+    horizon = today + timedelta(days=horizon_days)
+    _drop_future(session, ExpectedSource.subscription, sub.id, today)
+    if sub.status is SubscriptionStatus.cancelled:
+        session.flush()
+        return 0
+    n = 0
+    d = sub.next_renewal_date
+    while d <= horizon:
+        if d >= today:
+            session.add(_emit_row(
+                sub.household_id, account_id=sub.account_id,
+                expected_date=d, amount_pence=-sub.expected_pence,
+                label=f"{sub.payee} subscription",
+                confidence=Confidence.scheduled,
+                source=ExpectedSource.subscription, source_id=sub.id))
+            n += 1
+        d = advance(d, sub.frequency, sub.anchor_day)
+    session.flush()
+    return n
+
+
 def materialize_all(
     session: Session, household: Household, *,
     today: date | None = None, horizon_days: int = DEFAULT_HORIZON_DAYS,
@@ -219,6 +250,12 @@ def materialize_all(
                 SavingsGoal.active.is_(True))
     ).scalars().all():
         n += rematerialize_goal(session, g, today=today)
+    for s in session.execute(
+            select(Subscription).where(
+                Subscription.household_id == household.id,
+                Subscription.status == SubscriptionStatus.active)
+    ).scalars().all():
+        n += rematerialize_subscription(session, s, today=today)
     return n
 
 
