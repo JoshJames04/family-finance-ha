@@ -103,7 +103,10 @@ def parse_workbook(path: Path) -> list[RowRecord]:
                         isinstance(v, str) and v.startswith("="))
             formula_cols = {
                 c for c, f in counts.items()
-                if len(f) >= 4 and sum(f) / len(f) > 0.5
+                # clearly formula-dominant (≥2/3): Bills-2026-style
+                # sheets mix genuine literals with derived subtotals
+                # (~54% formulas) and must NOT be misclassified
+                if len(f) >= 4 and sum(f) / len(f) >= 2 / 3
             }
             header_row = rows[0][0]  # conventional: first row = headers
             for rownum, vals in rows:
