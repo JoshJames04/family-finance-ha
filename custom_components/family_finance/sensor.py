@@ -134,7 +134,9 @@ class FamilyFinanceSensor(
         if self.coordinator.data is None:
             return {}
         attrs: dict[str, object] = {
-            ATTR_VERSION: self.coordinator.data["app_version"]}
-        if self.entity_description.key == "goals_on_track":
+            ATTR_VERSION: self.coordinator.data.get(
+                "app_version", "unknown")}
+        if (self.entity_description.key == "goals_on_track"
+                and "goals_total" in self.coordinator.data):
             attrs["goals_total"] = self.coordinator.data["goals_total"]
         return attrs
