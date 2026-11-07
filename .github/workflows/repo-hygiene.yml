@@ -75,3 +75,10 @@ jobs:
           if bad:
               print('\n'.join(bad)); sys.exit(1)
           PY
+
+  version-consistency:
+    # backend/app/__init__.py is the single version source (issue #25).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python scripts/version.py check
