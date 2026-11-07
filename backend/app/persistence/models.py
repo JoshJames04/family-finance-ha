@@ -217,9 +217,31 @@ class Transaction(TimestampMixin, Base):
                                                      nullable=True)
     import_record_id: Mapped[int | None] = mapped_column(Integer,
                                                          nullable=True)
-    transfer_id: Mapped[int | None] = mapped_column(Integer, nullable=True,
-                                                    index=True)
+    transfer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transfer.id"), nullable=True, index=True)
 
     account: Mapped[Account] = relationship(back_populates="transactions")
     category: Mapped[Category | None] = relationship(
         back_populates="transactions")
+    transfer: Mapped[Transfer | None] = relationship(
+        back_populates="legs")
+
+
+class Transfer(TimestampMixin, Base):
+    """A money movement between two accounts, modelled as two linked
+    transaction legs (one debit, one credit). Sum of legs is always 0 —
+    enforced by domain.transfers.create_transfer. Transfers are excluded
+    from income/expense by query contract (transfer_id IS NOT NULL)."""
+
+    __tablename__ = "transfer"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    rule_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    matched: Mapped[bool] = mapped_column(Boolean, default=True,
+                                          nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+    household: Mapped[Household] = relationship()
+    legs: Mapped[list[Transaction]] = relationship(back_populates="transfer")
