@@ -234,3 +234,56 @@ class BudgetActuals(BaseModel):
     budget_id: int
     totals: dict[int, int]  # line_id → actual pence
     lines: dict[int, dict[str, object]] = {}  # variance/accuracy per line
+
+
+class BudgetTemplateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class BudgetTemplateLineIn(BaseModel):
+    category_id: int
+    side: BudgetLineSide
+    amount: Money
+
+
+class BudgetTemplateLinePatch(BaseModel):
+    amount: Money
+
+
+class BudgetTemplateLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    category_id: int
+    side: BudgetLineSide
+    amount_pence: int
+
+
+class BudgetTemplateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+
+
+class BudgetTemplateDetail(BudgetTemplateOut):
+    lines: list[BudgetTemplateLineOut]
+
+
+class CopyForwardIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    start_date: date
+    end_date: date
+    period_type: BudgetPeriodType | None = None
+
+
+class CopyResult(BaseModel):
+    budget: BudgetOut
+    warnings: list[str]
+
+
+class ApplyTemplateIn(BaseModel):
+    template_id: int
+
+
+class ApplyResult(BaseModel):
+    created: int
+    warnings: list[str]
