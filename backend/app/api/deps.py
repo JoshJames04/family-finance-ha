@@ -8,9 +8,10 @@ authenticated scoping — every route already funnels through it.
 
 from __future__ import annotations
 
+import hmac
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -66,3 +67,21 @@ def resolve_profile(
 
 
 ProfileDep = Annotated["UserProfile | None", Depends(resolve_profile)]
+
+
+def require_admin(request: Request) -> None:
+    """Pre-RBAC admin gate (issue #24): the ``X-Admin-Token`` header must
+    match ``FF_ADMIN_TOKEN``. Fail-closed: when no token is configured
+    every admin route refuses. Epic 2 replaces this with real roles."""
+    settings = request.app.state.settings
+    expected = settings.admin_token
+    given = request.headers.get("x-admin-token")
+    ok = (
+        expected is not None and given is not None
+        and hmac.compare_digest(given, expected.get_secret_value())
+    )
+    if not ok:
+        raise HTTPException(403, "admin token required")
+
+
+AdminDep = Annotated[None, Depends(require_admin)]
