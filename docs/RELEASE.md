@@ -52,6 +52,7 @@ jobs; the last three are manual evidence.
 | Backup verified | `POST /api/v1/admin/backups`, then confirm the snapshot appears in `GET /api/v1/admin/backups` and `verify_snapshot` passes | listed + verifiable |
 | Forbidden-file / secret scan | CI `forbidden-files`, `secret-scan` jobs | green — no workbook data, no credentials |
 | Diff review | `gh pr create -B main -H develop` | aggregate diff reviewed, no surprises |
+| Machine checks | `python tools/release_gate.py` (issue #134) | all machine items PASS; the same step runs in `tests.yml` — operator items (migration sign-off, perf review, tag) are printed, not gated |
 
 ## Releasing
 

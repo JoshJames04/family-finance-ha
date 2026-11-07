@@ -143,7 +143,7 @@ def main(path: Path) -> None:
            "no cell values. Personal sheet names are pseudonymised;",
            "the real-name mapping lives in `data/migration-map.local.json`",
            "(gitignored).", "",
-           f"| Sheet alias | State | Used range | Comments |",
+           "| Sheet alias | State | Used range | Comments |",
            "|---|---|---|---|"]
     spec: dict = {"sheets": {}, "defined_names": {}}
     for ws in wb.worksheets:

@@ -28,11 +28,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "backend"))
 
-from app.core.settings import Settings
-from app.domain import projection, schedule
-from app.persistence.engine import create_app_engine
-from app.persistence.migrate import upgrade_head
-from app.persistence.models import (
+from sqlalchemy import func, insert, or_, select  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+
+from app.core.settings import Settings  # noqa: E402
+from app.domain import projection, schedule  # noqa: E402
+from app.persistence.engine import create_app_engine  # noqa: E402
+from app.persistence.migrate import upgrade_head  # noqa: E402
+from app.persistence.models import (  # noqa: E402
     Account,
     AccountType,
     Category,
@@ -44,8 +47,6 @@ from app.persistence.models import (
     TransactionSource,
     TransactionStatus,
 )
-from sqlalchemy import func, insert, or_, select
-from sqlalchemy.orm import Session, sessionmaker
 
 # Perf budgets (issue #132): modest-hardware targets. The report shows
 # each path's median vs its budget; --strict fails at 3× budget.

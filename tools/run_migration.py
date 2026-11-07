@@ -25,13 +25,16 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "backend"))
 
-from app.core.settings import Settings
-from app.migration.pipeline import commit_batch, create_batch, rollback_batch
-from app.migration.report import reconciliation_report, retirement_gate
-from app.migration.wiring import build_extractors
-from app.persistence.engine import create_app_engine
-from app.persistence.migrate import upgrade_head
-from app.persistence.models import (
+from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+from app.core.settings import Settings  # noqa: E402
+from app.migration.pipeline import commit_batch, create_batch, rollback_batch  # noqa: E402
+from app.migration.report import reconciliation_report, retirement_gate  # noqa: E402
+from app.migration.wiring import build_extractors  # noqa: E402
+from app.persistence.engine import create_app_engine  # noqa: E402
+from app.persistence.migrate import upgrade_head  # noqa: E402
+from app.persistence.models import (  # noqa: E402
     Account,
     AccountType,
     Employment,
@@ -41,8 +44,6 @@ from app.persistence.models import (
     TransactionStatus,
     UserProfile,
 )
-from sqlalchemy import func, select
-from sqlalchemy.orm import sessionmaker
 
 
 def _args() -> argparse.Namespace:

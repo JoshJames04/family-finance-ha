@@ -53,6 +53,9 @@ jobs:
         if: steps.check.outputs.present == 'yes'
         continue-on-error: true
         run: python tools/perf_check.py
+      - name: Release gate machine checks (issue #134)
+        if: steps.check.outputs.present == 'yes'
+        run: python tools/release_gate.py
 
   e2e:
     runs-on: ubuntu-latest
