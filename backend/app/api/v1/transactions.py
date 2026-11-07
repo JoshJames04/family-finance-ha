@@ -82,9 +82,14 @@ def create_transaction(
         account_id=a.id, date=body.date,
         amount_pence=body.amount.pence, payee=body.payee,
         category_id=body.category_id, notes=body.notes,
+        external_ref=body.external_ref,
     )
     session.add(t)
     session.flush()
+    if body.refund_of_id is not None:
+        from app.domain.refunds import link_refund
+        orig = _get(session, household.id, body.refund_of_id)
+        link_refund(session, t, orig)
     emit(session, household.id, actor, "create", "transaction", t.id,
          {"account_id": a.id, "amount_pence": t.amount_pence})
     return schemas.TransactionOut.model_validate(t)

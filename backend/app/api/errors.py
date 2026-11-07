@@ -60,6 +60,14 @@ def install_error_handlers(app: FastAPI) -> None:
         async def domain_exc(_: Request, exc: Exception) -> JSONResponse:
             return problem(409, "Domain rule violated", detail=str(exc))
 
+    # Uniqueness/FK violations (e.g. transaction dedup key) → 409.
+    from sqlalchemy.exc import IntegrityError
+
+    @app.exception_handler(IntegrityError)
+    async def integrity_exc(_: Request,
+                            exc: IntegrityError) -> JSONResponse:
+        return problem(409, "Conflict with existing data")
+
     @app.exception_handler(Exception)
     async def unhandled(_: Request, exc: Exception) -> JSONResponse:
         log.exception("unhandled error")

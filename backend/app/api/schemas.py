@@ -92,6 +92,8 @@ class TransactionIn(BaseModel):
     payee: str = Field(min_length=1, max_length=200)
     category_id: int | None = None
     notes: str | None = Field(default=None, max_length=2000)
+    external_ref: str | None = Field(default=None, max_length=128)
+    refund_of_id: int | None = None
 
 
 class TransactionPatch(BaseModel):
