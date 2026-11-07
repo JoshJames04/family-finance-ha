@@ -657,3 +657,90 @@ class TestMemberScoping:
         r = client.get("/api/v1/budgets", headers={
             "X-Household-Id": str(hid), "X-Profile-Id": str(pa)})
         assert r.status_code == 403
+
+
+class TestReporting:
+    """Issue #62 — variance %, thresholds, accuracy history."""
+
+    def test_status_thresholds(self) -> None:
+        # effective 50000: over>20%, watch>10%
+        assert dom.line_status(0, 50000) == "on_track"
+        assert dom.line_status(5000, 50000) == "on_track"   # 10% under
+        assert dom.line_status(-5000, 50000) == "on_track"  # =10%, not >
+        assert dom.line_status(-5500, 50000) == "watch"     # 11% over
+        assert dom.line_status(-11000, 50000) == "over"     # 22% over
+        assert dom.line_status(-1, 0) == "over"             # zero-budget
+        assert dom.line_status(0, 0) == "on_track"
+        assert dom.line_status(-5500, 50000, warn_pct=5) == "watch"
+        assert dom.line_status(-5500, 50000,
+                               warn_pct=5, over_pct=10) == "over"
+
+    def test_golden_variance_report(
+            self, session: Session, household, category) -> None:
+        """£500 budgeted, £430 spent → variance £70, 14% under,
+        accuracy 86%, on_track."""
+        acct = Account(household_id=household.id, name="A",
+                       type=AccountType.joint, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1), archived=False)
+        session.add(acct)
+        session.flush()
+        session.add(Transaction(
+            account_id=acct.id, date=date(2026, 5, 3),
+            amount_pence=-43000, payee="X", category_id=category.id,
+            status=TransactionStatus.cleared))
+        session.flush()
+        b = _mk_budget(session, household)
+        dom.add_line(session, b, category.id,
+                     BudgetLineSide.expense, 50000)
+        dom.approve(session, b)
+        rows = dom.report_for_budget(session, b)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["actual_pence"] == 43000
+        assert r["variance_pence"] == 7000
+        assert r["variance_pct"] == 14.0
+        assert r["accuracy_pct"] == 86.0
+        assert r["status"] == "on_track"
+        # accuracy history picks it up
+        hist = dom.accuracy_history(session, household.id, category.id)
+        assert len(hist) == 1
+        assert hist[0]["accuracy_pct"] == 86.0
+        assert hist[0]["budget_id"] == b.id
+
+    def test_accuracy_history_orders_periods(
+            self, session: Session, household, category) -> None:
+        jun = dom.create_budget(
+            session, household.id, "June", BudgetPeriodType.monthly,
+            date(2026, 6, 1), date(2026, 6, 30))
+        may = _mk_budget(session, household)
+        for b in (jun, may):
+            dom.add_line(session, b, category.id,
+                         BudgetLineSide.expense, 100)
+        hist = dom.accuracy_history(session, household.id, category.id)
+        assert [h["budget_id"] for h in hist] == [may.id, jun.id]
+
+    def test_api_report_and_history(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        cat = client.post("/api/v1/categories", json={"name": "Food"},
+                          headers=h).json()
+        bid = client.post("/api/v1/budgets", json={
+            "name": "May", "period_type": "monthly",
+            "start_date": "2026-05-01", "end_date": "2026-05-31"},
+            headers=h).json()["id"]
+        client.post(f"/api/v1/budgets/{bid}/lines", json={
+            "category_id": cat["id"], "side": "expense",
+            "amount": 50000}, headers=h)
+        client.post(f"/api/v1/budgets/{bid}/approve", headers=h)
+        r = client.get(f"/api/v1/budgets/{bid}/report", headers=h)
+        assert r.status_code == 200
+        line = r.json()["lines"][0]
+        assert line["status"] == "on_track"
+        assert line["variance_pence"] == 50000
+        hist = client.get(
+            f"/api/v1/budgets/reports/accuracy/{cat['id']}",
+            headers=h).json()
+        assert len(hist["points"]) == 1
+        assert hist["points"][0]["accuracy_pct"] == 0.0  # 0 actual

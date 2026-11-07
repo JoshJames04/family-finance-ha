@@ -306,3 +306,70 @@ def apply_rollover(
         })
     session.flush()
     return events
+
+
+# ---------- reporting (issue #62) ---------------------------------------
+def line_status(variance_pence: int, effective_pence: int,
+                warn_pct: float = 10.0, over_pct: float = 20.0) -> str:
+    """Traffic-light status by configurable overspend thresholds.
+
+    overspend % = max(0, actual - effective) / effective * 100.
+    Zero-budget lines with spend are 'over'."""
+    if effective_pence <= 0:
+        return "over" if variance_pence < 0 else "on_track"
+    overspend_pct = max(0, -variance_pence) / effective_pence * 100
+    if overspend_pct > over_pct:
+        return "over"
+    if overspend_pct > warn_pct:
+        return "watch"
+    return "on_track"
+
+
+def report_for_budget(
+    session: Session, budget: Budget,
+    warn_pct: float = 10.0, over_pct: float = 20.0,
+) -> list[dict[str, object]]:
+    """Per-line triple-value report: original/revised/actual/variance/
+    variance_pct/accuracy/status. Golden-tested computations."""
+    actuals = actuals_for_budget(session, budget)
+    rows: list[dict[str, object]] = []
+    for line in budget.lines:
+        a = line_analysis(actuals.get(line.id, 0), line)
+        eff = int(str(a["effective_pence"]))
+        var = int(str(a["variance_pence"]))
+        a["variance_pct"] = (
+            round(var / eff * 100, 2) if eff else
+            (0.0 if var >= 0 else -100.0))
+        a["status"] = line_status(var, eff, warn_pct, over_pct)
+        a["line_id"] = line.id
+        a["category_id"] = line.category_id
+        rows.append(a)
+    return rows
+
+
+def accuracy_history(
+    session: Session, household_id: int, category_id: int
+) -> list[dict[str, object]]:
+    """How close forecasts land over time for one category — every
+    budget containing a line for it, oldest → newest."""
+    budgets = session.execute(
+        select(Budget).where(Budget.household_id == household_id)
+        .order_by(Budget.start_date)).scalars().all()
+    out: list[dict[str, object]] = []
+    for b in budgets:
+        for line in b.lines:
+            if line.category_id != category_id:
+                continue
+            actual = actuals_for_budget(session, b).get(line.id, 0)
+            a = line_analysis(actual, line)
+            out.append({
+                "budget_id": b.id, "name": b.name,
+                "start_date": b.start_date.isoformat(),
+                "end_date": b.end_date.isoformat(),
+                "actual_pence": actual,
+                "effective_pence": a["effective_pence"],
+                "variance_pence": a["variance_pence"],
+                "accuracy_pct": a["accuracy_pct"],
+                "original_accuracy_pct": a["original_accuracy_pct"],
+            })
+    return out

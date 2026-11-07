@@ -317,3 +317,40 @@ class ProfileOut(BaseModel):
 
 class ShareBudgetIn(BaseModel):
     share: bool = True
+
+
+class BudgetReportLine(BaseModel):
+    line_id: int
+    category_id: int
+    original_pence: int
+    revised_pence: int | None
+    revision_reason: str | None
+    effective_pence: int
+    actual_pence: int
+    variance_pence: int
+    variance_pct: float
+    accuracy_pct: float
+    original_accuracy_pct: float
+    status: str
+
+
+class BudgetReport(BaseModel):
+    budget_id: int
+    lines: list[BudgetReportLine]
+
+
+class AccuracyPoint(BaseModel):
+    budget_id: int
+    name: str
+    start_date: str
+    end_date: str
+    actual_pence: int
+    effective_pence: int
+    variance_pence: int
+    accuracy_pct: float
+    original_accuracy_pct: float
+
+
+class AccuracyHistory(BaseModel):
+    category_id: int
+    points: list[AccuracyPoint]
