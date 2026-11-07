@@ -30,6 +30,8 @@ def upgrade() -> None:
                   nullable=False),
         sa.Column("external_kind", sa.String(length=40),
                   nullable=False, server_default="account"),
+        sa.Column("external_category_uid", sa.String(length=64),
+                  nullable=True),
         sa.Column("account_id", sa.Integer(),
                   sa.ForeignKey("account.id"), nullable=True),
         sa.Column("status",

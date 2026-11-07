@@ -19,6 +19,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.sync import FeedItem
 from app.persistence.models import (
     Account,
     BankAccountMapping,
@@ -37,6 +38,7 @@ class DiscoveredAccount:
     label: str
     kind: str = "account"          # account | space | pot
     balance_pence: int | None = None
+    category_uid: str | None = None  # feed category (defaultCategory)
 
 
 class BankClient(Protocol):
@@ -47,6 +49,9 @@ class BankClient(Protocol):
     def accounts(self, token: str) -> list[DiscoveredAccount]: ...
     def balance(self, token: str,
                 external_uid: str) -> int: ...
+    def feed_items(self, token: str, external_uid: str,
+                   category_uid: str, since: str
+                   ) -> list[FeedItem]: ...
 
 
 def discover(session: Session, conn: BankConnection,
@@ -65,12 +70,14 @@ def discover(session: Session, conn: BankConnection,
                 household_id=conn.household_id,
                 connection_id=conn.id, external_uid=uid,
                 external_label=d.label, external_kind=d.kind,
+                external_category_uid=d.category_uid,
                 status=MappingStatus.proposed)
             session.add(m)
             rows.append(m)
         else:
             m.external_label = d.label          # rename propagates
             m.external_kind = d.kind
+            m.external_category_uid = d.category_uid
             if m.status == MappingStatus.closed:
                 m.status = (MappingStatus.linked
                             if m.account_id is not None

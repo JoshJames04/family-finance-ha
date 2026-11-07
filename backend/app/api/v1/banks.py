@@ -16,6 +16,7 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.domain import banks, discovery, vault
+from app.domain import sync as sync_domain
 from app.domain.banks import (
     ConnError,
     TokenInvalid,
@@ -24,12 +25,14 @@ from app.domain.banks import (
 )
 from app.domain.discovery import BankClient, DiscoveryError
 from app.domain.vault import Keyring
-from app.integrations.starling import StarlingClient
+from app.integrations.starling import StarlingClient, starling_fetch
 from app.persistence.models import (
     Account,
     BankAccountMapping,
     BankConnection,
     BankProvider,
+    MappingStatus,
+    TransactionSource,
 )
 
 router = APIRouter(prefix="/banking", tags=["banking"])
@@ -237,3 +240,46 @@ def sync_balances(
     emit(session, household.id, actor, "bank_balance_sync",
          "bank_connection", c.id)
     return {"synced": n}
+
+
+@router.post("/connections/{cid}/sync")
+def sync_transactions(
+    cid: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, ring: RingDep, client: ClientDep,
+) -> dict[str, object]:
+    """Manual refresh — runs the incremental feed sync for every
+    linked mapping. A revoked connection 422s (re-auth first);
+    rate-limit/network failures surface per-account, resumable."""
+    c = _conn(session, household.id, cid)
+    if not banks.syncable(c):
+        raise HTTPException(
+            422, "connection is revoked — re-authenticate first")
+    try:
+        token = banks.token(session, c, ring)
+    except ConnError as e:
+        raise HTTPException(422, str(e)) from e
+    mappings = session.scalars(
+        select(BankAccountMapping).where(
+            BankAccountMapping.connection_id == c.id,
+            BankAccountMapping.status == MappingStatus.linked,
+            BankAccountMapping.account_id.is_not(None),
+            BankAccountMapping.external_category_uid.is_not(None))
+    ).all()
+    results: list[dict[str, object]] = []
+    for m in mappings:
+        acct = session.get(Account, m.account_id)
+        if acct is None:
+            continue
+        run = sync_domain.sync_account(
+            session, acct, TransactionSource.starling,
+            starling_fetch(client, token, m.external_uid,
+                           str(m.external_category_uid)))
+        results.append({"mapping_id": m.id,
+                        "status": run.status.value,
+                        "inserted": run.inserted,
+                        "deduped": run.deduped,
+                        "merge_candidates": run.merge_candidates,
+                        "error": run.error})
+    emit(session, household.id, actor, "bank_sync",
+         "bank_connection", c.id)
+    return {"runs": results}
