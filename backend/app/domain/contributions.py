@@ -280,3 +280,109 @@ def reschedule(session: Session, movement: ExpectedMovement,
     movement.expected_date = new_date
     session.flush()
     return movement
+
+
+# ---------- per-member contributions (issue #89) -------------------
+
+
+@dataclass(frozen=True)
+class MemberContribution:
+    profile_id: int
+    display_name: str
+    contributed_pence: int
+
+
+def member_contributions(session: Session, household_id: int, *,
+                         start: date, end: date
+                         ) -> list[MemberContribution]:
+    """Per-member contribution totals for a period (issue #89).
+
+    A contribution is a matched transfer IN-leg on an expected
+    movement (satisfied portion counts, not the scheduled amount —
+    period totals equal real matched transfers, no phantom
+    contributions). The contributing member is the owner of the
+    sibling leg's account.
+
+    Scope rule: legs where both accounts have the same owner are
+    private shuffling and never appear in shared views — including
+    shared→shared household moves (both NULL).
+    """
+    from app.persistence.models import Account, UserProfile
+
+    # matched legs on this household's movements in the window —
+    # either movement leg may be matched, so pull both signs and find
+    # the transfer's source leg by sign (negative = money out)
+    rows = session.execute(
+        select(ExpectedMatch, ExpectedMovement, Transaction)
+        .join(ExpectedMovement,
+              ExpectedMatch.movement_id == ExpectedMovement.id)
+        .join(Transaction,
+              ExpectedMatch.transaction_id == Transaction.id)
+        .where(ExpectedMovement.household_id == household_id,
+               ExpectedMovement.expected_date >= start,
+               ExpectedMovement.expected_date <= end,
+               Transaction.transfer_id.is_not(None))).all()
+
+    members = session.execute(
+        select(UserProfile).where(
+            UserProfile.household_id == household_id,
+            UserProfile.is_active.is_(True))
+        .order_by(UserProfile.display_name)).scalars().all()
+    if not rows:
+        # zeroed rows for all active members — the shared view shows
+        # everyone's standing
+        return [MemberContribution(m.id, m.display_name, 0)
+                for m in members]
+
+    transfer_ids = {tx.transfer_id for _, _, tx in rows}
+    legs = session.execute(
+        select(Transaction).where(
+            Transaction.transfer_id.in_(transfer_ids))).scalars().all()
+    src_of: dict[int, Transaction] = {}
+    dst_of: dict[int, Transaction] = {}
+    for leg in legs:
+        if leg.transfer_id is None:  # query already filters
+            continue
+        (src_of if leg.amount_pence < 0 else dst_of)[
+            leg.transfer_id] = leg
+    account_ids = {leg.account_id for leg in legs}
+    accounts = {a.id: a for a in session.execute(
+        select(Account).where(Account.id.in_(account_ids))).scalars()}
+
+    # one transfer = one contribution: a rule emits in+out movements
+    # and both may be matched — count the transfer once, preferring
+    # the in-leg's matched amount
+    by_transfer_matched: dict[int, int] = {}
+    for match, _mv, tx in rows:
+        if tx.transfer_id is None:  # query already filters — mypy guard
+            continue
+        cur = by_transfer_matched.get(tx.transfer_id, 0)
+        by_transfer_matched[tx.transfer_id] = max(
+            cur, match.matched_pence)
+
+    totals: dict[int, int] = {}
+    for tid, matched in by_transfer_matched.items():
+        src_leg = src_of.get(tid)
+        dst_leg = dst_of.get(tid)
+        src = (accounts.get(src_leg.account_id)
+               if src_leg is not None else None)
+        dst = (accounts.get(dst_leg.account_id)
+               if dst_leg is not None else None)
+        if src is None or dst is None:
+            continue
+        # private: same owner both sides — excluded from shared views
+        if src.owner_profile_id == dst.owner_profile_id:
+            continue
+        if src.owner_profile_id is None:
+            continue  # household-shared source isn't a member
+        totals[src.owner_profile_id] = (
+            totals.get(src.owner_profile_id, 0) + matched)
+
+    members = session.execute(
+        select(UserProfile).where(
+            UserProfile.household_id == household_id,
+            UserProfile.is_active.is_(True))
+        .order_by(UserProfile.display_name)).scalars().all()
+    return [MemberContribution(m.id, m.display_name,
+                               totals.get(m.id, 0))
+            for m in members]

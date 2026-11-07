@@ -148,6 +148,23 @@ def outstanding_list(
         for i in contributions.outstanding(session, household.id)]
 
 
+@router.get("/contributions/by-member",
+            response_model=list[schemas.MemberContributionOut])
+def contributions_by_member(
+    household: HouseholdDep, session: SessionDep,
+    start: Annotated[date, Query()], end: Annotated[date, Query()],
+) -> list[schemas.MemberContributionOut]:
+    """Per-member matched-transfer totals for the period (#89).
+
+    Totals equal real matched transfers — never scheduled amounts.
+    Private transfers (same owner both sides) never appear."""
+    return [schemas.MemberContributionOut(
+        profile_id=c.profile_id, display_name=c.display_name,
+        contributed_pence=c.contributed_pence)
+        for c in contributions.member_contributions(
+            session, household.id, start=start, end=end)]
+
+
 @router.get("/requirements",
             response_model=list[schemas.RequirementOut])
 def requirement_totals(
