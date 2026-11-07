@@ -9,7 +9,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: "http://localhost:8099", changeOrigin: true },
+      // Inside docker-compose the backend is the `backend` service
+      // hostname — localhost only works for a same-machine dev run.
+      "/api": {
+        target:
+          process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8099",
+        changeOrigin: true,
+      },
     },
   },
   test: {
