@@ -1006,3 +1006,16 @@ class PriceChangeEventOut(BaseModel):
     old_pence: int
     new_pence: int
     delta_pence: int
+
+
+class AnnualisedSubOut(BaseModel):
+    subscription_id: int
+    payee: str
+    frequency: Frequency
+    expected_pence: int
+    annualised_pence: int
+
+
+class AnnualisedOut(BaseModel):
+    per_subscription: list[AnnualisedSubOut]
+    total_annualised_pence: int
