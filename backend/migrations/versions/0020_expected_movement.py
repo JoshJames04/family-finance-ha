@@ -34,14 +34,14 @@ def upgrade() -> None:
                           name="confidence"),
                   nullable=False),
         sa.Column("source_type",
-                  sa.Enum("commitment", "payroll_run", "manual",
-                          name="expectedsource"),
+                  sa.Enum("commitment", "payroll_run", "transfer_rule",
+                          "manual", name="expectedsource"),
                   nullable=False),
         sa.Column("source_id", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(),
                   server_default=sa.func.now()),
         sa.UniqueConstraint("source_type", "source_id",
-                            "expected_date",
+                            "expected_date", "account_id",
                             name="uq_expected_source_date"),
     )
 

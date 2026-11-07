@@ -855,19 +855,22 @@ class Confidence(enum.StrEnum):
 class ExpectedSource(enum.StrEnum):
     commitment = "commitment"
     payroll_run = "payroll_run"
+    transfer_rule = "transfer_rule"
     manual = "manual"
 
 
 class ExpectedMovement(Base):
     """One dated expected income/expenditure item (issue #72) — the
     forecast substrate. Always traceable: (source_type, source_id,
-    expected_date) is unique, so re-materialisation is a delete+insert
-    of FUTURE rows for a source and stays idempotent."""
+    expected_date, account_id) is unique, so re-materialisation is a
+    delete+insert of FUTURE rows for a source and stays idempotent.
+    ``account_id`` is part of the key because a transfer rule emits two
+    legs (out on source, in on destination) for the same date."""
 
     __tablename__ = "expected_movement"
     __table_args__ = (
         UniqueConstraint("source_type", "source_id",
-                         "expected_date",
+                         "expected_date", "account_id",
                          name="uq_expected_source_date"),
     )
 
