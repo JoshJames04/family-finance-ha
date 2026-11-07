@@ -1748,6 +1748,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seasonal-events/{eid}/compare/{other_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare Events
+         * @description YoY comparison of this event vs another (issue #99): totals,
+         *     per-recipient drift, average spend per priced gift.
+         */
+        get: operations["compare_events_api_v1_seasonal_events__eid__compare__other_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/seasonal-events/{eid}/gifts": {
         parameters: {
             query?: never;
@@ -4259,6 +4280,22 @@ export interface components {
             amount_pence: number | null;
             confidence: components["schemas"]["Confidence"];
         };
+        /**
+         * EventComparisonOut
+         * @description Year-on-year comparison of two seasonal events (issue #99).
+         */
+        EventComparisonOut: {
+            earlier: components["schemas"]["EventTotalsOut"];
+            later: components["schemas"]["EventTotalsOut"];
+            /** Actual Delta Pence */
+            actual_delta_pence: number;
+            /** Earlier Avg Gift Pence */
+            earlier_avg_gift_pence: number | null;
+            /** Later Avg Gift Pence */
+            later_avg_gift_pence: number | null;
+            /** Recipients */
+            recipients: components["schemas"]["RecipientComparisonOut"][];
+        };
         /** EventRolloverIn */
         EventRolloverIn: {
             /** Year */
@@ -5274,6 +5311,21 @@ export interface components {
          * @enum {string}
          */
         PurchaseStatus: "idea" | "planned" | "purchased" | "wrapped" | "given";
+        /** RecipientComparisonOut */
+        RecipientComparisonOut: {
+            /** Recipient */
+            recipient: string;
+            /** Earlier Actual Pence */
+            earlier_actual_pence: number;
+            /** Later Actual Pence */
+            later_actual_pence: number;
+            /** Delta Pence */
+            delta_pence: number;
+            /** Earlier Gifts */
+            earlier_gifts: number;
+            /** Later Gifts */
+            later_gifts: number;
+        };
         /** ReconStatsOut */
         ReconStatsOut: {
             /** Scanned */
@@ -10324,6 +10376,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventTotalsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_events_api_v1_seasonal_events__eid__compare__other_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                eid: number;
+                other_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventComparisonOut"];
                 };
             };
             /** @description Validation Error */

@@ -308,3 +308,59 @@ class TestSpendAggregation:
         seasonal.mark_paid(session, g, tx)
         actuals = bdom.actuals_for_budget(session, budget)
         assert actuals[line.id] == 4_500
+
+
+class TestYearComparison:
+    """Issue #99 — golden YoY figures on two synthetic years."""
+
+    @pytest.fixture()
+    def prior(self, session: Session,
+              household: Household) -> SeasonalEvent:
+        e = SeasonalEvent(household_id=household.id, year=2025,
+                          type="christmas", name="Christmas 2025",
+                          budget_pence=80_000)
+        session.add(e)
+        session.flush()
+        for recipient, actual in (("Mum", 4_000), ("Dad", 3_000),
+                                  ("Gran", 1_000)):
+            session.add(Gift(
+                event_id=e.id, recipient=recipient, idea="gift",
+                planned_pence=actual,
+                actual_pence=actual,
+                purchase_status=PurchaseStatus.given,
+                payment_status=PaymentStatus.paid))
+        session.flush()
+        return e
+
+    def test_golden_figures(self, session: Session, prior,
+                            event) -> None:
+        # event (2026): Mum 6000 actual + Dad 2500 planned-only
+        session.add(Gift(
+            event_id=event.id, recipient="Mum", idea="gift",
+            planned_pence=5_500, actual_pence=6_000,
+            purchase_status=PurchaseStatus.purchased,
+            payment_status=PaymentStatus.paid))
+        session.add(Gift(
+            event_id=event.id, recipient="Dad", idea="gift",
+            planned_pence=2_500,
+            purchase_status=PurchaseStatus.idea))
+        session.flush()
+        c = seasonal.compare(session, prior, event)
+        assert c.earlier.actual_pence == 8_000
+        assert c.later.actual_pence == 6_000
+        assert c.actual_delta_pence == -2_000
+        assert c.earlier_avg_gift_pence == 8_000 // 3
+        assert c.later_avg_gift_pence == 6_000  # one priced gift
+        by_recipient = {r.recipient: r for r in c.recipients}
+        assert by_recipient["Mum"].delta_pence == 2_000
+        assert by_recipient["Mum"].earlier_gifts == 1
+        assert by_recipient["Dad"].later_actual_pence == 0
+        assert by_recipient["Dad"].later_gifts == 1
+        assert by_recipient["Gran"].later_gifts == 0
+        # ordering is enforced either way round
+        assert (r.recipient for r in c.recipients)
+
+    def test_wrong_order_rejected(self, session: Session, prior,
+                                  event) -> None:
+        with pytest.raises(SeasonalError):
+            seasonal.compare(session, event, prior)

@@ -9,6 +9,7 @@ export const NAV_ITEMS = [
   { to: "/accounts", label: "Accounts" },
   { to: "/upcoming", label: "Upcoming" },
   { to: "/forecast", label: "Forecast" },
+  { to: "/gifts", label: "Gifts" },
 ] as const;
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {

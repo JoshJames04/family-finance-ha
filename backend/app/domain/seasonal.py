@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.persistence.models import (
@@ -90,6 +90,74 @@ def totals(session: Session, event: SeasonalEvent) -> EventTotals:
         actual_pence=int(rows[1] or 0),
         committed_pence=int(rows[2] or 0),
         remaining_pence=event.budget_pence - int(rows[2] or 0))
+
+
+@dataclass(frozen=True)
+class RecipientComparison:
+    recipient: str
+    earlier_actual_pence: int
+    later_actual_pence: int
+    delta_pence: int
+    earlier_gifts: int
+    later_gifts: int
+
+
+@dataclass(frozen=True)
+class EventComparison:
+    """Year-on-year view of two events (issue #99): totals, per-
+    recipient drift, and average actual spend per priced gift."""
+    earlier: EventTotals
+    later: EventTotals
+    actual_delta_pence: int
+    earlier_avg_gift_pence: int | None
+    later_avg_gift_pence: int | None
+    recipients: tuple[RecipientComparison, ...]
+
+
+def _avg_gift(session: Session, event: SeasonalEvent) -> int | None:
+    n, total = session.execute(
+        select(func.count(), func.coalesce(func.sum(Gift.actual_pence), 0))
+        .where(Gift.event_id == event.id, Gift.actual_pence.is_not(None))
+    ).one()
+    return int(int(total or 0) // n) if n else None
+
+
+def compare(
+    session: Session, earlier: SeasonalEvent, later: SeasonalEvent,
+) -> EventComparison:
+    """Compare two events of any type — drift is per-recipient so the
+    report survives recipient changes between years."""
+    if earlier.household_id != later.household_id:
+        raise SeasonalError("events belong to different households")
+    if earlier.year >= later.year:
+        raise SeasonalError("earlier event must predate the later one")
+    rows = session.execute(
+        select(
+            Gift.recipient,
+            func.sum(case((Gift.event_id == earlier.id,
+                           func.coalesce(Gift.actual_pence, 0)),
+                          else_=0)),
+            func.sum(case((Gift.event_id == later.id,
+                           func.coalesce(Gift.actual_pence, 0)),
+                          else_=0)),
+            func.sum(case((Gift.event_id == earlier.id, 1), else_=0)),
+            func.sum(case((Gift.event_id == later.id, 1), else_=0)),
+        ).where(Gift.event_id.in_([earlier.id, later.id]))
+        .group_by(Gift.recipient).order_by(Gift.recipient)).all()
+    recipients = tuple(
+        RecipientComparison(
+            recipient=r[0], earlier_actual_pence=int(r[1] or 0),
+            later_actual_pence=int(r[2] or 0),
+            delta_pence=int(r[2] or 0) - int(r[1] or 0),
+            earlier_gifts=int(r[3] or 0), later_gifts=int(r[4] or 0))
+        for r in rows)
+    et, lt = totals(session, earlier), totals(session, later)
+    return EventComparison(
+        earlier=et, later=lt,
+        actual_delta_pence=lt.actual_pence - et.actual_pence,
+        earlier_avg_gift_pence=_avg_gift(session, earlier),
+        later_avg_gift_pence=_avg_gift(session, later),
+        recipients=recipients)
 
 
 def rollover(
