@@ -194,3 +194,117 @@ class TestApi:
                        headers=h).json()
         assert t["committed_pence"] == 4_500
         assert t["remaining_pence"] == 95_500
+
+
+class TestRollover:
+    """Issue #98 — annual rollover + remaining-budget policy."""
+
+    def test_rollover_copies_recipients_not_amounts(
+            self, session: Session, event: SeasonalEvent) -> None:
+        _gift(session, event, planned=5_000)
+        _gift(session, event, planned=8_000)
+        new = seasonal.rollover(session, event, 2027)
+        assert new.year == 2027 and new.type == "christmas"
+        assert new.budget_pence == event.budget_pence  # reset policy
+        gifts = sorted(new.gifts, key=lambda g: g.id)
+        assert len(gifts) == 2
+        assert all(g.recipient == "Mum" and g.idea == "Scarf"
+                   for g in gifts)
+        # amounts are NOT carried by default
+        assert all(g.planned_pence == 0 for g in gifts)
+        assert all(g.purchase_status == PurchaseStatus.idea
+                   for g in gifts)
+
+    def test_rollover_copy_planned_opt_in(
+            self, session: Session, event: SeasonalEvent) -> None:
+        _gift(session, event, planned=5_000)
+        new = seasonal.rollover(session, event, 2027, copy_planned=True)
+        assert new.gifts[0].planned_pence == 5_000
+
+    def test_rollover_carry_remaining_policy(
+            self, session: Session, event: SeasonalEvent) -> None:
+        _gift(session, event, planned=60_000)  # 40k of 100k unspent
+        new = seasonal.rollover(session, event, 2027,
+                                carry_remaining=True)
+        assert new.budget_pence == 140_000
+
+    def test_rollover_overspend_carries_nothing(
+            self, session: Session, event: SeasonalEvent) -> None:
+        _gift(session, event, planned=120_000)  # over budget
+        new = seasonal.rollover(session, event, 2027,
+                                carry_remaining=True)
+        assert new.budget_pence == 100_000  # clamped at 0
+
+    def test_rollover_year_clash_rejected(
+            self, session: Session, event: SeasonalEvent) -> None:
+        seasonal.rollover(session, event, 2027)
+        with pytest.raises(SeasonalError, match="already exists"):
+            seasonal.rollover(session, event, 2027)
+
+    def test_rollover_keeps_savings_goal_link(
+            self, session: Session, household: Household,
+            event: SeasonalEvent) -> None:
+        from app.persistence.models import (
+            AccountType,
+            GoalType,
+            SavingsGoal,
+        )
+        acct = Account(household_id=household.id, name="Savings",
+                       type=AccountType.savings, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1))
+        session.add(acct)
+        session.flush()
+        goal = SavingsGoal(
+            household_id=household.id, name="Xmas fund",
+            goal_type=GoalType.christmas, target_pence=200_000,
+            start_date=date(2026, 1, 1), account_id=acct.id,
+            active=True)
+        session.add(goal)
+        session.flush()
+        event.savings_goal_id = goal.id
+        session.flush()
+        new = seasonal.rollover(session, event, 2027)
+        assert new.savings_goal_id == goal.id
+
+
+class TestSpendAggregation:
+    """Issue #98 — gift spend aggregates into household reports via the
+    linked real transaction; nothing is hidden in a side ledger."""
+
+    def test_paid_gift_counts_in_budget_actuals(
+            self, session: Session, household: Household,
+            event: SeasonalEvent) -> None:
+        from app.domain import budgets as bdom
+        from app.persistence.models import (
+            Account,
+            AccountType,
+            BudgetLineSide,
+            BudgetPeriodType,
+            Category,
+        )
+        acct = Account(household_id=household.id, name="Joint",
+                       type=AccountType.joint, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1))
+        cat = Category(household_id=household.id, name="Gifts",
+                       is_system=False, archived=False)
+        session.add_all([acct, cat])
+        session.flush()
+        budget = bdom.create_budget(
+            session, household.id, "Dec", BudgetPeriodType.custom,
+            date(2026, 12, 1), date(2026, 12, 31))
+        line = bdom.add_line(session, budget, cat.id,
+                             BudgetLineSide.expense, 50_000)
+        g = _gift(session, event, planned=4_500,
+                  status=PurchaseStatus.purchased)
+        g.actual_pence = 4_500
+        tx = Transaction(account_id=acct.id, date=date(2026, 12, 10),
+                         amount_pence=-4_500, payee="Toy shop",
+                         category_id=cat.id,
+                         status=TransactionStatus.cleared)
+        session.add(tx)
+        session.flush()
+        seasonal.mark_paid(session, g, tx)
+        actuals = bdom.actuals_for_budget(session, budget)
+        assert actuals[line.id] == 4_500

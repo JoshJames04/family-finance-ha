@@ -882,3 +882,9 @@ class GiftTransitionIn(BaseModel):
 class GiftPayIn(BaseModel):
     actual: Money | None = None
     transaction_id: int | None = None
+
+
+class EventRolloverIn(BaseModel):
+    year: int = Field(ge=1900, le=2200)
+    copy_planned: bool = False
+    carry_remaining: bool = False
