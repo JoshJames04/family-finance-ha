@@ -29,6 +29,38 @@ def _get(session: Session, household_id: int,
     return p
 
 
+@router.get("/me/dashboard", response_model=schemas.DashboardOut)
+def get_dashboard(
+    profile: ProfileDep,
+) -> schemas.DashboardOut:
+    """The caller's dashboard arrangement (issue #123). No profile
+    (standalone/ingress-pending) → `layout: null`; the client falls
+    back to a local default."""
+    if profile is None:
+        return schemas.DashboardOut(role=None, layout=None)
+    layout = (schemas.DashboardLayoutIn.model_validate_json(
+        profile.dashboard_layout)
+        if profile.dashboard_layout else None)
+    return schemas.DashboardOut(role=profile.role, layout=layout)
+
+
+@router.put("/me/dashboard", response_model=schemas.DashboardOut)
+def put_dashboard(
+    body: schemas.DashboardLayoutIn,
+    household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, profile: ProfileDep,
+) -> schemas.DashboardOut:
+    """Persist the caller's dashboard arrangement. Any active profile
+    may arrange their own dashboard — no role gate."""
+    if profile is None:
+        raise HTTPException(403, "dashboard layout needs a profile")
+    profile.dashboard_layout = body.model_dump_json()
+    session.flush()
+    emit(session, household.id, actor, "update", "profile",
+         profile.id, {"dashboard_layout": "saved"})
+    return schemas.DashboardOut(role=profile.role, layout=body)
+
+
 @router.get("", response_model=schemas.Page[schemas.ProfileOut])
 def list_profiles(
     household: HouseholdDep, session: SessionDep,

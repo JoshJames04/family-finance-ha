@@ -256,9 +256,7 @@ function ReviseForm({ line, budgetId, onDone, onCancel }: {
 }) {
   const [reason, setReason] = useState("");
   const [pounds, setPounds] = useState(
-    line.revised_pence != null
-      ? (line.revised_pence / 100).toFixed(2)
-      : (line.original_pence / 100).toFixed(2));
+    String((line.revised_pence ?? line.original_pence) / 100));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = (e: React.FormEvent) => {

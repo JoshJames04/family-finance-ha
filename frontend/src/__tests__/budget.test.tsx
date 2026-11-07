@@ -94,7 +94,7 @@ describe("Budget", () => {
       expect(call).toBeDefined();
       const body = JSON.parse(call!.body);
       expect(body.reason).toBe("income drop");
-      expect(body.amount).toBe("300.00");
+      expect(body.amount).toBe("300");
     });
   });
   it("locked budget renders read-only (no revise affordance)", async () => {
