@@ -197,6 +197,7 @@ class BudgetLineIn(BaseModel):
     category_id: int
     side: BudgetLineSide
     amount: Money
+    rollover: bool = False
 
 
 class BudgetLineRevise(BaseModel):
@@ -211,6 +212,7 @@ class BudgetLineOut(BaseModel):
     side: BudgetLineSide
     original_pence: int
     revised_pence: int | None
+    rollover: bool
     effective_pence: int
 
 
@@ -287,3 +289,12 @@ class ApplyTemplateIn(BaseModel):
 class ApplyResult(BaseModel):
     created: int
     warnings: list[str]
+
+
+class RolloverIn(BaseModel):
+    source_budget_id: int
+
+
+class RolloverResult(BaseModel):
+    applied: int
+    carries: list[dict]

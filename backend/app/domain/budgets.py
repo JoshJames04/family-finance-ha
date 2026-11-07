@@ -268,3 +268,41 @@ def copy_forward(
         add_line(session, new, line.category_id, line.side,
                  line.original_pence)
     return new, warnings
+
+
+# ---------- rollover (issue #60) ---------------------------------------
+def apply_rollover(
+    session: Session, source: Budget, target: Budget
+) -> list[dict]:
+    """Carry per-line surplus/deficit into the target budget's revised.
+
+    carry = source.effective - source.actual  (underspend → positive).
+    Target revised becomes original + carry. Only source lines opted in
+    via ``rollover`` participate. The source is never mutated (safe
+    across locked boundaries); each application writes an audit-visible
+    reason and returns the carry events for the caller to audit."""
+    if source.status == BudgetStatus.draft:
+        raise BudgetError("cannot roll over from a draft budget")
+    if target.status == BudgetStatus.locked or is_read_only(
+            session, target):
+        raise BudgetError("target budget is locked")
+    actuals = actuals_for_budget(session, source)
+    src_lines = {sl.category_id: sl for sl in source.lines}
+    events: list[dict] = []
+    for tl in target.lines:
+        sl = src_lines.get(tl.category_id)
+        if sl is None or not sl.rollover:
+            continue
+        carry = effective_pence(sl) - actuals.get(sl.id, 0)
+        tl.revised_pence = tl.original_pence + carry
+        tl.revision_reason = (
+            f"rollover from budget {source.id} "
+            f"(carry {carry:+d}p)")
+        events.append({
+            "source_budget_id": source.id,
+            "target_budget_id": target.id,
+            "line_id": tl.id, "category_id": tl.category_id,
+            "carry_pence": carry,
+        })
+    session.flush()
+    return events

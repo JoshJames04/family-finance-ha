@@ -516,6 +516,8 @@ class BudgetLine(TimestampMixin, Base):
                                                       nullable=True)
     revision_reason: Mapped[str | None] = mapped_column(String(200),
                                                         nullable=True)
+    rollover: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
 
     budget: Mapped[Budget] = relationship(back_populates="lines")
 
