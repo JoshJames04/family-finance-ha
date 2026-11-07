@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 permissions:
@@ -67,7 +67,7 @@ jobs:
         run: |
           npm ci
           npm run typecheck
-          npm test -- --run
+          npm test
           npm run build
 
   migrations:
@@ -91,6 +91,8 @@ jobs:
       - name: Upgrade/downgrade migration test
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
+        env:
+          FF_DATABASE_URL: sqlite:///./ci_migrations.db
         run: |
           pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
           alembic upgrade head && alembic downgrade -1 && alembic upgrade head
