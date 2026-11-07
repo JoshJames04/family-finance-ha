@@ -1287,6 +1287,10 @@ class SyncCursorOut(BaseModel):
     last_date: date | None
     status: str
     error: str | None
+    # issue #70: last-good + backoff/queue visibility
+    last_success_at: datetime | None = None
+    retry_at: datetime | None = None
+    refresh_requested: bool = False
 
 
 class SyncRunOut(BaseModel):

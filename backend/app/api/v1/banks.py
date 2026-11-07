@@ -270,6 +270,18 @@ def sync_transactions(
         acct = session.get(Account, m.account_id)
         if acct is None:
             continue
+        # issue #70: a refresh during an active backoff window is
+        # queued on the cursor, not bypassed — the scheduler drains
+        # it once the window lifts.
+        if sync_domain.request_refresh(
+                session, acct.id, TransactionSource.starling):
+            cursor = sync_domain.cursor_for(
+                session, acct.id, TransactionSource.starling)
+            results.append({"mapping_id": m.id, "status": "queued",
+                            "inserted": 0, "deduped": 0,
+                            "merge_candidates": 0,
+                            "error": f"backoff until {cursor.retry_at}"})
+            continue
         run = sync_domain.sync_account(
             session, acct, TransactionSource.starling,
             starling_fetch(client, token, m.external_uid,

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -39,7 +39,14 @@ from app.persistence.models import (
 
 
 class RateLimited(Exception):
-    """Feed signalled backpressure — run fails resumable."""
+    """Feed signalled backpressure — run fails resumable.
+    ``retry_after`` (seconds, from the provider's Retry-After)
+    defines the backoff window (issue #70)."""
+
+    def __init__(self, message: str = "rate limited",
+                 retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class SyncError(Exception):
@@ -161,7 +168,16 @@ def sync_account(
             session.flush()          # page checkpoint
         run.status = SyncStatus.completed
         cursor.status = SyncStatus.completed
-    except (RateLimited, SyncError) as e:
+        cursor.last_success_at = datetime.now()
+        cursor.retry_at = None
+    except RateLimited as e:
+        run.status = SyncStatus.failed
+        run.error = str(e)[:500]
+        cursor.status = SyncStatus.failed
+        cursor.error = str(e)[:500]
+        cursor.retry_at = (datetime.now()
+                           + timedelta(seconds=e.retry_after or 60))
+    except SyncError as e:
         run.status = SyncStatus.failed
         run.error = str(e)[:500]
         cursor.status = SyncStatus.failed
@@ -169,6 +185,33 @@ def sync_account(
     run.finished_at = datetime.now()
     session.flush()
     return run
+
+
+def request_refresh(session: Session, account_id: int,
+                    source: TransactionSource,
+                    now: datetime | None = None) -> bool:
+    """Manual refresh (issue #70). During an active backoff window
+    the request is *queued* on the cursor — the next drain runs it;
+    outside backoff it returns False meaning "run now"."""
+    now = now or datetime.now()
+    c = cursor_for(session, account_id, source)
+    if c.retry_at is not None and c.retry_at > now:
+        c.refresh_requested = True
+        session.flush()
+        return True
+    return False
+
+
+def drain_due(session: Session,
+              now: datetime | None = None) -> list[SyncCursor]:
+    """Queued refreshes whose backoff expired (issue #70) plus
+    cursors flagged refresh_requested — the job runner performs the
+    actual ingest; this is the "what's due" query."""
+    now = now or datetime.now()
+    return list(session.scalars(select(SyncCursor).where(
+        SyncCursor.refresh_requested.is_(True),
+        (SyncCursor.retry_at.is_(None)
+         | (SyncCursor.retry_at <= now)))))
 
 
 def resolve_merge(session: Session, candidate: MergeCandidate,
