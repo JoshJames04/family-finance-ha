@@ -1044,3 +1044,70 @@ class SavingsGoal(TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     account: Mapped[Account] = relationship()
+
+
+class LoanDirection(enum.StrEnum):
+    we_owe = "we_owe"      # the household borrowed (a liability)
+    they_owe = "they_owe"  # the household lent (an asset)
+
+
+class Loan(TimestampMixin, Base):
+    """A loan with a derived outstanding balance (issue #93).
+    Outstanding is ALWAYS computed — principal + simple interest −
+    validated repayments — never a stored editable figure (structural
+    fix for workbook defect B: a `remaining` cell that could be edited
+    to anything)."""
+
+    __tablename__ = "loan"
+    __table_args__ = (
+        CheckConstraint("principal_pence > 0",
+                        name="ck_loan_principal"),
+        CheckConstraint(
+            "interest_bps_pa IS NULL OR interest_bps_pa >= 0",
+            name="ck_loan_interest"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    party: Mapped[str] = mapped_column(String(120), nullable=False)
+    direction: Mapped[LoanDirection] = mapped_column(
+        Enum(LoanDirection), nullable=False)
+    principal_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    expected_payment_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    interest_bps_pa: Mapped[int | None] = mapped_column(Integer,
+                                                      nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                         nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    repayments: Mapped[list[Repayment]] = relationship(
+        back_populates="loan", cascade="all, delete-orphan",
+        order_by="Repayment.date")
+
+
+class Repayment(Base):
+    """One payment against a loan — optionally linked to the real
+    transaction it was matched to."""
+
+    __tablename__ = "repayment"
+    __table_args__ = (
+        CheckConstraint("amount_pence > 0",
+                        name="ck_repayment_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    loan_id: Mapped[int] = mapped_column(
+        ForeignKey("loan.id"), nullable=False, index=True)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    transaction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transaction.id"), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now())
+
+    loan: Mapped[Loan] = relationship(back_populates="repayments")
+    transaction: Mapped[Transaction | None] = relationship()
