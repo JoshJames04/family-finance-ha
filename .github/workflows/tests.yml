@@ -31,6 +31,10 @@ jobs:
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
         run: pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
+      - name: Dependency vulnerability gate (pip)
+        if: steps.check.outputs.present == 'yes'
+        working-directory: backend
+        run: pip install pip-audit && pip-audit --skip-editable --vulnerability-service osv
       - name: Lint & typecheck
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
@@ -61,6 +65,10 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Dependency vulnerability gate (npm)
+        if: steps.check.outputs.present == 'yes'
+        working-directory: frontend
+        run: npm ci && npm audit --audit-level=high
       - name: Install, typecheck, test, build
         if: steps.check.outputs.present == 'yes'
         working-directory: frontend
