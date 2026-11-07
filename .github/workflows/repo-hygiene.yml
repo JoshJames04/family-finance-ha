@@ -14,7 +14,7 @@ jobs:
     # This repo must never contain real financial data or credentials.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Fail if sensitive file patterns are committed
         run: |
           if find . -type f \( -iname '*.xlsx' -o -iname '*.xlsm' -o -iname '*.xls' \
@@ -29,7 +29,7 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
@@ -39,7 +39,7 @@ jobs:
   docs-integrity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Required project documents exist
         run: |
           required=(
@@ -80,5 +80,5 @@ jobs:
     # backend/app/__init__.py is the single version source (issue #25).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python scripts/version.py check
