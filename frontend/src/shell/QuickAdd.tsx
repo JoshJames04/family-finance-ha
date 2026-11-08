@@ -1,5 +1,8 @@
 /** Quick-add transaction dialog — reachable from anywhere (top bar,
- * dashboard, ⌘K). Amount is entered positive; direction decides sign. */
+ * dashboard, ⌘K). Amount is entered positive; direction decides sign.
+ * The "Repeats" control (issue #292) promotes the entry to a recurring
+ * bill: a commitment is created and the first payment posted, so a
+ * regular expense is one flow — not a hidden second page. */
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
@@ -7,7 +10,13 @@ import { Dialog } from "../components/Dialog";
 import { Button } from "../components/Button";
 import { Field, Input, Select } from "../components/Field";
 import { Segmented } from "../components/Display";
+import { undoToast } from "../lib/toast";
 import { toISODate } from "../lib/format";
+
+type Repeat = "once" | "weekly" | "monthly" | "yearly";
+const REPEAT_FREQ: Record<Exclude<Repeat, "once">, string> = {
+  weekly: "weekly", monthly: "monthly", yearly: "annually",
+};
 
 export function QuickAdd({
   open,
@@ -27,6 +36,8 @@ export function QuickAdd({
   const [payee, setPayee] = useState("");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [repeats, setRepeats] = useState<Repeat>("once");
+  const [endsOn, setEndsOn] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +51,7 @@ export function QuickAdd({
     if (open) {
       setPayee(""); setAmount(""); setCategoryId(""); setError(null);
       setDate(toISODate(new Date()));
+      setRepeats("once"); setEndsOn("");
     }
   }, [open]);
 
@@ -50,18 +62,48 @@ export function QuickAdd({
     if (!valid) return;
     setBusy(true);
     setError(null);
-    api.post("/api/v1/transactions", {
+    const signed = `${direction === "out" ? "-" : ""}${amount}`;
+    const done = () => { onSaved(); onOpenChange(false); };
+    const fail = (err: Error) => setError(err.message);
+    const finish = () => setBusy(false);
+    if (repeats === "once") {
+      api.post("/api/v1/transactions", {
+        body: {
+          account_id: Number(accountId),
+          date,
+          payee: payee.trim(),
+          amount: signed,
+          category_id: categoryId ? Number(categoryId) : null,
+        },
+      }).then(done).catch(fail).finally(finish);
+      return;
+    }
+    // Recurring: the bill keeps generating; materialise posts the
+    // first payment as a real transaction right now.
+    api.post("/api/v1/commitments", {
       body: {
+        name: payee.trim(),
         account_id: Number(accountId),
-        date,
-        payee: payee.trim(),
-        amount: direction === "out" ? `-${amount}` : amount,
         category_id: categoryId ? Number(categoryId) : null,
+        amount: signed,
+        formula: null,
+        frequency: REPEAT_FREQ[repeats] as never,
+        day_of_month: null,
+        next_date: date,
+        end_date: endsOn || null,
+        occurrence_count: null,
+        notes: null,
       },
-    })
-      .then(() => { onSaved(); onOpenChange(false); })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setBusy(false));
+    }).then(async (c) => {
+        await api.post("/api/v1/commitments/{cid}/materialise", {
+          path: { cid: c.id }, query: { horizon: date },
+        }).catch(() => undefined);
+        undoToast(`${payee.trim()} added as a recurring ${repeats} bill`, () =>
+          api.delete("/api/v1/commitments/{cid}", { path: { cid: c.id } }));
+        done();
+      })
+      .catch(fail)
+      .finally(finish);
   };
 
   return (
@@ -122,6 +164,31 @@ export function QuickAdd({
             )}
           </Field>
         </div>
+
+        <Field label="Repeats"
+          hint={repeats === "once" ? undefined : "Keeps coming up as a bill until you pause it."}>
+          {(_id) => (
+            <Segmented
+              label="Repeats"
+              value={repeats}
+              onChange={setRepeats}
+              options={[
+                { value: "once", label: "Just this once" },
+                { value: "weekly", label: "Every week" },
+                { value: "monthly", label: "Every month" },
+                { value: "yearly", label: "Every year" },
+              ]}
+            />
+          )}
+        </Field>
+        {repeats !== "once" && (
+          <Field label="Ends on" hint="Leave blank to keep it going until you stop it.">
+            {(id) => (
+              <Input id={id} type="date" value={endsOn}
+                onChange={(e) => setEndsOn(e.target.value)} />
+            )}
+          </Field>
+        )}
         {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
       </form>
     </Dialog>

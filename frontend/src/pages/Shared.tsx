@@ -8,7 +8,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeftRight, CalendarClock, Check, HandCoins, Pencil, Plus,
-  Scale, Users2,
+  Scale, SlidersHorizontal, Users2,
 } from "lucide-react";
 import { api, getProfileId } from "../api/client";
 import { useApi, useIdentity } from "../api/useApi";
@@ -19,7 +19,7 @@ import { Badge, type BadgeTone } from "../components/Badge";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
-import { IconTile, PageHeader, Progress, Stat } from "../components/Display";
+import { IconTile, PageHeader, Progress, Segmented, Stat } from "../components/Display";
 import { EmptyState, Skeleton } from "../components/Feedback";
 import { Money } from "../components/Money";
 import { Panel } from "../components/Panel";
@@ -88,6 +88,8 @@ export function Shared() {
     () => api.get("/api/v1/expected-movements/outstanding"), ready, [rev]);
   const [editing, setEditing] = useState<Rule | "new" | null>(null);
   const [matching, setMatching] = useState<{ movement: Movement; member: string } | null>(null);
+  const [adjusting, setAdjusting] = useState(false);
+  const [potId, setPotId] = useState<number | null>(null);
   const refresh = () => setRev((r) => r + 1);
 
   const acctById = useMemo(() => {
@@ -185,6 +187,37 @@ export function Shared() {
   const overdue = (Array.isArray(outstanding.data) ? outstanding.data : [])
     .filter((o) => o.account_id == null || sharedAccountIds.has(o.account_id));
 
+  /* ---- The split (issue #293): the pot total and each member's
+   * standing share, derived from the fixed transfer rules into the
+   * pot. The adjust dialog edits those rules — one control instead of
+   * per-member rule machinery. Rules recur monthly, so a saved split
+   * carries forward until changed. ---- */
+  const pots = useMemo(
+    () => [...sharedAccountIds]
+      .map((id) => acctById.get(id)).filter((a): a is Account => !!a),
+    [sharedAccountIds, acctById]);
+  const pot = (potId != null ? acctById.get(potId) : undefined) ?? pots[0];
+
+  /** Fixed-pence rule each member has into `pot` (non-fixed rules are
+   * "custom" — surfaced separately, untouched by the editor). */
+  const memberShare = useMemo(() => {
+    const members = (identity.data ?? []).filter((p) => p.is_active);
+    return members.map((p) => {
+      const fixed = ruleItems.filter((r) =>
+        ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id
+        && r.amount_spec.kind === "fixed");
+      const custom = ruleItems.filter((r) =>
+        ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id
+        && r.amount_spec.kind !== "fixed");
+      const pence = fixed.reduce(
+        (s, r) => s + Math.abs(Number((r.amount_spec as { pence?: number }).pence ?? 0)), 0);
+      return { profile: p, fixed, custom, pence };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity.data, ruleItems, pot, acctById]);
+  const splitTotal = memberShare.reduce((s, m) => s + m.pence, 0);
+  const customRules = memberShare.flatMap((m) => m.custom);
+
   const autoMatch = () =>
     api.post("/api/v1/expected-movements/match")
       .then((r) => {
@@ -242,6 +275,85 @@ export function Shared() {
               <Stat label="Overdue items" value={overdue.length}
                 className="rounded-xl border border-border bg-surface p-4 shadow-card" />
             </div>
+
+            {/* The split — one control for "who pays how much into
+             * the pot", instead of per-member rule machinery. */}
+            {pot != null && (
+              <Panel
+                title={`The split — ${pot.name}`}
+                description="Repeats every month until you change it."
+                className="mb-4"
+                actions={
+                  <div className="flex items-center gap-2">
+                    {pots.length > 1 && (
+                      <Select aria-label="Shared pot" sizeVariant="sm"
+                        value={pot.id}
+                        onChange={(e) => setPotId(Number(e.target.value))}>
+                        {pots.map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </Select>
+                    )}
+                    <Button variant="secondary" size="sm"
+                      onClick={() => setAdjusting(true)}>
+                      <SlidersHorizontal /> Adjust split
+                    </Button>
+                  </div>
+                }
+              >
+                {splitTotal === 0 ? (
+                  <p className="text-[13.5px] text-fg-subtle">
+                    Nothing set up yet — adjust the split to say what each
+                    member pays into {pot.name} each month.
+                  </p>
+                ) : (
+                  <>
+                    <p className="tnum mb-3 text-[22px] font-semibold">
+                      <Money pence={splitTotal} />
+                      <span className="ml-1.5 text-[13px] font-normal text-fg-subtle">per month</span>
+                    </p>
+                    {/* Segmented bar — each member's portion of the pot. */}
+                    <div className="mb-4 flex h-2.5 w-full overflow-hidden rounded-full bg-surface-3"
+                      role="img"
+                      aria-label={memberShare.map((m) =>
+                        `${m.profile.display_name} ${Math.round(m.pence / splitTotal * 100)}%`).join(", ")}>
+                      {memberShare.filter((m) => m.pence > 0).map((m) => (
+                        <span key={m.profile.id}
+                          className={cn("h-full", toneFor(m.profile.display_name).split(" ")[0])}
+                          style={{ width: `${(m.pence / splitTotal) * 100}%` }} />
+                      ))}
+                    </div>
+                    <ul className="grid gap-2 sm:grid-cols-2">
+                      {memberShare.map((m) => (
+                        <li key={m.profile.id} className="flex items-center gap-2.5">
+                          <span className={cn("size-2.5 rounded-full",
+                            toneFor(m.profile.display_name).split(" ")[0],
+                            m.pence === 0 && "opacity-25")} />
+                          <span className="text-[13.5px] font-medium">
+                            {m.profile.display_name}
+                            {m.profile.id === me && <span className="text-fg-subtle"> (you)</span>}
+                          </span>
+                          <span className="tnum text-[13.5px]">
+                            <Money pence={m.pence} />
+                            <span className="ml-1.5 text-[12px] text-fg-subtle">
+                              {Math.round(m.pence / splitTotal * 100)}%
+                            </span>
+                          </span>
+                          {m.custom.length > 0 && (
+                            <Badge tone="info">{specLabel(m.custom[0]!.amount_spec)}</Badge>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {customRules.length > 0 && (
+                      <p className="mt-3 text-[12px] text-fg-subtle">
+                        {customRules.length} non-fixed share{customRules.length === 1 ? "" : "s"} not in this total — manage below.
+                      </p>
+                    )}
+                  </>
+                )}
+              </Panel>
+            )}
 
             {/* Member standing */}
             <div className="mb-4 grid gap-3 lg:grid-cols-2">
@@ -348,10 +460,12 @@ export function Shared() {
               );
             })()}
 
-            {/* Contribution rules */}
+            {/* Contribution rules — the standing orders the split
+             * editor maintains; exposed for power use (custom amount
+             * specs, different days/frequencies). */}
             <Panel
-              title="Contribution shares"
-              description="Each member's standing order into the pot — edit the amount or the day any time."
+              title="Share rules"
+              description="The standing orders behind the split — adjust amounts above, or tune days and frequencies here."
               flush
               className="mb-4"
             >
@@ -424,6 +538,15 @@ export function Shared() {
         )}
       </DataView>
 
+      {adjusting && pot != null && (
+        <SplitDialog
+          pot={pot}
+          shares={memberShare}
+          accounts={accounts.data?.items ?? []}
+          onClose={() => setAdjusting(false)}
+          onSaved={() => { setAdjusting(false); refresh(); }}
+        />
+      )}
       {editing !== null && (
         <ShareDialog
           rule={editing === "new" ? null : editing}
@@ -568,6 +691,192 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
             </Select>
           )}</Field>
         </div>
+      </form>
+    </Dialog>
+  );
+}
+
+type MemberShare = {
+  profile: Profile;
+  fixed: Rule[];
+  custom: Rule[];
+  pence: number;
+};
+
+/** Adjust the pot split (issue #293): edit by amount or by percentage;
+ * on save each member's fixed rule into the pot is patched, created,
+ * or paused to match. The rules recur monthly — the split carries
+ * forward until next edited. */
+function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
+  pot: Account;
+  shares: MemberShare[];
+  accounts: Account[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const total0 = shares.reduce((s, m) => s + m.pence, 0);
+  const [mode, setMode] = useState<"amount" | "percent">("amount");
+  const [amounts, setAmounts] = useState<Record<number, string>>(() =>
+    Object.fromEntries(shares.map((m) =>
+      [m.profile.id, m.pence ? String(m.pence / 100) : ""])));
+  const [pcts, setPcts] = useState<Record<number, string>>(() => {
+    const o: Record<number, string> = {};
+    for (const m of shares) {
+      o[m.profile.id] = total0 > 0
+        ? String(Math.round((m.pence / total0) * 100)) : "";
+    }
+    return o;
+  });
+  const [totalPounds, setTotalPounds] = useState(String(total0 / 100));
+  const [busy, setBusy] = useState(false);
+
+  const toPence = (s: string) => Math.round(Number(s || "0") * 100);
+  const amountTotal = shares.reduce((s, m) => s + toPence(amounts[m.profile.id] ?? ""), 0);
+  const pctSum = shares.reduce((s, m) => s + Number(pcts[m.profile.id] || "0"), 0);
+  const percentTotal = Math.round(Number(totalPounds || "0") * 100);
+
+  /** Target pence per member in the active mode. */
+  const targets = useMemo(() => {
+    const o: Record<number, number> = {};
+    for (const m of shares) {
+      o[m.profile.id] = mode === "amount"
+        ? toPence(amounts[m.profile.id] ?? "")
+        : Math.round(percentTotal * Number(pcts[m.profile.id] || "0") / 100);
+    }
+    return o;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, amounts, pcts, percentTotal, shares]);
+
+  const percentOk = mode === "amount" || Math.round(pctSum) === 100;
+
+  // Two members: editing one % auto-balances the other to 100.
+  const setPct = (id: number, v: string) => {
+    setPcts((cur) => {
+      const next = { ...cur, [id]: v };
+      if (shares.length === 2) {
+        const other = shares.find((m) => m.profile.id !== id);
+        if (other && v !== "") {
+          next[other.profile.id] = String(Math.max(0, 100 - Number(v)));
+        }
+      }
+      return next;
+    });
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!percentOk) return;
+    setBusy(true);
+    const jobs: Promise<unknown>[] = [];
+    for (const m of shares) {
+      const pence = targets[m.profile.id] ?? 0;
+      const [primary, ...extras] = m.fixed;
+      if (primary) {
+        jobs.push(
+          pence === 0
+            ? api.delete("/api/v1/transfer-rules/{rid}", { path: { rid: primary.id } })
+            : api.patch("/api/v1/transfer-rules/{rid}", {
+                path: { rid: primary.id },
+                body: { amount_spec: { kind: "fixed", pence } },
+              }));
+        // Duplicate fixed rules would double-count the share.
+        for (const extra of extras) {
+          jobs.push(api.delete("/api/v1/transfer-rules/{rid}", { path: { rid: extra.id } }));
+        }
+      } else if (pence > 0) {
+        const src = accounts.find((a) =>
+          !a.archived && a.owner_profile_id === m.profile.id);
+        if (!src) continue; // nowhere to pay from — surface via toast
+        const day = shares.find((x) => x.fixed[0])?.fixed[0]?.day_of_month ?? 15;
+        jobs.push(api.post("/api/v1/transfer-rules", {
+          body: {
+            name: `${m.profile.display_name} → ${pot.name}`,
+            source_account_id: src.id,
+            dest_account_id: pot.id,
+            amount_spec: { kind: "fixed", pence },
+            frequency: "monthly",
+            day_of_month: day,
+            start_date: toISODate(new Date()),
+          },
+        }));
+      }
+    }
+    Promise.all(jobs)
+      .then(() => { toast.success("Split updated — applies every month from now on"); onSaved(); })
+      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
+      title={`Adjust the ${pot.name} split`}
+      description="How much goes into the pot each month, and who covers what. It repeats monthly until you change it."
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-split"
+          disabled={busy || !percentOk}>
+          {busy ? "Saving…" : "Save split"}
+        </Button>
+      </>}>
+      <form id="ff-split" onSubmit={submit} className="grid gap-4">
+        <Segmented label="Adjust by" value={mode} onChange={setMode}
+          options={[
+            { value: "amount", label: "By amount" },
+            { value: "percent", label: "By percentage" },
+          ]} />
+        {mode === "percent" && (
+          <Field label="Total into the pot each month (£)">{(id) => (
+            <Input id={id} required type="number" step="0.01" min="0"
+              aria-label="Total monthly amount"
+              value={totalPounds} onChange={(e) => setTotalPounds(e.target.value)} />
+          )}</Field>
+        )}
+        <ul className="grid gap-3">
+          {shares.map((m) => (
+            <li key={m.profile.id} className="flex items-center gap-3">
+              <span className={cn("grid size-8 shrink-0 place-items-center rounded-full text-[12px] font-semibold",
+                toneFor(m.profile.display_name).split(" ").slice(0, 2).join(" "))}>
+                {m.profile.display_name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="w-20 truncate text-[13.5px] font-medium">
+                {m.profile.display_name}
+              </span>
+              {mode === "amount" ? (
+                <>
+                  <Input aria-label={`${m.profile.display_name} share amount`}
+                    type="number" step="0.01" min="0" className="w-28"
+                    placeholder="0.00"
+                    value={amounts[m.profile.id] ?? ""}
+                    onChange={(e) => setAmounts((a) => ({ ...a, [m.profile.id]: e.target.value }))} />
+                  <span className="tnum w-14 text-right text-[12.5px] text-fg-subtle">
+                    {amountTotal > 0
+                      ? `${Math.round((toPence(amounts[m.profile.id] ?? "") / amountTotal) * 100)}%`
+                      : "—"}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Input aria-label={`${m.profile.display_name} share percent`}
+                    type="number" step="1" min="0" max="100" className="w-20"
+                    value={pcts[m.profile.id] ?? ""}
+                    onChange={(e) => setPct(m.profile.id, e.target.value)} />
+                  <span className="text-[12.5px] text-fg-subtle">%</span>
+                  <span className="tnum flex-1 text-right text-[13px]">
+                    ≈ <Money pence={targets[m.profile.id] ?? 0} />
+                  </span>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+        {mode === "amount" ? (
+          <p className="text-[13px] text-fg-subtle">
+            Total: <Money pence={amountTotal} className="font-medium text-fg" /> per month
+          </p>
+        ) : !percentOk ? (
+          <p role="alert" className="text-[12.5px] text-warning">
+            Percentages must add to 100 — currently {Math.round(pctSum)}.
+          </p>
+        ) : null}
       </form>
     </Dialog>
   );

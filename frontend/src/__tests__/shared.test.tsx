@@ -174,4 +174,40 @@ describe("Shared", () => {
     await screen.findByText("Set up the shared pot");
     expect(screen.getAllByText(/no share/i).length).toBeGreaterThan(0);
   });
+
+  it("shows the pot total and each member's percentage share", async () => {
+    stubFetch([]);
+    render(<MemoryRouter><Shared /></MemoryRouter>);
+    // The split panel — £1,500 total, Josh 53%, Chloe 47%.
+    await screen.findByText("The split — Joint Bills");
+    const bar = screen.getByRole("img", { name: /Josh \d+%, Chloe \d+%/ });
+    expect(bar.getAttribute("aria-label")).toBe("Josh 53%, Chloe 47%");
+  });
+
+  it("adjust-by-percentage patches each member's fixed rule", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Shared /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: /Adjust split/ }));
+    await user.click(screen.getByRole("radio", { name: "By percentage" }));
+    const joshPct = screen.getByLabelText("Josh share percent");
+    await user.clear(joshPct);
+    await user.type(joshPct, "60");
+    // Two members: Chloe auto-balances to 40.
+    expect((screen.getByLabelText("Chloe share percent") as HTMLInputElement).value)
+      .toBe("40");
+    await user.click(screen.getByRole("button", { name: "Save split" }));
+    await waitFor(() => {
+      const p1 = calls.find((x) =>
+        x.method === "PATCH" && x.url.endsWith("/transfer-rules/1"));
+      const p2 = calls.find((x) =>
+        x.method === "PATCH" && x.url.endsWith("/transfer-rules/2"));
+      expect(p1).toBeDefined();
+      expect(p2).toBeDefined();
+      // 60/40 of the £1,500 total.
+      expect(JSON.parse(p1!.body).amount_spec).toEqual({ kind: "fixed", pence: 90000 });
+      expect(JSON.parse(p2!.body).amount_spec).toEqual({ kind: "fixed", pence: 60000 });
+    });
+  });
 });
