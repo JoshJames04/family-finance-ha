@@ -84,6 +84,18 @@ class TestConnect:
             banks.connect(session, household.id,
                           BankProvider.starling, "pat-x", v, ring)
 
+    def test_extra_read_scopes_accepted(
+            self, session: Session, household: Household,
+            ring: vault.Keyring) -> None:
+        """Extra `*:read` scopes are harmless — PAT creators routinely
+        tick more boxes than the app needs."""
+        v = _validator(GOOD | {
+            "payee:read", "statement-pdf:read", "feed-export-csv:read",
+            "confirmation-of-funds:read", "pay-local:read"})
+        conn = banks.connect(session, household.id,
+                             BankProvider.starling, "pat-x", v, ring)
+        assert conn.status == ConnStatus.connected
+
 
 class TestStateMachine:
     def test_401_revokes_and_sync_stops(
