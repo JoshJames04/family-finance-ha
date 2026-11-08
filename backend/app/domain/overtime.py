@@ -130,12 +130,11 @@ def update_entry(
     notes: str | EllipsisType | None = ...,
     holidays: HolidayTable | None = None,
 ) -> OvertimeEntry:
-    """Edit a draft entry. Moving the work date re-derives the day
-    type (unless pinned) and re-snapshots the hourly rate; changing
-    the day type re-defaults the multiplier unless one is pinned."""
-    if entry.status is not OvertimeStatus.draft:
-        raise PayrollError(
-            f"overtime {entry.id}: only draft entries can be edited")
+    """Edit an entry. Moving the work date re-derives the day type
+    (unless pinned) and re-snapshots the hourly rate; changing the
+    day type re-defaults the multiplier unless one is pinned.
+    Editing a non-draft reverts it to draft so it re-enters the
+    approval flow — approved figures stay stable until edited."""
     if hours is not None:
         if hours <= 0:
             raise PayrollError("overtime hours must be positive")
@@ -159,16 +158,16 @@ def update_entry(
         entry.multiplier_bps = multipliers(employment)[entry.day_type]
     if notes is not ...:
         entry.notes = notes
+    if entry.status is not OvertimeStatus.draft:
+        entry.status = OvertimeStatus.draft
     session.flush()
     return entry
 
 
 def delete_entry(session: Session, entry: OvertimeEntry) -> None:
-    """Remove an entry before it feeds payroll — drafts and rejected
-    rework only; an approved claim is corrected via a new cycle."""
-    if entry.status is OvertimeStatus.approved:
-        raise PayrollError(
-            f"overtime {entry.id}: approved entries cannot be deleted")
+    """Remove an entry entirely — any status. Payroll runs keep
+    their snapshotted components, so deleting an approved entry
+    only removes it from future totals, never rewrites history."""
     session.delete(entry)
     session.flush()
 

@@ -187,21 +187,16 @@ function EntryList({ employment, onEdit, onChanged }: {
                 <td className="px-3"><Badge tone={STATUS_TONE[e.status]}>{e.status}</Badge></td>
                 <td className="pr-4">
                   <div className="flex items-center justify-end gap-0.5">
+                    <Button variant="ghost" size="icon-sm"
+                      aria-label={`Edit entry from ${formatSmartDate(e.work_date)}`}
+                      onClick={() => onEdit(e)}>
+                      <Pencil />
+                    </Button>
                     {e.status === "draft" && (
-                      <>
-                        <Button variant="ghost" size="icon-sm"
-                          aria-label="Edit entry" onClick={() => onEdit(e)}>
-                          <Pencil />
-                        </Button>
-                        <Button size="sm" variant="ghost"
-                          onClick={() => act(e, "submit", "Submitted for approval")}>
-                          Submit
-                        </Button>
-                        <Button variant="ghost" size="icon-sm"
-                          aria-label="Delete entry" onClick={() => remove(e)}>
-                          <Trash2 />
-                        </Button>
-                      </>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => act(e, "submit", "Submitted for approval")}>
+                        Submit
+                      </Button>
                     )}
                     {e.status === "submitted" && (
                       <>
@@ -216,17 +211,16 @@ function EntryList({ employment, onEdit, onChanged }: {
                       </>
                     )}
                     {e.status === "rejected" && (
-                      <>
-                        <Button size="sm" variant="ghost"
-                          onClick={() => act(e, "rework", "Back to draft for editing")}>
-                          Rework
-                        </Button>
-                        <Button variant="ghost" size="icon-sm"
-                          aria-label="Delete entry" onClick={() => remove(e)}>
-                          <Trash2 />
-                        </Button>
-                      </>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => act(e, "rework", "Back to draft")}>
+                        Rework
+                      </Button>
                     )}
+                    <Button variant="ghost" size="icon-sm"
+                      aria-label={`Delete entry from ${formatSmartDate(e.work_date)}`}
+                      onClick={() => remove(e)}>
+                      <Trash2 />
+                    </Button>
                   </div>
                 </td>
               </tr>
@@ -239,8 +233,9 @@ function EntryList({ employment, onEdit, onChanged }: {
 }
 
 /** New or edit form — date + hours are the inputs; the day type,
- * rate and multiplier resolve from the employment unless the day
- * type is pinned explicitly (e.g. a worked bank holiday). */
+ * rate and multiplier all resolve from the date (weekends and UK
+ * bank holidays included). Editing a submitted/approved entry
+ * returns it to draft so it re-enters approval. */
 function EntryDialog({ employment, existing, onOpenChange, onSaved }: {
   employment: Employment;
   existing?: Entry;
@@ -250,7 +245,6 @@ function EntryDialog({ employment, existing, onOpenChange, onSaved }: {
   const [date, setDate] = useState(
     existing?.work_date ?? toISODate(new Date()));
   const [hours, setHours] = useState(existing ? String(existing.hours) : "");
-  const [dayType, setDayType] = useState<DayType | "">(existing?.day_type ?? "");
   const [notes, setNotes] = useState(existing?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const valid = date && /^\d+(\.\d{1,2})?$/.test(hours) && Number(hours) > 0
@@ -266,11 +260,6 @@ function EntryDialog({ employment, existing, onOpenChange, onSaved }: {
           body: {
             work_date: date,
             hours,
-            // Only pin a new day type — re-sending the current one
-            // would re-default a custom multiplier.
-            ...(dayType && dayType !== existing.day_type
-              ? { day_type: dayType }
-              : {}),
             notes: notes.trim() || null,
           },
         })
@@ -279,7 +268,6 @@ function EntryDialog({ employment, existing, onOpenChange, onSaved }: {
           body: {
             work_date: date,
             hours,
-            ...(dayType ? { day_type: dayType } : {}),
             notes: notes.trim() || null,
           },
         });
@@ -295,7 +283,9 @@ function EntryDialog({ employment, existing, onOpenChange, onSaved }: {
   return (
     <Dialog open onOpenChange={onOpenChange}
       title={`${existing ? "Edit" : "New"} overtime — ${employment.employer}`}
-      description="The hourly rate is taken from the salary in effect on the date worked, and the multiplier from the day type."
+      description={existing && existing.status !== "draft"
+        ? "Saving returns this entry to draft so it can be re-approved. Rate and day type re-derive from the date."
+        : "The day type, rate and multiplier are worked out from the date — weekends and bank holidays included."}
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-overtime"
@@ -314,16 +304,6 @@ function EntryDialog({ employment, existing, onOpenChange, onSaved }: {
               value={hours} onChange={(e) => setHours(e.target.value.trim())} />
           )}</Field>
         </div>
-        <Field label="Day type"
-          hint="Usually automatic from the date — override only for special rates.">{(id) => (
-          <Select id={id} value={dayType}
-            onChange={(e) => setDayType(e.target.value as DayType | "")}>
-            <option value="">Automatic (from the date)</option>
-            {(Object.keys(DAY_LABEL) as DayType[]).map((d) => (
-              <option key={d} value={d}>{DAY_LABEL[d]}</option>
-            ))}
-          </Select>
-        )}</Field>
         <Field label="Note" hint={'Optional — e.g. "covered the early shift".'}>{(id) => (
           <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />
         )}</Field>
