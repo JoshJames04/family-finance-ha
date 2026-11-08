@@ -589,6 +589,12 @@ class SalaryRevisionIn(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class SalaryRevisionPatch(BaseModel):
+    effective_date: date | None = None
+    annual_salary: Money | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class TaxCodeRevisionIn(BaseModel):
     effective_date: date
     tax_code: str = Field(min_length=1, max_length=12)

@@ -3,7 +3,8 @@
  * for forecast runs, and add-run / add-employment flows. */
 import { useState } from "react";
 import { toast } from "sonner";
-import { Briefcase, ChevronDown, Plus } from "lucide-react";
+import { undoToast } from "../lib/toast";
+import { Briefcase, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
 import { useReady } from "../api/hooks";
@@ -109,6 +110,23 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
     true, [e.id, rev]);
   const [reconciling, setReconciling] = useState<Run | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
+  const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
+  const removeRevision = (r: SalaryRevision) =>
+    api.delete("/api/v1/employments/{emp_id}/salary-revisions/{rev_id}",
+      { path: { emp_id: e.id, rev_id: r.id } })
+      .then(() => {
+        undoToast(`Salary of ${formatPence(r.annual_salary_pence)} removed`, () =>
+          api.post("/api/v1/employments/{emp_id}/salary-revisions", {
+            path: { emp_id: e.id },
+            body: {
+              effective_date: r.effective_date,
+              annual_salary: String(r.annual_salary_pence / 100),
+              notes: r.notes,
+            },
+          }).then(onChanged));
+        onChanged();
+      })
+      .catch((err: Error) => toast.error(err.message));
   const sorted = [...(runs.data ?? [])].sort((a, b) => b.pay_date.localeCompare(a.pay_date));
   const revs = [...(revisions.data ?? [])].sort(
     (a, b) => b.effective_date.localeCompare(a.effective_date));
@@ -145,12 +163,26 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
         <div className="border-t border-border px-4 py-2.5">
           <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px]">
             {revs.slice(0, 4).map((r, i) => (
-              <li key={r.id} className="flex items-baseline gap-1.5">
+              <li key={r.id} className="group flex items-baseline gap-1.5">
                 <Money pence={r.annual_salary_pence}
                   className={i === 0 ? "font-semibold" : "text-fg-muted"} />
                 <span className="text-fg-subtle">
                   from {formatSmartDate(r.effective_date)}
                   {r.notes && !r.notes.startsWith("{") ? ` · ${r.notes}` : ""}
+                </span>
+                <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <Button variant="ghost" size="icon-sm"
+                    aria-label={`Edit salary from ${formatSmartDate(r.effective_date)}`}
+                    onClick={() => setEditingRev(r)}>
+                    <Pencil />
+                  </Button>
+                  {revs.length > 1 && (
+                    <Button variant="ghost" size="icon-sm"
+                      aria-label={`Delete salary from ${formatSmartDate(r.effective_date)}`}
+                      onClick={() => removeRevision(r)}>
+                      <Trash2 />
+                    </Button>
+                  )}
                 </span>
               </li>
             ))}
@@ -205,6 +237,14 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
           onSaved={onChanged}
         />
       )}
+      {editingRev && (
+        <SalaryRevisionDialog
+          employment={e}
+          existing={editingRev}
+          onOpenChange={(o) => { if (!o) setEditingRev(null); }}
+          onSaved={onChanged}
+        />
+      )}
     </Panel>
   );
 }
@@ -212,28 +252,41 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
 /** Record a salary change effective from a date — a pay rise, a new
  * rate on contract change (issue #296). Revisions are a dated series;
  * the engine picks the one current on any given day. */
-function SalaryRevisionDialog({ employment, onOpenChange, onSaved }: {
+function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
   employment: Employment;
+  existing?: SalaryRevision;
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
-  const [date, setDate] = useState(toISODate(new Date()));
-  const [pounds, setPounds] = useState("");
-  const [notes, setNotes] = useState("");
+  const [date, setDate] = useState(
+    existing?.effective_date ?? toISODate(new Date()));
+  const [pounds, setPounds] = useState(
+    existing ? String(existing.annual_salary_pence / 100) : "");
+  const [notes, setNotes] = useState(existing?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const valid = date && /^\d+(\.\d{1,2})?$/.test(pounds) && Number(pounds) >= 0;
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
     setBusy(true);
-    api.post("/api/v1/employments/{emp_id}/salary-revisions", {
-      path: { emp_id: employment.id },
-      body: {
-        effective_date: date,
-        annual_salary: pounds,
-        notes: notes.trim() || null,
-      },
-    })
+    const req = existing
+      ? api.patch("/api/v1/employments/{emp_id}/salary-revisions/{rev_id}", {
+          path: { emp_id: employment.id, rev_id: existing.id },
+          body: {
+            effective_date: date,
+            annual_salary: pounds,
+            notes: notes.trim() || null,
+          },
+        })
+      : api.post("/api/v1/employments/{emp_id}/salary-revisions", {
+          path: { emp_id: employment.id },
+          body: {
+            effective_date: date,
+            annual_salary: pounds,
+            notes: notes.trim() || null,
+          },
+        });
+    req
       .then(() => {
         toast.success(`Salary updated from ${formatSmartDate(date)}`);
         onSaved();
@@ -243,12 +296,16 @@ function SalaryRevisionDialog({ employment, onOpenChange, onSaved }: {
   };
   return (
     <Dialog open onOpenChange={onOpenChange}
-      title={`New salary — ${employment.employer}`}
-      description="The annual figure and the date it takes effect. Past salary stays on record."
+      title={`${existing ? "Edit" : "New"} salary — ${employment.employer}`}
+      description={existing
+        ? "Correct the figure or the date it took effect. Other dated entries stay as they are."
+        : "The annual figure and the date it takes effect. Past salary stays on record."}
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-salaryrev"
-          disabled={!valid || busy}>{busy ? "Saving…" : "Save salary"}</Button>
+          disabled={!valid || busy}>
+          {busy ? "Saving…" : existing ? "Save changes" : "Save salary"}
+        </Button>
       </>}>
       <form id="ff-salaryrev" onSubmit={submit} className="grid gap-4">
         <div className="grid gap-4 sm:grid-cols-2">

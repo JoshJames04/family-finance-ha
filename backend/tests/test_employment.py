@@ -175,3 +175,58 @@ class TestApi:
                           headers={**h, "X-Profile-Id": str(p1)}
                           ).json()["items"]
         assert len(mine) == 1 and mine[0]["profile_id"] == p1
+
+    def test_revision_patch_and_delete(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        pid = client.post("/api/v1/profiles",
+                          json={"display_name": "Josh"},
+                          headers=h).json()["id"]
+        eid = client.post("/api/v1/employments", json={
+            "profile_id": pid, "employer": "Acme",
+            "contracted_hours": 37.5}, headers=h).json()["id"]
+        r1 = client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                         json={"effective_date": "2026-04-06",
+                               "annual_salary": 3600000},
+                         headers=h).json()
+        r2 = client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                         json={"effective_date": "2026-10-01",
+                               "annual_salary": 4000000},
+                         headers=h).json()
+
+        # correct a figure and note in place
+        p = client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"annual_salary": 4100000, "notes": "corrected"},
+            headers=h)
+        assert p.status_code == 200
+        assert p.json()["annual_salary_pence"] == 4100000
+        assert p.json()["notes"] == "corrected"
+
+        # moving the date onto an existing revision date → 409
+        assert client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"effective_date": "2026-04-06"},
+            headers=h).status_code == 409
+        # moving to a free date is fine
+        assert client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"effective_date": "2026-10-05"},
+            headers=h).status_code == 200
+
+        # cross-household revision → 404
+        hid2 = client.post("/api/v1/households",
+                           json={"name": "Other"}).json()["id"]
+        assert client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"annual_salary": 1},
+            headers={"X-Household-Id": str(hid2)}).status_code == 404
+
+        # delete one of two → 204; deleting the last one → 409
+        assert client.delete(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            headers=h).status_code == 204
+        assert client.delete(
+            f"/api/v1/employments/{eid}/salary-revisions/{r1['id']}",
+            headers=h).status_code == 409

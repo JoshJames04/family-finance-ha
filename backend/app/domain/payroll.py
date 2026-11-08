@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
+from types import EllipsisType
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -52,6 +53,46 @@ def add_salary_revision(
     session.add(rev)
     session.flush()
     return rev
+
+
+def update_salary_revision(
+    session: Session, rev: SalaryRevision, *,
+    effective_date: date | None = None,
+    annual_pence: int | None = None,
+    notes: str | EllipsisType | None = ...,
+) -> SalaryRevision:
+    """Correct a revision's figure, date or note in place."""
+    if annual_pence is not None and annual_pence < 0:
+        raise PayrollError("annual salary cannot be negative")
+    if effective_date is not None and effective_date != rev.effective_date:
+        clash = _revision_on(session, SalaryRevision, rev.employment_id,
+                             effective_date)
+        if clash is not None and clash.id != rev.id:
+            raise PayrollError(
+                f"salary revision already exists on {effective_date}")
+        rev.effective_date = effective_date
+    if annual_pence is not None:
+        rev.annual_salary_pence = annual_pence
+    if notes is not ...:
+        rev.notes = notes
+    session.flush()
+    return rev
+
+
+def delete_salary_revision(
+    session: Session, rev: SalaryRevision,
+) -> None:
+    """Remove a revision; an employment must keep at least one."""
+    remaining = session.execute(
+        select(SalaryRevision.id).where(
+            SalaryRevision.employment_id == rev.employment_id,
+            SalaryRevision.id != rev.id)).first()
+    if remaining is None:
+        raise PayrollError(
+            "cannot delete the only salary revision — "
+            "delete the employment instead")
+    session.delete(rev)
+    session.flush()
 
 
 def add_tax_code_revision(
