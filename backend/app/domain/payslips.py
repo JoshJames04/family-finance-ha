@@ -81,8 +81,8 @@ _COMPONENT_LABELS: tuple[tuple[PayrollComponentKind, tuple[str, ...]], ...] = (
         r"allowance\b", r"expenses?\b", r"subsistence\b", r"mileage\b")),
     (PayrollComponentKind.base_salary, (
         r"basic\s+(?:pay|salary)\b", r"base\s+(?:pay|salary)\b",
-        r"standard\s+pay\b", r"normal\s+pay\b", r"\bbasic\b",
-        r"\bsalary\b")),
+        r"monthly\s+pay\b", r"weekly\s+pay\b", r"standard\s+pay\b",
+        r"normal\s+pay\b", r"\bbasic\b", r"\bsalary\b")),
 )
 
 # ``gross``/``net`` are summary fields, not components, but their labels
@@ -98,6 +98,8 @@ _FIELD_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
         r"net\s+(?:pay|payment|salary|payable|amount|wage|earnings)\b",
         r"take[\s-]?home\b",
         r"\bnet\b(?!\s*(?:deductions?|tax|ni)\b)")),
+    ("deductions", (
+        r"total\s+deductions?\b", r"deductions\s+total\b")),
 )
 
 
@@ -119,12 +121,15 @@ _LABEL_SPECS = _build_label_specs()
 # Lines that carry codes, basis figures or employer-side values rather
 # than a readable employee component amount.
 _ADMIN_RE = re.compile(
-    r"\btaxable\b|\bpensionable\b|\bniable\b|\bnino\b|\bni\s*no\.?\b"
+    r"\btaxable\b(?!\s+gross)|\bpensionable\b|\bniable\b|\bnino\b"
+    r"|\bni\s*no\.?\b"
     r"|\b(?:tax|ni|n\.i\.?|national\s+insurance)\s*"
     r"(?:code|period|number|table|category|letter|reference|rate|"
     r"week|month|year)\b"
     r"|\bemployer'?s?\b"
-    r"|\bstudent\s+(?:number|no\.?|id)\b"
+    r"|\bstudent\s+(?:number|no\.?|id|loan\s+plan)\b"
+    r"|\bworks?\s+(?:number|no\.?|id|#)\b|\bdepartments?\b"
+    r"|\bpaye[\s·.]*ref(?:erence)?\b|\bpayslip\b"
     r"|\b(?:basic|hourly|standard|normal)\s+rate\b|\brate\s+of\s+pay\b",
     re.IGNORECASE)
 
@@ -152,8 +157,36 @@ _MONEY_RE = re.compile(
 _OT_LINE_RE = re.compile(
     r"(?<![\d.,])(?P<hours>\d{1,3}(?:\.\d{1,2})?)\s*"
     r"(?:h(?:rs?|ours?)?\.?\s*)?(?:@|\bat\b|\bx\b)\s*"
-    r"(?P<rate>-?£?\s*\d[\d ,]*(?:\.\d{1,2})?)",
+    r"(?P<rate>-?£?\s*\d[\d ,]*(?:\.\d{1,3})?)",
     re.IGNORECASE)
+
+# Section headers control sign and skip logic — "Total" means gross in
+# ADDITIONS but deductions-total in DEDUCTIONS, and YEAR TO DATE lines
+# must never leak into this period's components.
+_SECTION_RES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"additions|earnings|pay\s+details|payments\s+table",
+                re.IGNORECASE), "additions"),
+    (re.compile(r"deductions", re.IGNORECASE), "deductions"),
+    (re.compile(r"this\s+pay\s+period|this\s+period|pay\s+summary|"
+                r"payment\s+summary|period\s+summary",
+                re.IGNORECASE), "summary"),
+    (re.compile(r"year\s+to\s+date|y\.?\s*t\.?\s*d\b|cumulative|"
+                r"totals?\s+to\s+date", re.IGNORECASE), "ytd"),
+    (re.compile(r"^payments?\b|payment\s+details|net\s+pay\s+details",
+                re.IGNORECASE), "payment"),
+    (re.compile(r"employee\s+details|employer\s+details|"
+                r"personal\s+details|company\s+details",
+                re.IGNORECASE), "details"),
+)
+_SECTION_TOTAL = re.compile(r"^totals?\b", re.IGNORECASE)
+
+
+def _section_of(line: str) -> str | None:
+    """Return the section a bare header line opens, else None."""
+    for pattern, name in _SECTION_RES:
+        if pattern.search(line):
+            return name
+    return None
 
 # An OCR ``0`` sitting inside a word (``0VERTIME``/``T0TAL``) is a
 # letter ``O``; digits are left untouched.
@@ -209,8 +242,9 @@ def _blank() -> dict[str, object]:
     the stored shape stays consistent for manual entry."""
     return {
         "components": {}, "overtime_lines": [], "gross_pence": None,
-        "net_pence": None, "pay_date": None, "period_end": None,
-        "text": "", "confidence": "low"}
+        "net_pence": None, "payment_pence": None,
+        "deductions_pence": None, "pay_date": None,
+        "period_end": None, "text": "", "confidence": "low"}
 
 
 def _gbp(pence: int) -> str:
@@ -231,9 +265,23 @@ def _money_pence(raw: str) -> int | None:
     try:
         pence = int((Decimal(cleaned) * 100).quantize(
             Decimal("1"), rounding=ROUND_HALF_UP))
-    except InvalidOperation:
+    except (InvalidOperation, ValueError):
         return None
     return -pence if negative else pence
+
+
+def _rate_pence(raw: str) -> int | None:
+    """Hourly rates print up to three decimals (``£29.715``); round
+    half-up to whole pence for comparison against contracted rates."""
+    cleaned = (raw.replace("£", "").replace(",", "").replace(" ", "")
+               .strip().lstrip("+-"))
+    if not re.fullmatch(r"\d+(?:\.\d{1,3})?", cleaned):
+        return None
+    try:
+        return int((Decimal(cleaned) * 100).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _money_spans(segment: str) -> list[tuple[int, int, int]]:
@@ -345,11 +393,24 @@ def _parse(text: str) -> tuple[dict[str, object], list[str]]:
     pay_date: str | None = None
     period_end: str | None = None
 
+    payment_pence: int | None = None
+    deductions_pence: int | None = None
+    # Signed earning contributions outside the deductions section —
+    # what gross is checked against. A deduction-section clawback on an
+    # earning kind (``Overtime Paid September -£75.55``) reduces what
+    # was paid, not what was earned this period.
+    gross_earnings = 0
+    section = "none"
+
     for raw_line in text.splitlines():
         line = raw_line.strip()
-        if not line or not any(char.isdigit() for char in line):
+        if not line:
             continue
         scanned = _ZERO_TO_O.sub("o", line)
+        opened = _section_of(scanned)
+        if opened is not None and not _money_spans(scanned):
+            section = opened
+            continue
         dates = _dates_on(scanned)
         if (pay_date is None and dates
                 and _PAY_DATE_LABEL.search(scanned)):
@@ -357,12 +418,69 @@ def _parse(text: str) -> tuple[dict[str, object], list[str]]:
         if (period_end is None and dates
                 and _PERIOD_END_LABEL.search(scanned)):
             period_end = dates[-1][2]
+        if section in {"ytd", "details"}:
+            continue
+        if not any(char.isdigit() for char in line):
+            continue
         if _ADMIN_RE.search(scanned):
             continue
-        hits = _label_hits(scanned)
-        if not hits:
-            continue
         masked = _mask_line(line, scanned, dates)
+        hits = _label_hits(scanned)
+        if (section == "payment" and payment_pence is None
+                and not hits):
+            tokens = _money_spans(masked)
+            if tokens:
+                payment_pence = tokens[-1][2]
+            continue
+        if not hits:
+            if _SECTION_TOTAL.match(scanned):
+                tokens = _money_spans(masked)
+                if tokens:
+                    if section == "deductions":
+                        deductions_pence = tokens[-1][2]
+                    elif (section == "additions"
+                            and gross_pence is None):
+                        gross_pence = tokens[-1][2]
+                continue
+            ot = _OT_LINE_RE.search(masked)
+            if (ot is not None
+                    and section in {"additions", "deductions"}):
+                # Unlabelled ``24 hours @ £29.715 £713.16`` — a
+                # quantity-by-rate addition is an overtime line on
+                # these payslips.
+                rate_pence = _rate_pence(ot.group("rate"))
+                others = [t for t in _money_spans(masked)
+                          if t[1] <= ot.start() or t[0] >= ot.end()]
+                amount: int | None = None
+                if others:
+                    amount = others[-1][2]
+                elif rate_pence is not None:
+                    amount = int((Decimal(ot.group("hours")) * rate_pence)
+                                 .quantize(Decimal("1"),
+                                           rounding=ROUND_HALF_UP))
+                if amount is not None:
+                    signed = (-abs(amount) if section == "deductions"
+                              else abs(amount))
+                    components["overtime"] = (
+                        components.get("overtime", 0) + signed)
+                    if section != "deductions":
+                        gross_earnings += signed
+                    if section != "deductions" and rate_pence is not None:
+                        overtime_lines.append({
+                            "id": f"line-{len(overtime_lines) + 1}",
+                            "hours": str(Decimal(ot.group("hours"))),
+                            "printed_rate_pence": rate_pence})
+            elif section == "additions":
+                tokens = _money_spans(masked)
+                if tokens:
+                    amount = abs(tokens[-1][2])
+                    components["allowance"] = (
+                        components.get("allowance", 0) + amount)
+                    gross_earnings += amount
+                    warnings.append(
+                        f"unlabelled addition {_gbp(amount)} attributed "
+                        "to Allowance — verify the component kind.")
+            continue
         for index, hit in enumerate(hits):
             seg_end = (hits[index + 1].start if index + 1 < len(hits)
                        else len(masked))
@@ -371,25 +489,29 @@ def _parse(text: str) -> tuple[dict[str, object], list[str]]:
             if ytd is not None:
                 segment = segment[:ytd.start()]
             tokens = _money_spans(segment)
-            if hit.label in {"gross", "net"}:
+            if hit.label in {"gross", "net", "deductions"}:
                 # Summary fields: label is followed by its amount.
                 if tokens:
                     if hit.label == "gross":
                         gross_pence = tokens[0][2]
-                    else:
+                    elif hit.label == "net":
                         net_pence = tokens[0][2]
+                    else:
+                        deductions_pence = tokens[0][2]
                 elif hit.label not in warned:
                     warned.add(hit.label)
                     warnings.append(
                         f"{hit.label} pay could not be read; "
                         "enter it manually.")
                 continue
+            if section == "summary":
+                continue
             kind = PayrollComponentKind(hit.label)
-            amount: int | None = None
+            amount = None
             ot = (_OT_LINE_RE.search(segment)
                   if kind in _EARNING_KINDS else None)
             if ot is not None:
-                rate_pence = _money_pence(ot.group("rate"))
+                rate_pence = _rate_pence(ot.group("rate"))
                 others = [t for t in tokens
                           if t[1] <= ot.start() or t[0] >= ot.end()]
                 if others:
@@ -415,8 +537,12 @@ def _parse(text: str) -> tuple[dict[str, object], list[str]]:
                         f"{_DISPLAY[kind]} could not be read; "
                         "enter it manually.")
                 continue
-            components[kind.value] = components.get(kind.value, 0) + (
-                amount if kind in _EARNING_KINDS else -abs(amount))
+            signed = (-abs(amount) if section == "deductions"
+                      or kind not in _EARNING_KINDS else amount)
+            components[kind.value] = (
+                components.get(kind.value, 0) + signed)
+            if kind in _EARNING_KINDS and section != "deductions":
+                gross_earnings += signed
 
     deduction_found = any(
         kind.value in components for kind in _DEDUCTION_KINDS)
@@ -429,15 +555,13 @@ def _parse(text: str) -> tuple[dict[str, object], list[str]]:
             "only partial components detected; "
             "enter missing values manually.")
     if gross_pence is not None and components:
-        earnings = sum(
-            components.get(kind.value, 0) for kind in _EARNING_KINDS)
-        remainder = gross_pence - earnings
+        remainder = gross_pence - gross_earnings
         if remainder != 0:
             warnings.append(
-                f"labelled earnings total {_gbp(earnings)} but gross is "
-                f"{_gbp(gross_pence)}; the {_gbp(remainder)} remainder "
-                "is not attributed to a labelled line and is never "
-                "inferred — enter it manually.")
+                f"labelled earnings total {_gbp(gross_earnings)} but "
+                f"gross is {_gbp(gross_pence)}; the {_gbp(remainder)} "
+                "remainder is not attributed to a labelled line and is "
+                "never inferred — enter it manually.")
     if gross_pence is not None and net_pence is not None:
         deductions = sum(
             components.get(kind.value, 0) for kind in _DEDUCTION_KINDS)
@@ -447,6 +571,19 @@ def _parse(text: str) -> tuple[dict[str, object], list[str]]:
                 f"deductions is {_gbp(gross_pence + deductions)} but "
                 f"net is {_gbp(net_pence)}; verify every component "
                 "manually.")
+    if payment_pence is not None:
+        if components:
+            labelled_total = sum(components.values())
+            if labelled_total != payment_pence:
+                warnings.append(
+                    f"labelled components total {_gbp(labelled_total)} "
+                    f"but the payment is {_gbp(payment_pence)}; verify "
+                    "every component manually.")
+        if net_pence is not None and payment_pence != net_pence:
+            warnings.append(
+                f"payment {_gbp(payment_pence)} differs from net pay "
+                f"{_gbp(net_pence)}; the payment is what reaches the "
+                "bank — reconcile against it.")
     confidence = (
         "high" if gross_pence is not None and net_pence is not None
         and deduction_found else "low")
@@ -455,6 +592,8 @@ def _parse(text: str) -> tuple[dict[str, object], list[str]]:
         "overtime_lines": overtime_lines,
         "gross_pence": gross_pence,
         "net_pence": net_pence,
+        "payment_pence": payment_pence,
+        "deductions_pence": deductions_pence,
         "pay_date": pay_date,
         "period_end": period_end,
         "text": text,
