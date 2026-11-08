@@ -1,8 +1,8 @@
 import {
-  ArrowLeftRight, BarChart3, Briefcase, Building2, CalendarClock, Gift,
-  Handshake, Inbox, Landmark, LayoutDashboard, LineChart,
-  type LucideIcon, PiggyBank, ReceiptText, Repeat, Settings, Tag, Target,
-  Users2, Wand2, Zap,
+  ArrowLeftRight, BarChart3, Bell, Briefcase, Building2, CalendarClock,
+  FlaskConical, Gift, Handshake, Inbox, Landmark, LayoutDashboard,
+  LineChart, type LucideIcon, PiggyBank, ReceiptText, Repeat, Settings,
+  Tag, Target, Users2, Wand2, Zap,
 } from "lucide-react";
 
 export interface NavItem {
@@ -41,6 +41,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/goals", label: "Goals", icon: PiggyBank, description: "Savings goals and progress" },
       { to: "/gifts", label: "Gifts", icon: Gift, description: "Seasonal gift planning" },
       { to: "/loans", label: "Loans", icon: Handshake, description: "Family loans and repayments" },
+      { to: "/scenarios", label: "Scenarios", icon: FlaskConical, description: "What-if planning" },
     ],
   },
   {
@@ -51,6 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/shared", label: "Shared", icon: Users2, description: "Who pays what into the shared pot" },
       { to: "/payees", label: "Payees", icon: Tag, description: "Canonical merchant names" },
       { to: "/rules", label: "Rules", icon: Wand2, description: "Automatic categorisation" },
+      { to: "/notifications", label: "Notifications", icon: Bell, description: "Alert rules and inbox" },
       { to: "/salary", label: "Salary", icon: Briefcase, description: "Payroll, payslips and overtime" },
       { to: "/energy", label: "Energy", icon: Zap, description: "Usage, tariffs and cost" },
       { to: "/reports", label: "Reports", icon: BarChart3, description: "Monthly and annual summaries" },

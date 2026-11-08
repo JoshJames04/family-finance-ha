@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.api.v1.accounts import projection_out
 from app.domain import scenario as scen
 from app.domain.scenario import ScenarioError
@@ -58,6 +58,29 @@ def delete_scenario(
     scen.delete_scenario(session, s)
 
 
+@router.get("/{scenario_id}/ops",
+            response_model=list[schemas.ScenarioOpOut])
+def list_ops(
+    scenario_id: int, household: HouseholdDep, session: SessionDep,
+) -> list[schemas.ScenarioOpOut]:
+    s = _get(session, household.id, scenario_id)
+    return [schemas.ScenarioOpOut.model_validate(o) for o in s.ops]
+
+
+@router.delete("/{scenario_id}/ops/{op_id}", status_code=204)
+def delete_op(
+    scenario_id: int, op_id: int, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> None:
+    s = _get(session, household.id, scenario_id)
+    op = next((o for o in s.ops if o.id == op_id), None)
+    if op is None:
+        raise HTTPException(404, f"op {op_id} not found")
+    emit(session, household.id, actor, "delete_op", "scenario", s.id,
+         {"op_id": op_id, "kind": op.kind.value})
+    session.delete(op)
+
+
 @router.post("/{scenario_id}/ops",
              response_model=schemas.ScenarioOpOut, status_code=201)
 def add_op(
@@ -85,13 +108,14 @@ def add_op(
             response_model=schemas.ScenarioRunOut)
 def run_scenario(
     scenario_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     account_id: Annotated[int, Query()],
     days: Annotated[int, Query(ge=1, le=731)] = 90,
 ) -> schemas.ScenarioRunOut:
     """Baseline vs scenario projection + structured diff."""
     from app.api.v1.accounts import _get as get_account
     s = _get(session, household.id, scenario_id)
-    a = get_account(session, household.id, account_id)
+    a = get_account(session, household.id, account_id, profile)
     r = scen.run(session, s, a, days)
     d = r.diff
     return schemas.ScenarioRunOut(
