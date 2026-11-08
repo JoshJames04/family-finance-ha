@@ -55,6 +55,20 @@ export function Salary() {
   const items = employments.data?.items ?? [];
   const nextYear = new Date().getFullYear() + 1;
 
+  // Rolling horizon prompt (#304): when the furthest payroll run is
+  // under ~90 days out, nudge the member to prepare the next year.
+  const runsAll = useApi(
+    () => Promise.all(items.map((e) =>
+      api.get("/api/v1/employments/{emp_id}/payroll-runs",
+        { path: { emp_id: e.id } }))),
+    ready && items.length > 0, [rev, items.length]);
+  const horizon = (runsAll.data ?? []).flat()
+    .reduce<string | null>(
+      (m, r) => (m === null || r.pay_date > m ? r.pay_date : m), null);
+  const horizonSoon = horizon !== null
+    && horizon < toISODate(
+      new Date(Date.now() + 90 * 86_400_000));
+
   const prepareYear = () => {
     setPrepping(true);
     api.post("/api/v1/employments/prepare-year", { body: { year: nextYear } })
@@ -84,6 +98,19 @@ export function Salary() {
           </Button>
         </>}
       />
+      {horizonSoon && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-warning/25 bg-warning-soft px-4 py-3 text-[13.5px]">
+          <span className="min-w-0 flex-1">
+            Payroll forecasts only run to {formatSmartDate(horizon!)} —
+            prepare {nextYear} to keep the calendar, forecast and
+            safe-to-spend figures rolling.
+          </span>
+          <Button size="sm" variant="secondary" onClick={prepareYear}
+            disabled={prepping}>
+            Prepare {nextYear}
+          </Button>
+        </div>
+      )}
       <div className="mb-5 flex gap-1 border-b border-border">
         {(["employers", "breakdown"] as const).map((t) => (
           <button key={t} type="button" onClick={() => setTab(t)}
