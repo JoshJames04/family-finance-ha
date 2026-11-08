@@ -14,6 +14,7 @@ import {
 } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
+import { SharedPot } from "../components/SharedPot";
 import { Badge, type BadgeTone } from "../components/Badge";
 import { Money } from "../components/Money";
 import { Button } from "../components/Button";
@@ -324,8 +325,20 @@ export function Budget() {
                                 const v = an?.variance_pence ?? 0;
                                 const plan = an?.effective_pence ?? l.revised_pence ?? l.original_pence;
                                 const actual = Math.abs(an?.actual_pence ?? 0);
-                                // Accuracy is meaningless for an empty plan with no spend.
-                                const acc = plan === 0 && actual === 0 ? null : an?.accuracy_pct ?? null;
+                                const wasRevised = l.revised_pence != null
+                                  && l.revised_pence !== l.original_pence;
+                                // Usage means nothing when there's no plan and no spend.
+                                const used = plan > 0 ? actual / plan : null;
+                                const planned = (
+                                  <span className="inline-flex flex-col items-end">
+                                    <Money pence={plan} className="font-medium" />
+                                    {wasRevised && (
+                                      <span className="text-[11.5px] text-fg-subtle line-through">
+                                        <Money pence={l.original_pence} />
+                                      </span>
+                                    )}
+                                  </span>
+                                );
                                 return (
                                   <tr key={l.id} className="border-b border-border last:border-0 hover:bg-surface-2/60">
                                     <td className="py-2.5 pl-4" data-label="Category">
@@ -335,43 +348,39 @@ export function Budget() {
                                           <p className="font-medium">{name}</p>
                                           {an?.revision_reason && (
                                             <p className="ff-reason truncate text-[12px] text-fg-subtle">
-                                              Revised: {an.revision_reason}
+                                              Adjusted: {an.revision_reason}
                                             </p>
                                           )}
                                         </div>
                                       </div>
                                     </td>
-                                    <td className="tnum px-3 text-right text-fg-muted" data-label="Original">
-                                      <Money pence={l.original_pence} />
-                                    </td>
-                                    <td className="px-3 text-right" data-label="Revised">
-                                      {locked ? (
-                                        l.revised_pence != null ? <Money pence={l.revised_pence} /> : <span className="text-fg-subtle">—</span>
-                                      ) : (
+                                    <td className="px-3 text-right" data-label="Planned">
+                                      {locked ? planned : (
                                         <button
                                           type="button"
                                           className="group ff-inline-edit inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-surface-3"
-                                          aria-label={`Revise ${name}`}
+                                          aria-label={`Adjust ${name}`}
                                           onClick={() => setRevising(l)}
                                         >
-                                          {l.revised_pence != null
-                                            ? <Money pence={l.revised_pence} className="font-medium" />
-                                            : <span className="text-fg-subtle">—</span>}
+                                          {planned}
                                           <Pencil className="size-3 text-fg-subtle opacity-0 group-hover:opacity-100" />
                                         </button>
                                       )}
                                     </td>
-                                    <td className="px-3 text-right font-medium" data-label="Actual">
+                                    <td className="px-3 text-right font-medium" data-label={side.key === "expense" ? "Spent" : "Received"}>
                                       {an != null ? <Money pence={an.actual_pence} /> : "—"}
                                     </td>
-                                    <td className="px-3 text-right" data-label="Variance">
+                                    <td className="px-3 text-right" data-label="Over/under">
                                       {an != null ? <Money pence={v} tone="variance" signed /> : "—"}
                                     </td>
-                                    <td className="px-3 pr-4" data-label="Accuracy">
-                                      {acc == null ? <span className="text-fg-subtle">—</span> : (
+                                    <td className="w-40 px-3 pr-4" data-label="Used">
+                                      {used == null ? <span className="text-fg-subtle">—</span> : (
                                         <div className="flex items-center gap-2">
                                           <Progress value={actual} max={plan} className="flex-1" label={`${name} used`} />
-                                          <span className="tnum w-10 text-right text-[12.5px] text-fg-muted">{acc}%</span>
+                                          <span className={cn("tnum w-10 text-right text-[12.5px]",
+                                            used > 1 ? "text-negative" : "text-fg-muted")}>
+                                            {Math.round(used * 100)}%
+                                          </span>
                                         </div>
                                       )}
                                     </td>
@@ -386,11 +395,10 @@ export function Budget() {
                                       <thead className="text-left text-[12px] text-fg-subtle">
                                         <tr className="h-9 border-b border-border">
                                           <th className="pl-4 font-medium">Category</th>
-                                          <th className="px-3 text-right font-medium">Original</th>
-                                          <th className="px-3 text-right font-medium">Revised</th>
-                                          <th className="px-3 text-right font-medium">Actual</th>
-                                          <th className="px-3 text-right font-medium">Variance</th>
-                                          <th className="w-40 px-3 pr-4 font-medium">Accuracy</th>
+                                          <th className="px-3 text-right font-medium">Planned</th>
+                                          <th className="px-3 text-right font-medium">{side.key === "expense" ? "Spent" : "Received"}</th>
+                                          <th className="px-3 text-right font-medium">Over/under</th>
+                                          <th className="w-40 px-3 pr-4 font-medium">Used</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -402,7 +410,7 @@ export function Budget() {
                                           return (
                                             <Fragment key={sec.key || "other"}>
                                               <tr className="border-b border-border bg-surface-2/50">
-                                                <td colSpan={6} className="p-0">
+                                                <td colSpan={5} className="p-0">
                                                   <button
                                                     type="button"
                                                     aria-expanded={!isCollapsed}
@@ -465,6 +473,13 @@ export function Budget() {
                         </DataView>
                       </div>
                     </Panel>
+                  </div>
+
+                  {/* The shared pot is a budgeting decision — it lives
+                   * here, period-scoped to the viewed month (issue
+                   * #297). */}
+                  <div className="mt-4">
+                    <SharedPot period={{ start: d.start_date, end: d.end_date }} />
                   </div>
                 </>
               )}

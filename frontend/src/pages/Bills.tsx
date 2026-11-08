@@ -5,6 +5,7 @@
  * money map stays consistent. */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import {
   CalendarClock, Pause, Pencil, Play, Plus, ReceiptText, Send,
 } from "lucide-react";
@@ -111,7 +112,12 @@ export function Bills() {
 
   const pause = (c: Commitment) =>
     api.delete("/api/v1/commitments/{cid}", { path: { cid: c.id } })
-      .then(() => { toast.success(`${c.name} paused`); refresh(); })
+      .then(() => {
+        undoToast(`${c.name} paused`, () =>
+          api.post("/api/v1/commitments/{cid}/activate",
+            { path: { cid: c.id } }).then(refresh));
+        refresh();
+      })
       .catch((e: Error) => toast.error(e.message));
   const resume = (c: Commitment) =>
     api.post("/api/v1/commitments/{cid}/activate", { path: { cid: c.id } })
@@ -288,8 +294,14 @@ export function Bills() {
   );
 }
 
-/** Create/edit form — exactly one of fixed amount or formula, matching
- * the backend invariant. */
+/** How long the bill runs — the duration question the old form left
+ * implicit behind two optional fields (issue #292). */
+type Duration = "until_stopped" | "until_date" | "n_times";
+
+/** Create/edit form — the core is name/amount/account/how often/how
+ * long; formula, direction, day-of-month and notes live behind "More
+ * options" so a plain bill is a five-field job. Exactly one of fixed
+ * amount or formula, matching the backend invariant. */
 function BillDialog({ commitment, accounts, categories, onClose, onSaved }: {
   commitment: Commitment | null;
   accounts: components["schemas"]["AccountOut"][];
@@ -308,11 +320,23 @@ function BillDialog({ commitment, accounts, categories, onClose, onSaved }: {
   const [frequency, setFrequency] = useState<Frequency>(commitment?.frequency ?? "monthly");
   const [dom, setDom] = useState(commitment?.day_of_month != null ? String(commitment.day_of_month) : "");
   const [nextDate, setNextDate] = useState(commitment?.next_date ?? new Date().toISOString().slice(0, 10));
+  const [duration, setDuration] = useState<Duration>(
+    commitment?.end_date ? "until_date"
+      : commitment?.occurrence_count != null ? "n_times"
+      : "until_stopped");
   const [endDate, setEndDate] = useState(commitment?.end_date ?? "");
   const [occurrences, setOccurrences] = useState(commitment?.occurrence_count != null ? String(commitment.occurrence_count) : "");
   const [notes, setNotes] = useState(commitment?.notes ?? "");
   const [out, setOut] = useState(commitment == null || (commitment.amount_pence ?? 0) <= 0);
   const [busy, setBusy] = useState(false);
+  // Advanced opens by itself when the existing record uses it, or when
+  // the user picks the formula kind.
+  const [more, setMore] = useState(
+    !isNew && (commitment!.formula != null
+      || (commitment!.amount_pence ?? 0) > 0
+      || commitment!.day_of_month != null
+      || commitment!.notes != null
+      || commitment!.category_id != null));
 
   const usable = categories.filter((c) => !c.archived);
   const submit = (e: React.FormEvent) => {
@@ -328,8 +352,9 @@ function BillDialog({ commitment, accounts, categories, onClose, onSaved }: {
       frequency,
       day_of_month: dom ? Number(dom) : null,
       next_date: nextDate,
-      end_date: endDate || null,
-      occurrence_count: occurrences ? Number(occurrences) : null,
+      end_date: duration === "until_date" && endDate ? endDate : null,
+      occurrence_count: duration === "n_times" && occurrences
+        ? Number(occurrences) : null,
       notes: notes.trim() || null,
     };
     const req = isNew
@@ -355,7 +380,7 @@ function BillDialog({ commitment, accounts, categories, onClose, onSaved }: {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
       title={isNew ? "Add a bill" : `Edit ${commitment!.name}`}
-      description="A recurring payable — it generates upcoming movements and can post real transactions."
+      description="A regular payment — it keeps coming up on schedule and can post real transactions."
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-bill"
@@ -377,68 +402,101 @@ function BillDialog({ commitment, accounts, categories, onClose, onSaved }: {
               ))}
             </Select>
           )}</Field>
-          <Field label="Category" hint="Optional — groups it into a budget section.">{(id) => (
-            <Select id={id} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">None</option>
-              {usable.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.parent_id != null ? `— ${c.name}` : c.name}
-                </option>
-              ))}
-            </Select>
+          <Field label="How much (£)">{(id) => (
+            <Input id={id} required={kind === "amount"} type="number" step="0.01" min="0"
+              aria-label="Amount in pounds"
+              disabled={kind === "formula"}
+              value={pounds} onChange={(e) => setPounds(e.target.value)} />
           )}</Field>
-          <Field label="Frequency">{(id) => (
+          <Field label="How often">{(id) => (
             <Select id={id} value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)}>
-              {Object.entries(FREQ_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              <option value="weekly">Every week</option>
+              <option value="fortnightly">Every 2 weeks</option>
+              <option value="monthly">Every month</option>
+              <option value="quarterly">Every 3 months</option>
+              <option value="annually">Every year</option>
             </Select>
           )}</Field>
         </div>
 
-        <Field label="Amount kind">{(id) => (
-          <Select id={id} value={kind} onChange={(e) => setKind(e.target.value as "amount" | "formula")}>
-            <option value="amount">Fixed amount</option>
-            <option value="formula">Formula (e.g. usage-based)</option>
-          </Select>
+        <Field label="For how long" hint="This repeats on schedule — pick when it should stop.">{(_id) => (
+          <Segmented label="For how long" value={duration} onChange={setDuration}
+            options={[
+              { value: "until_stopped", label: "Until I stop it" },
+              { value: "until_date", label: "Until a date" },
+              { value: "n_times", label: "A set number of times" },
+            ]} />
         )}</Field>
-        {kind === "amount" ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Amount (£)">{(id) => (
-              <Input id={id} required type="number" step="0.01" min="0" aria-label="Amount in pounds"
-                value={pounds} onChange={(e) => setPounds(e.target.value)} />
-            )}</Field>
-            <Field label="Direction">{(id) => (
-              <Select id={id} value={out ? "out" : "in"} onChange={(e) => setOut(e.target.value === "out")}>
-                <option value="out">Outgoing (a bill)</option>
-                <option value="in">Incoming (e.g. rent received)</option>
-              </Select>
-            )}</Field>
-          </div>
-        ) : (
-          <Field label="Formula" hint="e.g. usage * 1.2 — resolved by the payroll/rules engine.">{(id) => (
-            <Input id={id} required placeholder="usage * 1.2"
-              value={formula} onChange={(e) => setFormula(e.target.value)} />
+        {duration === "until_date" && (
+          <Field label="Stops after">{(id) => (
+            <Input id={id} required type="date" value={endDate}
+              onChange={(e) => setEndDate(e.target.value)} />
           )}</Field>
         )}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Day of month" hint="Optional anchor, e.g. the 14th.">{(id) => (
-            <Input id={id} type="number" min="1" max="31" placeholder="—"
-              value={dom} onChange={(e) => setDom(e.target.value)} />
-          )}</Field>
-          <Field label="Next due">{(id) => (
-            <Input id={id} required type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} />
-          )}</Field>
-          <Field label="Ends" hint="Optional stop date.">{(id) => (
-            <Input id={id} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          )}</Field>
-          <Field label="Occurrences" hint="Optional cap, e.g. 12 payments.">{(id) => (
-            <Input id={id} type="number" min="1" placeholder="—"
+        {duration === "n_times" && (
+          <Field label="Stops after" hint="e.g. 12 — for a year of monthly payments.">{(id) => (
+            <Input id={id} required type="number" min="1" aria-label="Number of payments"
+              placeholder="e.g. 12"
               value={occurrences} onChange={(e) => setOccurrences(e.target.value)} />
           )}</Field>
-        </div>
-        <Field label="Notes">{(id) => (
-          <Input id={id} placeholder="Optional" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        )}
+        <Field label={duration === "until_stopped" ? "Next due" : "First due"}>{(id) => (
+          <Input id={id} required type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} />
         )}</Field>
+
+        {/* Advanced: formula amounts, direction, anchor day, category,
+         * notes — open when needed, quiet otherwise. */}
+        <div>
+          <button type="button" onClick={() => setMore((m) => !m)}
+            aria-expanded={more}
+            className="text-[12.5px] font-medium text-accent hover:underline">
+            {more ? "Fewer options" : "More options — formula, direction, anchor day, category, notes"}
+          </button>
+        </div>
+        {more && (
+          <div className="grid gap-4 rounded-lg border border-border bg-surface-2/40 p-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Amount kind">{(id) => (
+                <Select id={id} value={kind}
+                  onChange={(e) => setKind(e.target.value as "amount" | "formula")}>
+                  <option value="amount">Fixed amount</option>
+                  <option value="formula">Formula (e.g. usage-based)</option>
+                </Select>
+              )}</Field>
+              <Field label="Direction">{(id) => (
+                <Select id={id} value={out ? "out" : "in"} onChange={(e) => setOut(e.target.value === "out")}>
+                  <option value="out">Outgoing (a bill)</option>
+                  <option value="in">Incoming (e.g. rent received)</option>
+                </Select>
+              )}</Field>
+            </div>
+            {kind === "formula" && (
+              <Field label="Formula" hint="e.g. usage * 1.2 — resolved by the payroll/rules engine.">{(id) => (
+                <Input id={id} required placeholder="usage * 1.2"
+                  value={formula} onChange={(e) => setFormula(e.target.value)} />
+              )}</Field>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Category" hint="Groups it into a budget section.">{(id) => (
+                <Select id={id} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                  <option value="">None</option>
+                  {usable.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.parent_id != null ? `— ${c.name}` : c.name}
+                    </option>
+                  ))}
+                </Select>
+              )}</Field>
+              <Field label="Same day each month" hint="Anchor the schedule, e.g. the 14th.">{(id) => (
+                <Input id={id} type="number" min="1" max="31" placeholder="—"
+                  value={dom} onChange={(e) => setDom(e.target.value)} />
+              )}</Field>
+            </div>
+            <Field label="Notes">{(id) => (
+              <Input id={id} placeholder="Optional" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            )}</Field>
+          </div>
+        )}
       </form>
     </Dialog>
   );

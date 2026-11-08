@@ -83,7 +83,7 @@ def sync_tick(session: Session, *,
     mappings = session.scalars(select(BankAccountMapping).where(
         BankAccountMapping.status == MappingStatus.linked,
         BankAccountMapping.account_id.is_not(None),
-        BankAccountMapping.external_category_uid.is_not(None))).all()
+        BankAccountMapping.external_category_uid != "")).all()
     conns = {c.id: c for c in session.scalars(select(BankConnection).where(
         BankConnection.status.in_(
             [ConnStatus.connected, ConnStatus.degraded])))}

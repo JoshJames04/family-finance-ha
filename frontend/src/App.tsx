@@ -5,7 +5,6 @@ import { Transactions } from "./pages/Transactions";
 import { Budget } from "./pages/Budget";
 import { Accounts } from "./pages/Accounts";
 import { Banking } from "./pages/Banking";
-import { Shared } from "./pages/Shared";
 import { Payees } from "./pages/Payees";
 import { Rules } from "./pages/Rules";
 import { Scenarios } from "./pages/Scenarios";
@@ -19,6 +18,7 @@ import { Goals } from "./pages/Goals";
 import { Gifts } from "./pages/Gifts";
 import { Loans } from "./pages/Loans";
 import { Salary } from "./pages/Salary";
+import { Overtime } from "./pages/Overtime";
 import { Energy } from "./pages/Energy";
 import { Reports } from "./pages/Reports";
 import { Settings } from "./pages/Settings";
@@ -41,12 +41,13 @@ export default function App() {
         <Route path="loans" element={<Loans />} />
         <Route path="accounts" element={<Accounts />} />
         <Route path="banking" element={<Banking />} />
-        <Route path="shared" element={<Shared />} />
+        <Route path="shared" element={<Budget />} />
         <Route path="payees" element={<Payees />} />
         <Route path="rules" element={<Rules />} />
         <Route path="scenarios" element={<Scenarios />} />
         <Route path="notifications" element={<Notifications />} />
         <Route path="salary" element={<Salary />} />
+        <Route path="overtime" element={<Overtime />} />
         <Route path="energy" element={<Energy />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />

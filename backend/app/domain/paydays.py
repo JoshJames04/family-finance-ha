@@ -32,6 +32,8 @@ class RuleKind(enum.StrEnum):
     last_day = "last_day"              # last calendar day of the month
     last_working_day = "last_working_day"
     nth_weekday = "nth_weekday"        # e.g. 2nd Friday (weekday 0–6, nth 1–5; -1 = last)
+    weekly = "weekly"                  # every <weekday> — weekly pay (#304)
+    nightly = "nightly"                # paid on the night — cash-in-hand (#304)
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,9 @@ def nominal_date(rule: PaydayRule, year: int, month: int,
     if rule.kind is RuleKind.nth_weekday:
         assert rule.weekday is not None and rule.nth is not None
         return _nth_weekday(year, month, rule.weekday, rule.nth)
+    if rule.kind in (RuleKind.weekly, RuleKind.nightly):
+        raise ValueError(
+            f"{rule.kind.value} has no single monthly nominal date")
     # last_working_day: nominal = last calendar day; the adjust pass
     # would only ever move backwards, so resolve directly.
     d = _fixed(year, month, 31)
@@ -111,16 +116,41 @@ def nominal_date(rule: PaydayRule, year: int, month: int,
     return d
 
 
+def weekly_pay_date(rule: PaydayRule, year: int, month: int) -> date:
+    """Last occurrence of rule.weekday inside (year, month)."""
+    assert rule.weekday is not None
+    d = date(year, month, calendar.monthrange(year, month)[1])
+    while d.weekday() != rule.weekday:
+        d -= timedelta(days=1)
+    return d
+
+
 def pay_date(rule: PaydayRule, year: int, month: int,
              holidays: HolidayTable | None = None) -> date:
     """Nominal rule date adjusted by the rule's shift policy."""
     d = nominal_date(rule, year, month, holidays)
+    if rule.kind is RuleKind.fixed_day \
+            and rule.adjust is ShiftPolicy.previous:
+        # Numeric month dates use the stated weekend policy: Saturday/Sunday
+        # move to Friday, even when that Friday is a bank holiday.
+        if d.weekday() == 5:
+            return d - timedelta(days=1)
+        if d.weekday() == 6:
+            return d - timedelta(days=2)
     return adjust(d, rule.adjust, holidays)
 
 
 def next_payday(rule: PaydayRule, after: date,
                 holidays: HolidayTable | None = None) -> date:
     """First pay date strictly after `after` (per-member usable)."""
+    if rule.kind is RuleKind.nightly:
+        return after + timedelta(days=1)
+    if rule.kind is RuleKind.weekly:
+        if rule.weekday is None:
+            raise ValueError("weekly payday needs a weekday")
+        d = after + timedelta(days=1)
+        d += timedelta(days=(rule.weekday - d.weekday()) % 7)
+        return d
     y, m = after.year, after.month
     for _ in range(25):  # bounded — a rule must land within 2 years
         d = pay_date(rule, y, m, holidays)

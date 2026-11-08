@@ -15,11 +15,12 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.domain import goals, transfer_rules
+from app.domain import goals, payroll_totals, transfer_rules
 from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
     AmountKind,
     Confidence,
+    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Household,
@@ -47,12 +48,47 @@ def _emit_row(household_id: int, *, account_id: int | None,
 
 
 def _drop_future(session: Session, source: ExpectedSource,
-                 source_id: int, today: date) -> None:
+                 source_id: int, today: date
+                 ) -> dict[tuple[date, int | None], ExpectedMovement]:
+    """Delete unmatched FUTURE rows for a source; return the matched
+    survivors keyed by ``(expected_date, account_id)`` so callers can
+    re-price them in place. Matched rows can't be deleted —
+    ``expected_match`` FKs to them — and shouldn't be: real money
+    already met the obligation they represent."""
     session.execute(
         delete(ExpectedMovement).where(
             ExpectedMovement.source_type == source,
             ExpectedMovement.source_id == source_id,
-            ExpectedMovement.expected_date >= today))
+            ExpectedMovement.expected_date >= today,
+            ExpectedMovement.id.not_in(
+                select(ExpectedMatch.movement_id))))
+    return {(m.expected_date, m.account_id): m
+            for m in session.execute(
+                select(ExpectedMovement).where(
+                    ExpectedMovement.source_type == source,
+                    ExpectedMovement.source_id == source_id,
+                    ExpectedMovement.expected_date >= today)).scalars()}
+
+
+def _upsert(session: Session,
+            survivors: dict[tuple[date, int | None], ExpectedMovement],
+            household_id: int, *, account_id: int | None,
+            expected_date: date, amount_pence: int, label: str,
+            confidence: Confidence, source: ExpectedSource,
+            source_id: int) -> None:
+    """Emit an expected row, or re-price the matched survivor for this
+    (date, account) so an edited schedule updates the outstanding
+    expectation instead of colliding on the unique key."""
+    existing = survivors.pop((expected_date, account_id), None)
+    if existing is not None:
+        existing.amount_pence = amount_pence
+        existing.label = label
+        existing.confidence = confidence
+        return
+    session.add(_emit_row(
+        household_id, account_id=account_id, expected_date=expected_date,
+        amount_pence=amount_pence, label=label, confidence=confidence,
+        source=source, source_id=source_id))
 
 
 def rematerialize_commitment(
@@ -62,7 +98,8 @@ def rematerialize_commitment(
     """Delete+regenerate FUTURE expected rows for one commitment."""
     today = today or date.today()
     horizon = today + timedelta(days=horizon_days)
-    _drop_future(session, ExpectedSource.commitment, c.id, today)
+    survivors = _drop_future(
+        session, ExpectedSource.commitment, c.id, today)
     if not c.active:
         session.flush()
         return 0
@@ -70,13 +107,12 @@ def rematerialize_commitment(
     for d in occurrences(c, horizon):
         if d < today:
             continue
-        session.add(_emit_row(
-            c.household_id, account_id=c.account_id,
-            expected_date=d, amount_pence=c.amount_pence or 0,
-            label=c.name,
-            confidence=(Confidence.estimated if c.formula
-                        else Confidence.scheduled),
-            source=ExpectedSource.commitment, source_id=c.id))
+        _upsert(session, survivors, c.household_id,
+                account_id=c.account_id, expected_date=d,
+                amount_pence=c.amount_pence or 0, label=c.name,
+                confidence=(Confidence.estimated if c.formula
+                            else Confidence.scheduled),
+                source=ExpectedSource.commitment, source_id=c.id)
         n += 1
     session.flush()
     return n
@@ -89,7 +125,8 @@ def rematerialize_payroll_run(
     """Expected income on the run's pay date — estimated until the run
     is reconciled, scheduled after. Only future/mutable runs emit."""
     today = today or date.today()
-    _drop_future(session, ExpectedSource.payroll_run, run.id, today)
+    survivors = _drop_future(
+        session, ExpectedSource.payroll_run, run.id, today)
     if run.status is PayrollRunStatus.corrected \
             or run.pay_date < today:
         session.flush()
@@ -97,12 +134,16 @@ def rematerialize_payroll_run(
     confidence = (Confidence.scheduled
                   if run.status is PayrollRunStatus.reconciled
                   else Confidence.estimated)
-    session.add(_emit_row(
-        run.employment.household_id, account_id=None,
-        expected_date=run.pay_date, amount_pence=run.net_pence,
+    amount = payroll_totals.totals_for_run(run).actual_net_pence \
+        if run.status is PayrollRunStatus.reconciled else run.net_pence
+    if amount is None:   # unreachable: reconciled ⇒ actual is set
+        amount = run.net_pence
+    _upsert(
+        session, survivors, run.employment.household_id, account_id=None,
+        expected_date=run.pay_date, amount_pence=amount,
         label=f"Salary — {run.employment.employer}",
         confidence=confidence, source=ExpectedSource.payroll_run,
-        source_id=run.id))
+        source_id=run.id)
     session.flush()
     return 1
 
@@ -117,7 +158,8 @@ def rematerialize_transfer_rule(
     ``estimated`` because they depend on data that can still change."""
     today = today or date.today()
     horizon = today + timedelta(days=horizon_days)
-    _drop_future(session, ExpectedSource.transfer_rule, rule.id, today)
+    survivors = _drop_future(
+        session, ExpectedSource.transfer_rule, rule.id, today)
     if not rule.active:
         session.flush()
         return 0
@@ -132,13 +174,12 @@ def rematerialize_transfer_rule(
         for account_id, pence, suffix in (
                 (rule.source_account_id, -amount, "out"),
                 (rule.dest_account_id, amount, "in")):
-            session.add(_emit_row(
-                rule.household_id, account_id=account_id,
-                expected_date=d, amount_pence=pence,
-                label=f"{rule.name} ({suffix})",
-                confidence=confidence,
-                source=ExpectedSource.transfer_rule,
-                source_id=rule.id))
+            _upsert(session, survivors, rule.household_id,
+                    account_id=account_id, expected_date=d,
+                    amount_pence=pence, label=f"{rule.name} ({suffix})",
+                    confidence=confidence,
+                    source=ExpectedSource.transfer_rule,
+                    source_id=rule.id)
             n += 1
     session.flush()
     return n

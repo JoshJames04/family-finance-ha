@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -81,7 +82,7 @@ class StarlingClient:
         rows = data.get("accounts", [])
         if not isinstance(rows, list):
             return []
-        return [
+        out = [
             DiscoveredAccount(
                 external_uid=str(a["accountUid"]),
                 label=str(a.get("name") or "Starling account"),
@@ -89,8 +90,60 @@ class StarlingClient:
                 category_uid=str(a["defaultCategory"])
                 if a.get("defaultCategory") else None)
             for a in rows if isinstance(a, dict)]
+        # Spaces are categories, not accounts — /accounts never lists
+        # them. Their spaceUid doubles as the feed categoryUid, so a
+        # space maps and syncs exactly like an account row.
+        for a in rows:
+            if not isinstance(a, dict) or not a.get("accountUid"):
+                continue
+            uid = str(a["accountUid"])
+            try:
+                spaces = self.spaces(token, uid)
+            except UpstreamError:
+                continue  # token lacks space:read — degrade, don't fail
+            out.extend(spaces)
+        return out
 
-    def balance(self, token: str, external_uid: str) -> int:
+    def spaces(self, token: str, account_uid: str
+               ) -> list[DiscoveredAccount]:
+        """GET /account/{uid}/spaces — savings + spending spaces with
+        per-space balance. The payload splits them: ``savingsGoals``
+        use ``savingsGoalUid``, ``spendingSpaces`` use ``spaceUid`` —
+        both are the feed ``categoryUid``."""
+        data = _get(token, f"/api/v2/account/{account_uid}/spaces")
+        out = []
+        for key in ("savingsGoals", "spendingSpaces"):
+            rows = data.get(key, [])
+            if not isinstance(rows, list):
+                continue
+            for s in rows:
+                if not isinstance(s, dict):
+                    continue
+                uid = s.get("savingsGoalUid") or s.get("spaceUid")
+                if not uid or s.get("state") not in (None, "ACTIVE"):
+                    continue
+                bal = s.get("balance") or s.get("totalSaved") or {}
+                pence = (int(str(bal["minorUnits"]))
+                         if isinstance(bal, dict) and "minorUnits" in bal
+                         else None)
+                out.append(DiscoveredAccount(
+                    external_uid=str(account_uid),
+                    label=str(s.get("name") or "Space"),
+                    kind="space",
+                    balance_pence=pence,
+                    category_uid=str(uid)))
+        return out
+
+    def balance(self, token: str, external_uid: str,
+                category_uid: str | None = None) -> int:
+        """Whole-account balance via /accounts/{uid}/balance, or a
+        space's balance when ``category_uid`` names one."""
+        if category_uid is not None:
+            for s in self.spaces(token, external_uid):
+                if s.category_uid == category_uid:
+                    if s.balance_pence is not None:
+                        return s.balance_pence
+                    raise UpstreamError(502, "space carries no balance")
         data = _get(
             token, f"/api/v2/accounts/{external_uid}/balance")
         cleared = data.get("clearedBalance", {})
@@ -108,7 +161,8 @@ class StarlingClient:
         data = _get(
             token,
             f"/api/v2/feed/account/{external_uid}"
-            f"/category/{category_uid}?changesSince={since}")
+            f"/category/{category_uid}?changesSince="
+            f"{urllib.parse.quote(since, safe='')}")
         items = data.get("feedItems", [])
         if not isinstance(items, list):
             return []
@@ -158,7 +212,8 @@ def starling_fetch(client: BankClient, token: str,
         since = cursor.last_ref or (
             (date.today() - timedelta(days=BACKFILL_DAYS))
             .isoformat() + "T00:00:00.000Z")
-        watermark = datetime.now(UTC).isoformat()
+        watermark = (datetime.now(UTC)
+                     .strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
         try:
             items = client.feed_items(token, external_uid,
                                       category_uid, since)

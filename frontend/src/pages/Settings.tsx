@@ -1,11 +1,12 @@
 /** Settings: household members and roles, category management,
  * appearance (system/light/dark), and data — version, backups and
  * export. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import {
-  Download, HardDrive, Monitor, Moon, Palette, Pencil, Plus, Sun, Tags,
-  UserRound, Users,
+  CalendarClock, Download, HardDrive, Monitor, Moon, Palette, Pencil,
+  Plus, Sun, Tags, UserRound, Users,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
@@ -26,6 +27,8 @@ type Profile = components["schemas"]["ProfileOut"];
 type Role = components["schemas"]["Role"];
 type Category = components["schemas"]["CategoryOut"];
 type Backup = components["schemas"]["BackupOut"];
+type Employment = components["schemas"]["EmploymentOut"];
+type PayrollRun = components["schemas"]["PayrollRunOut"];
 
 const ROLE_TONE: Record<Role, BadgeTone> = {
   admin: "accent", member: "info", viewer: "neutral",
@@ -51,7 +54,13 @@ export function Settings() {
         : "/api/v1/profiles/{profile_id}/activate",
       { path: { profile_id: p.id } },
     ).then(() => {
-      toast.success(`${p.display_name} ${p.is_active ? "deactivated" : "activated"}`);
+      undoToast(`${p.display_name} ${p.is_active ? "deactivated" : "activated"}`,
+        () => api.post(
+          p.is_active
+            ? "/api/v1/profiles/{profile_id}/activate"
+            : "/api/v1/profiles/{profile_id}/deactivate",
+          { path: { profile_id: p.id } },
+        ).then(refresh));
       refresh();
     }).catch((e: Error) => toast.error(e.message));
 
@@ -60,7 +69,12 @@ export function Settings() {
       path: { category_id: c.id },
       body: { archived: !c.archived },
     }).then(() => {
-      toast.success(c.archived ? `${c.name} restored` : `${c.name} archived`);
+      const done = c.archived ? `${c.name} restored` : `${c.name} archived`;
+      undoToast(done, () =>
+        api.patch("/api/v1/categories/{category_id}", {
+          path: { category_id: c.id },
+          body: { archived: c.archived },
+        }).then(refresh));
       refresh();
     }).catch((e: Error) => toast.error(e.message));
 
@@ -158,6 +172,8 @@ export function Settings() {
           </DataView>
         </Panel>
 
+        <YearPrepPanel />
+
         <Panel title="Appearance" description="Follows your system by default — override here.">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -218,6 +234,90 @@ export function Settings() {
         onSaved={() => { setEditingCategory(null); refresh(); }}
       />
     </div>
+  );
+}
+
+/** Year preparation (issue #304): roll payroll runs + budget
+ * structure forward one year — the button that used to live on
+ * the spreadsheet's "new year" sheet. */
+function YearPrepPanel() {
+  const ready = useReady();
+  const employments = useApi(() => api.get("/api/v1/employments"), ready);
+  const items = employments.data?.items ?? [];
+  const [refreshToken, setRefreshToken] = useState(0);
+  const employmentIds = items.map((e: Employment) => e.id).join(",");
+  const runs = useApi(
+    () => Promise.all(items.map((e: Employment) => api.get(
+      "/api/v1/employments/{emp_id}/payroll-runs", { path: { emp_id: e.id } }))),
+    ready && items.length > 0, [employmentIds, refreshToken]);
+  const budgets = useApi(() => api.get("/api/v1/budgets"), ready, [refreshToken]);
+  const runHorizon = (runs.data ?? []).flat()
+    .reduce<number | null>((max, run: PayrollRun) => {
+      const year = Number(run.pay_date.slice(0, 4));
+      return max === null || year > max ? year : max;
+    }, null);
+  const budgetHorizon = (budgets.data?.items ?? [])
+    .reduce<number | null>((max, budget) => {
+      const year = Number(String(budget.end_date).slice(0, 4));
+      return max === null || year > max ? year : max;
+    }, null);
+  const horizonYear = Math.max(
+    runHorizon ?? new Date().getFullYear(),
+    budgetHorizon ?? new Date().getFullYear());
+  const defaultYear = horizonYear + 1;
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  useEffect(() => {
+    if (selectedYear === null) setSelectedYear(defaultYear);
+  }, [defaultYear, horizonYear, selectedYear]);
+  const year = selectedYear ?? defaultYear;
+  const [prepping, setPrepping] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const prepare = () => {
+    setConfirming(false);
+    setPrepping(true);
+    api.post("/api/v1/employments/prepare-year", { body: { year } })
+      .then((r) => {
+        setResult(
+          `${r.year}: ${r.runs_created} payroll runs created`
+          + `${r.runs_skipped ? `, ${r.runs_skipped} already existed` : ""}`
+          + ` · ${r.budgets_created} budgets rolled forward`);
+        for (const w of r.warnings) toast.warning(w);
+        setRefreshToken((value) => value + 1);
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setPrepping(false));
+  };
+  return (
+    <Panel title="Year preparation"
+      description="Create next year's forecast payroll runs for every active employer and roll the budget structure forward — the spreadsheet's 'new year sheet' as a button.">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Year">{(id) => (
+          <Select id={id} value={String(year)}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}>
+            {Array.from({ length: 7 }, (_, offset) => defaultYear - 3 + offset).map((option) => {
+              return <option key={option} value={option}>{option}</option>;
+            })}
+          </Select>
+        )}</Field>
+        <Button variant="secondary" onClick={() => setConfirming(true)} disabled={prepping}>
+          <CalendarClock /> {prepping ? "Preparing…" : `Prepare ${year}`}
+        </Button>
+        {result && <span className="text-[12.5px] text-fg-muted">{result}</span>}
+      </div>
+      <Dialog open={confirming} onOpenChange={setConfirming}
+        title={`Prepare ${year}?`}
+        description="This creates forecast payroll runs and copies budget structure for the selected year. Existing records are not overwritten."
+        footer={<>
+          <Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+          <Button variant="primary" onClick={prepare}>Confirm preparation</Button>
+        </>}>
+        <p className="text-[13px]">
+          Prepare {year} now? This action is idempotent, but it may add forecast
+          runs and budget rows.
+        </p>
+      </Dialog>
+    </Panel>
   );
 }
 

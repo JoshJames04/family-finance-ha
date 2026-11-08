@@ -94,10 +94,24 @@ def serialize_rule(rule: PaydayRule) -> str:
 
 def parse_rule(raw: str) -> PaydayRule:
     d: dict[str, Any] = json.loads(raw)
-    return PaydayRule(
+    default_adjust = "none" if d.get("kind") in {
+        RuleKind.nth_weekday.value, RuleKind.weekly.value,
+    } else "previous"
+    rule = PaydayRule(
         kind=RuleKind(d["kind"]), day=d.get("day"),
         weekday=d.get("weekday"), nth=d.get("nth"),
-        adjust=ShiftPolicy(d.get("adjust", "previous")))
+        adjust=ShiftPolicy(d.get("adjust", default_adjust)))
+    if rule.kind is RuleKind.fixed_day and (
+            not isinstance(rule.day, int) or not 1 <= rule.day <= 31):
+        raise ValueError("fixed payday day must be between 1 and 31")
+    if rule.kind in (RuleKind.nth_weekday, RuleKind.weekly) and (
+            not isinstance(rule.weekday, int)
+            or not 0 <= rule.weekday <= 6):
+        raise ValueError("payday weekday must be between 0 and 6")
+    if rule.kind is RuleKind.nth_weekday \
+            and (rule.nth not in {-1, 1, 2, 3, 4, 5}):
+        raise ValueError("payday nth must be -1 or between 1 and 5")
+    return rule
 
 
 def serialize_calendar(cal: PayrollCalendar) -> str:

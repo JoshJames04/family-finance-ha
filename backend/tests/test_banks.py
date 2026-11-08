@@ -84,6 +84,18 @@ class TestConnect:
             banks.connect(session, household.id,
                           BankProvider.starling, "pat-x", v, ring)
 
+    def test_extra_read_scopes_accepted(
+            self, session: Session, household: Household,
+            ring: vault.Keyring) -> None:
+        """Extra `*:read` scopes are harmless — PAT creators routinely
+        tick more boxes than the app needs."""
+        v = _validator(GOOD | {
+            "payee:read", "statement-pdf:read", "feed-export-csv:read",
+            "confirmation-of-funds:read", "pay-local:read"})
+        conn = banks.connect(session, household.id,
+                             BankProvider.starling, "pat-x", v, ring)
+        assert conn.status == ConnStatus.connected
+
 
 class TestStateMachine:
     def test_401_revokes_and_sync_stops(
@@ -173,3 +185,98 @@ class TestApi:
                 f"/api/v1/banking/connections/{cid}/disconnect",
                 headers=h)
             assert r.json()["status"] == "revoked"
+
+    def test_multiple_connections_same_provider(
+            self, tmp_path: Path) -> None:
+        """A second PAT mints a second connection row (personal +
+        joint); reconnecting with a dead row present revives it
+        instead of minting a duplicate."""
+        from fastapi.testclient import TestClient
+
+        from app.main import create_app
+        app = create_app(Settings.load(
+            {"FF_DATA_DIR": str(tmp_path)}))
+        app.state.token_validator = _validator()
+        with TestClient(app) as client:
+            hid = client.post("/api/v1/households",
+                              json={"name": "H"}).json()["id"]
+            h = {"X-Household-Id": str(hid)}
+            c1 = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-1",
+                "label": "Personal"}, headers=h)
+            assert c1.status_code == 201
+            c2 = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-2",
+                "label": "Joint"}, headers=h)
+            assert c2.status_code == 201
+            cid1, cid2 = c1.json()["id"], c2.json()["id"]
+            assert cid2 != cid1
+            items = client.get("/api/v1/banking/connections",
+                               headers=h).json()
+            assert {i["id"] for i in items} == {cid1, cid2}
+            assert next(i for i in items if i["id"] == cid2
+                        )["label"] == "Joint"
+            # Kill the joint link — reconnecting revives that row
+            # (id stable, mappings preserved) rather than minting
+            # a third connection.
+            client.post(
+                f"/api/v1/banking/connections/{cid2}/disconnect",
+                headers=h)
+            c3 = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-3",
+                "label": "Joint"}, headers=h)
+            assert c3.status_code == 201
+            assert c3.json()["id"] == cid2
+            assert len(client.get("/api/v1/banking/connections",
+                                  headers=h).json()) == 2
+
+    def test_discover_link_joint(
+            self, tmp_path: Path) -> None:
+        """Discover proposes a space sharing the account's uid; link
+        can mint a joint account for it."""
+        from fastapi.testclient import TestClient
+
+        from app.domain.discovery import DiscoveredAccount
+        from app.main import create_app
+
+        class FakeClient:
+            def accounts(self, token: str) -> list[DiscoveredAccount]:
+                return [
+                    DiscoveredAccount("uid-1", "Personal", "account",
+                                      category_uid="cat-main"),
+                    DiscoveredAccount("uid-1", "Joint Bills", "space",
+                                      balance_pence=40000,
+                                      category_uid="cat-space")]
+            def balance(self, token: str, uid: str,
+                        cat: str | None = None) -> int:
+                return 40000
+            def feed_items(self, token, uid, cat, since):
+                return []
+
+        app = create_app(Settings.load(
+            {"FF_DATA_DIR": str(tmp_path)}))
+        app.state.token_validator = _validator()
+        app.state.bank_client = FakeClient()
+        with TestClient(app) as client:
+            hid = client.post("/api/v1/households",
+                              json={"name": "H"}).json()["id"]
+            h = {"X-Household-Id": str(hid)}
+            cid = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-1"},
+                headers=h).json()["id"]
+            maps = client.post(
+                f"/api/v1/banking/connections/{cid}/discover",
+                headers=h).json()
+            assert len(maps) == 2
+            space = next(m for m in maps
+                         if m["external_kind"] == "space")
+            r = client.post(
+                f"/api/v1/banking/mappings/{space['id']}/link",
+                json={"create_account": True, "account_type": "joint"},
+                headers=h)
+            assert r.status_code == 200, r.text
+            acct_id = r.json()["account_id"]
+            accts = client.get("/api/v1/accounts", headers=h).json()
+            mine = next(a for a in accts["items"] if a["id"] == acct_id)
+            assert mine["type"] == "joint"
+            assert mine["name"] == "Joint Bills"

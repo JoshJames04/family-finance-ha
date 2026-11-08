@@ -24,6 +24,7 @@ from app.api.v1 import (
     migration,
     notifications,
     payees,
+    payslips,
     profiles,
     reconcile,
     reports,
@@ -60,6 +61,7 @@ v1_router.include_router(subscriptions.router)
 v1_router.include_router(scenarios.router)
 v1_router.include_router(notifications.router)
 v1_router.include_router(payees.router)
+v1_router.include_router(payslips.router)
 v1_router.include_router(categorisation.router)
 v1_router.include_router(sync.router)
 v1_router.include_router(reconcile.router)

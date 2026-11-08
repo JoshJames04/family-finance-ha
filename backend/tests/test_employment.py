@@ -175,3 +175,158 @@ class TestApi:
                           headers={**h, "X-Profile-Id": str(p1)}
                           ).json()["items"]
         assert len(mine) == 1 and mine[0]["profile_id"] == p1
+
+    def test_revision_patch_and_delete(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        pid = client.post("/api/v1/profiles",
+                          json={"display_name": "Alice"},
+                          headers=h).json()["id"]
+        eid = client.post("/api/v1/employments", json={
+            "profile_id": pid, "employer": "Acme",
+            "contracted_hours": 37.5}, headers=h).json()["id"]
+        r1 = client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                         json={"effective_date": "2026-04-06",
+                               "annual_salary": 3600000},
+                         headers=h).json()
+        r2 = client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                         json={"effective_date": "2026-10-01",
+                               "annual_salary": 4000000},
+                         headers=h).json()
+
+        # correct a figure and note in place
+        p = client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"annual_salary": 4100000, "notes": "corrected"},
+            headers=h)
+        assert p.status_code == 200
+        assert p.json()["annual_salary_pence"] == 4100000
+        assert p.json()["notes"] == "corrected"
+
+        # moving the date onto an existing revision date → 409
+        assert client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"effective_date": "2026-04-06"},
+            headers=h).status_code == 409
+        # moving to a free date is fine
+        assert client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"effective_date": "2026-10-05"},
+            headers=h).status_code == 200
+
+        # cross-household revision → 404
+        hid2 = client.post("/api/v1/households",
+                           json={"name": "Other"}).json()["id"]
+        assert client.patch(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            json={"annual_salary": 1},
+            headers={"X-Household-Id": str(hid2)}).status_code == 404
+
+        # delete one of two → 204; deleting the last one → 409
+        assert client.delete(
+            f"/api/v1/employments/{eid}/salary-revisions/{r2['id']}",
+            headers=h).status_code == 204
+        assert client.delete(
+            f"/api/v1/employments/{eid}/salary-revisions/{r1['id']}",
+            headers=h).status_code == 409
+
+    def _setup(self, client: TestClient) -> tuple[dict[str, str], int]:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        pid = client.post("/api/v1/profiles",
+                          json={"display_name": "J"},
+                          headers=h).json()["id"]
+        return h, pid
+
+    def test_delete_empty_employment_only(
+            self, client: TestClient) -> None:
+        """#304: an employment with no runs/overtime can be deleted;
+        once it carries history it can only be end-dated."""
+        h, pid = self._setup(client)
+        eid = client.post("/api/v1/employments", json={
+            "profile_id": pid, "employer": "Temp",
+            "contracted_hours": 40}, headers=h).json()["id"]
+        assert client.delete(f"/api/v1/employments/{eid}",
+                             headers=h).status_code == 204
+        assert client.get(f"/api/v1/employments/{eid}",
+                          headers=h).status_code == 404
+        # with overtime attached → 409, end_date is the path
+        eid = client.post("/api/v1/employments", json={
+            "profile_id": pid, "employer": "Real",
+            "contracted_hours": 40}, headers=h).json()["id"]
+        client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                    json={"effective_date": "2026-01-01",
+                          "annual_salary": 3600000}, headers=h)
+        client.post(f"/api/v1/employments/{eid}/overtime-entries",
+                    json={"work_date": "2026-04-07", "hours": 2},
+                    headers=h)
+        assert client.delete(f"/api/v1/employments/{eid}",
+                             headers=h).status_code == 409
+        r = client.patch(f"/api/v1/employments/{eid}",
+                         json={"end_date": "2026-08-31"}, headers=h)
+        assert r.status_code == 200
+        assert r.json()["end_date"] == "2026-08-31"
+
+    def test_prepare_year(self, client: TestClient) -> None:
+        """#304: prepare-year generates monthly forecast runs for
+        active employments and is idempotent on re-run."""
+        h, pid = self._setup(client)
+        eid = client.post("/api/v1/employments", json={
+            "profile_id": pid, "employer": "Acme",
+            "contracted_hours": 37.5,
+            "payday_rule": (
+                '{"adjust":"previous","day":28,'
+                '"kind":"fixed_day","nth":null,"weekday":null}')},
+            headers=h).json()["id"]
+        client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                    json={"effective_date": "2026-01-01",
+                          "annual_salary": 3600000}, headers=h)
+        client.post(f"/api/v1/employments/{eid}/tax-code-revisions",
+                    json={"effective_date": "2026-01-01",
+                          "tax_code": "1257L"}, headers=h)
+        r = client.post("/api/v1/employments/prepare-year",
+                        json={"year": 2027}, headers=h)
+        assert r.status_code == 201
+        body = r.json()
+        assert body["runs_created"] == 12
+        assert body["runs_skipped"] == 0
+        runs = client.get(f"/api/v1/employments/{eid}/payroll-runs",
+                          headers=h).json()
+        assert len(runs) == 12
+        assert {r["pay_date"] for r in runs}  # all have pay dates
+        # re-run is a no-op
+        body2 = client.post("/api/v1/employments/prepare-year",
+                            json={"year": 2027}, headers=h).json()
+        assert body2["runs_created"] == 0
+        assert body2["runs_skipped"] == 12
+
+    def test_end_date_clips_run_generation(
+            self, client: TestClient) -> None:
+        """#304: a run can't start after the end date; a spanning
+        period is clipped to the end date."""
+        h, pid = self._setup(client)
+        eid = client.post("/api/v1/employments", json={
+            "profile_id": pid, "employer": "Acme",
+            "contracted_hours": 37.5}, headers=h).json()["id"]
+        client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                    json={"effective_date": "2026-01-01",
+                          "annual_salary": 3600000}, headers=h)
+        client.post(f"/api/v1/employments/{eid}/tax-code-revisions",
+                    json={"effective_date": "2026-01-01",
+                          "tax_code": "1257L"}, headers=h)
+        client.patch(f"/api/v1/employments/{eid}",
+                     json={"end_date": "2026-03-15"}, headers=h)
+        r = client.post(f"/api/v1/employments/{eid}/payroll-runs",
+                        json={"period_start": "2026-03-01",
+                              "period_end": "2026-03-31",
+                              "pay_date": "2026-03-28"}, headers=h)
+        assert r.status_code == 201
+        assert r.json()["period_end"] == "2026-03-15"
+        assert client.post(
+            f"/api/v1/employments/{eid}/payroll-runs",
+            json={"period_start": "2026-03-20",
+                  "period_end": "2026-03-31",
+                  "pay_date": "2026-03-28"},
+            headers=h).status_code == 409

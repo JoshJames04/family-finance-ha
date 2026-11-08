@@ -102,13 +102,13 @@ def parse_tax_code(raw: str) -> TaxCode:
 
 
 def _banded(taxable: int, bands: list[dict[str, Any]],
-            months: int) -> int:
+            periods: int, periods_per_year: int = MONTHS_PER_YEAR) -> int:
     """Cumulative banded tax on `taxable` pence with annual band limits
-    pro-rated by `months`/12."""
+    pro-rated by `periods`/`periods_per_year`."""
     tax, lower = 0, 0
     for band in bands:
         limit = band["limit"]
-        top = (limit * months // MONTHS_PER_YEAR
+        top = (limit * periods // periods_per_year
                if limit is not None else None)
         upper = taxable if top is None else min(taxable, top)
         if upper > lower:
@@ -167,11 +167,24 @@ def rule_set(session: Session, tax_year: str,
     return row
 
 
+def latest_rule_set(session: Session,
+                    jurisdiction: TaxJurisdiction) -> TaxRuleSet | None:
+    """Newest rule set for a jurisdiction regardless of year — the
+    fallback for forecasting beyond published HMRC tables."""
+    return session.execute(
+        select(TaxRuleSet).where(
+            TaxRuleSet.jurisdiction == jurisdiction)
+        .order_by(TaxRuleSet.tax_year.desc(),
+                  TaxRuleSet.version.desc()).limit(1)
+    ).scalar_one_or_none()
+
+
 def _allowance(code: TaxCode, params: dict[str, Any],
-               cum_income: int, months: int) -> int:
+               cum_income: int, periods: int,
+               periods_per_year: int = MONTHS_PER_YEAR) -> int:
     """Effective cumulative allowance incl. PA taper."""
-    base = code.allowance_pence * months // MONTHS_PER_YEAR
-    taper_start = int(params["taper_start"]) * months // MONTHS_PER_YEAR
+    base = code.allowance_pence * periods // periods_per_year
+    taper_start = int(params["taper_start"]) * periods // periods_per_year
     over = max(0, cum_income - taper_start)
     tapered = base - over // int(params["taper_divisor"])
     # K codes keep their negative allowance; positive codes floor at 0.
@@ -183,7 +196,8 @@ def compute_period(
     gross_pence: int,
     tax_code: str,
     params: dict[str, Any],
-    period: int = 1,                     # tax month 1..12
+    period: int = 1,                     # tax month 1..12 or week 1..53
+    periods_per_year: int = MONTHS_PER_YEAR,
     ytd_taxable_gross_pence: int = 0,
     ytd_tax_pence: int = 0,
     ni_category: str = "A",
@@ -191,10 +205,15 @@ def compute_period(
     pension_mode: PensionMode = PensionMode.none,
     pension_pence: int = 0,
 ) -> Deductions:
-    """One payroll period's deductions for a monthly-paid employee."""
-    if not 1 <= period <= 12:
-        raise TaxError("period must be a tax month 1..12")
+    """One payroll period's deductions for a monthly or weekly employee."""
+    if periods_per_year not in (12, 52):
+        raise TaxError("periods_per_year must be 12 or 52")
+    max_period = 12 if periods_per_year == 12 else 53
+    if not 1 <= period <= max_period:
+        raise TaxError(f"period must be between 1 and {max_period}")
     code = parse_tax_code(tax_code)
+    cumulative = code.cumulative and not (
+        periods_per_year == 52 and period == 53)
 
     # Pension treatment determines which base each deduction sees.
     if pension_mode is PensionMode.salary_sacrifice:
@@ -205,34 +224,36 @@ def compute_period(
     else:  # none / relief_at_source — RAS is claimed back, not deducted
         taxable_gross = ni_gross = gross_pence
 
-    months = period if code.cumulative else 1
+    periods = period if cumulative else 1
     cum_income = (ytd_taxable_gross_pence + taxable_gross
-                  if code.cumulative else taxable_gross)
-    prior_tax = ytd_tax_pence if code.cumulative else 0
+                  if cumulative else taxable_gross)
+    prior_tax = ytd_tax_pence if cumulative else 0
 
     if code.flat_rate_bps is not None:
         tax = taxable_gross * code.flat_rate_bps // 10_000
     else:
-        allow = _allowance(code, params, cum_income, months)
+        allow = _allowance(code, params, cum_income, periods,
+                           periods_per_year)
         taxable = max(0, cum_income - allow)
-        tax = max(0, _banded(taxable, params["bands"], months)
+        tax = max(0, _banded(taxable, params["bands"], periods,
+                             periods_per_year)
                   - prior_tax)
 
-    # NI: monthly thresholds, non-cumulative.
+    # NI: period thresholds, non-cumulative.
     ni = params["ni"]
-    pt = int(ni["primary_threshold"]) // MONTHS_PER_YEAR
-    uel = int(ni["upper_earnings_limit"]) // MONTHS_PER_YEAR
+    pt = int(ni["primary_threshold"]) // periods_per_year
+    uel = int(ni["upper_earnings_limit"]) // periods_per_year
     below_r, above_r = ni["categories"].get(
         ni_category.upper(), ni["categories"]["A"])
     ni_pence = (
         max(0, min(ni_gross, uel) - pt) * int(below_r) // 10_000
         + max(0, ni_gross - uel) * int(above_r) // 10_000)
 
-    # Student loan: monthly threshold, period-only, floor to penny.
+    # Student loan: period threshold, period-only, floor to penny.
     sl = params["student_loans"].get(student_loan_plan)
     sl_pence = 0
     if sl is not None:
-        threshold = int(sl[0]) // MONTHS_PER_YEAR
+        threshold = int(sl[0]) // periods_per_year
         sl_pence = max(0, taxable_gross - threshold) * int(sl[1]) // 10_000
 
     return Deductions(

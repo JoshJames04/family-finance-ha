@@ -6,6 +6,7 @@
  * uncategorised transactions. */
 import { useState } from "react";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import { Play, Plus, Trash2, Wand2 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
@@ -56,8 +57,17 @@ export function Rules() {
   const remove = (r: Rule) =>
     api.delete("/api/v1/categorisation/rules/{rule_id}", {
       path: { rule_id: r.id },
-    }).then(() => { toast.success(`Rule for “${r.pattern}” deleted`); refresh(); })
-      .catch((e: Error) => toast.error(e.message));
+    }).then(() => {
+      undoToast(`Rule for “${r.pattern}” deleted`, () =>
+        api.post("/api/v1/categorisation/rules", {
+          body: {
+            pattern: r.pattern, match_type: r.match_type,
+            category_id: r.category_id, priority: r.priority,
+            auto_apply: r.auto_apply,
+          },
+        }).then(refresh));
+      refresh();
+    }).catch((e: Error) => toast.error(e.message));
 
   const runNow = () =>
     api.post("/api/v1/categorisation/apply")

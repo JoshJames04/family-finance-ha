@@ -4,7 +4,9 @@
  * wide, digest batching, member targeting). Deliveries feed HA's
  * notify service; the inbox is the household-visible record. */
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import {
   AlarmClockCheck, Bell, BellOff, Check, Plus, Send, Trash2,
 } from "lucide-react";
@@ -67,6 +69,7 @@ function eventSummary(e: Event, acctName: (id: number) => string): {
 
 export function Notifications() {
   const ready = useReady();
+  const navigate = useNavigate();
   const [rev, setRev] = useState(0);
   const identity = useIdentity();
   const accounts = useAccounts(rev);
@@ -114,8 +117,19 @@ export function Notifications() {
   const removeRule = (r: Rule) =>
     api.delete("/api/v1/notifications/rules/{rule_id}", {
       path: { rule_id: r.id },
-    }).then(() => { toast.success(`"${r.name}" deleted`); refresh(); })
-      .catch((e: Error) => toast.error(e.message));
+    }).then(() => {
+      undoToast(`"${r.name}" deleted`, () =>
+        api.post("/api/v1/notifications/rules", {
+          body: {
+            name: r.name, kind: r.kind, params: r.params ?? {},
+            target_profile_id: r.target_profile_id,
+            channel: r.channel, digest: r.digest,
+            digest_window_minutes: r.digest_window_minutes,
+            service: r.service, privacy_safe: r.privacy_safe,
+          },
+        }).then(refresh));
+      refresh();
+    }).catch((e: Error) => toast.error(e.message));
 
   const evaluate = (r: Rule) =>
     api.post("/api/v1/notifications/rules/{rule_id}/evaluate",
@@ -197,6 +211,12 @@ export function Notifications() {
                       </p>
                     </div>
                     <Badge tone={STATE_TONE[e.state] ?? "neutral"}>{e.state}</Badge>
+                    {typeof (e.payload as Record<string, unknown> | null)?.path === "string" && (
+                      <Button size="sm" variant="secondary"
+                        onClick={() => navigate(String((e.payload as Record<string, unknown>).path))}>
+                        Review
+                      </Button>
+                    )}
                     {open && (
                       <div className="flex gap-1">
                         <Button variant="ghost" size="sm"

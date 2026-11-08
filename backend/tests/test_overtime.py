@@ -236,6 +236,90 @@ class TestApi:
             "?status=approved", headers=h).json()
         assert len(listed) == 1
 
+    def test_edit_draft_re_snapshots(self, client: TestClient) -> None:
+        """Editing a draft's date re-derives day type, multiplier and
+        the snapshotted rate — a weekday moved to Sunday reprices."""
+        h, eid = self._setup(client)
+        oid = client.post(
+            f"/api/v1/employments/{eid}/overtime-entries",
+            json={"work_date": "2026-04-07", "hours": 2},
+            headers=h).json()["id"]
+        r = client.patch(
+            f"/api/v1/employments/{eid}/overtime-entries/{oid}",
+            json={"work_date": "2026-04-05", "notes": "moved"},
+            headers=h)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["day_type"] == "sunday"
+        assert body["multiplier_bps"] == 20000
+        assert body["notes"] == "moved"
+        assert body["pay_pence"] == 2 * 1846 * 2
+
+    def test_edit_reverts_non_draft_to_draft(
+            self, client: TestClient) -> None:
+        """Editing a submitted/approved entry applies the change but
+        returns it to draft so it re-enters approval."""
+        h, eid = self._setup(client)
+        oid = client.post(
+            f"/api/v1/employments/{eid}/overtime-entries",
+            json={"work_date": "2026-04-07", "hours": 2},
+            headers=h).json()["id"]
+        for act in ("submit", "approve"):
+            client.post(
+                f"/api/v1/employments/{eid}/overtime-entries/{oid}/{act}",
+                headers=h)
+        r = client.patch(
+            f"/api/v1/employments/{eid}/overtime-entries/{oid}",
+            json={"hours": 3}, headers=h)
+        assert r.status_code == 200
+        assert r.json()["status"] == "draft"
+        assert float(r.json()["hours"]) == 3.0
+
+    def test_reject_rework_edit_resubmit(self, client: TestClient) -> None:
+        h, eid = self._setup(client)
+        oid = client.post(
+            f"/api/v1/employments/{eid}/overtime-entries",
+            json={"work_date": "2026-04-07", "hours": 2},
+            headers=h).json()["id"]
+        for act in ("submit", "reject", "rework"):
+            r = client.post(
+                f"/api/v1/employments/{eid}/overtime-entries/{oid}/{act}",
+                headers=h)
+            assert r.status_code == 200
+        assert r.json()["status"] == "draft"
+        assert float(client.patch(
+            f"/api/v1/employments/{eid}/overtime-entries/{oid}",
+            json={"hours": 5}, headers=h).json()["hours"]) == 5.0
+        client.post(
+            f"/api/v1/employments/{eid}/overtime-entries/{oid}/submit",
+            headers=h)
+        assert client.post(
+            f"/api/v1/employments/{eid}/overtime-entries/{oid}/approve",
+            headers=h).json()["status"] == "approved"
+
+    def test_delete_guards(self, client: TestClient) -> None:
+        h, eid = self._setup(client)
+        oid = client.post(
+            f"/api/v1/employments/{eid}/overtime-entries",
+            json={"work_date": "2026-04-07", "hours": 2},
+            headers=h).json()["id"]
+        assert client.delete(
+            f"/api/v1/employments/{eid}/overtime-entries/{oid}",
+            headers=h).status_code == 204
+        oid = client.post(
+            f"/api/v1/employments/{eid}/overtime-entries",
+            json={"work_date": "2026-04-07", "hours": 2},
+            headers=h).json()["id"]
+        for act in ("submit", "approve"):
+            client.post(
+                f"/api/v1/employments/{eid}/overtime-entries/{oid}/{act}",
+                headers=h)
+        # approved entries are deletable too — runs keep their
+        # snapshotted components
+        assert client.delete(
+            f"/api/v1/employments/{eid}/overtime-entries/{oid}",
+            headers=h).status_code == 204
+
     def test_scoping(self, client: TestClient) -> None:
         h, eid = self._setup(client)
         client.post(f"/api/v1/employments/{eid}/overtime-entries",
