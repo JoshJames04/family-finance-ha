@@ -656,6 +656,11 @@ class Employment(TimestampMixin, Base):
     # Last day of employment; after this it generates no payroll or
     # forecast figures but keeps all history (issue #304).
     end_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    # salaried | piecework — piecework pays hourly base + per-delivery
+    # charges logged per shift (issue #305, the Slow Boat model).
+    employment_type: Mapped[str] = mapped_column(
+        String(20), default="salaried", server_default="salaried",
+        nullable=False)
 
     profile: Mapped[UserProfile] = relationship()
     salary_revisions: Mapped[list[SalaryRevision]] = relationship(
@@ -784,6 +789,41 @@ class OvertimeEntry(TimestampMixin, Base):
     def pay_pence(self) -> int:
         return int(Decimal(str(self.hours)) * self.hourly_rate_pence
                    * self.multiplier_bps // Decimal(10_000))
+
+
+class DeliveryEntry(TimestampMixin, Base):
+    """A shift at a piecework employment (issue #305): hourly base +
+    free-form per-delivery charges — the Slow Boat model. Rates are
+    per-entry because every delivery can differ; the hourly rate is
+    snapshotted at creation like overtime."""
+
+    __tablename__ = "delivery_entry"
+    __table_args__ = (
+        CheckConstraint("deliveries >= 0", name="ck_delivery_count"),
+        CheckConstraint("hours >= 0", name="ck_delivery_hours"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employment_id: Mapped[int] = mapped_column(
+        ForeignKey("employment.id"), nullable=False, index=True)
+    work_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    hours: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), default=Decimal("0"), nullable=False)
+    hourly_rate_pence: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False)
+    deliveries: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False)
+    delivery_rate_pence: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000),
+                                              nullable=True)
+
+    employment: Mapped[Employment] = relationship()
+
+    @property
+    def pay_pence(self) -> int:
+        return int(Decimal(str(self.hours)) * self.hourly_rate_pence
+                   + self.deliveries * self.delivery_rate_pence)
 
 
 class PayrollRunStatus(enum.StrEnum):

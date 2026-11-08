@@ -23,6 +23,7 @@ from app.domain import payroll as dom
 from app.persistence.models import (
     Budget,
     DayType,
+    DeliveryEntry,
     Employment,
     OvertimeEntry,
     OvertimeStatus,
@@ -70,6 +71,7 @@ def create_employment(
         raise HTTPException(404, f"profile {body.profile_id} not found")
     e = Employment(household_id=household.id,
                    profile_id=p.id, employer=body.employer,
+                   employment_type=body.employment_type,
                    jurisdiction=body.jurisdiction,
                    ni_category=body.ni_category,
                    student_loan_plan=body.student_loan_plan,
@@ -345,6 +347,95 @@ def _entry(session: Session, emp_id: int, entry_id: int
     if o is None or o.employment_id != emp_id:
         raise HTTPException(404, f"overtime entry {entry_id} not found")
     return o
+
+
+def _piecework(session: Session, household_id: int, emp_id: int
+               ) -> Employment:
+    e = _get(session, household_id, emp_id)
+    if e.employment_type != "piecework":
+        raise HTTPException(
+            409, f"employment {emp_id} is not a piecework employment")
+    return e
+
+
+@router.get("/{emp_id}/deliveries",
+            response_model=list[schemas.DeliveryOut])
+def list_deliveries(
+    emp_id: int, household: HouseholdDep, session: SessionDep,
+) -> list[schemas.DeliveryOut]:
+    e = _piecework(session, household.id, emp_id)
+    rows = session.execute(
+        select(DeliveryEntry).where(
+            DeliveryEntry.employment_id == e.id)
+        .order_by(DeliveryEntry.work_date)).scalars().all()
+    return [schemas.DeliveryOut.model_validate(r) for r in rows]
+
+
+@router.post("/{emp_id}/deliveries",
+             response_model=schemas.DeliveryOut, status_code=201)
+def create_delivery(
+    emp_id: int, body: schemas.DeliveryIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.DeliveryOut:
+    e = _piecework(session, household.id, emp_id)
+    if body.hours == 0 and body.deliveries == 0:
+        raise HTTPException(422, "a shift needs hours, deliveries or both")
+    d = DeliveryEntry(
+        employment_id=e.id, work_date=body.work_date, hours=body.hours,
+        hourly_rate_pence=(body.hourly_rate.pence
+                           if body.hourly_rate else 0),
+        deliveries=body.deliveries,
+        delivery_rate_pence=(body.delivery_rate.pence
+                             if body.delivery_rate else 0),
+        notes=body.notes)
+    session.add(d)
+    session.flush()
+    emit(session, household.id, actor, "create", "delivery_entry", d.id,
+         {"employment_id": e.id, "work_date": str(d.work_date),
+          "pay_pence": d.pay_pence})
+    return schemas.DeliveryOut.model_validate(d)
+
+
+@router.patch("/{emp_id}/deliveries/{entry_id}",
+              response_model=schemas.DeliveryOut)
+def patch_delivery(
+    emp_id: int, entry_id: int, body: schemas.DeliveryIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.DeliveryOut:
+    _piecework(session, household.id, emp_id)
+    d = session.get(DeliveryEntry, entry_id)
+    if d is None or d.employment_id != emp_id:
+        raise HTTPException(404, f"delivery entry {entry_id} not found")
+    changed = body.model_dump(exclude_unset=True)
+    if "hourly_rate" in changed:
+        changed["hourly_rate_pence"] = (
+            changed.pop("hourly_rate").pence
+            if changed["hourly_rate"] is not None else 0)
+    if "delivery_rate" in changed:
+        changed["delivery_rate_pence"] = (
+            changed.pop("delivery_rate").pence
+            if changed["delivery_rate"] is not None else 0)
+    for k, v in changed.items():
+        setattr(d, k, v)
+    session.flush()
+    emit(session, household.id, actor, "update", "delivery_entry", d.id,
+         {"employment_id": emp_id, "fields": sorted(changed)})
+    return schemas.DeliveryOut.model_validate(d)
+
+
+@router.delete("/{emp_id}/deliveries/{entry_id}", status_code=204)
+def delete_delivery(
+    emp_id: int, entry_id: int, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> None:
+    _piecework(session, household.id, emp_id)
+    d = session.get(DeliveryEntry, entry_id)
+    if d is None or d.employment_id != emp_id:
+        raise HTTPException(404, f"delivery entry {entry_id} not found")
+    session.delete(d)
+    emit(session, household.id, actor, "delete", "delivery_entry",
+         entry_id, {"employment_id": emp_id,
+                    "work_date": str(d.work_date)})
 
 
 @router.get("/{emp_id}/overtime-entries",
