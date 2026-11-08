@@ -3,6 +3,7 @@
  * export. */
 import { useState } from "react";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import {
   Download, HardDrive, Monitor, Moon, Palette, Pencil, Plus, Sun, Tags,
   UserRound, Users,
@@ -51,7 +52,13 @@ export function Settings() {
         : "/api/v1/profiles/{profile_id}/activate",
       { path: { profile_id: p.id } },
     ).then(() => {
-      toast.success(`${p.display_name} ${p.is_active ? "deactivated" : "activated"}`);
+      undoToast(`${p.display_name} ${p.is_active ? "deactivated" : "activated"}`,
+        () => api.post(
+          p.is_active
+            ? "/api/v1/profiles/{profile_id}/activate"
+            : "/api/v1/profiles/{profile_id}/deactivate",
+          { path: { profile_id: p.id } },
+        ).then(refresh));
       refresh();
     }).catch((e: Error) => toast.error(e.message));
 
@@ -60,7 +67,12 @@ export function Settings() {
       path: { category_id: c.id },
       body: { archived: !c.archived },
     }).then(() => {
-      toast.success(c.archived ? `${c.name} restored` : `${c.name} archived`);
+      const done = c.archived ? `${c.name} restored` : `${c.name} archived`;
+      undoToast(done, () =>
+        api.patch("/api/v1/categories/{category_id}", {
+          path: { category_id: c.id },
+          body: { archived: c.archived },
+        }).then(refresh));
       refresh();
     }).catch((e: Error) => toast.error(e.message));
 
