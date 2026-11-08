@@ -122,9 +122,18 @@ export function Banking() {
       <PageHeader
         title="Banking"
         description="Connect your bank — transactions and balances sync themselves in."
-        actions={conns.length > 0
-          ? <Badge tone="info">{conns.length} connection{conns.length === 1 ? "" : "s"}</Badge>
-          : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            {conns.length > 0 && (
+              <Badge tone="info">{conns.length} connection{conns.length === 1 ? "" : "s"}</Badge>
+            )}
+            {conns.length > 0 && (
+              <Button variant="secondary" size="sm" onClick={() => setConnecting(true)}>
+                <Landmark /> Connect another
+              </Button>
+            )}
+          </div>
+        }
       />
 
       <DataView

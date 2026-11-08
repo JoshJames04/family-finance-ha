@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -160,7 +161,8 @@ class StarlingClient:
         data = _get(
             token,
             f"/api/v2/feed/account/{external_uid}"
-            f"/category/{category_uid}?changesSince={since}")
+            f"/category/{category_uid}?changesSince="
+            f"{urllib.parse.quote(since, safe='')}")
         items = data.get("feedItems", [])
         if not isinstance(items, list):
             return []
@@ -210,7 +212,8 @@ def starling_fetch(client: BankClient, token: str,
         since = cursor.last_ref or (
             (date.today() - timedelta(days=BACKFILL_DAYS))
             .isoformat() + "T00:00:00.000Z")
-        watermark = datetime.now(UTC).isoformat()
+        watermark = (datetime.now(UTC)
+                     .strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
         try:
             items = client.feed_items(token, external_uid,
                                       category_uid, since)

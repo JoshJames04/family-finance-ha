@@ -52,6 +52,22 @@ def test_accounts_includes_spaces(monkeypatch: pytest.MonkeyPatch
     assert all(r.label != "Old" for r in rows)
 
 
+def test_feed_items_urlencodes_changes_since(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The sync watermark ends ``+00:00``/``Z`` — unencoded ``+``
+    decodes to a space on the wire and Starling 404s the request."""
+    seen: list[str] = []
+    def get(token: str, path: str) -> dict[str, object]:
+        seen.append(path)
+        return {"feedItems": []}
+    monkeypatch.setattr(starling, "_get", get)
+    StarlingClient().feed_items(
+        "pat", "uid-1", "cat-1", "2026-11-08T11:53:36.78+00:00")
+    assert "changesSince=" in seen[0]
+    assert "+" not in seen[0].split("changesSince=", 1)[1]
+    assert "%2B00%3A00" in seen[0]
+
+
 def test_spaces_failure_degrades_not_fails(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """A token without space:read still discovers the accounts."""
