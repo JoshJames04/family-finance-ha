@@ -315,3 +315,89 @@ def test_ocr_no_text_degrades_without_raising(
         b"\x89PNGfake", "image/png")
     assert extracted["components"] == {}
     assert any("no text" in w for w in warnings)
+
+
+# Synthetic mirror of a sectioned employer payslip — every figure is
+# invented, only the label structure is representative.
+SECTIONED_PAYSLIP = [
+    "Bob Example",
+    "Payslip for Month Ending 30 Sep 2025",
+    "EMPLOYEE DETAILS",
+    "Works number 123",
+    "Department 4 - Widgets (1100)",
+    "Tax code S1000L",
+    "National Insurance number AA000000A",
+    "National Insurance table A",
+    "Student Loan plan Plan 1",
+    "ADDITIONS",
+    "Monthly pay £2,000.00",
+    "10 hours @ £10.125 £101.25",
+    "3.5 hours @ £15.00 £52.50",
+    "2 hours @ £10.125 £20.25",
+    "Standby / On Call £20.00",
+    "Total £2,194.00",
+    "DEDUCTIONS",
+    "Tax £250.00",
+    "National Insurance £100.00",
+    "Student Loan deductions £60.00",
+    "Overtime Paid August £30.00",
+    "Total £440.00",
+    "THIS PAY PERIOD",
+    "Taxable gross pay £2,194.00",
+    "Employer National Insurance £200.00",
+    "Net pay £1,784.00",
+    "YEAR TO DATE",
+    "Taxable gross pay £9,999.00",
+    "Tax £9,999.00",
+    "Employee National Insurance £9,999.00",
+    "Employer National Insurance £9,999.00",
+    "Student Loan deductions £9,999.00",
+    "PAYMENT",
+    "£1,754.00",
+    "Paid on 25/09/2025",
+    "Example Widgets Limited PAYE ref 999/X999",
+]
+
+
+def test_sectioned_payslip_layout_parses_all_fields() -> None:
+    extracted, warnings = _extract(SECTIONED_PAYSLIP)
+    assert extracted["components"] == {
+        "base_salary": 200_000,
+        # Three addition lines netted with the prior-month clawback.
+        "overtime": 10_125 + 5_250 + 2_025 - 3_000,
+        "allowance": 2_000,
+        "tax": -25_000,
+        "ni": -10_000,
+        "student_loan": -6_000,
+    }
+    assert extracted["overtime_lines"] == [
+        {"id": "line-1", "hours": "10",
+         "printed_rate_pence": 1013},
+        {"id": "line-2", "hours": "3.5",
+         "printed_rate_pence": 1500},
+        {"id": "line-3", "hours": "2",
+         "printed_rate_pence": 1013},
+    ]
+    # Additions total is gross; "Taxable gross pay" agrees.
+    assert extracted["gross_pence"] == 219_400
+    assert extracted["net_pence"] == 178_400
+    # PAYMENT is what reaches the bank and may differ from net pay.
+    assert extracted["payment_pence"] == 175_400
+    assert extracted["deductions_pence"] == 44_000
+    assert extracted["pay_date"] == "2025-09-25"
+    assert extracted["period_end"] == "2025-09-30"
+    assert extracted["confidence"] == "high"
+    assert any(
+        "unlabelled addition" in warning for warning in warnings)
+    assert any(
+        "differs from net pay" in warning for warning in warnings)
+
+
+def test_sectioned_payslip_year_to_date_never_leaks() -> None:
+    extracted, _ = _extract(SECTIONED_PAYSLIP)
+    # Every YTD figure is 9,999.00 — if any leaked into components the
+    # totals would be far larger than the this-period values asserted
+    # above; check the deduction kinds explicitly too.
+    assert extracted["components"]["tax"] == -25_000
+    assert extracted["components"]["ni"] == -10_000
+    assert extracted["components"]["student_loan"] == -6_000
