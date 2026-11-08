@@ -3,6 +3,7 @@ import { AppShell } from "./shell/AppShell";
 import { Dashboard } from "./pages/Dashboard";
 import { Transactions } from "./pages/Transactions";
 import { Budget } from "./pages/Budget";
+import { Shared } from "./pages/Shared";
 import { Accounts } from "./pages/Accounts";
 import { Banking } from "./pages/Banking";
 import { Payees } from "./pages/Payees";
@@ -41,7 +42,7 @@ export default function App() {
         <Route path="loans" element={<Loans />} />
         <Route path="accounts" element={<Accounts />} />
         <Route path="banking" element={<Banking />} />
-        <Route path="shared" element={<Budget />} />
+        <Route path="shared" element={<Shared />} />
         <Route path="payees" element={<Payees />} />
         <Route path="rules" element={<Rules />} />
         <Route path="scenarios" element={<Scenarios />} />
