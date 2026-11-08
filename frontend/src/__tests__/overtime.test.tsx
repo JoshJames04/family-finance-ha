@@ -23,9 +23,12 @@ const DRAFT = {
   hourly_rate_pence: 1981, pay_pence: 11886, notes: null,
 };
 
-const SUBMITTED = { ...DRAFT, id: 10, status: "submitted" };
-const REJECTED = { ...DRAFT, id: 11, status: "rejected" };
-const APPROVED = { ...DRAFT, id: 12, status: "approved" };
+const SUBMITTED = { ...DRAFT, id: 10, status: "submitted",
+  work_date: "2026-11-06" };
+const REJECTED = { ...DRAFT, id: 11, status: "rejected",
+  work_date: "2026-11-05" };
+const APPROVED = { ...DRAFT, id: 12, status: "approved",
+  work_date: "2026-11-04" };
 
 function stubFetch(
   calls: { url: string; method: string; body: string }[],
@@ -60,10 +63,11 @@ describe("Overtime", () => {
     expect(await screen.findAllByText("submitted")).toHaveLength(1);
     expect(await screen.findAllByText("rejected")).toHaveLength(1);
     expect(await screen.findAllByText("approved")).toHaveLength(1);
-    // draft rows can be edited/submitted/deleted; submitted rows offer
-    // approve/reject; rejected offer rework; approved are locked.
-    expect(screen.getByRole("button", { name: "Edit entry" }))
-      .toBeTruthy();
+    // every row is editable (non-drafts revert to draft on save);
+    // submitted rows offer approve/reject; rejected offer rework;
+    // delete is offered on everything except approved.
+    expect(screen.getAllByRole("button", { name: /Edit entry/ }))
+      .toHaveLength(4);
     expect(screen.getByRole("button", { name: "Submit" }))
       .toBeTruthy();
     expect(screen.getByRole("button", { name: "Approve" }))
@@ -72,7 +76,8 @@ describe("Overtime", () => {
       .toBeTruthy();
     expect(screen.getByRole("button", { name: "Rework" }))
       .toBeTruthy();
-    expect(screen.getAllByLabelText("Delete entry")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /Delete entry/ }))
+      .toHaveLength(4);
   });
 
   it("posts a new entry with date+hours only (day type auto)", async () => {
@@ -104,7 +109,7 @@ describe("Overtime", () => {
       const user = userEvent.setup();
       render(<MemoryRouter><Overtime /></MemoryRouter>);
       await user.click(await screen.findByRole("button",
-        { name: "Edit entry" }));
+        { name: "Edit entry from 7 Nov" }));
       const hours = await screen.findByLabelText(/Hours/);
       await user.clear(hours);
       await user.type(hours, "6");
