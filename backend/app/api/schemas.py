@@ -263,6 +263,7 @@ class CommitmentPatch(BaseModel):
     """Editable fields of a recurring commitment. Schedule-affecting
     changes regenerate the commitment's future expected rows."""
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    account_id: int | None = None
     category_id: int | None = None
     amount: Money | None = None
     formula: str | None = Field(default=None, max_length=200)
