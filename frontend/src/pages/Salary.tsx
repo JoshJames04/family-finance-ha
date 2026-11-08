@@ -2,6 +2,7 @@
  * with per-component forecast-vs-actual breakdown, payslip reconcile
  * for forecast runs, and add-run / add-employment flows. */
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import { Briefcase, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
@@ -44,11 +45,11 @@ const JURISDICTION: Record<string, string> = {
 
 export function Salary() {
   const ready = useReady();
+  const nav = useNavigate();
   const [rev, setRev] = useState(0);
   const [tab, setTab] = useState<"employers" | "breakdown">("employers");
   const [addingEmp, setAddingEmp] = useState(false);
   const [addingRun, setAddingRun] = useState<Employment | null>(null);
-  const [prepping, setPrepping] = useState(false);
   const employments = useApi(() => api.get("/api/v1/employments"), ready, [rev]);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const refresh = () => setRev((r) => r + 1);
@@ -69,45 +70,27 @@ export function Salary() {
     && horizon < toISODate(
       new Date(Date.now() + 90 * 86_400_000));
 
-  const prepareYear = () => {
-    setPrepping(true);
-    api.post("/api/v1/employments/prepare-year", { body: { year: nextYear } })
-      .then((r) => {
-        toast.success(
-          `${nextYear} prepared — ${r.runs_created} payroll runs, `
-          + `${r.budgets_created} budgets`);
-        for (const w of r.warnings) toast.warning(w);
-        refresh();
-      })
-      .catch((err: Error) => toast.error(err.message))
-      .finally(() => setPrepping(false));
-  };
-
   return (
     <div>
       <PageHeader
         title="Salaries"
         description="Employers, salary history and pay breakdowns."
-        actions={<>
-          <Button variant="secondary" onClick={prepareYear}
-            disabled={prepping}>
-            {prepping ? "Preparing…" : `Prepare ${nextYear}`}
-          </Button>
+        actions={
           <Button variant="primary" onClick={() => setAddingEmp(true)}>
             <Plus /> Add employer
           </Button>
-        </>}
+        }
       />
       {horizonSoon && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-warning/25 bg-warning-soft px-4 py-3 text-[13.5px]">
           <span className="min-w-0 flex-1">
             Payroll forecasts only run to {formatSmartDate(horizon!)} —
             prepare {nextYear} to keep the calendar, forecast and
-            safe-to-spend figures rolling.
+            safe-to-spend figures rolling — done from Settings.
           </span>
-          <Button size="sm" variant="secondary" onClick={prepareYear}
-            disabled={prepping}>
-            Prepare {nextYear}
+          <Button size="sm" variant="secondary"
+            onClick={() => nav("/settings")}>
+            Open Settings
           </Button>
         </div>
       )}
@@ -232,6 +215,7 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
     true, [e.id]);
   const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const revs = [...(revisions.data ?? [])].sort(
     (a, b) => b.effective_date.localeCompare(a.effective_date));
   const removeRevision = (r: SalaryRevision) =>
@@ -263,6 +247,8 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
           </p>
         </div>
         <div className="flex gap-2">
+          <Button size="icon-sm" variant="ghost"
+            aria-label={`Edit ${e.employer}`} onClick={() => setEditing(true)}><Pencil /></Button>
           {!ending && !e.end_date && (
             <Button size="sm" variant="secondary" onClick={onEnding}>End employment</Button>
           )}
@@ -318,7 +304,68 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
           onOpenChange={(o) => { if (!o) setEditingRev(null); }}
           onSaved={onChanged} />
       )}
+      {editing && (
+        <EditEmploymentDialog employment={e}
+          onOpenChange={(o) => { if (!o) setEditing(false); }}
+          onSaved={onChanged} />
+      )}
     </Panel>
+  );
+}
+
+/** Edit an employment's own details — name, contracted hours and
+ * end date (clearable, e.g. resuming after a mistaken end). Salary
+ * figures stay in the dated revision history above. */
+function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
+  employment: Employment;
+  onOpenChange: (o: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [employer, setEmployer] = useState(e.employer);
+  const [hours, setHours] = useState(String(e.contracted_hours));
+  const [endDate, setEndDate] = useState(e.end_date ?? "");
+  const [busy, setBusy] = useState(false);
+  const valid = employer.trim() && Number(hours) > 0;
+  const submit = (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    api.patch("/api/v1/employments/{emp_id}", {
+      path: { emp_id: e.id },
+      body: {
+        employer: employer.trim(),
+        contracted_hours: hours,
+        end_date: endDate || null,
+      },
+    })
+      .then(() => { toast.success(`${e.employer} updated`); onSaved(); onOpenChange(false); })
+      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
+  };
+  return (
+    <Dialog open onOpenChange={onOpenChange} title={`Edit ${e.employer}`}
+      description="Correct the employer name, contracted hours or the end date. Salary figures live in the dated history below."
+      footer={<>
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-edit-emp"
+          disabled={!valid || busy}>{busy ? "Saving…" : "Save changes"}</Button>
+      </>}>
+      <form id="ff-edit-emp" onSubmit={submit} className="grid gap-4">
+        <Field label="Employer">{(id) => (
+          <Input id={id} autoFocus value={employer}
+            onChange={(ev) => setEmployer(ev.target.value)} />
+        )}</Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Contracted hours / week">{(id) => (
+            <Input id={id} inputMode="decimal" value={hours}
+              onChange={(ev) => setHours(ev.target.value.trim())} />
+          )}</Field>
+          <Field label="End date" hint="Blank = still employed.">{(id) => (
+            <Input id={id} type="date" value={endDate}
+              onChange={(ev) => setEndDate(ev.target.value)} />
+          )}</Field>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
