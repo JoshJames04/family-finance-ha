@@ -89,6 +89,27 @@ def _notify_variance(
              "path": f"/salary?run={run_id}"})
 
 
+def _notify_review_needed(
+    session: SessionDep, household_id: int, payslip: Payslip,
+) -> None:
+    """Raise a ``payslip_review`` event when an upload lands in
+    ``needs_review`` — Home Assistant surfaces it as a prompt."""
+    rules = list(session.scalars(select(NotificationRule).where(
+        NotificationRule.household_id == household_id,
+        NotificationRule.kind == NotificationKind.payslip_review,
+        NotificationRule.enabled.is_(True))))
+    if not rules:
+        rules = [notifications.create_rule(
+            session, household_id, name="Payslip review",
+            kind=NotificationKind.payslip_review,
+            params={}, channel="in_app", privacy_safe=True)]
+    for rule in rules:
+        notifications.raise_event(
+            session, rule, f"payslip:{payslip.id}:review",
+            {"title": "Payslip extraction needs review",
+             "path": "/salary"})
+
+
 @router.post("", response_model=schemas.PayslipOut, status_code=201)
 async def upload_payslip(
     emp_id: int, run_id: int, request: Request, file: UploadFile,
@@ -136,6 +157,7 @@ async def upload_payslip(
     except Exception:
         path.unlink(missing_ok=True)
         raise
+    _notify_review_needed(session, household.id, row)
     emit(session, household.id, actor, "create", "payslip", row.id,
          {"payroll_run_id": run.id, "size_bytes": size})
     return _out(row)
