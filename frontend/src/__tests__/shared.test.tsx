@@ -1,11 +1,11 @@
-/** #277/#278: the shared pot — per-member standing from transfer-rule
- * movements joined to contribution status, the pot's requirements,
- * auto-match trigger and share-rule creation. */
+/** #277/#293/#297: the shared pot embedded in Budget — the split
+ * (total + member £/%), per-member standing for the viewed period,
+ * auto-match, share-rule management behind the disclosure. */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
-import { Shared } from "../pages/Shared";
+import { SharedPot } from "../components/SharedPot";
 
 const ACCOUNTS = [
   { id: 2, name: "Josh Current", type: "personal", currency: "GBP",
@@ -44,20 +44,20 @@ const MONTH = (() => {
   const n = new Date();
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   return {
-    due: iso(new Date(n.getFullYear(), n.getMonth() + 1, 0)), // end of month — always pending
-    in: iso(new Date(n.getFullYear(), n.getMonth(), 5)),
+    start: iso(new Date(n.getFullYear(), n.getMonth(), 1)),
+    end: iso(new Date(n.getFullYear(), n.getMonth() + 1, 0)),
   };
 })();
 
 const MOVEMENTS = [
   { id: 10, source_type: "transfer_rule", source_id: 1, account_id: 2,
-    expected_date: MONTH.due, amount_pence: -80000, label: "Josh share (out)" },
+    expected_date: MONTH.end, amount_pence: -80000, label: "Josh share (out)" },
   { id: 11, source_type: "transfer_rule", source_id: 1, account_id: 4,
-    expected_date: MONTH.due, amount_pence: 80000, label: "Josh share (in)" },
+    expected_date: MONTH.end, amount_pence: 80000, label: "Josh share (in)" },
   { id: 12, source_type: "transfer_rule", source_id: 2, account_id: 3,
-    expected_date: MONTH.due, amount_pence: -70000, label: "Chloe share (out)" },
+    expected_date: MONTH.end, amount_pence: -70000, label: "Chloe share (out)" },
   { id: 13, source_type: "transfer_rule", source_id: 2, account_id: 4,
-    expected_date: MONTH.due, amount_pence: 70000, label: "Chloe share (in)" },
+    expected_date: MONTH.end, amount_pence: 70000, label: "Chloe share (in)" },
 ];
 
 const CONTRIBUTIONS = [
@@ -74,13 +74,6 @@ const CONTRIBUTIONS = [
 const BY_MEMBER = [
   { profile_id: 1, display_name: "Josh", contributed_pence: 80000 },
   { profile_id: 2, display_name: "Chloe", contributed_pence: 0 },
-];
-
-const REQUIREMENTS = [
-  { account_id: 4, due_date: MONTH.due, scheduled_pence: 80000,
-    satisfied_pence: 80000, outstanding_pence: 0 },
-  { account_id: 4, due_date: MONTH.due, scheduled_pence: 70000,
-    satisfied_pence: 0, outstanding_pence: 70000 },
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
@@ -105,41 +98,43 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
                   ? BY_MEMBER
                   : url.includes("/contributions")
                     ? CONTRIBUTIONS
-                    : url.includes("/requirements")
-                      ? REQUIREMENTS
-                      : url.includes("/outstanding")
-                        ? []
-                        : url.includes("/expected-movements")
-                          ? MOVEMENTS
-                          : { items: [], total: 0 };
+                    : url.includes("/expected-movements")
+                      ? MOVEMENTS
+                      : { items: [], total: 0 };
       return Promise.resolve(new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json" } }));
     });
 }
 
-describe("Shared", () => {
+const open = () => render(
+  <MemoryRouter><SharedPot period={{ start: MONTH.start, end: MONTH.end }} /></MemoryRouter>);
+
+describe("SharedPot", () => {
   afterEach(cleanup);
 
-  it("shows each member's standing and the pot totals", async () => {
-    const calls: { url: string; method: string; body: string }[] = [];
-    stubFetch(calls);
-    render(<MemoryRouter><Shared /></MemoryRouter>);
+  it("shows each member's standing for the period", async () => {
+    stubFetch([]);
+    open();
     // Josh satisfied, Chloe outstanding — £1,500 due, £800 in.
     await screen.findByText(/satisfied/i);
     expect(screen.getByText(/^outstanding$/i)).toBeTruthy();
     expect(screen.getAllByText("£1,500.00").length).toBeGreaterThan(0);
     expect(screen.getByText(/to go/)).toBeTruthy();
-    expect(screen.getByText("Josh share")).toBeTruthy();
-    expect(screen.getByText("Chloe share")).toBeTruthy();
-    // pot requirement aggregates both in-legs: £800 outstanding of £1,500
-    expect(screen.getByText("Joint Bills")).toBeTruthy();
+  });
+
+  it("shows the pot total and each member's percentage share", async () => {
+    stubFetch([]);
+    open();
+    await screen.findByText("Shared pot — Joint Bills");
+    const bar = screen.getByRole("img", { name: /Josh \d+%, Chloe \d+%/ });
+    expect(bar.getAttribute("aria-label")).toBe("Josh 53%, Chloe 47%");
   });
 
   it("Match payments runs auto-match", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);
     const user = userEvent.setup();
-    render(<MemoryRouter><Shared /></MemoryRouter>);
+    open();
     await user.click(await screen.findByRole("button", { name: /Match payments/ }));
     await waitFor(() => expect(calls.some((c) =>
       c.method === "POST" && c.url.includes("/expected-movements/match"))).toBe(true));
@@ -149,8 +144,8 @@ describe("Shared", () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);
     const user = userEvent.setup();
-    render(<MemoryRouter><Shared /></MemoryRouter>);
-    await screen.findByText("Josh share");
+    open();
+    await screen.findByText("Shared pot — Joint Bills");
     await user.click(screen.getByRole("button", { name: /Set a share/ }));
     await user.selectOptions(screen.getByLabelText(/From their account/), "2");
     await user.selectOptions(screen.getByLabelText(/Into the shared account/), "4");
@@ -167,28 +162,11 @@ describe("Shared", () => {
     });
   });
 
-  it("prompts to set shares when no rules exist", async () => {
-    const calls: { url: string; method: string; body: string }[] = [];
-    stubFetch(calls, { rules: [] });
-    render(<MemoryRouter><Shared /></MemoryRouter>);
-    await screen.findByText("Set up the shared pot");
-    expect(screen.getAllByText(/no share/i).length).toBeGreaterThan(0);
-  });
-
-  it("shows the pot total and each member's percentage share", async () => {
-    stubFetch([]);
-    render(<MemoryRouter><Shared /></MemoryRouter>);
-    // The split panel — £1,500 total, Josh 53%, Chloe 47%.
-    await screen.findByText("The split — Joint Bills");
-    const bar = screen.getByRole("img", { name: /Josh \d+%, Chloe \d+%/ });
-    expect(bar.getAttribute("aria-label")).toBe("Josh 53%, Chloe 47%");
-  });
-
   it("adjust-by-percentage patches each member's fixed rule", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);
     const user = userEvent.setup();
-    render(<MemoryRouter><Shared /></MemoryRouter>);
+    open();
     await user.click(await screen.findByRole("button", { name: /Adjust split/ }));
     await user.click(screen.getByRole("radio", { name: "By percentage" }));
     const joshPct = screen.getByLabelText("Josh share percent");
@@ -209,5 +187,23 @@ describe("Shared", () => {
       expect(JSON.parse(p1!.body).amount_spec).toEqual({ kind: "fixed", pence: 90000 });
       expect(JSON.parse(p2!.body).amount_spec).toEqual({ kind: "fixed", pence: 60000 });
     });
+  });
+
+  it("rules list hides behind a disclosure", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    open();
+    await screen.findByText("Shared pot — Joint Bills");
+    expect(screen.queryByText("Josh share")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /Share rules/ }));
+    await screen.findByText("Josh share");
+    expect(screen.getByText("Chloe share")).toBeTruthy();
+  });
+
+  it("prompts to set shares when no rules exist", async () => {
+    stubFetch([], { rules: [] });
+    open();
+    await screen.findByText("No shares set");
+    expect(screen.getAllByText(/no share/i).length).toBeGreaterThan(0);
   });
 });

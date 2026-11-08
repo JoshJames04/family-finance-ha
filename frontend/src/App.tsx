@@ -5,7 +5,6 @@ import { Transactions } from "./pages/Transactions";
 import { Budget } from "./pages/Budget";
 import { Accounts } from "./pages/Accounts";
 import { Banking } from "./pages/Banking";
-import { Shared } from "./pages/Shared";
 import { Payees } from "./pages/Payees";
 import { Rules } from "./pages/Rules";
 import { Scenarios } from "./pages/Scenarios";
@@ -41,7 +40,7 @@ export default function App() {
         <Route path="loans" element={<Loans />} />
         <Route path="accounts" element={<Accounts />} />
         <Route path="banking" element={<Banking />} />
-        <Route path="shared" element={<Shared />} />
+        <Route path="shared" element={<Budget />} />
         <Route path="payees" element={<Payees />} />
         <Route path="rules" element={<Rules />} />
         <Route path="scenarios" element={<Scenarios />} />

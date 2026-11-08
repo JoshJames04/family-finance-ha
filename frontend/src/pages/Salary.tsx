@@ -23,6 +23,7 @@ import {
 } from "../lib/format";
 
 type Employment = components["schemas"]["EmploymentOut"];
+type SalaryRevision = components["schemas"]["SalaryRevisionOut"];
 type Run = components["schemas"]["PayrollRunOut"];
 type Component = components["schemas"]["PayrollComponentOut"];
 type RunStatus = components["schemas"]["PayrollRunStatus"];
@@ -102,8 +103,15 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
     () => api.get("/api/v1/employments/{emp_id}/payroll-runs",
       { path: { emp_id: e.id } }),
     true, [e.id, rev]);
+  const revisions = useApi(
+    () => api.get("/api/v1/employments/{emp_id}/salary-revisions",
+      { path: { emp_id: e.id } }),
+    true, [e.id, rev]);
   const [reconciling, setReconciling] = useState<Run | null>(null);
+  const [salaryOpen, setSalaryOpen] = useState(false);
   const sorted = [...(runs.data ?? [])].sort((a, b) => b.pay_date.localeCompare(a.pay_date));
+  const revs = [...(revisions.data ?? [])].sort(
+    (a, b) => b.effective_date.localeCompare(a.effective_date));
 
   return (
     <Panel flush>
@@ -123,9 +131,37 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
               <p className="text-[11.5px] text-fg-subtle">per year · {formatPence(salary.data.hourly_rate_pence)}/hr</p>
             </div>
           )}
+          <Button size="sm" variant="secondary" onClick={() => setSalaryOpen(true)}>
+            New salary
+          </Button>
           <Button size="sm" variant="secondary" onClick={onAddRun}><Plus /> Add run</Button>
         </div>
       </div>
+
+      {/* Effective-dated salary history — same model the spreadsheet
+       * used: a pay rise is a new figure from a date, never an edit
+       * of the old one (issue #296). */}
+      {(revs.length > 0 || !revisions.loading) && (
+        <div className="border-t border-border px-4 py-2.5">
+          <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px]">
+            {revs.slice(0, 4).map((r, i) => (
+              <li key={r.id} className="flex items-baseline gap-1.5">
+                <Money pence={r.annual_salary_pence}
+                  className={i === 0 ? "font-semibold" : "text-fg-muted"} />
+                <span className="text-fg-subtle">
+                  from {formatSmartDate(r.effective_date)}
+                  {r.notes && !r.notes.startsWith("{") ? ` · ${r.notes}` : ""}
+                </span>
+              </li>
+            ))}
+            {revs.length === 0 && (
+              <li className="text-fg-subtle">
+                No salary recorded yet — add the figure and the date it started.
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
 
       <div className="border-t border-border">
         {(runs.data ?? []).length === 0 ? (
@@ -162,7 +198,74 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
           onSaved={onChanged}
         />
       )}
+      {salaryOpen && (
+        <SalaryRevisionDialog
+          employment={e}
+          onOpenChange={(o) => { if (!o) setSalaryOpen(false); }}
+          onSaved={onChanged}
+        />
+      )}
     </Panel>
+  );
+}
+
+/** Record a salary change effective from a date — a pay rise, a new
+ * rate on contract change (issue #296). Revisions are a dated series;
+ * the engine picks the one current on any given day. */
+function SalaryRevisionDialog({ employment, onOpenChange, onSaved }: {
+  employment: Employment;
+  onOpenChange: (o: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [date, setDate] = useState(toISODate(new Date()));
+  const [pounds, setPounds] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const valid = date && /^\d+(\.\d{1,2})?$/.test(pounds) && Number(pounds) >= 0;
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    api.post("/api/v1/employments/{emp_id}/salary-revisions", {
+      path: { emp_id: employment.id },
+      body: {
+        effective_date: date,
+        annual_salary: pounds,
+        notes: notes.trim() || null,
+      },
+    })
+      .then(() => {
+        toast.success(`Salary updated from ${formatSmartDate(date)}`);
+        onSaved();
+        onOpenChange(false);
+      })
+      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
+  };
+  return (
+    <Dialog open onOpenChange={onOpenChange}
+      title={`New salary — ${employment.employer}`}
+      description="The annual figure and the date it takes effect. Past salary stays on record."
+      footer={<>
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-salaryrev"
+          disabled={!valid || busy}>{busy ? "Saving…" : "Save salary"}</Button>
+      </>}>
+      <form id="ff-salaryrev" onSubmit={submit} className="grid gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Annual salary (£)">{(id) => (
+            <Input id={id} autoFocus inputMode="decimal" placeholder="e.g. 42000"
+              value={pounds} onChange={(e) => setPounds(e.target.value.trim())} />
+          )}</Field>
+          <Field label="Effective from" hint="The payslip it first appears on.">{(id) => (
+            <Input id={id} required type="date" value={date}
+              onChange={(e) => setDate(e.target.value)} />
+          )}</Field>
+        </div>
+        <Field label="Note" hint={'Optional — e.g. "April pay rise".'}>{(id) => (
+          <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        )}</Field>
+      </form>
+    </Dialog>
   );
 }
 
@@ -344,6 +447,8 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
   const [profileId, setProfileId] = useState("");
   const [employer, setEmployer] = useState("");
   const [hours, setHours] = useState("37.5");
+  const [pounds, setPounds] = useState("");
+  const [effDate, setEffDate] = useState(toISODate(new Date()));
   const [busy, setBusy] = useState(false);
   const pid = profileId || String(profiles[0]?.id ?? "");
   const valid = employer.trim() && pid && Number(hours) > 0;
@@ -365,9 +470,19 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
         work_days_per_week: "5",
       },
     })
-      .then(() => {
+      .then(async (emp) => {
+        // A starting salary becomes the first effective-dated
+        // revision — same thing a pay rise adds later (#296).
+        if (pounds && /^\d+(\.\d{1,2})?$/.test(pounds) && emp?.id != null) {
+          await api.post("/api/v1/employments/{emp_id}/salary-revisions", {
+            path: { emp_id: emp.id },
+            body: { effective_date: effDate, annual_salary: pounds },
+          }).catch((err: Error) => toast.error(
+            `Employment added, salary not saved: ${err.message}`));
+        }
         toast.success(`Added ${employer.trim()}`);
         setEmployer("");
+        setPounds("");
         onSaved();
         onOpenChange(false);
       })
@@ -376,7 +491,7 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Add employment"
-      description="A job for a household member. Salary, tax codes and pension come next via the API."
+      description="A job for a household member — salary is recorded as what it is and when it started."
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-add-emp" disabled={!valid || busy}>{busy ? "Adding…" : "Add employment"}</Button>
@@ -388,7 +503,19 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
           </Select>
         )}</Field>
         <Field label="Employer">{(id) => <Input id={id} autoFocus placeholder="e.g. Acme Ltd" value={employer} onChange={(e) => setEmployer(e.target.value)} />}</Field>
-        <Field label="Contracted hours / week">{(id) => <Input id={id} inputMode="decimal" value={hours} onChange={(e) => setHours(e.target.value.trim())} />}</Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Contracted hours / week">{(id) => <Input id={id} inputMode="decimal" value={hours} onChange={(e) => setHours(e.target.value.trim())} />}</Field>
+          <Field label="Annual salary (£)" hint="Optional — add it later from the card.">{(id) => (
+            <Input id={id} inputMode="decimal" placeholder="e.g. 42000"
+              value={pounds} onChange={(e) => setPounds(e.target.value.trim())} />
+          )}</Field>
+        </div>
+        {pounds && (
+          <Field label="Salary effective from">{(id) => (
+            <Input id={id} type="date" value={effDate}
+              onChange={(e) => setEffDate(e.target.value)} />
+          )}</Field>
+        )}
       </form>
     </Dialog>
   );
