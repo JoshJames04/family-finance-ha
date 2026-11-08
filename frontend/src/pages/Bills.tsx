@@ -5,6 +5,7 @@
  * money map stays consistent. */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import {
   CalendarClock, Pause, Pencil, Play, Plus, ReceiptText, Send,
 } from "lucide-react";
@@ -111,7 +112,12 @@ export function Bills() {
 
   const pause = (c: Commitment) =>
     api.delete("/api/v1/commitments/{cid}", { path: { cid: c.id } })
-      .then(() => { toast.success(`${c.name} paused`); refresh(); })
+      .then(() => {
+        undoToast(`${c.name} paused`, () =>
+          api.post("/api/v1/commitments/{cid}/activate",
+            { path: { cid: c.id } }).then(refresh));
+        refresh();
+      })
       .catch((e: Error) => toast.error(e.message));
   const resume = (c: Commitment) =>
     api.post("/api/v1/commitments/{cid}/activate", { path: { cid: c.id } })

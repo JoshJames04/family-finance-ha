@@ -5,6 +5,7 @@
  * notify service; the inbox is the household-visible record. */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import {
   AlarmClockCheck, Bell, BellOff, Check, Plus, Send, Trash2,
 } from "lucide-react";
@@ -114,8 +115,19 @@ export function Notifications() {
   const removeRule = (r: Rule) =>
     api.delete("/api/v1/notifications/rules/{rule_id}", {
       path: { rule_id: r.id },
-    }).then(() => { toast.success(`"${r.name}" deleted`); refresh(); })
-      .catch((e: Error) => toast.error(e.message));
+    }).then(() => {
+      undoToast(`"${r.name}" deleted`, () =>
+        api.post("/api/v1/notifications/rules", {
+          body: {
+            name: r.name, kind: r.kind, params: r.params ?? {},
+            target_profile_id: r.target_profile_id,
+            channel: r.channel, digest: r.digest,
+            digest_window_minutes: r.digest_window_minutes,
+            service: r.service, privacy_safe: r.privacy_safe,
+          },
+        }).then(refresh));
+      refresh();
+    }).catch((e: Error) => toast.error(e.message));
 
   const evaluate = (r: Rule) =>
     api.post("/api/v1/notifications/rules/{rule_id}/evaluate",
