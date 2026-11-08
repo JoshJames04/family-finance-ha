@@ -45,29 +45,68 @@ const JURISDICTION: Record<string, string> = {
 export function Salary() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
+  const [tab, setTab] = useState<"employers" | "breakdown">("employers");
   const [addingEmp, setAddingEmp] = useState(false);
   const [addingRun, setAddingRun] = useState<Employment | null>(null);
+  const [prepping, setPrepping] = useState(false);
   const employments = useApi(() => api.get("/api/v1/employments"), ready, [rev]);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const refresh = () => setRev((r) => r + 1);
   const items = employments.data?.items ?? [];
+  const nextYear = new Date().getFullYear() + 1;
+
+  const prepareYear = () => {
+    setPrepping(true);
+    api.post("/api/v1/employments/prepare-year", { body: { year: nextYear } })
+      .then((r) => {
+        toast.success(
+          `${nextYear} prepared — ${r.runs_created} payroll runs, `
+          + `${r.budgets_created} budgets`);
+        for (const w of r.warnings) toast.warning(w);
+        refresh();
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setPrepping(false));
+  };
 
   return (
     <div>
       <PageHeader
-        title="Salary"
-        description="Employments, payroll runs and payslip breakdowns."
-        actions={<Button variant="primary" onClick={() => setAddingEmp(true)}><Plus /> Add employment</Button>}
+        title="Salaries"
+        description="Employers, salary history and pay breakdowns."
+        actions={<>
+          <Button variant="secondary" onClick={prepareYear}
+            disabled={prepping}>
+            {prepping ? "Preparing…" : `Prepare ${nextYear}`}
+          </Button>
+          <Button variant="primary" onClick={() => setAddingEmp(true)}>
+            <Plus /> Add employer
+          </Button>
+        </>}
       />
+      <div className="mb-5 flex gap-1 border-b border-border">
+        {(["employers", "breakdown"] as const).map((t) => (
+          <button key={t} type="button" onClick={() => setTab(t)}
+            className={cn(
+              "border-b-2 px-3 py-2 text-[13.5px] font-medium capitalize transition-colors",
+              tab === t
+                ? "border-accent text-fg"
+                : "border-transparent text-fg-muted hover:text-fg")}>
+            {t === "employers" ? "Employers" : "Breakdown"}
+          </button>
+        ))}
+      </div>
       <DataView
         state={{ ...employments, data: items }}
         empty="No employments yet"
         emptyIcon={Briefcase}
-        emptyDescription="Add an employment to model salary, deductions and payroll runs."
-        emptyAction={<Button variant="primary" onClick={() => setAddingEmp(true)}><Plus /> Add employment</Button>}
+        emptyDescription="Add an employer to model salary, deductions and payroll runs."
+        emptyAction={<Button variant="primary" onClick={() => setAddingEmp(true)}><Plus /> Add employer</Button>}
         loading={<div className="flex flex-col gap-4">{[0, 1].map((i) => <Skeleton key={i} className="h-48 rounded-xl" />)}</div>}
       >
-        {(list) => (
+        {(list) => tab === "employers" ? (
+          <EmployersView employments={list} onChanged={refresh} />
+        ) : (
           <div className="flex flex-col gap-4">
             {list.map((e) => (
               <EmploymentCard
@@ -83,9 +122,176 @@ export function Salary() {
         )}
       </DataView>
 
-      <AddEmploymentDialog open={addingEmp} onOpenChange={setAddingEmp} profiles={profiles.data?.items ?? []} onSaved={refresh} />
+      <AddEmploymentDialog open={addingEmp} onOpenChange={setAddingEmp}
+        profiles={profiles.data?.items ?? []}
+        employments={items} onSaved={refresh} />
       {addingRun && <AddRunDialog employment={addingRun} onOpenChange={(o) => { if (!o) setAddingRun(null); }} onSaved={refresh} />}
     </div>
+  );
+}
+
+/** Employers tab: 50/50 — employer list left, the selected
+ * employer's salary history and settings right. */
+function EmployersView({ employments, onChanged }: {
+  employments: Employment[];
+  onChanged: () => void;
+}) {
+  const [selId, setSelId] = useState<number | null>(null);
+  const sel = employments.find((e) => e.id === selId)
+    ?? employments.find((e) => e.end_date === null) ?? employments[0];
+  const [ending, setEnding] = useState(false);
+  const [endDate, setEndDate] = useState("");
+  const remove = (e: Employment) =>
+    api.delete("/api/v1/employments/{emp_id}", { path: { emp_id: e.id } })
+      .then(() => { toast.success(`Removed ${e.employer}`); onChanged(); })
+      .catch((err: Error) => toast.error(err.message));
+  const saveEnd = (e: Employment) =>
+    api.patch("/api/v1/employments/{emp_id}", {
+      path: { emp_id: e.id }, body: { end_date: endDate || null } })
+      .then(() => { toast.success(`${e.employer} ends ${endDate}`); setEnding(false); onChanged(); })
+      .catch((err: Error) => toast.error(err.message));
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Panel flush>
+        <ul className="divide-y divide-border">
+          {employments.map((e) => (
+            <li key={e.id}>
+              <button type="button" onClick={() => setSelId(e.id)}
+                className={cn(
+                  "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
+                  sel?.id === e.id ? "bg-surface-2/60" : "hover:bg-surface-2/40")}>
+                <IconTile icon={Briefcase} label={e.employer} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-medium">{e.employer}</span>
+                  <span className="block text-[12px] text-fg-subtle">
+                    {e.contracted_hours}h/week
+                  </span>
+                </span>
+                {e.end_date ? (
+                  <Badge tone="neutral">ends {formatSmartDate(e.end_date)}</Badge>
+                ) : (
+                  <Badge tone="success">active</Badge>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+      {sel && (
+        <EmployerDetail employment={sel} ending={ending}
+          endDate={endDate} setEndDate={setEndDate}
+          onEnding={() => { setEndDate(sel.end_date ?? ""); setEnding(true); }}
+          onCancelEnd={() => setEnding(false)}
+          onSaveEnd={() => saveEnd(sel)}
+          onDelete={() => remove(sel)} onChanged={onChanged} />
+      )}
+    </div>
+  );
+}
+
+function EmployerDetail({ employment: e, ending, endDate, setEndDate,
+  onEnding, onCancelEnd, onSaveEnd, onDelete, onChanged }: {
+  employment: Employment;
+  ending: boolean; endDate: string;
+  setEndDate: (v: string) => void;
+  onEnding: () => void; onCancelEnd: () => void;
+  onSaveEnd: () => void; onDelete: () => void;
+  onChanged: () => void;
+}) {
+  const revisions = useApi(
+    () => api.get("/api/v1/employments/{emp_id}/salary-revisions",
+      { path: { emp_id: e.id } }),
+    true, [e.id]);
+  const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
+  const [salaryOpen, setSalaryOpen] = useState(false);
+  const revs = [...(revisions.data ?? [])].sort(
+    (a, b) => b.effective_date.localeCompare(a.effective_date));
+  const removeRevision = (r: SalaryRevision) =>
+    api.delete("/api/v1/employments/{emp_id}/salary-revisions/{rev_id}",
+      { path: { emp_id: e.id, rev_id: r.id } })
+      .then(() => {
+        undoToast(`Salary of ${formatPence(r.annual_salary_pence)} removed`, () =>
+          api.post("/api/v1/employments/{emp_id}/salary-revisions", {
+            path: { emp_id: e.id },
+            body: {
+              effective_date: r.effective_date,
+              annual_salary: String(r.annual_salary_pence / 100),
+              notes: r.notes,
+            },
+          }).then(onChanged));
+        onChanged();
+      })
+      .catch((err: Error) => toast.error(err.message));
+
+  return (
+    <Panel>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[16px] font-semibold">{e.employer}</h2>
+          <p className="mt-0.5 text-[12.5px] text-fg-subtle">
+            {JURISDICTION[e.jurisdiction] ?? e.jurisdiction} · {e.contracted_hours}h/week
+            {e.payday_rule ? ` · ${e.payday_rule}` : ""}
+            {e.end_date ? ` · ends ${formatSmartDate(e.end_date)}` : ""}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {!ending && !e.end_date && (
+            <Button size="sm" variant="secondary" onClick={onEnding}>End employment</Button>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => setSalaryOpen(true)}>New salary</Button>
+          <Button size="icon-sm" variant="ghost" aria-label={`Delete ${e.employer}`}
+            onClick={onDelete}><Trash2 /></Button>
+        </div>
+      </div>
+      {ending && (
+        <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
+          <Field label="Last day of employment">{(id) => (
+            <Input id={id} type="date" value={endDate}
+              onChange={(ev) => setEndDate(ev.target.value)} />
+          )}</Field>
+          <Button size="sm" variant="primary" disabled={!endDate}
+            onClick={onSaveEnd}>Save end date</Button>
+          <Button size="sm" variant="ghost" onClick={onCancelEnd}>Cancel</Button>
+        </div>
+      )}
+      <h3 className="mt-4 text-[12px] font-medium uppercase tracking-wide text-fg-subtle">Salary history</h3>
+      <ul className="mt-1.5 flex flex-col gap-1 text-[13px]">
+        {revs.map((r, i) => (
+          <li key={r.id} className="flex items-baseline gap-1.5">
+            <Money pence={r.annual_salary_pence}
+              className={i === 0 ? "font-semibold" : "text-fg-muted"} />
+            <span className="text-fg-subtle">
+              from {formatSmartDate(r.effective_date)}
+              {r.notes && !r.notes.startsWith("{") ? ` · ${r.notes}` : ""}
+            </span>
+            <span className="flex items-center gap-0.5">
+              <Button variant="ghost" size="icon-sm"
+                aria-label={`Edit salary from ${formatSmartDate(r.effective_date)}`}
+                onClick={() => setEditingRev(r)}><Pencil /></Button>
+              {revs.length > 1 && (
+                <Button variant="ghost" size="icon-sm"
+                  aria-label={`Delete salary from ${formatSmartDate(r.effective_date)}`}
+                  onClick={() => removeRevision(r)}><Trash2 /></Button>
+              )}
+            </span>
+          </li>
+        ))}
+        {revs.length === 0 && !revisions.loading && (
+          <li className="text-fg-subtle">No salary recorded yet.</li>
+        )}
+      </ul>
+      {salaryOpen && (
+        <SalaryRevisionDialog employment={e}
+          onOpenChange={(o) => { if (!o) setSalaryOpen(false); }}
+          onSaved={onChanged} />
+      )}
+      {editingRev && (
+        <SalaryRevisionDialog employment={e} existing={editingRev}
+          onOpenChange={(o) => { if (!o) setEditingRev(null); }}
+          onSaved={onChanged} />
+      )}
+    </Panel>
   );
 }
 
@@ -504,10 +710,11 @@ function AddRunDialog({ employment, onOpenChange, onSaved }: {
   );
 }
 
-function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
+function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSaved }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   profiles: Profile[];
+  employments: Employment[];
   onSaved: () => void;
 }) {
   const [profileId, setProfileId] = useState("");
@@ -515,9 +722,20 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
   const [hours, setHours] = useState("37.5");
   const [pounds, setPounds] = useState("");
   const [effDate, setEffDate] = useState(toISODate(new Date()));
+  const [rel, setRel] = useState<"additional" | "replacement">("additional");
+  const [endDate, setEndDate] = useState("");
   const [busy, setBusy] = useState(false);
   const pid = profileId || String(profiles[0]?.id ?? "");
-  const valid = employer.trim() && pid && Number(hours) > 0;
+  const activeEmps = employments.filter(
+    (e) => e.end_date === null && String(e.profile_id) === pid);
+  const prevEmp = activeEmps[0] ?? null;
+  const suggestedEnd = (() => {
+    const d = new Date(effDate);
+    d.setDate(d.getDate() - 1);
+    return toISODate(d);
+  })();
+  const valid = employer.trim() && pid && Number(hours) > 0
+    && (rel !== "replacement" || !prevEmp || Boolean(endDate || suggestedEnd));
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
@@ -545,6 +763,15 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
             body: { effective_date: effDate, annual_salary: pounds },
           }).catch((err: Error) => toast.error(
             `Employment added, salary not saved: ${err.message}`));
+        }
+        // A replacement job ends the previous active employment the
+        // day before the new one starts (owner-adjustable).
+        if (rel === "replacement" && prevEmp) {
+          await api.patch("/api/v1/employments/{emp_id}", {
+            path: { emp_id: prevEmp.id },
+            body: { end_date: endDate || suggestedEnd },
+          }).catch((err: Error) => toast.error(
+            `Added, but ${prevEmp.employer} not end-dated: ${err.message}`));
         }
         toast.success(`Added ${employer.trim()}`);
         setEmployer("");
@@ -581,6 +808,42 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, onSaved }: {
             <Input id={id} type="date" value={effDate}
               onChange={(e) => setEffDate(e.target.value)} />
           )}</Field>
+        )}
+        {prevEmp && (
+          <fieldset className="grid gap-2">
+            <legend className="text-[13px] font-medium">
+              How does this relate to {prevEmp.employer}?
+            </legend>
+            <label className="flex items-start gap-2 text-[13px]">
+              <input type="radio" name="ff-emp-rel" className="mt-0.5"
+                checked={rel === "additional"}
+                onChange={() => setRel("additional")} />
+              <span>
+                <span className="block font-medium">Additional job</span>
+                <span className="block text-[12px] text-fg-subtle">
+                  Both salaries run at the same time — second job alongside {prevEmp.employer}.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-[13px]">
+              <input type="radio" name="ff-emp-rel" className="mt-0.5"
+                checked={rel === "replacement"}
+                onChange={() => { setRel("replacement"); if (!endDate) setEndDate(suggestedEnd); }} />
+              <span>
+                <span className="block font-medium">New job — replaces {prevEmp.employer}</span>
+                <span className="block text-[12px] text-fg-subtle">
+                  {prevEmp.employer} ends and only the new salary applies after.
+                </span>
+              </span>
+            </label>
+            {rel === "replacement" && (
+              <Field label={`${prevEmp.employer} last day`}
+                hint="Suggested: the day before the new salary starts — adjust if needed.">{(id) => (
+                <Input id={id} type="date" value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)} />
+              )}</Field>
+            )}
+          </fieldset>
         )}
       </form>
     </Dialog>
