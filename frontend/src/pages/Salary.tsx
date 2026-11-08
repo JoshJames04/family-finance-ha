@@ -384,33 +384,9 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
     () => api.get("/api/v1/employments/{emp_id}/payroll-runs",
       { path: { emp_id: e.id } }),
     true, [e.id, rev]);
-  const revisions = useApi(
-    () => api.get("/api/v1/employments/{emp_id}/salary-revisions",
-      { path: { emp_id: e.id } }),
-    true, [e.id, rev]);
   const [reconciling, setReconciling] = useState<Run | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
-  const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
-  const [showAllRevs, setShowAllRevs] = useState(false);
-  const removeRevision = (r: SalaryRevision) =>
-    api.delete("/api/v1/employments/{emp_id}/salary-revisions/{rev_id}",
-      { path: { emp_id: e.id, rev_id: r.id } })
-      .then(() => {
-        undoToast(`Salary of ${formatPence(r.annual_salary_pence)} removed`, () =>
-          api.post("/api/v1/employments/{emp_id}/salary-revisions", {
-            path: { emp_id: e.id },
-            body: {
-              effective_date: r.effective_date,
-              annual_salary: String(r.annual_salary_pence / 100),
-              notes: r.notes,
-            },
-          }).then(onChanged));
-        onChanged();
-      })
-      .catch((err: Error) => toast.error(err.message));
   const sorted = [...(runs.data ?? [])].sort((a, b) => b.pay_date.localeCompare(a.pay_date));
-  const revs = [...(revisions.data ?? [])].sort(
-    (a, b) => b.effective_date.localeCompare(a.effective_date));
 
   return (
     <Panel flush>
@@ -436,53 +412,6 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
           <Button size="sm" variant="secondary" onClick={onAddRun}><Plus /> Add run</Button>
         </div>
       </div>
-
-      {/* Effective-dated salary history — same model the spreadsheet
-       * used: a pay rise is a new figure from a date, never an edit
-       * of the old one (issue #296). */}
-      {(revs.length > 0 || !revisions.loading) && (
-        <div className="border-t border-border px-4 py-2.5">
-          <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px]">
-            {(showAllRevs ? revs : revs.slice(0, 4)).map((r, i) => (
-              <li key={r.id} className="flex items-baseline gap-1.5">
-                <Money pence={r.annual_salary_pence}
-                  className={i === 0 ? "font-semibold" : "text-fg-muted"} />
-                <span className="text-fg-subtle">
-                  from {formatSmartDate(r.effective_date)}
-                  {r.notes && !r.notes.startsWith("{") ? ` · ${r.notes}` : ""}
-                </span>
-                <span className="flex items-center gap-0.5">
-                  <Button variant="ghost" size="icon-sm"
-                    aria-label={`Edit salary from ${formatSmartDate(r.effective_date)}`}
-                    onClick={() => setEditingRev(r)}>
-                    <Pencil />
-                  </Button>
-                  {revs.length > 1 && (
-                    <Button variant="ghost" size="icon-sm"
-                      aria-label={`Delete salary from ${formatSmartDate(r.effective_date)}`}
-                      onClick={() => removeRevision(r)}>
-                      <Trash2 />
-                    </Button>
-                  )}
-                </span>
-              </li>
-            ))}
-            {revs.length > 4 && (
-              <li>
-                <Button variant="ghost" size="sm"
-                  onClick={() => setShowAllRevs((s) => !s)}>
-                  {showAllRevs ? "Show fewer" : `Show all ${revs.length}`}
-                </Button>
-              </li>
-            )}
-            {revs.length === 0 && (
-              <li className="text-fg-subtle">
-                No salary recorded yet — add the figure and the date it started.
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
 
       <div className="border-t border-border">
         {(runs.data ?? []).length === 0 ? (
@@ -523,14 +452,6 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
         <SalaryRevisionDialog
           employment={e}
           onOpenChange={(o) => { if (!o) setSalaryOpen(false); }}
-          onSaved={onChanged}
-        />
-      )}
-      {editingRev && (
-        <SalaryRevisionDialog
-          employment={e}
-          existing={editingRev}
-          onOpenChange={(o) => { if (!o) setEditingRev(null); }}
           onSaved={onChanged}
         />
       )}
