@@ -80,10 +80,16 @@ def require_admin(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
 ) -> None:
-    """Admin gate: the middleware-resolved profile's role, or the
-    legacy ``X-Admin-Token`` header matching ``FF_ADMIN_TOKEN``.
-    Fail-closed either way (issue #29)."""
+    """Admin gate: the resolved profile's role, or the legacy
+    ``X-Admin-Token`` header matching ``FF_ADMIN_TOKEN``. Identity
+    comes from the middleware (supervisor headers / session cookie)
+    or — standalone only — the ``X-Profile-Id`` compat header, which
+    stays disabled under ingress. Fail-closed either way (issue #29)."""
     pid = getattr(request.state, "profile_id", None)
+    if pid is None and not request.app.state.settings.ingress:
+        raw = request.headers.get("x-profile-id")
+        if raw is not None and raw.isdigit():
+            pid = int(raw)
     if pid is not None:
         p = session.get(UserProfile, pid)
         if p is not None and p.is_active and p.role == Role.admin:

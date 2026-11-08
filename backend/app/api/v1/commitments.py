@@ -11,7 +11,7 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.domain import schedule
-from app.domain.recurring import materialise
+from app.domain.recurring import advance, materialise
 from app.persistence.models import Account, RecurringCommitment
 
 router = APIRouter(prefix="/commitments", tags=["commitments"])
@@ -69,6 +69,38 @@ def create_commitment(
     return schemas.CommitmentOut.model_validate(c)
 
 
+@router.patch("/{cid}", response_model=schemas.CommitmentOut)
+def update_commitment(
+    cid: int, body: schemas.CommitmentPatch, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> schemas.CommitmentOut:
+    """Edit a commitment. amount/formula remain mutually exclusive:
+    sending one clears the other. Schedule changes regenerate future
+    expected rows; past generated occurrences are untouched."""
+    c = _get(session, household.id, cid)
+    fields = body.model_dump(exclude_unset=True)
+    if "amount" in fields:
+        c.amount_pence = body.amount.pence if body.amount else None
+        if body.amount is not None:
+            c.formula = None
+    if "formula" in fields:
+        c.formula = body.formula
+        if body.formula is not None:
+            c.amount_pence = None
+    for key in ("name", "category_id", "frequency", "day_of_month",
+                "next_date", "end_date", "occurrence_count", "notes"):
+        if key in fields:
+            setattr(c, key, fields[key])
+    if (c.amount_pence is None) == (c.formula is None):
+        raise HTTPException(
+            422, "exactly one of amount or formula is required")
+    session.flush()
+    schedule.rematerialize_commitment(session, c)
+    emit(session, household.id, actor, "update",
+         "recurring_commitment", c.id, {"fields": sorted(fields)})
+    return schemas.CommitmentOut.model_validate(c)
+
+
 @router.post("/{cid}/materialise", response_model=schemas.MaterialiseResult)
 def materialise_commitment(
     cid: int, household: HouseholdDep, session: SessionDep,
@@ -94,3 +126,23 @@ def deactivate_commitment(
     schedule.rematerialize_commitment(session, c)  # drops future rows
     emit(session, household.id, actor, "deactivate",
          "recurring_commitment", c.id)
+
+
+@router.post("/{cid}/activate", response_model=schemas.CommitmentOut)
+def activate_commitment(
+    cid: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep,
+) -> schemas.CommitmentOut:
+    """Resume a paused commitment. Rolls next_date forward past today so
+    a paused bill doesn't emit a burst of backdated occurrences."""
+    c = _get(session, household.id, cid)
+    c.active = True
+    today = date.today()
+    anchor_dom = c.day_of_month if c.day_of_month is not None \
+        else c.next_date.day
+    while c.next_date < today:
+        c.next_date = advance(c.next_date, c.frequency, anchor_dom)
+    schedule.rematerialize_commitment(session, c)
+    emit(session, household.id, actor, "activate",
+         "recurring_commitment", c.id)
+    return schemas.CommitmentOut.model_validate(c)

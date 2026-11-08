@@ -15,6 +15,8 @@ services:
       FF_DATA_DIR: /data
       FF_HA_URL: http://ha-stub:8123
       FF_SUPERVISOR_TOKEN: dev-supervisor-token
+      # Bind-mounted Windows source doesn't emit inotify events — poll.
+      WATCHFILES_FORCE_POLLING: "true"
     volumes:
       - ff-data:/data
       - ./backend:/app
@@ -29,6 +31,12 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       VITE_API_PROXY_TARGET: http://backend:8099
+      # Bind-mounted Windows source doesn't emit inotify events into the
+      # container — poll so dev hot-reload keeps working.
+      VITE_WATCH_POLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     ports:
       - "5173:5173"
     depends_on:
