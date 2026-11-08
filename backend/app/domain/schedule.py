@@ -15,7 +15,7 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.domain import goals, transfer_rules
+from app.domain import goals, payroll_totals, transfer_rules
 from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
     AmountKind,
@@ -125,7 +125,8 @@ def rematerialize_payroll_run(
     """Expected income on the run's pay date — estimated until the run
     is reconciled, scheduled after. Only future/mutable runs emit."""
     today = today or date.today()
-    _drop_future(session, ExpectedSource.payroll_run, run.id, today)
+    survivors = _drop_future(
+        session, ExpectedSource.payroll_run, run.id, today)
     if run.status is PayrollRunStatus.corrected \
             or run.pay_date < today:
         session.flush()
@@ -133,12 +134,16 @@ def rematerialize_payroll_run(
     confidence = (Confidence.scheduled
                   if run.status is PayrollRunStatus.reconciled
                   else Confidence.estimated)
-    session.add(_emit_row(
-        run.employment.household_id, account_id=None,
-        expected_date=run.pay_date, amount_pence=run.net_pence,
+    amount = payroll_totals.totals_for_run(run).actual_net_pence \
+        if run.status is PayrollRunStatus.reconciled else run.net_pence
+    if amount is None:   # unreachable: reconciled ⇒ actual is set
+        amount = run.net_pence
+    _upsert(
+        session, survivors, run.employment.household_id, account_id=None,
+        expected_date=run.pay_date, amount_pence=amount,
         label=f"Salary — {run.employment.employer}",
         confidence=confidence, source=ExpectedSource.payroll_run,
-        source_id=run.id))
+        source_id=run.id)
     session.flush()
     return 1
 
