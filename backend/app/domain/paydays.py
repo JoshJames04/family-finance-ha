@@ -32,6 +32,8 @@ class RuleKind(enum.StrEnum):
     last_day = "last_day"              # last calendar day of the month
     last_working_day = "last_working_day"
     nth_weekday = "nth_weekday"        # e.g. 2nd Friday (weekday 0–6, nth 1–5; -1 = last)
+    weekly = "weekly"                  # every <weekday> — weekly pay (#304)
+    nightly = "nightly"                # paid on the night — cash-in-hand (#304)
 
 
 @dataclass(frozen=True)
@@ -103,10 +105,26 @@ def nominal_date(rule: PaydayRule, year: int, month: int,
     if rule.kind is RuleKind.nth_weekday:
         assert rule.weekday is not None and rule.nth is not None
         return _nth_weekday(year, month, rule.weekday, rule.nth)
+    if rule.kind is RuleKind.nightly:
+        # paid the day worked — the month's pay date is the period end
+        return _fixed(year, month, 31)
+    # weekly has no single monthly pay date; prepare-year iterates
+    # ISO weeks and calls weekly_pay_date directly.
+    if rule.kind is RuleKind.weekly:
+        return weekly_pay_date(rule, year, month)
     # last_working_day: nominal = last calendar day; the adjust pass
     # would only ever move backwards, so resolve directly.
     d = _fixed(year, month, 31)
     while not is_working_day(d, holidays):
+        d -= timedelta(days=1)
+    return d
+
+
+def weekly_pay_date(rule: PaydayRule, year: int, month: int) -> date:
+    """Last occurrence of rule.weekday inside (year, month)."""
+    assert rule.weekday is not None
+    d = date(year, month, calendar.monthrange(year, month)[1])
+    while d.weekday() != rule.weekday:
         d -= timedelta(days=1)
     return d
 
