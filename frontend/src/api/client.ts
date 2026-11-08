@@ -173,13 +173,16 @@ export const api = {
     path: P,
     init?: CallInit<P, "delete">,
   ) => request("delete", path, init),
-  upload: async (path: string, file: Blob) => {
+  upload: async (path: string, file: Blob,
+                 fields?: Record<string, string>) => {
     const headers: Record<string, string> = {};
     const hid = getHouseholdId();
     const pid = getProfileId();
     if (hid !== null) headers["X-Household-Id"] = String(hid);
     if (pid !== null) headers["X-Profile-Id"] = String(pid);
     const form = new FormData();
+    for (const [k, v] of Object.entries(fields ?? {}))
+      form.append(k, v);
     form.append("file", file);
     const res = await fetch(`.${path}`, { method: "POST", headers, body: form });
     if (!res.ok) throw await parseError(res);
