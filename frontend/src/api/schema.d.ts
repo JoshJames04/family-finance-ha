@@ -1060,6 +1060,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deliveries */
+        get: operations["list_deliveries_api_v1_employments__emp_id__deliveries_get"];
+        put?: never;
+        /** Create Delivery */
+        post: operations["create_delivery_api_v1_employments__emp_id__deliveries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/deliveries/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Delivery */
+        delete: operations["delete_delivery_api_v1_employments__emp_id__deliveries__entry_id__delete"];
+        options?: never;
+        head?: never;
+        /** Patch Delivery */
+        patch: operations["patch_delivery_api_v1_employments__emp_id__deliveries__entry_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/piecework-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Piecework Import
+         * @description Preview imported income without changing source transactions.
+         */
+        get: operations["preview_piecework_import_api_v1_employments__emp_id__piecework_import_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/piecework-import/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Piecework Import
+         * @description Map imported amounts to immutable, review-flagged piecework shifts.
+         */
+        post: operations["confirm_piecework_import_api_v1_employments__emp_id__piecework_import_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/overtime-entries": {
         parameters: {
             query?: never;
@@ -2576,6 +2652,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Payslips */
+        get: operations["list_payslips_api_v1_employments__emp_id__payroll_runs__run_id__payslips_get"];
+        put?: never;
+        /** Upload Payslip */
+        post: operations["upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Payslip */
+        get: operations["download_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Review Payslip */
+        patch: operations["review_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}/overtime-findings/{finding_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Overtime Finding */
+        post: operations["resolve_overtime_finding_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__overtime_findings__finding_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Payslip */
+        post: operations["confirm_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/categorisation/rules": {
         parameters: {
             query?: never;
@@ -3601,6 +3763,11 @@ export interface components {
             /** Balance At */
             balance_at: string | null;
         };
+        /** Body_upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post */
+        Body_upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post: {
+            /** File */
+            file: string;
+        };
         /** BudgetActuals */
         BudgetActuals: {
             /** Budget Id */
@@ -4194,6 +4361,97 @@ export interface components {
             /** Failed */
             failed: number;
         };
+        /** DeliveryChargeIn */
+        DeliveryChargeIn: {
+            /** Money */
+            amount: number | string | {
+                pence: number;
+            };
+            /** Label */
+            label?: string | null;
+        };
+        /** DeliveryChargeOut */
+        DeliveryChargeOut: {
+            /** Id */
+            id: number;
+            /** Delivery Entry Id */
+            delivery_entry_id: number;
+            /** Amount Pence */
+            amount_pence: number;
+            /** Label */
+            label: string | null;
+        };
+        /** DeliveryIn */
+        DeliveryIn: {
+            /**
+             * Work Date
+             * Format: date
+             */
+            work_date: string;
+            /**
+             * Hours
+             * @default 0
+             */
+            hours: number | string;
+            /** Hourly Rate */
+            hourly_rate?: (number | string | {
+                pence: number;
+            }) | null;
+            /**
+             * Deliveries
+             * @default 0
+             */
+            deliveries: number;
+            /** Delivery Rate */
+            delivery_rate?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Tips */
+            tips?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Charges */
+            charges?: components["schemas"]["DeliveryChargeIn"][];
+            /** Notes */
+            notes?: string | null;
+        };
+        /** DeliveryOut */
+        DeliveryOut: {
+            /** Id */
+            id: number;
+            /** Employment Id */
+            employment_id: number;
+            /**
+             * Work Date
+             * Format: date
+             */
+            work_date: string;
+            /** Hours */
+            hours: string;
+            /** Hourly Rate Pence */
+            hourly_rate_pence: number;
+            /** Deliveries */
+            deliveries: number;
+            /** Delivery Rate Pence */
+            delivery_rate_pence: number;
+            /** Tips Pence */
+            tips_pence: number;
+            /** Source Transaction Id */
+            source_transaction_id: number | null;
+            /** Imported Total Pence */
+            imported_total_pence: number | null;
+            /** Needs Review */
+            needs_review: boolean;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Charges
+             * @default []
+             */
+            charges: components["schemas"]["DeliveryChargeOut"][];
+            /** Pay Pence */
+            pay_pence: number;
+        };
         /** DetectionCandidateOut */
         DetectionCandidateOut: {
             /** Id */
@@ -4283,6 +4541,37 @@ export interface components {
              */
             pension_fixed_pence: number;
             /**
+             * Employment Type
+             * @default salaried
+             * @enum {string}
+             */
+            employment_type: "salaried" | "piecework";
+            /**
+             * Deduction Mode
+             * @default paye
+             * @enum {string}
+             */
+            deduction_mode: "paye" | "gross_only";
+            /** Initial Salary */
+            initial_salary?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Initial Salary Effective Date */
+            initial_salary_effective_date?: string | null;
+            /** Initial Tax Code */
+            initial_tax_code?: string | null;
+            /** Replaces Employment Id */
+            replaces_employment_id?: number | null;
+            /** Replacement End Date */
+            replacement_end_date?: string | null;
+            /**
+             * Replacement Confirmed
+             * @default false
+             */
+            replacement_confirmed: boolean;
+            /** Start Date */
+            start_date?: string | null;
+            /**
              * Work Days Per Week
              * @default 5
              */
@@ -4319,6 +4608,12 @@ export interface components {
             is_active: boolean;
             /** End Date */
             end_date: string | null;
+            /** Start Date */
+            start_date: string | null;
+            /** Employment Type */
+            employment_type: string;
+            /** Deduction Mode */
+            deduction_mode: string;
         };
         /** EmploymentPatch */
         EmploymentPatch: {
@@ -4349,6 +4644,12 @@ export interface components {
             is_active?: boolean | null;
             /** End Date */
             end_date?: string | null;
+            /** Employment Type */
+            employment_type?: ("salaried" | "piecework") | null;
+            /** Deduction Mode */
+            deduction_mode?: ("paye" | "gross_only") | null;
+            /** Start Date */
+            start_date?: string | null;
         };
         /** EnergyConfigIn */
         EnergyConfigIn: {
@@ -4773,6 +5074,30 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HistoricalPieceworkImportConfirmIn */
+        HistoricalPieceworkImportConfirmIn: {
+            /** Transaction Ids */
+            transaction_ids: number[];
+        };
+        /** HistoricalPieceworkImportOut */
+        HistoricalPieceworkImportOut: {
+            /** Transaction Id */
+            transaction_id: number;
+            /**
+             * Work Date
+             * Format: date
+             */
+            work_date: string;
+            /** Imported Total Pence */
+            imported_total_pence: number;
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /** Mapped Delivery Id */
+            mapped_delivery_id?: number | null;
+        };
         /** HouseholdIn */
         HouseholdIn: {
             /** Name */
@@ -5112,6 +5437,22 @@ export interface components {
             deficit_pence: number;
             /** Suggested Sources */
             suggested_sources: components["schemas"]["WarningSourceOut"][];
+        };
+        /** OvertimeFindingResolveIn */
+        OvertimeFindingResolveIn: {
+            /** Action */
+            action: string;
+            /** Reason */
+            reason: string;
+            /** Work Date */
+            work_date?: string | null;
+            day_type?: components["schemas"]["DayType"] | null;
+            /** Hourly Rate Pence */
+            hourly_rate_pence?: number | null;
+            /** Multiplier Bps */
+            multiplier_bps?: number | null;
+            /** Snooze Until */
+            snooze_until?: string | null;
         };
         /** OvertimeIn */
         OvertimeIn: {
@@ -5488,6 +5829,8 @@ export interface components {
             status: components["schemas"]["PayrollRunStatus"];
             /** Tax Year */
             tax_year: string;
+            /** Rule Set Year */
+            rule_set_year: string | null;
             /** Rule Set Version */
             rule_set_version: number;
             /** Gross Pence */
@@ -5501,12 +5844,74 @@ export interface components {
              * @default []
              */
             components: components["schemas"]["PayrollComponentOut"][];
+            /** Actual Gross Pence */
+            readonly actual_gross_pence: number | null;
+            /** Actual Net Pence */
+            readonly actual_net_pence: number | null;
         };
         /**
          * PayrollRunStatus
          * @enum {string}
          */
         PayrollRunStatus: "forecast" | "reconciled" | "corrected";
+        /** PayslipConfirmIn */
+        PayslipConfirmIn: {
+            /** Actuals */
+            actuals?: {
+                [key: string]: number;
+            };
+        };
+        /** PayslipOut */
+        PayslipOut: {
+            /** Id */
+            id: number;
+            /** Payroll Run Id */
+            payroll_run_id: number;
+            /** Original Name */
+            original_name: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Media Type */
+            media_type: string;
+            /** Status */
+            status: string;
+            /** Extracted */
+            extracted?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Overtime Findings
+             * @default []
+             */
+            overtime_findings: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** PayslipOvertimeLineIn */
+        PayslipOvertimeLineIn: {
+            /** Id */
+            id: string;
+            /** Hours */
+            hours: number | string;
+            /** Printed Rate Pence */
+            printed_rate_pence: number;
+        };
+        /** PayslipReviewPatch */
+        PayslipReviewPatch: {
+            /** Components */
+            components?: {
+                [key: string]: number;
+            } | null;
+            /** Warnings */
+            warnings?: string[] | null;
+            /** Overtime Lines */
+            overtime_lines?: components["schemas"]["PayslipOvertimeLineIn"][] | null;
+        };
         /**
          * PensionMode
          * @enum {string}
@@ -9279,6 +9684,220 @@ export interface operations {
             };
         };
     };
+    list_deliveries_api_v1_employments__emp_id__deliveries_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_delivery_api_v1_employments__emp_id__deliveries_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_delivery_api_v1_employments__emp_id__deliveries__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_delivery_api_v1_employments__emp_id__deliveries__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_piecework_import_api_v1_employments__emp_id__piecework_import_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoricalPieceworkImportOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_piecework_import_api_v1_employments__emp_id__piecework_import_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HistoricalPieceworkImportConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_overtime_api_v1_employments__emp_id__overtime_entries_get: {
         parameters: {
             query?: {
@@ -12736,6 +13355,235 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PayeeRenameOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_payslips_api_v1_employments__emp_id__payroll_runs__run_id__payslips_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayslipOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayslipOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+                payslip_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+                payslip_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayslipReviewPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayslipOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_overtime_finding_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__overtime_findings__finding_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+                payslip_id: number;
+                finding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OvertimeFindingResolveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayslipOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips__payslip_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+                payslip_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayslipConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayslipOut"];
                 };
             };
             /** @description Validation Error */

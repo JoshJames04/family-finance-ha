@@ -1,6 +1,10 @@
 # Production image — built per-arch and pushed to GHCR by release.yml.
 FROM python:3.13-slim AS runtime
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 ARG VERSION=0.0.0-dev
 LABEL org.opencontainers.image.title="Family Finance" \
       org.opencontainers.image.version="${VERSION}" \

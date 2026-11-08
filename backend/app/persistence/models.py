@@ -10,7 +10,7 @@ from __future__ import annotations
 import enum
 from datetime import date, datetime
 from datetime import date as date_t
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import (
     JSON,
@@ -656,11 +656,15 @@ class Employment(TimestampMixin, Base):
     # Last day of employment; after this it generates no payroll or
     # forecast figures but keeps all history (issue #304).
     end_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    # Explicit employment start; legacy rows fall back to earliest salary.
+    start_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
     # salaried | piecework — piecework pays hourly base + per-delivery
     # charges logged per shift (issue #305, the Piecework Co model).
     employment_type: Mapped[str] = mapped_column(
         String(20), default="salaried", server_default="salaried",
         nullable=False)
+    deduction_mode: Mapped[str] = mapped_column(
+        String(20), default="paye", server_default="paye", nullable=False)
 
     profile: Mapped[UserProfile] = relationship()
     salary_revisions: Mapped[list[SalaryRevision]] = relationship(
@@ -815,15 +819,47 @@ class DeliveryEntry(TimestampMixin, Base):
         Integer, default=0, nullable=False)
     delivery_rate_pence: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False)
+    tips_pence: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False)
+    source_transaction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transaction.id"), nullable=True, unique=True)
+    imported_total_pence: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)
+    needs_review: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False)
     notes: Mapped[str | None] = mapped_column(String(2000),
                                               nullable=True)
 
     employment: Mapped[Employment] = relationship()
+    charges: Mapped[list[DeliveryCharge]] = relationship(
+        back_populates="entry", cascade="all, delete-orphan",
+        order_by="DeliveryCharge.id")
 
     @property
     def pay_pence(self) -> int:
-        return int(Decimal(str(self.hours)) * self.hourly_rate_pence
-                   + self.deliveries * self.delivery_rate_pence)
+        hourly = (Decimal(str(self.hours)) * self.hourly_rate_pence).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP)
+        return int(hourly + self.deliveries * self.delivery_rate_pence
+                   + sum(c.amount_pence for c in self.charges)
+                   + self.tips_pence)
+
+
+class DeliveryCharge(TimestampMixin, Base):
+    """One free-form charge attached to a piecework shift."""
+
+    __tablename__ = "delivery_charge"
+    __table_args__ = (
+        CheckConstraint("amount_pence >= 0",
+                        name="ck_delivery_charge_nonneg"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    delivery_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("delivery_entry.id"), nullable=False, index=True)
+    amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    entry: Mapped[DeliveryEntry] = relationship(back_populates="charges")
 
 
 class PayrollRunStatus(enum.StrEnum):
@@ -870,6 +906,8 @@ class PayrollRun(TimestampMixin, Base):
         Enum(PayrollRunStatus), default=PayrollRunStatus.forecast,
         nullable=False)
     tax_year: Mapped[str] = mapped_column(String(9), nullable=False)
+    rule_set_year: Mapped[str | None] = mapped_column(
+        String(9), nullable=True)
     rule_set_version: Mapped[int] = mapped_column(Integer,
                                                   nullable=False)
     gross_pence: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -911,6 +949,40 @@ class PayrollComponent(Base):
         if self.actual_pence is None:
             return None
         return self.actual_pence - self.forecast_pence
+
+
+class PayslipStatus(enum.StrEnum):
+    uploaded = "uploaded"
+    extracted = "extracted"
+    needs_review = "needs_review"
+    confirmed = "confirmed"
+    failed = "failed"
+
+
+class Payslip(TimestampMixin, Base):
+    """Private payslip artifact and editable extraction review state."""
+
+    __tablename__ = "payslip"
+    __table_args__ = (
+        UniqueConstraint("payroll_run_id", "sha256",
+                         name="uq_payslip_run_sha"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    payroll_run_id: Mapped[int] = mapped_column(
+        ForeignKey("payroll_run.id"), nullable=False, index=True)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    private_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    media_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[PayslipStatus] = mapped_column(
+        Enum(PayslipStatus), default=PayslipStatus.uploaded, nullable=False)
+    extracted_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    warnings_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default="[]", nullable=False)
 
 
 class Confidence(enum.StrEnum):
@@ -1559,6 +1631,7 @@ class NotificationKind(enum.StrEnum):
     price_change = "price_change"
     missed_transfer = "missed_transfer"
     sync_failure = "sync_failure"
+    payroll_variance = "payroll_variance"
 
 
 class NotificationState(enum.StrEnum):

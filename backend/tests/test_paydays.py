@@ -6,6 +6,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from app.domain.paydays import (
     HolidayTable,
     PaydayRule,
@@ -98,6 +100,21 @@ class TestRules:
         good_fri = PaydayRule(RuleKind.nth_weekday, weekday=4, nth=1)
         # 1st Friday Apr 2026 = Good Friday → previous working Thu 2nd
         assert pay_date(good_fri, 2026, 4) == date(2026, 4, 2)
+
+    def test_weekly_is_strict_named_weekday(self) -> None:
+        r = PaydayRule(RuleKind.weekly, weekday=0)
+        assert next_payday(r, date(2026, 5, 4)) == date(2026, 5, 11)
+        assert next_payday(r, date(2026, 5, 5)) == date(2026, 5, 11)
+
+    def test_nightly_is_next_calendar_day(self) -> None:
+        r = PaydayRule(RuleKind.nightly)
+        assert next_payday(r, date(2026, 5, 25)) == date(2026, 5, 26)
+
+    def test_weekly_and_nightly_have_no_monthly_nominal_date(self) -> None:
+        with pytest.raises(ValueError):
+            pay_date(PaydayRule(RuleKind.weekly, weekday=0), 2026, 5)
+        with pytest.raises(ValueError):
+            pay_date(PaydayRule(RuleKind.nightly), 2026, 5)
 
 
 class TestSequences:

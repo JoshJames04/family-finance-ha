@@ -173,4 +173,26 @@ export const api = {
     path: P,
     init?: CallInit<P, "delete">,
   ) => request("delete", path, init),
+  upload: async (path: string, file: Blob) => {
+    const headers: Record<string, string> = {};
+    const hid = getHouseholdId();
+    const pid = getProfileId();
+    if (hid !== null) headers["X-Household-Id"] = String(hid);
+    if (pid !== null) headers["X-Profile-Id"] = String(pid);
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`.${path}`, { method: "POST", headers, body: form });
+    if (!res.ok) throw await parseError(res);
+    return res.json() as Promise<unknown>;
+  },
+  download: async (path: string) => {
+    const headers: Record<string, string> = {};
+    const hid = getHouseholdId();
+    const pid = getProfileId();
+    if (hid !== null) headers["X-Household-Id"] = String(hid);
+    if (pid !== null) headers["X-Profile-Id"] = String(pid);
+    const res = await fetch(`.${path}`, { headers });
+    if (!res.ok) throw await parseError(res);
+    return res.blob();
+  },
 };

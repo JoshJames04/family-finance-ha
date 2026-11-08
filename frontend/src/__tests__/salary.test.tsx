@@ -131,8 +131,7 @@ describe("Salary", () => {
     stubFetch(calls, { employments: [] });
     const user = userEvent.setup();
     open();
-    // Header action + empty-state action both read "Add employment".
-    const [addBtn] = await screen.findAllByRole("button", { name: "Add employment" });
+    const [addBtn] = await screen.findAllByRole("button", { name: "Add employer" });
     await user.click(addBtn!);
     await user.type(screen.getByLabelText("Employer"), "New Corp");
     await user.type(screen.getByLabelText(/Annual salary/), "30000");
@@ -142,10 +141,47 @@ describe("Salary", () => {
     await waitFor(() => {
       expect(calls.some((x) =>
         x.method === "POST" && x.url.endsWith("/employments"))).toBe(true);
-      const rev = calls.find((x) =>
-        x.method === "POST" && x.url.includes("/employments/7/salary-revisions"));
-      expect(rev).toBeDefined();
-      expect(JSON.parse(rev!.body).annual_salary).toBe("30000");
+      const employment = calls.find((x) =>
+        x.method === "POST" && x.url.endsWith("/employments"));
+      expect(employment).toBeDefined();
+      expect(JSON.parse(employment!.body).initial_salary).toBe("30000");
     });
+  });
+
+  it("serializes a selected fixed payday without exposing JSON", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls, { employments: [] });
+    const user = userEvent.setup();
+    open();
+    const [addBtn] = await screen.findAllByRole("button", { name: "Add employer" });
+    await user.click(addBtn!);
+    await user.type(screen.getByLabelText("Employer"), "Payday Corp");
+    await user.selectOptions(screen.getByLabelText("Payday"), "fixed_day");
+    await user.clear(screen.getByLabelText("Day of month"));
+    await user.type(screen.getByLabelText("Day of month"), "31");
+    await user.click(screen.getByRole("button", { name: "Add employment" }));
+    await waitFor(() => {
+      const call = calls.find((item) =>
+        item.method === "POST" && item.url.endsWith("/employments"));
+      expect(call).toBeDefined();
+      expect(JSON.parse(call!.body).payday_rule).toEqual(expect.stringContaining('"kind":"fixed_day"'));
+      expect(screen.queryByText(/"kind"/)).toBeNull();
+    });
+  });
+
+  it("requires an explicit prior employer and confirmation for replacement", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    const second = { ...EMP, id: 2, employer: "Second Ltd" };
+    stubFetch(calls, { employments: [EMP, second] });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "Add employer" }));
+    await user.type(screen.getByLabelText("Employer"), "Replacement Ltd");
+    await user.click(screen.getByRole("radio", { name: /Replacement job/i }));
+    expect((screen.getByRole("button", { name: "Add employment" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.selectOptions(screen.getByLabelText("Prior employment to replace"), "2");
+    expect(screen.getByText(/Preview: Second Ltd will end/)).toBeTruthy();
+    await user.click(screen.getByLabelText(/Confirm ending Second Ltd/));
+    expect((screen.getByRole("button", { name: "Add employment" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

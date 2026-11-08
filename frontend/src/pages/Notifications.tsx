@@ -4,6 +4,7 @@
  * wide, digest batching, member targeting). Deliveries feed HA's
  * notify service; the inbox is the household-visible record. */
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import {
@@ -68,6 +69,7 @@ function eventSummary(e: Event, acctName: (id: number) => string): {
 
 export function Notifications() {
   const ready = useReady();
+  const navigate = useNavigate();
   const [rev, setRev] = useState(0);
   const identity = useIdentity();
   const accounts = useAccounts(rev);
@@ -209,6 +211,12 @@ export function Notifications() {
                       </p>
                     </div>
                     <Badge tone={STATE_TONE[e.state] ?? "neutral"}>{e.state}</Badge>
+                    {typeof (e.payload as Record<string, unknown> | null)?.path === "string" && (
+                      <Button size="sm" variant="secondary"
+                        onClick={() => navigate(String((e.payload as Record<string, unknown>).path))}>
+                        Review
+                      </Button>
+                    )}
                     {open && (
                       <div className="flex gap-1">
                         <Button variant="ghost" size="sm"

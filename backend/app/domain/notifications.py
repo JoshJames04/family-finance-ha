@@ -174,6 +174,8 @@ def evaluate(session: Session, rule: NotificationRule,
             session, rule, params, today or date.today(), at=at)
     if rule.kind is NotificationKind.sync_failure:
         return _eval_sync_failure(session, rule, params, at=at)
+    if rule.kind is NotificationKind.payroll_variance:
+        return 0
     raise NotificationError(f"unknown rule kind {rule.kind}")
 
 
