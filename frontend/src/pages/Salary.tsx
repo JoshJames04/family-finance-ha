@@ -111,6 +111,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
   const [reconciling, setReconciling] = useState<Run | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
+  const [showAllRevs, setShowAllRevs] = useState(false);
   const removeRevision = (r: SalaryRevision) =>
     api.delete("/api/v1/employments/{emp_id}/salary-revisions/{rev_id}",
       { path: { emp_id: e.id, rev_id: r.id } })
@@ -162,15 +163,15 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
       {(revs.length > 0 || !revisions.loading) && (
         <div className="border-t border-border px-4 py-2.5">
           <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px]">
-            {revs.slice(0, 4).map((r, i) => (
-              <li key={r.id} className="group flex items-baseline gap-1.5">
+            {(showAllRevs ? revs : revs.slice(0, 4)).map((r, i) => (
+              <li key={r.id} className="flex items-baseline gap-1.5">
                 <Money pence={r.annual_salary_pence}
                   className={i === 0 ? "font-semibold" : "text-fg-muted"} />
                 <span className="text-fg-subtle">
                   from {formatSmartDate(r.effective_date)}
                   {r.notes && !r.notes.startsWith("{") ? ` · ${r.notes}` : ""}
                 </span>
-                <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <span className="flex items-center gap-0.5">
                   <Button variant="ghost" size="icon-sm"
                     aria-label={`Edit salary from ${formatSmartDate(r.effective_date)}`}
                     onClick={() => setEditingRev(r)}>
@@ -186,6 +187,14 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, onChanged }
                 </span>
               </li>
             ))}
+            {revs.length > 4 && (
+              <li>
+                <Button variant="ghost" size="sm"
+                  onClick={() => setShowAllRevs((s) => !s)}>
+                  {showAllRevs ? "Show fewer" : `Show all ${revs.length}`}
+                </Button>
+              </li>
+            )}
             {revs.length === 0 && (
               <li className="text-fg-subtle">
                 No salary recorded yet — add the figure and the date it started.
