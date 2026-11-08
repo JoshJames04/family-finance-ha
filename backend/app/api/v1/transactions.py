@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import rbac
+from app.domain import rbac, splits
 from app.domain import transactions as txn_domain
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
+from app.domain.splits import SplitError
 from app.domain.transactions import CorrectionError
 from app.persistence.models import (
     Account,
@@ -229,6 +230,27 @@ def patch_transaction(
     session.flush()
     emit(session, household.id, actor, "update", "transaction",
          t.id, changed | ({"status": new_status} if new_status else {}))
+    return schemas.TransactionOut.model_validate(t)
+
+
+@router.put("/{txn_id}/splits", response_model=schemas.TransactionOut)
+def put_splits(
+    txn_id: int, body: schemas.TransactionSplitsPut,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
+) -> schemas.TransactionOut:
+    """Replace a transaction's split set (issue #289). Splits must sum
+    to the parent amount; reconciled rows refuse — use ``correct``."""
+    t = _get(session, household.id, txn_id, profile)
+    _write_account(session, household.id, t.account_id, profile)
+    try:
+        splits.replace(session, t, household.id,
+                       [s.model_dump() for s in body.splits])
+    except SplitError as e:
+        raise HTTPException(422, str(e)) from e
+    session.flush()
+    emit(session, household.id, actor, "update", "transaction",
+         t.id, {"splits": len(body.splits)})
     return schemas.TransactionOut.model_validate(t)
 
 

@@ -82,4 +82,8 @@ def correct(session: Session, original: Transaction, reason: str,
         corrects_id=original.id)
     session.add(corrected)
     session.flush()
+    if original.splits:
+        from app.domain import splits
+        splits.copy_for_correction(session, original, corrected)
+        session.flush()
     return corrected

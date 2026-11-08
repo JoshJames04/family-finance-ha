@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.domain import splits
 from app.domain.reporting import external_only
 from app.persistence.models import (
     Account,
@@ -54,11 +55,25 @@ def _base(
 def _sum(session: Session, household_id: int, start: date, end: date,
          positive: bool, category_id: int | None = None,
          internal: bool | None = None) -> int:
-    stmt = _base(household_id, start, end).where(
-        Transaction.amount_pence > 0 if positive
-        else Transaction.amount_pence < 0)
+    sign = (Transaction.amount_pence > 0 if positive
+            else Transaction.amount_pence < 0)
     if category_id is not None:
-        stmt = stmt.where(Transaction.category_id == category_id)
+        # Splits-aware: a split parent contributes its legs, not the
+        # whole amount (issue #289).
+        wheres = [Account.household_id == household_id,
+                  Transaction.status != TransactionStatus.void,
+                  Transaction.date >= start, Transaction.date <= end,
+                  sign]
+        if internal is True:
+            wheres.append(Transaction.transfer_id.isnot(None))
+        elif internal is False:
+            wheres.append(Transaction.transfer_id.is_(None))
+        ea = splits.effective_category_amounts(*wheres)
+        stmt = select(
+            func.coalesce(func.sum(ea.c.amount_pence), 0)).where(
+            ea.c.category_id == category_id)
+        return int(session.execute(stmt).scalar_one())
+    stmt = _base(household_id, start, end).where(sign)
     if internal is True:
         stmt = stmt.where(Transaction.transfer_id.isnot(None))
     elif internal is False:
@@ -108,19 +123,16 @@ def _sections(session: Session, household_id: int,
     expense_drill = _drill(date_from=start, date_to=end,
                            direction="expense")
 
+    ea = splits.effective_category_amounts(
+        Account.household_id == household_id,
+        Transaction.status != TransactionStatus.void,
+        Transaction.date >= start, Transaction.date <= end,
+        Transaction.amount_pence < 0,
+        Transaction.transfer_id.is_(None))
     cat_rows = session.execute(
-        select(Transaction.category_id,
-               func.sum(Transaction.amount_pence))
-        .join(Account, Transaction.account_id == Account.id)
-        .where(
-            Account.household_id == household_id,
-            Transaction.status != TransactionStatus.void,
-            Transaction.date >= start, Transaction.date <= end,
-            Transaction.amount_pence < 0,
-            Transaction.transfer_id.is_(None))
-        .group_by(Transaction.category_id)
-        .order_by(Transaction.category_id.is_(None),
-                  Transaction.category_id)).all()
+        select(ea.c.category_id, func.sum(ea.c.amount_pence))
+        .group_by(ea.c.category_id)
+        .order_by(ea.c.category_id.is_(None), ea.c.category_id)).all()
     names = {c.id: c.name for c in session.execute(
         select(Category).where(Category.household_id == household_id))
         .scalars()}
