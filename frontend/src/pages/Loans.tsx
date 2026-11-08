@@ -4,8 +4,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowDownLeft, ArrowUpRight, Handshake, Plus } from "lucide-react";
-import { api } from "../api/client";
-import { useApi } from "../api/useApi";
+import { api, getProfileId } from "../api/client";
+import { useApi, useIdentity } from "../api/useApi";
 import { useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
@@ -30,12 +30,20 @@ export function Loans() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
   const [dir, setDir] = useState<Direction | "all">("all");
+  const [scope, setScope] = useState<"all" | "mine" | "shared">("all");
   const [adding, setAdding] = useState(false);
   const [repaying, setRepaying] = useState<Loan | null>(null);
   const loans = useApi(
     () => api.get("/api/v1/loans", { query: { include_inactive: true } }),
     ready, [rev]);
-  const items = (loans.data?.items ?? []).filter((l) => dir === "all" || l.direction === dir);
+  const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
+  const identity = useIdentity();
+  const me = identity.data ? getProfileId() : null;
+  const memberCount = (profiles.data?.items ?? []).filter((p) => p.is_active).length;
+  const items = (loans.data?.items ?? [])
+    .filter((l) => dir === "all" || l.direction === dir)
+    .filter((l) => scope === "all" ||
+      (scope === "mine" ? l.owner_profile_id === me : l.owner_profile_id === null));
   const refresh = () => setRev((r) => r + 1);
 
   return (
@@ -46,17 +54,30 @@ export function Loans() {
         actions={<Button variant="primary" onClick={() => setAdding(true)}><Plus /> New loan</Button>}
       />
 
-      <Segmented
-        label="Direction"
-        value={dir}
-        onChange={setDir}
-        className="mb-4"
-        options={[
-          { value: "all", label: "All" },
-          { value: "they_owe", label: "Owed to us" },
-          { value: "we_owe", label: "We owe" },
-        ]}
-      />
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Segmented
+          label="Direction"
+          value={dir}
+          onChange={setDir}
+          options={[
+            { value: "all", label: "All" },
+            { value: "they_owe", label: "Owed to us" },
+            { value: "we_owe", label: "We owe" },
+          ]}
+        />
+        {memberCount > 1 && (
+          <Segmented
+            label="Loan scope"
+            value={scope}
+            onChange={setScope}
+            options={[
+              { value: "all", label: "All" },
+              { value: "mine", label: "Mine" },
+              { value: "shared", label: "Shared" },
+            ]}
+          />
+        )}
+      </div>
 
       <DataView
         state={{ ...loans, data: items }}
@@ -69,13 +90,16 @@ export function Loans() {
         {(list) => (
           <div className="grid gap-3 lg:grid-cols-2">
             {list.map((l) => (
-              <LoanCard key={l.id} loan={l} rev={rev} onRepay={() => setRepaying(l)} />
+              <LoanCard key={l.id} loan={l} rev={rev}
+                owner={profiles.data?.items.find((p) => p.id === l.owner_profile_id)?.display_name ?? null}
+                onRepay={() => setRepaying(l)} />
             ))}
           </div>
         )}
       </DataView>
 
-      <AddLoanDialog open={adding} onOpenChange={setAdding} onSaved={refresh} />
+      <AddLoanDialog open={adding} onOpenChange={setAdding}
+        profiles={profiles.data?.items ?? []} onSaved={refresh} />
       {repaying && (
         <RepayDialog loan={repaying} onOpenChange={(o) => { if (!o) setRepaying(null); }} onSaved={refresh} />
       )}
@@ -83,7 +107,7 @@ export function Loans() {
   );
 }
 
-function LoanCard({ loan: l, rev, onRepay }: { loan: Loan; rev: number; onRepay: () => void }) {
+function LoanCard({ loan: l, rev, owner, onRepay }: { loan: Loan; rev: number; owner: string | null; onRepay: () => void }) {
   const position = useApi(
     () => api.get("/api/v1/loans/{lid}", { path: { lid: l.id } }),
     true, [l.id, rev]);
@@ -110,6 +134,7 @@ function LoanCard({ loan: l, rev, onRepay }: { loan: Loan; rev: number; onRepay:
           <p className="text-[12.5px] text-fg-subtle">
             {owed ? "They owe you" : "You owe them"} · from {formatDayMonthYear(l.start_date)}
             {l.interest_bps_pa ? ` · ${(l.interest_bps_pa / 100).toString()}% pa` : ""}
+            {owner ? ` · ${owner}` : ""}
           </p>
         </div>
         {!l.active && <Badge tone="neutral">Settled</Badge>}
@@ -161,9 +186,10 @@ function LoanCard({ loan: l, rev, onRepay }: { loan: Loan; rev: number; onRepay:
   );
 }
 
-function AddLoanDialog({ open, onOpenChange, onSaved }: {
+function AddLoanDialog({ open, onOpenChange, profiles, onSaved }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  profiles: components["schemas"]["ProfileOut"][];
   onSaved: () => void;
 }) {
   const [party, setParty] = useState("");
@@ -171,6 +197,7 @@ function AddLoanDialog({ open, onOpenChange, onSaved }: {
   const [principal, setPrincipal] = useState("");
   const [expected, setExpected] = useState("");
   const [startDate, setStartDate] = useState(toISODate(new Date()));
+  const [ownerId, setOwnerId] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const valid = party.trim() && /^\d+(\.\d{1,2})?$/.test(principal);
@@ -185,6 +212,7 @@ function AddLoanDialog({ open, onOpenChange, onSaved }: {
         principal,
         start_date: startDate,
         expected_payment: expected || null,
+        owner_profile_id: ownerId ? Number(ownerId) : null,
         notes: notes.trim() || null,
       },
     })
@@ -218,7 +246,19 @@ function AddLoanDialog({ open, onOpenChange, onSaved }: {
           <Field label="Amount (£)">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={principal} onChange={(e) => setPrincipal(e.target.value.trim())} />}</Field>
           <Field label="Expected payment (£)" hint="Optional — enables schedule drift.">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={expected} onChange={(e) => setExpected(e.target.value.trim())} />}</Field>
         </div>
-        <Field label="Start date">{(id) => <Input id={id} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Start date">{(id) => <Input id={id} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
+          {profiles.filter((p) => p.is_active).length > 1 && (
+            <Field label="Whose loan" hint="Shared unless it's personal.">{(id) => (
+              <Select id={id} aria-label="Loan owner" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+                <option value="">Shared</option>
+                {profiles.filter((p) => p.is_active).map((p) => (
+                  <option key={p.id} value={p.id}>{p.display_name}</option>
+                ))}
+              </Select>
+            )}</Field>
+          )}
+        </div>
         <Field label="Notes">{(id) => <Textarea id={id} placeholder="Optional context" value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>
       </form>
     </Dialog>

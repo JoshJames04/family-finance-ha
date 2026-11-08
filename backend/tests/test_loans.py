@@ -191,6 +191,27 @@ class TestApi:
                           headers=h).json()["outstanding_pence"] \
             == 500_000
 
+    def test_owner_round_trips(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        p = client.post("/api/v1/profiles", headers=h,
+                        json={"display_name": "Josh"})
+        assert p.status_code == 201, p.json()
+        pid = p.json()["id"]
+        mine = client.post("/api/v1/loans", headers=h, json={
+            "party": "Mum", "direction": "we_owe",
+            "principal": 500000, "start_date": "2025-01-01",
+            "owner_profile_id": pid})
+        assert mine.status_code == 201, mine.json()
+        assert mine.json()["owner_profile_id"] == pid
+        shared = client.post("/api/v1/loans", headers=h, json={
+            "party": "Dad", "direction": "they_owe",
+            "principal": 10000, "start_date": "2025-01-01"})
+        items = client.get("/api/v1/loans", headers=h).json()["items"]
+        assert {i["owner_profile_id"] for i in items} == {pid, None}
+        assert shared.json()["owner_profile_id"] is None
+
     def test_projection_endpoint_and_running_balance(
             self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
