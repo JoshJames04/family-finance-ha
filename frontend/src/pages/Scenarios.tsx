@@ -5,6 +5,7 @@
  * can you still afford it, does it breach payday? */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { undoToast } from "../lib/toast";
 import {
   Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -104,16 +105,51 @@ export function Scenarios() {
       .then((s) => { setSelected(s.id); setAddingScenario(false); refresh(); })
       .catch((e: Error) => toast.error(e.message));
 
-  const deleteScenario = (s: Scenario) =>
-    api.delete("/api/v1/scenarios/{scenario_id}", { path: { scenario_id: s.id } })
-      .then(() => { setSelected(null); setRun(null); refresh(); toast.success(`${s.name} deleted`); })
+  const deleteScenario = (s: Scenario) => {
+    // Capture the op layer before deleting so Undo can rebuild it.
+    const savedOps = s.id === current?.id ? (ops.data ?? []) : [];
+    const opBody = (o: Op) => ({
+      kind: o.kind,
+      expected_movement_id: o.expected_movement_id,
+      account_id: o.account_id,
+      expected_date: o.expected_date,
+      amount: o.amount_pence,
+      label: o.label,
+    });
+    return api.delete("/api/v1/scenarios/{scenario_id}", { path: { scenario_id: s.id } })
+      .then(() => {
+        setSelected(null); setRun(null); refresh();
+        undoToast(`${s.name} deleted`, async () => {
+          const created = await api.post("/api/v1/scenarios",
+            { body: { name: s.name } });
+          for (const o of savedOps) {
+            await api.post("/api/v1/scenarios/{scenario_id}/ops", {
+              path: { scenario_id: created.id }, body: opBody(o) });
+          }
+          refresh();
+        });
+      })
       .catch((e: Error) => toast.error(e.message));
+  };
 
   const deleteOp = (op: Op) =>
     api.delete("/api/v1/scenarios/{scenario_id}/ops/{op_id}", {
       path: { scenario_id: current!.id, op_id: op.id },
-    }).then(() => { refresh(); setRun(null); toast.success("Change removed"); })
-      .catch((e: Error) => toast.error(e.message));
+    }).then(() => {
+      refresh(); setRun(null);
+      undoToast("Change removed", () =>
+        api.post("/api/v1/scenarios/{scenario_id}/ops", {
+          path: { scenario_id: current!.id },
+          body: {
+            kind: op.kind,
+            expected_movement_id: op.expected_movement_id,
+            account_id: op.account_id,
+            expected_date: op.expected_date,
+            amount: op.amount_pence,
+            label: op.label,
+          },
+        }).then(refresh));
+    }).catch((e: Error) => toast.error(e.message));
 
   const movementLabel = (op: Op) => {
     const m = (Array.isArray(movements.data) ? movements.data : [])

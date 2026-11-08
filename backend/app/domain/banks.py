@@ -29,12 +29,6 @@ from app.persistence.models import (
     VaultEntry,
 )
 
-READ_SCOPES = frozenset({
-    "account:read", "account-holder:read", "account-holder-name:read",
-    "account-holder-type:read", "account-identifier:read",
-    "account-list:read", "balance:read", "transaction:read",
-    "savings-goal:read", "space:read", "customer:read",
-})
 REQUIRED_SCOPES = frozenset({
     "account:read", "balance:read", "transaction:read"})
 
@@ -48,8 +42,7 @@ class TokenInvalid(ConnError):
 
 
 class TokenRejected(ConnError):
-    """Scope set outside the read-only allowlist or missing a
-    required scope."""
+    """Token holds a non-read scope, or is missing a required one."""
 
 
 class ValidatorUnavailable(ConnError):
@@ -70,7 +63,10 @@ def vault_ref(provider: BankProvider, conn_id: int) -> str:
 
 
 def _check_scopes(scopes: frozenset[str]) -> None:
-    extra = scopes - READ_SCOPES
+    # Any `*:read` scope is harmless — Starling adds read scopes over
+    # time and PAT creators tick extra boxes; only write powers
+    # (`:create`, `:edit`, `:delete`) violate ADR-0008's read-only rule.
+    extra = {s for s in scopes if not s.endswith(":read")}
     if extra:
         raise TokenRejected(
             "token holds non-read scopes: " + ", ".join(sorted(extra)))
@@ -84,11 +80,11 @@ def _check_scopes(scopes: frozenset[str]) -> None:
 def connect(session: Session, household_id: int,
             provider: BankProvider, token: str,
             validate: Validator, ring: Keyring,
-            existing: BankConnection | None = None
-            ) -> BankConnection:
+            existing: BankConnection | None = None,
+            label: str | None = None) -> BankConnection:
     """Validate → vault-store → mark connected. ``existing`` is the
     revoked/degraded row being re-authenticated (rotation keeps the
-    connection id stable)."""
+    connection id stable); ``label`` names the link ("Joint")."""
     try:
         info = validate(token)
     except TokenInvalid:
@@ -109,7 +105,7 @@ def connect(session: Session, household_id: int,
                 token.encode(), ring)
     conn.status = ConnStatus.connected
     conn.scopes = " ".join(sorted(info.scopes))
-    conn.label = info.label or conn.label
+    conn.label = label or info.label or conn.label
     conn.last_validated_at = datetime.now()
     conn.last_error = None
     session.flush()

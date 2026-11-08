@@ -72,6 +72,13 @@ export function formatPercent(value: number, opts: { ratio?: boolean } = {}): st
   return `${Math.round(n)}%`;
 }
 
+/** Basis-points multiplier → "×1.50" (overtime/day-type rates). */
+export function formatMultiplier(bps: number): string {
+  const whole = Math.floor(bps / 10_000);
+  const frac = String(Math.round((bps % 10_000) / 100)).padStart(2, "0");
+  return `×${whole}.${frac}`;
+}
+
 /**
  * Parse an ISO date or datetime. Date-only strings ("2026-11-10") are
  * read as LOCAL midnight so they never shift a day in negative-offset

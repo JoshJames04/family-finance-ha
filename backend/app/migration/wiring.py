@@ -39,10 +39,10 @@ def build_extractors(
     jurisdiction: str,
     loan_party: str,
     workbook_path: str,
-) -> list:
+) -> list[Any]:
     """One extractor per known sheet; unmapped sheets stay staged."""
     cache = cached_values(workbook_path)
-    extractors: list = []
+    extractors: list[Any] = []
     for alias, sheet in spec["sheets"].items():
         real = real_names.get(alias, alias)
         tables = sheet.get("tables") or {}

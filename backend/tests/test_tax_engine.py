@@ -55,6 +55,27 @@ class TestGolden2025_26:
         assert d.ni_pence == 11_620
         assert d.net_pence == 250_000 - 29_050 - 11_620
 
+    def test_weekly_thresholds_and_student_loan(self) -> None:
+        d = compute_period(
+            gross_pence=50_000, tax_code="1257L", params=EW, period=1,
+            periods_per_year=52)
+        assert d.ni_pence == 2_066
+        assert d.tax_pence == 5_165
+        sl = compute_period(
+            gross_pence=60_000, tax_code="1257L", params=EW24, period=1,
+            periods_per_year=52, student_loan_plan="plan2")
+        assert sl.student_loan_pence == 675
+
+    def test_week_53_uses_non_cumulative_week_one_basis(self) -> None:
+        d = compute_period(
+            gross_pence=50_000, tax_code="1257L", params=EW, period=53,
+            periods_per_year=52, ytd_taxable_gross_pence=5_000_000,
+            ytd_tax_pence=500_000)
+        first = compute_period(
+            gross_pence=50_000, tax_code="1257L", params=EW, period=1,
+            periods_per_year=52)
+        assert d.tax_pence == first.tax_pence
+
     def test_60k_month1(self) -> None:
         # £5,000 gross; taxable £3,952.50; £3,141.67@20% + £810.83@40%
         d = compute_period(gross_pence=500_000, tax_code="1257L",

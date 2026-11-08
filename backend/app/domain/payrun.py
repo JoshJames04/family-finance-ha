@@ -11,20 +11,22 @@ Epic 7's expected-income schedule.
 
 from __future__ import annotations
 
+import calendar
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import overtime as ot
+from app.domain import pay_calendar, paydays, payroll_totals, tax
 from app.domain import payroll as dom
-from app.domain import tax
 from app.domain.payroll import PayrollError
-from app.domain.tax import PensionMode
+from app.domain.tax import Deductions, PensionMode, TaxError
 from app.persistence.models import (
+    DeliveryEntry,
     Employment,
     PayrollComponent,
     PayrollComponentKind,
@@ -86,38 +88,141 @@ def generate(
     bonus_pence: int = 0, allowance_pence: int = 0,
     unpaid_leave_pence: int = 0,
     unpaid_leave_days: Decimal | None = None,
+    allow_stale_rules: bool = False,
 ) -> PayrollRun:
     """Assemble a forecast run for a pay period."""
     if end < start:
         raise PayrollError("period end must be on/after start")
+    if employment.end_date is not None:
+        if start > employment.end_date:
+            raise PayrollError(
+                f"employment {employment.id} ended "
+                f"{employment.end_date} — no run can start after it")
+        if end > employment.end_date:   # final partial period
+            end = employment.end_date
     if unpaid_leave_days is not None:
         unpaid_leave_pence += unpaid_leave_for_days(
             session, employment, unpaid_leave_days, end)
-    base = dom.gross_for_period(session, employment.id, start, end)
+    if employment.employment_type == "piecework":
+        entries = session.scalars(
+            select(DeliveryEntry).where(
+                DeliveryEntry.employment_id == employment.id,
+                DeliveryEntry.work_date >= start,
+                DeliveryEntry.work_date <= end,
+                DeliveryEntry.source_transaction_id.is_(None))).all()
+        base = sum(entry.pay_pence for entry in entries)
+    else:
+        base = dom.gross_for_period(session, employment.id, start, end)
     ot_pay = ot.approved_total_pence(session, employment.id, start, end)
     earnings = base + ot_pay + bonus_pence + allowance_pence
     taxable_gross = earnings - unpaid_leave_pence
 
     # Pension % applies on post-leave pensionable gross (issue #83).
     pension_pence = pension_pence_for(employment, taxable_gross)
-    tax_year = tax.tax_year_for(end)
-    rules = tax.rule_set(session, tax_year, employment.jurisdiction)
-    params = json.loads(rules.params)
-    code = dom.tax_code_at(session, employment.id, end)
-    ded = tax.compute_period(
-        gross_pence=taxable_gross, tax_code=code, params=params,
-        period=tax.tax_month_for(end),
-        ni_category=employment.ni_category,
-        student_loan_plan=employment.student_loan_plan.value,
-        pension_mode=PensionMode(employment.pension_mode),
-        pension_pence=pension_pence)
+    tax_year = tax.tax_year_for(pay_date)
+    rules = None
+    if employment.deduction_mode != "gross_only":
+        try:
+            rules = tax.rule_set(session, tax_year, employment.jurisdiction)
+        except TaxError:
+            # Forecasting beyond published HMRC tables: fall back to the
+            # newest known rules; the run still records which version
+            # computed it and can be regenerated when rates land.
+            if not allow_stale_rules:
+                raise
+            fallback = tax.latest_rule_set(session, employment.jurisdiction)
+            if fallback is None:
+                raise
+            rules = fallback
+    params = json.loads(rules.params) if rules is not None else {}
+    code = ("NT" if employment.deduction_mode == "gross_only"
+            else dom.tax_code_at(session, employment.id, end))
+    weekly = False
+    if employment.payday_rule:
+        try:
+            weekly = pay_calendar.parse_rule(
+                employment.payday_rule).kind.value == "weekly"
+        except (ValueError, KeyError, TypeError):
+            weekly = False
+    nightly = False
+    if employment.payday_rule:
+        try:
+            nightly = pay_calendar.parse_rule(
+                employment.payday_rule).kind.value == "nightly"
+        except (ValueError, KeyError, TypeError):
+            nightly = False
+    if nightly and employment.deduction_mode == "paye":
+        raise PayrollError(
+            "nightly PAYE requires weekly aggregation; choose gross-only "
+            "for cash-in-hand work and record actual tax manually")
+    if weekly:
+        anchor = date(int(tax_year[:4]), 4, 6)
+        tax_period = min(53, ((pay_date - anchor).days // 7) + 1)
+    else:
+        tax_period = tax.tax_month_for(pay_date)
+    previous = session.scalars(
+        select(PayrollRun).where(
+            PayrollRun.employment_id == employment.id,
+            PayrollRun.tax_year == tax_year,
+            PayrollRun.pay_date < pay_date,
+            PayrollRun.status != PayrollRunStatus.corrected)
+        .order_by(PayrollRun.pay_date, PayrollRun.id)).all()
+    superseded = {prior.corrects_id for prior in previous
+                  if prior.corrects_id is not None}
+    ytd_gross = 0
+    ytd_tax = 0
+    for prior in previous:
+        if prior.id in superseded:
+            continue
+        values = prior.components
+        source = (
+            [c.actual_pence if c.actual_pence is not None else 0 for c in values]
+            if prior.status is PayrollRunStatus.reconciled
+            else [c.forecast_pence for c in values])
+        taxable_kinds = EARNING | {PayrollComponentKind.unpaid_leave}
+        taxable = sum(
+            amount for component, amount in zip(values, source, strict=True)
+            if component.kind in taxable_kinds)
+        if employment.pension_mode.value in {"salary_sacrifice", "net_pay"}:
+            taxable += sum(
+                amount for component, amount in zip(values, source, strict=True)
+                if component.kind is PayrollComponentKind.pension)
+        if prior.status is PayrollRunStatus.reconciled:
+            ytd_gross += taxable
+            ytd_tax += -sum(
+                c.actual_pence or 0 for c in values
+                if c.kind is PayrollComponentKind.tax)
+        else:
+            ytd_gross += taxable
+            ytd_tax += -sum(
+                c.forecast_pence for c in values
+                if c.kind is PayrollComponentKind.tax)
+    if employment.deduction_mode == "gross_only":
+        ded = Deductions(
+            taxable_gross_pence=taxable_gross, tax_pence=0, ni_pence=0,
+            student_loan_pence=0, pension_pence=pension_pence,
+            net_pension_deduction_pence=(
+                pension_pence
+                if PensionMode(employment.pension_mode)
+                is PensionMode.relief_at_source else 0))
+    else:
+        ded = tax.compute_period(
+            gross_pence=taxable_gross, tax_code=code, params=params,
+            period=tax_period, periods_per_year=52 if weekly else 12,
+            ytd_taxable_gross_pence=ytd_gross,
+            ytd_tax_pence=ytd_tax,
+            ni_category=employment.ni_category,
+            student_loan_plan=employment.student_loan_plan.value,
+            pension_mode=PensionMode(employment.pension_mode),
+            pension_pence=pension_pence)
     net = ded.net_pence
 
     run = PayrollRun(
         employment_id=employment.id, period_start=start,
         period_end=end, pay_date=pay_date,
         status=PayrollRunStatus.forecast, tax_year=tax_year,
-        rule_set_version=rules.version,
+        rule_set_year=rules.tax_year if rules is not None else None,
+        rule_set_version=rules.version if rules is not None else 0,
         gross_pence=earnings, net_pence=net)
     _component(run, PayrollComponentKind.base_salary,
                "Base salary", base)
@@ -203,12 +308,15 @@ def correct(session: Session, run: PayrollRun) -> PayrollRun:
     if run.status is not PayrollRunStatus.reconciled:
         raise PayrollError("only a reconciled run can be corrected")
     run.status = PayrollRunStatus.corrected
+    totals = payroll_totals.totals_for_run(run)
     new = PayrollRun(
         employment_id=run.employment_id, period_start=run.period_start,
         period_end=run.period_end, pay_date=run.pay_date,
         status=PayrollRunStatus.forecast, tax_year=run.tax_year,
+        rule_set_year=run.rule_set_year,
         rule_set_version=run.rule_set_version,
-        gross_pence=run.gross_pence, net_pence=run.net_pence,
+        gross_pence=totals.actual_gross_pence or run.gross_pence,
+        net_pence=totals.actual_net_pence or run.net_pence,
         corrects_id=run.id)
     session.add(new)
     for c in run.components:
@@ -290,3 +398,75 @@ def reopen(session: Session, run: PayrollRun) -> PayrollRun:
     run.status = PayrollRunStatus.forecast
     session.flush()
     return run
+
+
+def sync_piecework_run(
+    session: Session, employment: Employment, work_date: date,
+) -> tuple[PayrollRun | None, PayrollRun | None]:
+    """(Re)build the forecast run covering a piecework work date.
+
+    Delivery entries feed runs at generation time; this keeps them in
+    step when entries are logged/edited/deleted (issue #305). Returns
+    (new_run, superseded_run) — the caller rematerializes both into
+    the expected-income schedule. The superseded forecast run is
+    deleted (forecasts are disposable); a *reconciled* covering run is
+    never touched — it raises PayrollError so the caller surfaces a
+    correction path instead of silently losing pay."""
+    if employment.employment_type != "piecework":
+        return None, None
+    rule = None
+    if employment.payday_rule:
+        try:
+            rule = pay_calendar.parse_rule(employment.payday_rule)
+        except (ValueError, KeyError, TypeError):
+            rule = None
+    if rule is not None and rule.kind.value == "nightly":
+        start = end = pay_date = work_date
+    elif rule is not None and rule.kind.value == "weekly":
+        assert rule.weekday is not None
+        pay_date = work_date + timedelta(
+            days=(rule.weekday - work_date.weekday()) % 7)
+        start, end = pay_date - timedelta(days=6), pay_date
+    else:
+        start = work_date.replace(day=1)
+        end = work_date.replace(
+            day=calendar.monthrange(work_date.year,
+                                    work_date.month)[1])
+        pay_date = (paydays.pay_date(rule, end.year, end.month)
+                    if rule is not None else end)
+    if employment.start_date is not None and start < employment.start_date:
+        start = employment.start_date
+    if employment.end_date is not None and end > employment.end_date:
+        end = employment.end_date
+    if end < start:
+        return None, None
+
+    has_work = session.scalar(select(DeliveryEntry.id).where(
+        DeliveryEntry.employment_id == employment.id,
+        DeliveryEntry.work_date >= start,
+        DeliveryEntry.work_date <= end,
+        DeliveryEntry.source_transaction_id.is_(None)).limit(1))
+    run = session.scalars(select(PayrollRun).where(
+        PayrollRun.employment_id == employment.id,
+        PayrollRun.period_start == start,
+        PayrollRun.period_end == end,
+        PayrollRun.status != PayrollRunStatus.corrected)
+        .order_by(PayrollRun.id)).first()
+    if run is not None:
+        if run.status is PayrollRunStatus.reconciled:
+            raise PayrollError(
+                f"{start}–{end} is already reconciled — issue a "
+                "correction rather than changing logged work")
+        if session.scalar(select(PayrollOverride.id).where(
+                PayrollOverride.run_id == run.id).limit(1)) is not None:
+            raise PayrollError(
+                f"run {run.id} has manual overrides — correct it "
+                "manually so the adjustments are not lost")
+        run.status = PayrollRunStatus.corrected   # drop schedule rows
+        session.delete(run)
+        session.flush()
+    if has_work is None:
+        return None, run
+    new = generate(session, employment, start=start, end=end,
+                   pay_date=pay_date, allow_stale_rules=True)
+    return new, run

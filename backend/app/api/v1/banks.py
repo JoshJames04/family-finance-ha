@@ -31,6 +31,7 @@ from app.persistence.models import (
     BankAccountMapping,
     BankConnection,
     BankProvider,
+    ConnStatus,
     MappingStatus,
     TransactionSource,
 )
@@ -75,14 +76,19 @@ def connect(
     session: SessionDep, actor: ActorDep,
     validate: ValidatorDep, ring: RingDep,
 ) -> schemas.BankConnectionOut:
+    # Multiple live links per provider are allowed (e.g. a personal
+    # PAT plus a joint-account PAT). A dead row for the same provider
+    # is revived instead of minting a duplicate.
     existing = session.scalar(select(BankConnection).where(
         BankConnection.household_id == household.id,
-        BankConnection.provider == BankProvider(body.provider)))
+        BankConnection.provider == BankProvider(body.provider),
+        BankConnection.status.in_(
+            [ConnStatus.revoked, ConnStatus.pending])))
     try:
         c = banks.connect(
             session, household.id, BankProvider(body.provider),
             body.token.get_secret_value(), validate, ring,
-            existing=existing)
+            existing=existing, label=body.label)
     except TokenInvalid as e:
         raise HTTPException(401, "token rejected by provider") from e
     except TokenRejected as e:
@@ -185,8 +191,12 @@ def link(
     m = _mapping(session, household.id, mid)
     if body.create_account:
         from datetime import date
+        acct_type = body.account_type or "personal"
+        if acct_type not in ("personal", "joint"):
+            raise HTTPException(
+                422, "account_type must be personal or joint")
         acct = Account(household_id=household.id,
-                       name=m.external_label, type="personal",
+                       name=m.external_label, type=acct_type,
                        opening_balance_pence=m.balance_pence or 0,
                        opening_date=date.today())
         session.add(acct)
@@ -263,7 +273,7 @@ def sync_transactions(
             BankAccountMapping.connection_id == c.id,
             BankAccountMapping.status == MappingStatus.linked,
             BankAccountMapping.account_id.is_not(None),
-            BankAccountMapping.external_category_uid.is_not(None))
+            BankAccountMapping.external_category_uid != "")
     ).all()
     results: list[dict[str, object]] = []
     for m in mappings:

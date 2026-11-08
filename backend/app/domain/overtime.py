@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from decimal import Decimal
+from types import EllipsisType
 from typing import Any
 
 from sqlalchemy import select
@@ -114,6 +115,61 @@ def approve(entry: OvertimeEntry) -> None:
 
 def reject(entry: OvertimeEntry) -> None:
     _transition(entry, OvertimeStatus.rejected)
+
+
+def rework(entry: OvertimeEntry) -> None:
+    _transition(entry, OvertimeStatus.draft)
+
+
+def update_entry(
+    session: Session, entry: OvertimeEntry, employment: Employment, *,
+    work_date: date | None = None,
+    hours: Decimal | None = None,
+    multiplier_bps: int | None = None,
+    day_type: DayType | None = None,
+    notes: str | EllipsisType | None = ...,
+    holidays: HolidayTable | None = None,
+) -> OvertimeEntry:
+    """Edit an entry. Moving the work date re-derives the day type
+    (unless pinned) and re-snapshots the hourly rate; changing the
+    day type re-defaults the multiplier unless one is pinned.
+    Editing a non-draft reverts it to draft so it re-enters the
+    approval flow — approved figures stay stable until edited."""
+    if hours is not None:
+        if hours <= 0:
+            raise PayrollError("overtime hours must be positive")
+        entry.hours = hours
+    date_moved = False
+    if work_date is not None and work_date != entry.work_date:
+        date_moved = True
+        entry.work_date = work_date
+        if day_type is None:
+            entry.day_type = day_type_for(work_date, holidays)
+        entry.hourly_rate_pence = hourly_rate_pence(
+            salary_at(session, employment.id, work_date),
+            Decimal(str(employment.contracted_hours)))
+    if day_type is not None:
+        entry.day_type = day_type
+    if multiplier_bps is not None:
+        if multiplier_bps <= 0:
+            raise PayrollError("overtime multiplier must be positive")
+        entry.multiplier_bps = multiplier_bps
+    elif date_moved or day_type is not None:
+        entry.multiplier_bps = multipliers(employment)[entry.day_type]
+    if notes is not ...:
+        entry.notes = notes
+    if entry.status is not OvertimeStatus.draft:
+        entry.status = OvertimeStatus.draft
+    session.flush()
+    return entry
+
+
+def delete_entry(session: Session, entry: OvertimeEntry) -> None:
+    """Remove an entry entirely — any status. Payroll runs keep
+    their snapshotted components, so deleting an approved entry
+    only removes it from future totals, never rewrites history."""
+    session.delete(entry)
+    session.flush()
 
 
 def approved_total_pence(

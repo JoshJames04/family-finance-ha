@@ -87,6 +87,11 @@ def update_commitment(
         c.formula = body.formula
         if body.formula is not None:
             c.amount_pence = None
+    if "account_id" in fields:
+        a = session.get(Account, fields["account_id"])
+        if a is None or a.household_id != household.id:
+            raise HTTPException(404, "account not found")
+        c.account_id = a.id
     for key in ("name", "category_id", "frequency", "day_of_month",
                 "next_date", "end_date", "occurrence_count", "notes"):
         if key in fields:

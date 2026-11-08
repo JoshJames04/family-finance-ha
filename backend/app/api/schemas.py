@@ -13,7 +13,9 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    computed_field,
     field_validator,
+    model_validator,
 )
 
 from app.domain.money import Money
@@ -261,6 +263,7 @@ class CommitmentPatch(BaseModel):
     """Editable fields of a recurring commitment. Schedule-affecting
     changes regenerate the commitment's future expected rows."""
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    account_id: int | None = None
     category_id: int | None = None
     amount: Money | None = None
     formula: str | None = Field(default=None, max_length=200)
@@ -538,6 +541,15 @@ class EmploymentIn(BaseModel):
     pension_mode: PensionMode = PensionMode.none
     pension_employee_bps: int = Field(default=0, ge=0, le=10_000)
     pension_fixed_pence: int = Field(default=0, ge=0)
+    employment_type: Literal["salaried", "piecework"] = "salaried"
+    deduction_mode: Literal["paye", "gross_only"] = "paye"
+    initial_salary: Money | None = None
+    initial_salary_effective_date: date | None = None
+    initial_tax_code: str | None = Field(default=None, max_length=12)
+    replaces_employment_id: int | None = None
+    replacement_end_date: date | None = None
+    replacement_confirmed: bool = False
+    start_date: date | None = None
     work_days_per_week: Decimal = Field(default=Decimal("5"), gt=0,
                                         le=7)
 
@@ -562,6 +574,17 @@ class EmploymentPatch(BaseModel):
     work_days_per_week: Decimal | None = Field(default=None, gt=0,
                                                le=7)
     is_active: bool | None = None
+    end_date: date | None = None
+    employment_type: Literal["salaried", "piecework"] | None = None
+    deduction_mode: Literal["paye", "gross_only"] | None = None
+
+    @model_validator(mode="after")
+    def ordered_dates(self) -> EmploymentPatch:
+        if self.start_date is not None and self.end_date is not None \
+                and self.end_date < self.start_date:
+            raise ValueError("employment end date cannot precede start date")
+        return self
+    start_date: date | None = None
 
 
 class EmploymentOut(BaseModel):
@@ -581,11 +604,101 @@ class EmploymentOut(BaseModel):
     pension_fixed_pence: int
     work_days_per_week: Decimal
     is_active: bool
+    end_date: date_t | None
+    start_date: date_t | None
+    employment_type: str
+    deduction_mode: str
+
+
+class DeliveryChargeIn(BaseModel):
+    amount: Money
+    label: str | None = Field(default=None, max_length=200)
+
+
+class DeliveryChargeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    delivery_entry_id: int
+    amount_pence: int
+    label: str | None
+
+
+class DeliveryIn(BaseModel):
+    work_date: date
+    hours: Decimal = Field(default=Decimal("0"), ge=0, le=24)
+    hourly_rate: Money | None = None
+    deliveries: int = Field(default=0, ge=0)
+    delivery_rate: Money | None = None
+    tips: Money | None = None
+    charges: list[DeliveryChargeIn] = Field(default_factory=list,
+                                             max_length=200)
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("hourly_rate", "delivery_rate", "tips")
+    @classmethod
+    def nonnegative_money(cls, value: Money | None) -> Money | None:
+        if value is not None and value.pence < 0:
+            raise ValueError("piecework rates and tips cannot be negative")
+        return value
+
+    @model_validator(mode="after")
+    def require_rate_for_hours(self) -> DeliveryIn:
+        if self.hours > 0 and self.hourly_rate is None:
+            raise ValueError("hourly rate is required when hours are logged")
+        return self
+
+
+class DeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    work_date: date
+    hours: Decimal
+    hourly_rate_pence: int
+    deliveries: int
+    delivery_rate_pence: int
+    tips_pence: int
+    source_transaction_id: int | None
+    imported_total_pence: int | None
+    needs_review: bool
+    notes: str | None
+    charges: list[DeliveryChargeOut] = []
+    pay_pence: int
+
+
+class HistoricalPieceworkImportOut(BaseModel):
+    transaction_id: int
+    work_date: date
+    imported_total_pence: int
+    needs_review: bool = True
+    mapped_delivery_id: int | None = None
+
+
+class HistoricalPieceworkImportConfirmIn(BaseModel):
+    transaction_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class PrepareYearIn(BaseModel):
+    year: int = Field(ge=2000, le=2200)
+
+
+class PrepareYearOut(BaseModel):
+    year: int
+    runs_created: int
+    runs_skipped: int
+    budgets_created: int
+    warnings: list[str]
 
 
 class SalaryRevisionIn(BaseModel):
     effective_date: date
     annual_salary: Money
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class SalaryRevisionPatch(BaseModel):
+    effective_date: date | None = None
+    annual_salary: Money | None = None
     notes: str | None = Field(default=None, max_length=2000)
 
 
@@ -628,6 +741,14 @@ class GrossPeriodOut(BaseModel):
 class OvertimeIn(BaseModel):
     work_date: date
     hours: Decimal = Field(gt=0, le=24)
+    multiplier_bps: int | None = Field(default=None, gt=0, le=100_000)
+    day_type: DayType | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class OvertimePatch(BaseModel):
+    work_date: date | None = None
+    hours: Decimal | None = Field(default=None, gt=0, le=24)
     multiplier_bps: int | None = Field(default=None, gt=0, le=100_000)
     day_type: DayType | None = None
     notes: str | None = Field(default=None, max_length=2000)
@@ -683,11 +804,78 @@ class PayrollRunOut(BaseModel):
     pay_date: date_t
     status: PayrollRunStatus
     tax_year: str
+    rule_set_year: str | None
     rule_set_version: int
     gross_pence: int
     net_pence: int
     corrects_id: int | None
     components: list[PayrollComponentOut] = []
+
+    @computed_field
+    def actual_gross_pence(self) -> int | None:
+        return self._totals()[0]
+
+    @computed_field
+    def actual_net_pence(self) -> int | None:
+        return self._totals()[1]
+
+    def _totals(self) -> tuple[int | None, int | None]:
+        """Authoritative run totals + signed per-component actual deltas —
+        mirrors domain.payroll_totals for the serialized shape."""
+        if self.status is not PayrollRunStatus.reconciled:
+            return None, None
+        earnings = {"base_salary", "overtime", "bonus", "allowance"}
+        gross, net = self.gross_pence, self.net_pence
+        for c in self.components:
+            if c.actual_pence is None:
+                continue
+            signed_actual = (c.actual_pence if c.kind.value in earnings
+                             else -abs(c.actual_pence))
+            signed_forecast = (c.forecast_pence if c.kind.value in earnings
+                               else -abs(c.forecast_pence))
+            net += signed_actual - signed_forecast
+            if c.kind.value in earnings:
+                gross += c.actual_pence - c.forecast_pence
+        return gross, net
+
+
+class PayslipOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    payroll_run_id: int
+    original_name: str
+    size_bytes: int
+    media_type: str
+    status: str
+    extracted: dict[str, object] | None = None
+    warnings: list[str] = []
+    overtime_findings: list[dict[str, object]] = []
+
+
+class PayslipReviewPatch(BaseModel):
+    components: dict[str, int] | None = None
+    warnings: list[str] | None = None
+    overtime_lines: list[PayslipOvertimeLineIn] | None = None
+
+
+class PayslipOvertimeLineIn(BaseModel):
+    id: str
+    hours: Decimal = Field(gt=0)
+    printed_rate_pence: int = Field(ge=0)
+
+
+class PayslipConfirmIn(BaseModel):
+    actuals: dict[PayrollComponentKind, int] = Field(default_factory=dict)
+
+
+class OvertimeFindingResolveIn(BaseModel):
+    action: str = Field(min_length=1, max_length=40)
+    reason: str = Field(min_length=1, max_length=1000)
+    work_date: date | None = None
+    day_type: DayType | None = None
+    hourly_rate_pence: int | None = Field(default=None, ge=0)
+    multiplier_bps: int | None = Field(default=None, gt=0)
+    snooze_until: datetime | None = None
 
 
 class ExpectedMovementIn(BaseModel):
@@ -1257,7 +1445,7 @@ class ForecastRowOut(BaseModel):
 
 class NotificationRuleIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    kind: str = Field(pattern="^(spend_above|balance_below)$")
+    kind: str = Field(pattern="^(spend_above|balance_below|payroll_variance)$")
     params: dict[str, object] = Field(default_factory=dict)
     target_profile_id: int | None = None
     channel: str = Field(default="ha_notify", max_length=40)
@@ -1472,6 +1660,7 @@ class BankConnectionOut(BaseModel):
 class BankConnectIn(BaseModel):
     provider: str = Field(pattern="^starling$")
     token: SecretStr
+    label: str | None = Field(default=None, max_length=200)
 
     @field_validator("token")
     @classmethod
@@ -1501,6 +1690,7 @@ class BankMappingOut(BaseModel):
 class MappingLinkIn(BaseModel):
     account_id: int | None = None
     create_account: bool = False   # mint an internal Account if set
+    account_type: str | None = None  # "personal" | "joint" on mint
 
 
 class AnomalyFlagOut(BaseModel):
