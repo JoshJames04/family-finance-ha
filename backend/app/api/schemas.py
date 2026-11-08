@@ -538,6 +538,7 @@ class EmploymentIn(BaseModel):
     pension_mode: PensionMode = PensionMode.none
     pension_employee_bps: int = Field(default=0, ge=0, le=10_000)
     pension_fixed_pence: int = Field(default=0, ge=0)
+    employment_type: Literal["salaried", "piecework"] = "salaried"
     work_days_per_week: Decimal = Field(default=Decimal("5"), gt=0,
                                         le=7)
 
@@ -563,6 +564,7 @@ class EmploymentPatch(BaseModel):
                                                le=7)
     is_active: bool | None = None
     end_date: date | None = None
+    employment_type: Literal["salaried", "piecework"] | None = None
 
 
 class EmploymentOut(BaseModel):
@@ -583,6 +585,29 @@ class EmploymentOut(BaseModel):
     work_days_per_week: Decimal
     is_active: bool
     end_date: date_t | None
+    employment_type: str
+
+
+class DeliveryIn(BaseModel):
+    work_date: date
+    hours: Decimal = Field(default=Decimal("0"), ge=0, le=24)
+    hourly_rate: Money | None = None
+    deliveries: int = Field(default=0, ge=0)
+    delivery_rate: Money | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class DeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    work_date: date_t
+    hours: Decimal
+    hourly_rate_pence: int
+    deliveries: int
+    delivery_rate_pence: int
+    pay_pence: int
+    notes: str | None
 
 
 class PrepareYearIn(BaseModel):

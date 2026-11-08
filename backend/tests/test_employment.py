@@ -276,7 +276,9 @@ class TestApi:
         eid = client.post("/api/v1/employments", json={
             "profile_id": pid, "employer": "Acme",
             "contracted_hours": 37.5,
-            "payday_rule": '{"adjust":"previous","day":28,"kind":"fixed_day","nth":null,"weekday":null}'},
+            "payday_rule": (
+                '{"adjust":"previous","day":28,'
+                '"kind":"fixed_day","nth":null,"weekday":null}')},
             headers=h).json()["id"]
         client.post(f"/api/v1/employments/{eid}/salary-revisions",
                     json={"effective_date": "2026-01-01",
