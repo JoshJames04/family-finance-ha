@@ -257,6 +257,21 @@ class CommitmentIn(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class CommitmentPatch(BaseModel):
+    """Editable fields of a recurring commitment. Schedule-affecting
+    changes regenerate the commitment's future expected rows."""
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    category_id: int | None = None
+    amount: Money | None = None
+    formula: str | None = Field(default=None, max_length=200)
+    frequency: Frequency | None = None
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
+    next_date: date | None = None
+    end_date: date | None = None
+    occurrence_count: int | None = Field(default=None, ge=1)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class CommitmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

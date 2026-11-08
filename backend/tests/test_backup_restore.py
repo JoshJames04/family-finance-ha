@@ -108,6 +108,33 @@ class TestAdminEndpoints:
                          headers={"X-Admin-Token": "wrong"}
                          ).status_code == 403
 
+    def test_admin_gate_accepts_profile_header(
+            self, tmp_path: Path) -> None:
+        """Standalone compat: X-Profile-Id of an active admin profile
+        opens the admin gate; a member profile does not. Ingress-mode
+        compat headers stay ignored."""
+        s = _settings(tmp_path)
+        with TestClient(create_app(s)) as c:
+            hid = c.post("/api/v1/households",
+                         json={"name": "H"}).json()["id"]
+            h = {"X-Household-Id": str(hid)}
+            admin = c.post("/api/v1/profiles", json={
+                "display_name": "Mum", "role": "admin"},
+                headers=h).json()
+            member = c.post("/api/v1/profiles", json={
+                "display_name": "Kid", "role": "member"},
+                headers=h).json()
+            assert c.get("/api/v1/admin/backups", headers={
+                **h, "X-Profile-Id": str(admin["id"])}
+            ).status_code == 200
+            assert c.get("/api/v1/admin/backups", headers={
+                **h, "X-Profile-Id": str(member["id"])}
+            ).status_code == 403
+            # Garbage in the header is not an admin identity.
+            assert c.get("/api/v1/admin/backups", headers={
+                **h, "X-Profile-Id": "nope"}
+            ).status_code == 403
+
     def test_backup_restore_flow(self, tmp_path: Path) -> None:
         """Manual backup + pending restore applied at next boot."""
         s = _settings(tmp_path)

@@ -59,6 +59,7 @@ interface CallInit<
 }
 
 const HOUSEHOLD_KEY = "ff.householdId";
+const PROFILE_KEY = "ff.profileId";
 
 export function getHouseholdId(): number | null {
   const raw = localStorage.getItem(HOUSEHOLD_KEY);
@@ -71,6 +72,20 @@ export function setHouseholdId(id: number | null): void {
     localStorage.removeItem(HOUSEHOLD_KEY);
   } else {
     localStorage.setItem(HOUSEHOLD_KEY, String(id));
+  }
+}
+
+export function getProfileId(): number | null {
+  const raw = localStorage.getItem(PROFILE_KEY);
+  const id = raw ? Number(raw) : NaN;
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+export function setProfileId(id: number | null): void {
+  if (id === null) {
+    localStorage.removeItem(PROFILE_KEY);
+  } else {
+    localStorage.setItem(PROFILE_KEY, String(id));
   }
 }
 
@@ -126,6 +141,10 @@ export async function request<
   if (init?.body !== undefined) headers["Content-Type"] = "application/json";
   const hid = init?.householdId ?? getHouseholdId();
   if (hid !== null) headers["X-Household-Id"] = String(hid);
+  // Standalone/dev identity — ignored under ingress, where the
+  // Supervisor injects the HA user identity instead.
+  const pid = getProfileId();
+  if (pid !== null) headers["X-Profile-Id"] = String(pid);
 
   // Leading "." resolves relative to baseURI → ingress-safe.
   const res = await fetch(`.${url}`, {

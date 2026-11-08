@@ -709,6 +709,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/commitments/{cid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deactivate Commitment */
+        delete: operations["deactivate_commitment_api_v1_commitments__cid__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Commitment
+         * @description Edit a commitment. amount/formula remain mutually exclusive:
+         *     sending one clears the other. Schedule changes regenerate future
+         *     expected rows; past generated occurrences are untouched.
+         */
+        patch: operations["update_commitment_api_v1_commitments__cid__patch"];
+        trace?: never;
+    };
     "/api/v1/commitments/{cid}/materialise": {
         parameters: {
             query?: never;
@@ -726,7 +749,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/commitments/{cid}": {
+    "/api/v1/commitments/{cid}/activate": {
         parameters: {
             query?: never;
             header?: never;
@@ -735,9 +758,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
-        /** Deactivate Commitment */
-        delete: operations["deactivate_commitment_api_v1_commitments__cid__delete"];
+        /**
+         * Activate Commitment
+         * @description Resume a paused commitment. Rolls next_date forward past today so
+         *     a paused bill doesn't emit a burst of backdated occurrences.
+         */
+        post: operations["activate_commitment_api_v1_commitments__cid__activate_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3897,6 +3924,34 @@ export interface components {
             active: boolean;
             /** Notes */
             notes: string | null;
+        };
+        /**
+         * CommitmentPatch
+         * @description Editable fields of a recurring commitment. Schedule-affecting
+         *     changes regenerate the commitment's future expected rows.
+         */
+        CommitmentPatch: {
+            /** Name */
+            name?: string | null;
+            /** Category Id */
+            category_id?: number | null;
+            /** Amount */
+            amount?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Formula */
+            formula?: string | null;
+            frequency?: components["schemas"]["Frequency"] | null;
+            /** Day Of Month */
+            day_of_month?: number | null;
+            /** Next Date */
+            next_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** Occurrence Count */
+            occurrence_count?: number | null;
+            /** Notes */
+            notes?: string | null;
         };
         /**
          * Confidence
@@ -8064,6 +8119,76 @@ export interface operations {
             };
         };
     };
+    deactivate_commitment_api_v1_commitments__cid__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                cid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_commitment_api_v1_commitments__cid__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                cid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommitmentPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommitmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     materialise_commitment_api_v1_commitments__cid__materialise_post: {
         parameters: {
             query: {
@@ -8100,7 +8225,7 @@ export interface operations {
             };
         };
     };
-    deactivate_commitment_api_v1_commitments__cid__delete: {
+    activate_commitment_api_v1_commitments__cid__activate_post: {
         parameters: {
             query?: never;
             header?: {
@@ -8115,11 +8240,13 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["CommitmentOut"];
+                };
             };
             /** @description Validation Error */
             422: {

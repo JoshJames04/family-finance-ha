@@ -5,6 +5,7 @@ domain-rule → 409 mapping, household scope filtering, audit emission.
 """
 
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -222,6 +223,55 @@ class TestTransfersAndCommitments:
             "name": "Bad", "account_id": aid, "frequency": "monthly",
             "next_date": "2026-01-01"})
         assert r.status_code == 422
+
+    def test_commitment_patch(self, client: TestClient) -> None:
+        _mk_household(client)
+        aid = _mk_account(client)
+        c = client.post("/api/v1/commitments", json={
+            "name": "Broadband", "account_id": aid, "amount": -2800,
+            "frequency": "monthly", "next_date": "2026-02-14",
+            "day_of_month": 14}).json()
+        r = client.patch(f"/api/v1/commitments/{c['id']}", json={
+            "amount": -3200, "notes": "Tariff renewed"})
+        assert r.status_code == 200, r.text
+        assert r.json()["amount_pence"] == -3200
+        assert r.json()["notes"] == "Tariff renewed"
+        # amount <-> formula swap keeps the xor invariant
+        r = client.patch(f"/api/v1/commitments/{c['id']}", json={
+            "formula": "usage * 1.2"})
+        assert r.json()["formula"] == "usage * 1.2"
+        assert r.json()["amount_pence"] is None
+        # patching amount back clears the formula
+        r = client.patch(f"/api/v1/commitments/{c['id']}", json={
+            "amount": -3000})
+        assert r.json()["formula"] is None
+        assert r.json()["amount_pence"] == -3000
+        # clearing both is impossible via patch; invariant enforced
+        r = client.patch(f"/api/v1/commitments/{c['id']}", json={
+            "amount": None})
+        assert r.status_code == 422
+
+    def test_commitment_deactivate_activate(
+        self, client: TestClient
+    ) -> None:
+        _mk_household(client)
+        aid = _mk_account(client)
+        c = client.post("/api/v1/commitments", json={
+            "name": "Gym", "account_id": aid, "amount": -2999,
+            "frequency": "monthly", "next_date": "2020-01-01"}).json()
+        r = client.delete(f"/api/v1/commitments/{c['id']}")
+        assert r.status_code == 204
+        items = client.get("/api/v1/commitments").json()["items"]
+        assert items == []  # inactive filtered by default
+        items = client.get(
+            "/api/v1/commitments?include_inactive=true").json()["items"]
+        assert len(items) == 1 and items[0]["active"] is False
+        r = client.post(f"/api/v1/commitments/{c['id']}/activate")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["active"] is True
+        # next_date rolled forward — no backdated burst on resume
+        assert body["next_date"] >= date.today().isoformat()
 
 
 class TestScopeAndAudit:

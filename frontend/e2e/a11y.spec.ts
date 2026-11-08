@@ -36,7 +36,7 @@ test("keyboard journey: tab reaches skip-link, then content", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("heading", { name: "Dashboard" }).waitFor();
+  await page.getByRole("heading", { level: 1 }).waitFor();
   await page.keyboard.press("Tab");
   await expect(
     page.getByRole("link", { name: "Skip to content" }),
@@ -56,8 +56,11 @@ test("keyboard journey: drawer opens, Escape closes at mid width", async ({
   await page.keyboard.press("Enter");
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible();
-  // first nav item inside the dialog holds focus
-  await expect(drawer.getByRole("link").first()).toBeFocused();
+  // Radix auto-focuses the first focusable element inside the dialog —
+  // the Close button; Tab then walks the nav links.
+  await expect(
+    drawer.getByRole("button", { name: "Close" }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(drawer).not.toBeVisible();
   await expect(burger).toBeFocused();

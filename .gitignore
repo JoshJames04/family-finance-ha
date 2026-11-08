@@ -54,3 +54,4 @@ frontend/test-results/
 # Playwright e2e scratch DB + reports
 frontend/e2e/.data/
 frontend/playwright-report/
+.ux-audit/
