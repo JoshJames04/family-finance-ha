@@ -68,14 +68,14 @@ function stubFetch(
 
 describe("Budget", () => {
   afterEach(cleanup);
-  it("renders original/revised/actual/variance/accuracy columns", async () => {
+  it("renders planned/spent/over-under/used columns", async () => {
     stubFetch([]);
     render(<MemoryRouter><Budget /></MemoryRouter>);
     await screen.findByText("Food");
-    for (const h of ["Original", "Revised", "Actual", "Variance",
-      "Accuracy"]) {
+    for (const h of ["Planned", "Spent", "Over/under", "Used"]) {
       expect(screen.getByText(h)).toBeTruthy();
     }
+    // Usage is £120 spent of the £300 plan → 40%.
     expect(screen.getByText("40%")).toBeTruthy();
   });
   it("revision demands a reason and PATCHes with it", async () => {
@@ -83,7 +83,7 @@ describe("Budget", () => {
     stubFetch(calls);
     const user = userEvent.setup();
     render(<MemoryRouter><Budget /></MemoryRouter>);
-    await user.click(await screen.findByLabelText("Revise Food"));
+    await user.click(await screen.findByLabelText("Adjust Food"));
     const reason = await screen.findByLabelText("Revision reason");
     const submit = screen.getByRole("button", { name: "Save revision" });
     expect(submit.hasAttribute("disabled")).toBe(true);
@@ -103,7 +103,7 @@ describe("Budget", () => {
     stubFetch([], { locked: true });
     render(<MemoryRouter><Budget /></MemoryRouter>);
     await screen.findByText("locked — read-only");
-    expect(screen.queryByLabelText("Revise Food")).toBeNull();
+    expect(screen.queryByLabelText("Adjust Food")).toBeNull();
   });
   it("groups lines into sections with subtotals when parents exist", async () => {
     const detail = {

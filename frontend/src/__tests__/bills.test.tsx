@@ -121,6 +121,51 @@ describe("Bills", () => {
       expect(body.account_id).toBe(1);
       expect(body.amount).toBe("-45");
       expect(body.frequency).toBe("monthly");
+      expect(body.end_date).toBeNull();
+      expect(body.occurrence_count).toBeNull();
+    });
+  });
+
+  it("'A set number of times' maps to occurrence_count", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Bills /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "Add bill" }));
+    await user.type(screen.getByLabelText("Name"), "Loan");
+    await user.selectOptions(screen.getByLabelText("Paid from"), "1");
+    await user.type(screen.getByLabelText("Amount in pounds"), "150");
+    await user.click(screen.getByRole("radio", { name: "A set number of times" }));
+    await user.type(screen.getByLabelText("Number of payments"), "12");
+    await user.click(screen.getByRole("button", { name: "Add bill" }));
+    await waitFor(() => {
+      const c = calls.find((x) =>
+        x.method === "POST" && x.url.endsWith("/api/v1/commitments"));
+      const body = JSON.parse(c!.body);
+      expect(body.occurrence_count).toBe(12);
+      expect(body.end_date).toBeNull();
+    });
+  });
+
+  it("'Until a date' maps to end_date", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Bills /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "Add bill" }));
+    await user.type(screen.getByLabelText("Name"), "Season ticket");
+    await user.selectOptions(screen.getByLabelText("Paid from"), "1");
+    await user.type(screen.getByLabelText("Amount in pounds"), "80");
+    await user.click(screen.getByRole("radio", { name: "Until a date" }));
+    const end = await screen.findByLabelText("Stops after");
+    await user.type(end, "2027-06-30");
+    await user.click(screen.getByRole("button", { name: "Add bill" }));
+    await waitFor(() => {
+      const c = calls.find((x) =>
+        x.method === "POST" && x.url.endsWith("/api/v1/commitments"));
+      const body = JSON.parse(c!.body);
+      expect(body.end_date).toBe("2027-06-30");
+      expect(body.occurrence_count).toBeNull();
     });
   });
 });
