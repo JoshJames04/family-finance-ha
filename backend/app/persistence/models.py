@@ -1912,6 +1912,7 @@ class BankAccountMapping(TimestampMixin, Base):
     __tablename__ = "bank_account_mapping"
     __table_args__ = (
         UniqueConstraint("connection_id", "external_uid",
+                         "external_category_uid",
                          name="uq_mapping_conn_ext"),
     )
 
@@ -1927,8 +1928,8 @@ class BankAccountMapping(TimestampMixin, Base):
         String(200), nullable=False)
     external_kind: Mapped[str] = mapped_column(
         String(40), nullable=False, default="account")
-    external_category_uid: Mapped[str | None] = mapped_column(
-        String(64), nullable=True)
+    external_category_uid: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default="")
     account_id: Mapped[int | None] = mapped_column(
         ForeignKey("account.id"), nullable=True)
     status: Mapped[MappingStatus] = mapped_column(

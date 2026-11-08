@@ -185,3 +185,54 @@ class TestApi:
                 f"/api/v1/banking/connections/{cid}/disconnect",
                 headers=h)
             assert r.json()["status"] == "revoked"
+
+    def test_discover_link_joint(
+            self, tmp_path: Path) -> None:
+        """Discover proposes a space sharing the account's uid; link
+        can mint a joint account for it."""
+        from fastapi.testclient import TestClient
+
+        from app.domain.discovery import DiscoveredAccount
+        from app.main import create_app
+
+        class FakeClient:
+            def accounts(self, token: str) -> list[DiscoveredAccount]:
+                return [
+                    DiscoveredAccount("uid-1", "Personal", "account",
+                                      category_uid="cat-main"),
+                    DiscoveredAccount("uid-1", "Joint Bills", "space",
+                                      balance_pence=40000,
+                                      category_uid="cat-space")]
+            def balance(self, token: str, uid: str,
+                        cat: str | None = None) -> int:
+                return 40000
+            def feed_items(self, token, uid, cat, since):
+                return []
+
+        app = create_app(Settings.load(
+            {"FF_DATA_DIR": str(tmp_path)}))
+        app.state.token_validator = _validator()
+        app.state.bank_client = FakeClient()
+        with TestClient(app) as client:
+            hid = client.post("/api/v1/households",
+                              json={"name": "H"}).json()["id"]
+            h = {"X-Household-Id": str(hid)}
+            cid = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-1"},
+                headers=h).json()["id"]
+            maps = client.post(
+                f"/api/v1/banking/connections/{cid}/discover",
+                headers=h).json()
+            assert len(maps) == 2
+            space = next(m for m in maps
+                         if m["external_kind"] == "space")
+            r = client.post(
+                f"/api/v1/banking/mappings/{space['id']}/link",
+                json={"create_account": True, "account_type": "joint"},
+                headers=h)
+            assert r.status_code == 200, r.text
+            acct_id = r.json()["account_id"]
+            accts = client.get("/api/v1/accounts", headers=h).json()
+            mine = next(a for a in accts["items"] if a["id"] == acct_id)
+            assert mine["type"] == "joint"
+            assert mine["name"] == "Joint Bills"

@@ -102,10 +102,14 @@ export function Banking() {
     act(api.post("/api/v1/banking/connections/{cid}/disconnect", { path: { cid: c.id } }),
       `${c.provider} disconnected`);
   };
-  const linkMapping = (m: Mapping, accountId: number | null, create: boolean) =>
+  const linkMapping = (m: Mapping, accountId: number | null,
+                       create: boolean | "joint") =>
     act(api.post("/api/v1/banking/mappings/{mid}/link", {
       path: { mid: m.id },
-      body: create ? { create_account: true } : { account_id: accountId, create_account: false },
+      body: create
+        ? { create_account: true,
+            account_type: create === "joint" ? "joint" : "personal" }
+        : { account_id: accountId, create_account: false },
     }), create ? `Created account for ${m.external_label}` : `${m.external_label} linked`);
   const ignoreMapping = (m: Mapping) =>
     act(api.post("/api/v1/banking/mappings/{mid}/ignore", { path: { mid: m.id } }),
@@ -330,17 +334,20 @@ export function Banking() {
 function ProposedRow({ mapping, accounts, onLink, onIgnore }: {
   mapping: Mapping;
   accounts: Account[];
-  onLink: (m: Mapping, accountId: number | null, create: boolean) => void;
+  onLink: (m: Mapping, accountId: number | null,
+           create: boolean | "joint") => void;
   onIgnore: (m: Mapping) => void;
 }) {
   const [target, setTarget] = useState("");
+  const [kind, setKind] = useState<"personal" | "joint">(
+    mapping.external_kind === "space" ? "joint" : "personal");
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
       <IconTile label={mapping.external_label} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13.5px] font-medium">{mapping.external_label}</p>
         <p className="text-[12px] text-fg-subtle">
-          {mapping.external_kind}
+          {mapping.external_kind === "space" ? "space" : mapping.external_kind}
           {mapping.balance_pence != null && <> · balance <Money pence={mapping.balance_pence} /></>}
         </p>
       </div>
@@ -350,6 +357,13 @@ function ProposedRow({ mapping, accounts, onLink, onIgnore }: {
         <option value="" disabled>Link to…</option>
         {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
       </Select>
+      <Select aria-label={`New account type for ${mapping.external_label}`}
+        value={kind}
+        onChange={(e) => setKind(e.target.value as "personal" | "joint")}
+        wrapperClassName="w-32" sizeVariant="sm">
+        <option value="personal">Mine</option>
+        <option value="joint">Joint</option>
+      </Select>
       <div className="flex gap-1.5">
         <Button size="sm" variant="primary" disabled={!target}
           onClick={() => onLink(mapping, Number(target), false)}
@@ -357,7 +371,7 @@ function ProposedRow({ mapping, accounts, onLink, onIgnore }: {
           <Link2 /> Link
         </Button>
         <Button size="sm" variant="secondary"
-          onClick={() => onLink(mapping, null, true)}
+          onClick={() => onLink(mapping, null, kind === "joint" ? "joint" : true)}
           aria-label={`Create account for ${mapping.external_label}`}>
           Create account
         </Button>

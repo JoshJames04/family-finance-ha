@@ -102,10 +102,16 @@ describe("Banking", () => {
     const user = userEvent.setup();
     render(<MemoryRouter><Banking /></MemoryRouter>);
     await screen.findByText("Joint Account");
+    // Proposed rows carry a Mine/Joint picker for the minted account.
+    await user.selectOptions(
+      screen.getByLabelText("New account type for Joint Account"),
+      "joint");
     await user.click(screen.getByRole("button", { name: "Create account for Joint Account" }));
     await waitFor(() => {
       const c = calls.find((x) => x.url.endsWith("/mappings/3/link"));
-      expect(JSON.parse(c!.body).create_account).toBe(true);
+      const body = JSON.parse(c!.body);
+      expect(body.create_account).toBe(true);
+      expect(body.account_type).toBe("joint");
     });
     await user.click(screen.getByRole("button", { name: "Ignore Joint Account" }));
     await waitFor(() => expect(calls.some((c) =>
