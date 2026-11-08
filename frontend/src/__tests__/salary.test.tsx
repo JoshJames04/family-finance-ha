@@ -93,6 +93,39 @@ describe("Salary", () => {
     });
   });
 
+  it("editing a revision patches it in place", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    open();
+    await user.click(
+      await screen.findByLabelText(/Edit salary from 6 Apr/));
+    const input = screen.getByLabelText(/Annual salary/);
+    expect((input as HTMLInputElement).value).toBe("45000");
+    await user.clear(input);
+    await user.type(input, "46000");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => {
+      const c = calls.find((x) =>
+        x.method === "PATCH" &&
+        x.url.includes("/employments/1/salary-revisions/2"));
+      expect(c).toBeDefined();
+      expect(JSON.parse(c!.body).annual_salary).toBe("46000");
+    });
+  });
+
+  it("deleting a revision removes it with an undo path", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    open();
+    await user.click(
+      await screen.findByLabelText(/Delete salary from 6 Apr/));
+    await waitFor(() => expect(calls.some((x) =>
+      x.method === "DELETE" &&
+      x.url.includes("/employments/1/salary-revisions/2"))).toBe(true));
+  });
+
   it("adding an employment can seed its first salary revision", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls, { employments: [] });

@@ -962,6 +962,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/salary-revisions/{rev_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Salary Revision */
+        delete: operations["delete_salary_revision_api_v1_employments__emp_id__salary_revisions__rev_id__delete"];
+        options?: never;
+        head?: never;
+        /** Patch Salary Revision */
+        patch: operations["patch_salary_revision_api_v1_employments__emp_id__salary_revisions__rev_id__patch"];
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/tax-code-revisions": {
         parameters: {
             query?: never;
@@ -5775,6 +5793,17 @@ export interface components {
             /** Notes */
             notes: string | null;
         };
+        /** SalaryRevisionPatch */
+        SalaryRevisionPatch: {
+            /** Effective Date */
+            effective_date?: string | null;
+            /** Annual Salary */
+            annual_salary?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Notes */
+            notes?: string | null;
+        };
         /** SavingsGoalIn */
         SavingsGoalIn: {
             /** Name */
@@ -8884,6 +8913,78 @@ export interface operations {
             };
         };
     };
+    delete_salary_revision_api_v1_employments__emp_id__salary_revisions__rev_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                rev_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_salary_revision_api_v1_employments__emp_id__salary_revisions__rev_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                rev_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalaryRevisionPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalaryRevisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tax_code_revisions_api_v1_employments__emp_id__tax_code_revisions_get: {
         parameters: {
             query?: never;
@@ -11950,6 +12051,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 scenario_id: number;

@@ -24,6 +24,7 @@ from app.persistence.models import (
     OvertimeEntry,
     OvertimeStatus,
     PayrollRun,
+    SalaryRevision,
     UserProfile,
 )
 
@@ -134,6 +135,46 @@ def add_salary_revision(
          rev.id, {"employment_id": e.id,
                   "effective_date": str(rev.effective_date)})
     return schemas.SalaryRevisionOut.model_validate(rev)
+
+
+def _get_revision(session: Session, household_id: int, emp_id: int,
+                  rev_id: int) -> SalaryRevision:
+    e = _get(session, household_id, emp_id)
+    rev = session.get(SalaryRevision, rev_id)
+    if rev is None or rev.employment_id != e.id:
+        raise HTTPException(404, f"salary revision {rev_id} not found")
+    return rev
+
+
+@router.patch("/{emp_id}/salary-revisions/{rev_id}",
+              response_model=schemas.SalaryRevisionOut)
+def patch_salary_revision(
+    emp_id: int, rev_id: int, body: schemas.SalaryRevisionPatch,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.SalaryRevisionOut:
+    rev = _get_revision(session, household.id, emp_id, rev_id)
+    changed = body.model_dump(exclude_unset=True)
+    dom.update_salary_revision(
+        session, rev,
+        effective_date=changed.get("effective_date"),
+        annual_pence=changed.get("annual_salary"),
+        notes=changed.get("notes", ...))
+    emit(session, household.id, actor, "update", "salary_revision",
+         rev.id, {k: str(v) for k, v in changed.items()})
+    return schemas.SalaryRevisionOut.model_validate(rev)
+
+
+@router.delete("/{emp_id}/salary-revisions/{rev_id}",
+               status_code=204)
+def delete_salary_revision(
+    emp_id: int, rev_id: int, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> None:
+    rev = _get_revision(session, household.id, emp_id, rev_id)
+    dom.delete_salary_revision(session, rev)
+    emit(session, household.id, actor, "delete", "salary_revision",
+         rev_id, {"employment_id": emp_id,
+                  "effective_date": str(rev.effective_date)})
 
 
 @router.get("/{emp_id}/tax-code-revisions",
