@@ -1507,6 +1507,7 @@ class BankMappingOut(BaseModel):
 class MappingLinkIn(BaseModel):
     account_id: int | None = None
     create_account: bool = False   # mint an internal Account if set
+    account_type: str | None = None  # "personal" | "joint" on mint
 
 
 class AnomalyFlagOut(BaseModel):

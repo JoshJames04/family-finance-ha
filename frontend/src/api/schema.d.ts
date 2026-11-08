@@ -4836,6 +4836,8 @@ export interface components {
              * @default false
              */
             create_account: boolean;
+            /** Account Type */
+            account_type?: string | null;
         };
         /** MatchResult */
         MatchResult: {

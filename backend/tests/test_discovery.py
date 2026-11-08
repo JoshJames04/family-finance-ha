@@ -38,9 +38,10 @@ class FakeClient:
     def accounts(self, token: str) -> list[DiscoveredAccount]:
         return self.items
 
-    def balance(self, token: str, external_uid: str) -> int:
+    def balance(self, token: str, external_uid: str,
+                category_uid: str | None = None) -> int:
         self.calls += 1
-        return self.balances[external_uid]
+        return self.balances[category_uid or external_uid]
 
 
 def _validator(t: str) -> TokenInfo:
@@ -84,6 +85,28 @@ class TestDiscovery:
         assert len(rows) == 2
         assert all(m.status == MappingStatus.proposed
                    for m in rows)
+
+    def test_spaces_share_account_uid_without_colliding(
+            self, session: Session, conn: BankConnection) -> None:
+        """A space and its parent account share external_uid — the
+        (uid, category) key keeps them as separate mappings."""
+        client = FakeClient([
+            DiscoveredAccount("uid-1", "Personal", "account",
+                              category_uid="cat-main"),
+            DiscoveredAccount("uid-1", "Joint Bills", "space",
+                              category_uid="cat-space")])
+        rows = discovery.discover(session, conn, client, "pat-1")
+        assert len(rows) == 2
+        cats = {m.external_category_uid for m in rows}
+        assert cats == {"cat-main", "cat-space"}
+        # Re-discover closing just the space leaves the account open.
+        client.items = [
+            DiscoveredAccount("uid-1", "Personal", "account",
+                              category_uid="cat-main")]
+        rows = discovery.discover(session, conn, client, "pat-1")
+        by_cat = {m.external_category_uid: m for m in rows}
+        assert by_cat["cat-space"].status == MappingStatus.closed
+        assert by_cat["cat-main"].status == MappingStatus.proposed
 
     def test_rediscovery_is_idempotent(
             self, session: Session, household: Household,
