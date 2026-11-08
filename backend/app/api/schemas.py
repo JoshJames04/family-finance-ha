@@ -1821,3 +1821,28 @@ class EnergyMonthReportOut(BaseModel):
     projected_total_pence: int | None
     projected_variance_pence: int | None
     avg_daily_wh: int | None
+
+
+class StatementImportRowOut(BaseModel):
+    date: date
+    amount_pence: int
+    payee: str
+    notes: str | None
+    duplicate: bool
+
+
+class StatementImportOut(BaseModel):
+    id: int
+    account_id: int
+    filename: str
+    format: str
+    status: str
+    rows_total: int
+    rows_imported: int
+    rows_skipped: int
+    created_at: datetime
+
+
+class StatementImportPreviewOut(BaseModel):
+    import_row: StatementImportOut
+    rows: list[StatementImportRowOut]

@@ -1732,6 +1732,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview */
+        post: operations["preview_api_v1_imports_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{import_id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commit Import */
+        post: operations["commit_import_api_v1_imports__import_id__commit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{import_id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rollback Import */
+        post: operations["rollback_import_api_v1_imports__import_id__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Imports */
+        get: operations["list_imports_api_v1_imports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/migration/batches/{batch_id}/report": {
         parameters: {
             query?: never;
@@ -3784,6 +3852,23 @@ export interface components {
             /** Balance At */
             balance_at: string | null;
         };
+        /** Body_preview_api_v1_imports_preview_post */
+        Body_preview_api_v1_imports_preview_post: {
+            /** File */
+            file: string;
+            /** Account Id */
+            account_id: number;
+            /**
+             * Fmt
+             * @default csv
+             */
+            fmt: string;
+            /**
+             * Mapping
+             * @default {}
+             */
+            mapping: string;
+        };
         /** Body_upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post */
         Body_upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post: {
             /** File */
@@ -5658,6 +5743,17 @@ export interface components {
             /** Size */
             size: number;
         };
+        /** Page[StatementImportOut] */
+        Page_StatementImportOut_: {
+            /** Items */
+            items: components["schemas"]["StatementImportOut"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+        };
         /** Page[TransactionOut] */
         Page_TransactionOut_: {
             /** Items */
@@ -6479,6 +6575,52 @@ export interface components {
             /** Notes */
             notes: string | null;
         };
+        /** StatementImportOut */
+        StatementImportOut: {
+            /** Id */
+            id: number;
+            /** Account Id */
+            account_id: number;
+            /** Filename */
+            filename: string;
+            /** Format */
+            format: string;
+            /** Status */
+            status: string;
+            /** Rows Total */
+            rows_total: number;
+            /** Rows Imported */
+            rows_imported: number;
+            /** Rows Skipped */
+            rows_skipped: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** StatementImportPreviewOut */
+        StatementImportPreviewOut: {
+            import_row: components["schemas"]["StatementImportOut"];
+            /** Rows */
+            rows: components["schemas"]["StatementImportRowOut"][];
+        };
+        /** StatementImportRowOut */
+        StatementImportRowOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Amount Pence */
+            amount_pence: number;
+            /** Payee */
+            payee: string;
+            /** Notes */
+            notes: string | null;
+            /** Duplicate */
+            duplicate: boolean;
+        };
         /**
          * StudentLoanPlan
          * @enum {string}
@@ -6785,7 +6927,7 @@ export interface components {
          * TransactionSource
          * @enum {string}
          */
-        TransactionSource: "manual" | "starling" | "excel_import" | "system" | "manual_verification";
+        TransactionSource: "manual" | "starling" | "excel_import" | "file_import" | "system" | "manual_verification";
         /** TransactionSplitIn */
         TransactionSplitIn: {
             /** Category Id */
@@ -11310,6 +11452,143 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_api_v1_imports_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_preview_api_v1_imports_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatementImportPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    commit_import_api_v1_imports__import_id__commit_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                import_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatementImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollback_import_api_v1_imports__import_id__rollback_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                import_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatementImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_imports_api_v1_imports_get: {
+        parameters: {
+            query?: {
+                account_id?: number | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_StatementImportOut_"];
+                };
             };
             /** @description Validation Error */
             422: {
