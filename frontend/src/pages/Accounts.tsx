@@ -7,8 +7,8 @@ import { toast } from "sonner";
 import {
   Archive, ArchiveRestore, BadgeCheck, Landmark, Plus, Receipt,
 } from "lucide-react";
-import { api } from "../api/client";
-import { useApi } from "../api/useApi";
+import { api, getProfileId } from "../api/client";
+import { useApi, useIdentity } from "../api/useApi";
 import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { Panel } from "../components/Panel";
@@ -17,7 +17,7 @@ import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
-import { IconTile, PageHeader, Stat } from "../components/Display";
+import { IconTile, PageHeader, Segmented, Stat } from "../components/Display";
 import { DataView } from "../components/DataView";
 import { Skeleton } from "../components/Feedback";
 import {
@@ -36,20 +36,29 @@ const TYPE_LABEL: Record<AccountType, string> = {
   savings: "Savings", cash: "Cash", credit: "Credit", loan: "Loan",
 };
 
+type Scope = "all" | "mine" | "shared";
+
 export function Accounts() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
   const [showArchived, setShowArchived] = useState(false);
+  const [scope, setScope] = useState<Scope>("all");
   const [adding, setAdding] = useState(false);
   const [verifying, setVerifying] = useState<Account | null>(null);
   const accounts = useAccounts(rev);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
+  const identity = useIdentity();
+  const me = identity.data ? getProfileId() : null;
   const netWorth = useApi(() => api.get("/api/v1/analytics/net-worth"), ready, [rev]);
   const ownerName = (id: number | null) =>
     profiles.data?.items.find((p) => p.id === id)?.display_name ?? null;
 
   const items = (accounts.data?.items ?? [])
-    .filter((a) => showArchived || !a.archived);
+    .filter((a) => showArchived || !a.archived)
+    .filter((a) =>
+      scope === "all" ||
+      (scope === "mine" ? a.owner_profile_id === me : a.owner_profile_id === null));
+  const memberCount = (profiles.data?.items ?? []).filter((p) => p.is_active).length;
   const archivedCount = (accounts.data?.items ?? []).filter((a) => a.archived).length;
   const refresh = () => setRev((r) => r + 1);
 
@@ -69,6 +78,18 @@ export function Accounts() {
         description="Balances, account health and reconciliation."
         actions={
           <>
+            {memberCount > 1 && (
+              <Segmented
+                label="Account scope"
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "mine", label: "Mine" },
+                  { value: "shared", label: "Shared" },
+                ]}
+              />
+            )}
             {archivedCount > 0 && (
               <Button variant="ghost" onClick={() => setShowArchived((s) => !s)}>
                 {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}

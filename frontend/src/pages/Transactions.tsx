@@ -7,7 +7,8 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  Bookmark, Check, Download, FilterX, Lock, Pencil, Plus, Receipt, X,
+  Bookmark, Check, Download, FilterX, Lock, Pencil, Plus, Receipt,
+  StickyNote, X,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi, useHouseholds } from "../api/useApi";
@@ -19,7 +20,7 @@ import { Money } from "../components/Money";
 import { Button } from "../components/Button";
 import { Panel } from "../components/Panel";
 import { Dialog } from "../components/Dialog";
-import { Checkbox, Field, Input, SearchInput, Select } from "../components/Field";
+import { Checkbox, Field, Input, SearchInput, Select, Textarea } from "../components/Field";
 import { IconTile, PageHeader } from "../components/Display";
 import { Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
@@ -82,6 +83,7 @@ export function Transactions() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [correcting, setCorrecting] = useState<Txn | null>(null);
+  const [noting, setNoting] = useState<Txn | null>(null);
   const [page, setPage] = useState(1);
   const [loaded, setLoaded] = useState<Txn[]>([]);
   const state = useApi(
@@ -382,6 +384,12 @@ export function Transactions() {
                                 <span className="md:hidden">{formatSmartDate(t.date)}</span>
                                 <span className="md:hidden lg:hidden">{cat ? ` · ${cat.name}` : ""}</span>
                                 {multiAccount && <span className="hidden md:inline">{accountName(t.account_id)}</span>}
+                                {t.notes && (
+                                  <StickyNote
+                                    className="ml-1 inline size-3 align-[-1px] text-fg-subtle"
+                                    aria-label={`Note: ${t.notes}`}
+                                  />
+                                )}
                               </p>
                             </div>
                           </div>
@@ -410,6 +418,17 @@ export function Transactions() {
                         <td className="hidden px-3 sm:table-cell">
                           <div className="flex items-center gap-1">
                             <Badge tone={STATUS_TONE[t.status]}>{t.status}</Badge>
+                            {!locked && t.status !== "void" && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Note for ${t.payee}`}
+                                title={t.notes ? "Edit note" : "Add a note"}
+                                onClick={() => setNoting(t)}
+                              >
+                                <StickyNote />
+                              </Button>
+                            )}
                             {t.status === "reconciled" && (
                               <Button
                                 variant="ghost"
@@ -455,6 +474,18 @@ export function Transactions() {
           categories={cats}
           onDone={() => { setCorrecting(null); refresh(); toast.success("Correction issued"); }}
           onCancel={() => setCorrecting(null)}
+        />
+      )}
+      {noting && (
+        <NoteDialog
+          txn={noting}
+          onClose={() => setNoting(null)}
+          onSaved={(notes) => {
+            setNoting(null);
+            setLoaded((prev) => prev.map((r) =>
+              r.id === noting.id ? { ...r, notes } : r));
+            toast.success(notes ? "Note saved" : "Note cleared");
+          }}
         />
       )}
       <SaveFilterDialog
@@ -626,5 +657,56 @@ function InlineText({ value, label, onSave }: {
         if (e.key === "Escape") { setDraft(value); setEditing(false); }
       }}
     />
+  );
+}
+
+/** Free-text note on an editable transaction (issue #282) — a sticky
+ * annotation ("paid with the joint card", "split with Mam"), patched
+ * like any other field; reconciled rows keep their notes read-only. */
+function NoteDialog({ txn, onClose, onSaved }: {
+  txn: Txn;
+  onClose: () => void;
+  onSaved: (notes: string | null) => void;
+}) {
+  const [notes, setNotes] = useState(txn.notes ?? "");
+  const [busy, setBusy] = useState(false);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const value = notes.trim();
+    api.patch("/api/v1/transactions/{txn_id}", {
+      path: { txn_id: txn.id },
+      body: { notes: value || null },
+    }).then(() => onSaved(value || null))
+      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
+      title={`Note — ${txn.payee}`}
+      description={<>
+        {formatSmartDate(txn.date)} · <Money pence={txn.amount_pence} signed tone="auto" />
+      </>}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-note" disabled={busy}>
+          {busy ? "Saving…" : "Save note"}
+        </Button>
+      </>}>
+      <form id="ff-note" onSubmit={submit} className="grid gap-4">
+        <Field label="Note">{(id) => (
+          <Textarea
+            id={id}
+            aria-label="Transaction note"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. paid with the joint card — split with Mam"
+            autoFocus
+          />
+        )}</Field>
+      </form>
+    </Dialog>
   );
 }
