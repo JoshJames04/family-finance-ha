@@ -1067,6 +1067,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/overtime-entries/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Overtime */
+        delete: operations["delete_overtime_api_v1_employments__emp_id__overtime_entries__entry_id__delete"];
+        options?: never;
+        head?: never;
+        /** Patch Overtime */
+        patch: operations["patch_overtime_api_v1_employments__emp_id__overtime_entries__entry_id__patch"];
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/payroll-runs": {
         parameters: {
             query?: never;
@@ -5101,6 +5119,18 @@ export interface components {
             pay_pence: number;
             /** Notes */
             notes: string | null;
+        };
+        /** OvertimePatch */
+        OvertimePatch: {
+            /** Work Date */
+            work_date?: string | null;
+            /** Hours */
+            hours?: number | string | null;
+            /** Multiplier Bps */
+            multiplier_bps?: number | null;
+            day_type?: components["schemas"]["DayType"] | null;
+            /** Notes */
+            notes?: string | null;
         };
         /**
          * OvertimeStatus
@@ -9219,6 +9249,78 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OvertimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_overtime_api_v1_employments__emp_id__overtime_entries__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_overtime_api_v1_employments__emp_id__overtime_entries__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OvertimePatch"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

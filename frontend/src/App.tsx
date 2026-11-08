@@ -18,6 +18,7 @@ import { Goals } from "./pages/Goals";
 import { Gifts } from "./pages/Gifts";
 import { Loans } from "./pages/Loans";
 import { Salary } from "./pages/Salary";
+import { Overtime } from "./pages/Overtime";
 import { Energy } from "./pages/Energy";
 import { Reports } from "./pages/Reports";
 import { Settings } from "./pages/Settings";
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="scenarios" element={<Scenarios />} />
         <Route path="notifications" element={<Notifications />} />
         <Route path="salary" element={<Salary />} />
+        <Route path="overtime" element={<Overtime />} />
         <Route path="energy" element={<Energy />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />

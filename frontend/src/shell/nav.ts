@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, BarChart3, Bell, Briefcase, Building2, CalendarClock,
-  FlaskConical, Gift, Handshake, Inbox, Landmark, LayoutDashboard,
+  Clock, FlaskConical, Gift, Handshake, Inbox, Landmark, LayoutDashboard,
   LineChart, type LucideIcon, PiggyBank, ReceiptText, Repeat, Settings,
   Tag, Target, Wand2, Zap,
 } from "lucide-react";
@@ -51,6 +51,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Setup",
     items: [
       { to: "/salary", label: "Salary", icon: Briefcase, description: "Pay, deductions and payslips" },
+      { to: "/overtime", label: "Overtime", icon: Clock, description: "Log and approve extra hours" },
       { to: "/accounts", label: "Accounts", icon: Landmark, description: "Balances and account health" },
       { to: "/banking", label: "Banking", icon: Building2, description: "Bank connections and sync" },
       { to: "/payees", label: "Payees", icon: Tag, description: "Canonical merchant names" },

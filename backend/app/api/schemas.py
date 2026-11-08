@@ -639,6 +639,14 @@ class OvertimeIn(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class OvertimePatch(BaseModel):
+    work_date: date | None = None
+    hours: Decimal | None = Field(default=None, gt=0, le=24)
+    multiplier_bps: int | None = Field(default=None, gt=0, le=100_000)
+    day_type: DayType | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class OvertimeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

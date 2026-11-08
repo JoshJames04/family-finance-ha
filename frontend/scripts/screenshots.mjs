@@ -16,7 +16,7 @@ const label = process.argv[2] ?? "shot";
 const base = process.argv[3] ?? "http://localhost:5173";
 const ALL = ["dashboard", "transactions", "budget", "forecast", "review",
   "upcoming", "bills", "subscriptions", "goals", "gifts", "loans", "accounts",
-  "banking", "shared", "salary", "energy", "reports", "scenarios",
+  "banking", "shared", "salary", "overtime", "energy", "reports", "scenarios",
   "notifications", "payees", "rules", "settings", "catalogue"];
 const routes = process.argv[4] ? process.argv[4].split(",") : ALL;
 const MODES = {
