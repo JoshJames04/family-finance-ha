@@ -4,7 +4,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import {
-  BadgeCheck, Check, CheckCheck, FileWarning, Radar, Repeat, Sparkles,
+  BadgeCheck, Check, CheckCheck, FileWarning, GitMerge, Radar, Repeat,
+  Sparkles,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useReview } from "../api/useReview";
@@ -23,6 +24,28 @@ type Flag = components["schemas"]["FlagOut"];
 type Anomaly = components["schemas"]["AnomalyFlagOut"];
 type Recon = components["schemas"]["ReconciliationOut"];
 type Candidate = components["schemas"]["DetectionCandidateOut"];
+type Merge = components["schemas"]["MergeCandidateOut"];
+
+/** A sync merge candidate's `incoming` is the raw provider feed item —
+ * pull out a readable payee/amount/date without guessing at schema. */
+function mergeSummary(m: Merge): { title: string; pence: number | null; when: string | null } {
+  const inc = m.incoming as Record<string, unknown>;
+  const title =
+    [inc.counterPartyName, inc.counterParty, inc.reference, inc.description, inc.type]
+      .find((v): v is string => typeof v === "string" && v.length > 0) ?? "Bank item";
+  const amt = inc.amount;
+  let pence: number | null = null;
+  if (amt && typeof amt === "object" && "minorUnits" in amt) {
+    const minor = (amt as { minorUnits?: unknown }).minorUnits;
+    if (typeof minor === "number") {
+      pence = inc.direction === "IN" ? minor : -minor;
+    }
+  }
+  const when =
+    [inc.transactionTime, inc.transaction_time, inc.date]
+      .find((v): v is string => typeof v === "string" && v.length > 0) ?? null;
+  return { title, pence, when };
+}
 
 /** Workbook cell coordinates read "B16"-style (col index 3 → C). */
 function cellRef(col: unknown, row: unknown): string | null {
@@ -85,6 +108,8 @@ export function Review() {
   const recon = Array.isArray(review.recon.data) ? review.recon.data : [];
   const candidates = (Array.isArray(review.candidates.data) ? review.candidates.data : [])
     .filter((c) => c.status === "pending");
+  const merges = (Array.isArray(review.merges.data) ? review.merges.data : [])
+    .filter((m) => m.status === "pending");
 
   return (
     <div>
@@ -165,6 +190,43 @@ export function Review() {
                     </div>
                   </li>
                 ))}
+              </ul>
+            </Panel>
+          )}
+
+          {merges.length > 0 && (
+            <Panel
+              title={`Possible duplicates (${merges.length})`}
+              description="Bank-synced items that may already exist in your ledger — merge or keep both."
+              flush
+            >
+              <ul className="divide-y divide-border">
+                {merges.map((m) => {
+                  const s = mergeSummary(m);
+                  return (
+                    <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                      <IconTile icon={GitMerge} label={s.title} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13.5px] font-medium">{s.title}</p>
+                        <p className="text-[12px] text-fg-subtle">
+                          Synced {s.when ? formatSmartDate(s.when.slice(0, 10)) : formatDateTime(m.created_at)}
+                          {" · matches transaction #"}{m.existing_txn_id}
+                        </p>
+                      </div>
+                      {s.pence != null && <Money pence={s.pence} signed tone="auto" className="font-medium" />}
+                      <div className="flex gap-1.5">
+                        <Button size="sm" variant="primary"
+                          onClick={() => act(api.post("/api/v1/sync/merge-candidates/{cid}/resolve", { path: { cid: m.id }, body: { action: "merged" } }), "Merged — one kept")}>
+                          <Check /> Merge
+                        </Button>
+                        <Button size="sm" variant="ghost"
+                          onClick={() => act(api.post("/api/v1/sync/merge-candidates/{cid}/resolve", { path: { cid: m.id }, body: { action: "dismissed" } }), "Kept both")}>
+                          Keep both
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </Panel>
           )}
