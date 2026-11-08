@@ -17,6 +17,8 @@ from custom_components.family_finance.events import (
     EVENT_BILL_DUE,
     EVENT_GOAL_MILESTONE,
     EVENT_LOW_BALANCE,
+    EVENT_NOTIFICATION_PENDING,
+    EVENT_PAYSLIP_REVIEW,
     EVENT_SYNC_FAILED,
     process_failure,
     process_summary,
@@ -36,12 +38,14 @@ _BASE = {
     "goals_on_track": 0,
     "goals_total": 1,
     "outstanding_commitments": 0,
+    "notifications_pending": 0,
+    "payslips_pending_review": 0,
 }
 
 # every field any event payload may ever carry — sanitisation contract
 _ALLOWED_KEYS = {
     "bills_due", "window_days", "goals_on_track", "goals_total",
-    "account_count", "threshold_pence", "sync_status",
+    "account_count", "threshold_pence", "sync_status", "pending_count",
 }
 
 
@@ -99,6 +103,43 @@ class TestLowBalance:
         assert len(seen) == 2
 
 
+class TestNotificationPending:
+    async def test_rising_edge_fires(self, hass: HomeAssistant) -> None:
+        seen = _collect(hass, EVENT_NOTIFICATION_PENDING)
+        process_summary(hass, _BASE,
+                        {**_BASE, "notifications_pending": 2})
+        await hass.async_block_till_done()
+        assert seen == [{"pending_count": 2}]
+
+    async def test_no_rise_no_event(self, hass: HomeAssistant) -> None:
+        seen = _collect(hass, EVENT_NOTIFICATION_PENDING)
+        prev = {**_BASE, "notifications_pending": 2}
+        process_summary(hass, prev, dict(prev))
+        process_summary(hass, prev,
+                        {**_BASE, "notifications_pending": 1})
+        await hass.async_block_till_done()
+        assert seen == []
+
+
+class TestPayslipReview:
+    async def test_rising_edge_fires(self, hass: HomeAssistant) -> None:
+        seen = _collect(hass, EVENT_PAYSLIP_REVIEW)
+        process_summary(hass, _BASE,
+                        {**_BASE, "payslips_pending_review": 1})
+        await hass.async_block_till_done()
+        assert seen == [{"pending_count": 1}]
+
+    async def test_ack_then_reupload_refires(
+            self, hass: HomeAssistant) -> None:
+        seen = _collect(hass, EVENT_PAYSLIP_REVIEW)
+        up = {**_BASE, "payslips_pending_review": 1}
+        process_summary(hass, _BASE, up)
+        process_summary(hass, up, _BASE)   # reviewed → count falls
+        process_summary(hass, _BASE, up)   # new upload → fires again
+        await hass.async_block_till_done()
+        assert len(seen) == 2
+
+
 class TestSyncFailed:
     async def test_once_per_streak(self, hass: HomeAssistant) -> None:
         seen = _collect(hass, EVENT_SYNC_FAILED)
@@ -138,15 +179,17 @@ class TestSanitisation:
             self, hass: HomeAssistant) -> None:
         seen: list[dict] = []
         for ev in (EVENT_BILL_DUE, EVENT_GOAL_MILESTONE,
-                   EVENT_LOW_BALANCE, EVENT_SYNC_FAILED):
+                   EVENT_LOW_BALANCE, EVENT_SYNC_FAILED,
+                   EVENT_NOTIFICATION_PENDING, EVENT_PAYSLIP_REVIEW):
             hass.bus.async_listen(
                 ev, lambda e: seen.append(dict(e.data)))
         neg = {**_BASE, "total_balance_pence": -1,
-               "upcoming_bills_count": 5, "goals_on_track": 3}
+               "upcoming_bills_count": 5, "goals_on_track": 3,
+               "notifications_pending": 2, "payslips_pending_review": 1}
         process_summary(hass, _BASE, neg)
         process_failure(hass, already_failed=False)
         await hass.async_block_till_done()
-        assert len(seen) == 4
+        assert len(seen) == 6
         for payload in seen:
             assert set(payload) <= _ALLOWED_KEYS, payload
             for banned in ("payee", "amount_pence", "balance_pence",
