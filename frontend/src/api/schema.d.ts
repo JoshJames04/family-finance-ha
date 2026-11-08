@@ -937,11 +937,39 @@ export interface paths {
         get: operations["get_employment_api_v1_employments__emp_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Employment
+         * @description Remove an employment that has no payroll runs or overtime —
+         *     a wrong/fake entry. Once it carries history it can only be
+         *     end-dated (PATCH end_date), never deleted (issue #304).
+         */
+        delete: operations["delete_employment_api_v1_employments__emp_id__delete"];
         options?: never;
         head?: never;
         /** Patch Employment */
         patch: operations["patch_employment_api_v1_employments__emp_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/employments/prepare-year": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare Year
+         * @description Roll the year forward (issue #304): forecast payroll runs for
+         *     every employment active in the year + budget structure copied
+         *     forward one year. Idempotent — existing runs/budgets skip.
+         */
+        post: operations["prepare_year_api_v1_employments_prepare_year_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/employments/{emp_id}/salary-revisions": {
@@ -4289,6 +4317,8 @@ export interface components {
             work_days_per_week: string;
             /** Is Active */
             is_active: boolean;
+            /** End Date */
+            end_date: string | null;
         };
         /** EmploymentPatch */
         EmploymentPatch: {
@@ -4317,6 +4347,8 @@ export interface components {
             work_days_per_week?: number | string | null;
             /** Is Active */
             is_active?: boolean | null;
+            /** End Date */
+            end_date?: string | null;
         };
         /** EnergyConfigIn */
         EnergyConfigIn: {
@@ -5480,6 +5512,24 @@ export interface components {
          * @enum {string}
          */
         PensionMode: "none" | "relief_at_source" | "net_pay" | "salary_sacrifice";
+        /** PrepareYearIn */
+        PrepareYearIn: {
+            /** Year */
+            year: number;
+        };
+        /** PrepareYearOut */
+        PrepareYearOut: {
+            /** Year */
+            year: number;
+            /** Runs Created */
+            runs_created: number;
+            /** Runs Skipped */
+            runs_skipped: number;
+            /** Budgets Created */
+            budgets_created: number;
+            /** Warnings */
+            warnings: string[];
+        };
         /** PriceChangeEventOut */
         PriceChangeEventOut: {
             /** Id */
@@ -8838,6 +8888,38 @@ export interface operations {
             };
         };
     };
+    delete_employment_api_v1_employments__emp_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     patch_employment_api_v1_employments__emp_id__patch: {
         parameters: {
             query?: never;
@@ -8863,6 +8945,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmploymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_year_api_v1_employments_prepare_year_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareYearIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrepareYearOut"];
                 };
             };
             /** @description Validation Error */
