@@ -307,6 +307,66 @@ class TestApi:
             headers=h)
         assert res.status_code == 422
 
+    def test_ops_list_and_delete(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        aid = client.post("/api/v1/accounts", json={
+            "name": "Current", "type": "personal",
+            "opening_balance": 100_000,
+            "opening_date": "2025-01-01"}, headers=h).json()["id"]
+        sid = client.post("/api/v1/scenarios",
+                          json={"name": "S"}, headers=h).json()["id"]
+        for i in range(2):
+            r = client.post(f"/api/v1/scenarios/{sid}/ops", json={
+                "kind": "add", "account_id": aid,
+                "expected_date": (date.today()
+                                  + timedelta(days=3 + i)).isoformat(),
+                "amount": -1_000, "label": f"op{i}"}, headers=h)
+            assert r.status_code == 201
+        listed = client.get(f"/api/v1/scenarios/{sid}/ops", headers=h)
+        assert listed.status_code == 200
+        ops = listed.json()
+        assert [o["label"] for o in ops] == ["op0", "op1"]
+        assert client.delete(
+            f"/api/v1/scenarios/{sid}/ops/{ops[0]['id']}",
+            headers=h).status_code == 204
+        remaining = client.get(f"/api/v1/scenarios/{sid}/ops",
+                               headers=h).json()
+        assert [o["label"] for o in remaining] == ["op1"]
+
+    def test_ops_cross_scenario_isolation(
+            self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        aid = client.post("/api/v1/accounts", json={
+            "name": "Current", "type": "personal",
+            "opening_balance": 100_000,
+            "opening_date": "2025-01-01"}, headers=h).json()["id"]
+        s1 = client.post("/api/v1/scenarios",
+                         json={"name": "A"}, headers=h).json()["id"]
+        s2 = client.post("/api/v1/scenarios",
+                         json={"name": "B"}, headers=h).json()["id"]
+        op = client.post(f"/api/v1/scenarios/{s1}/ops", json={
+            "kind": "add", "account_id": aid,
+            "expected_date": date.today().isoformat(),
+            "amount": -1, "label": "x"}, headers=h).json()
+        # Another scenario's ops list must not leak it...
+        assert client.get(f"/api/v1/scenarios/{s2}/ops",
+                          headers=h).json() == []
+        # ...and cannot be deleted through it either.
+        assert client.delete(f"/api/v1/scenarios/{s2}/ops/{op['id']}",
+                             headers=h).status_code == 404
+        # A foreign household sees nothing at all.
+        h2 = client.post("/api/v1/households",
+                         json={"name": "H2"}).json()["id"]
+        h2hdr = {"X-Household-Id": str(h2)}
+        assert client.get(f"/api/v1/scenarios/{s1}/ops",
+                          headers=h2hdr).status_code == 404
+        assert client.delete(f"/api/v1/scenarios/{s1}/ops/{op['id']}",
+                             headers=h2hdr).status_code == 404
+
 
 class TestPersistence:
     def test_scenario_table_rowcount(

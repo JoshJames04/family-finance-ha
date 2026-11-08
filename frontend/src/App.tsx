@@ -8,6 +8,8 @@ import { Banking } from "./pages/Banking";
 import { Shared } from "./pages/Shared";
 import { Payees } from "./pages/Payees";
 import { Rules } from "./pages/Rules";
+import { Scenarios } from "./pages/Scenarios";
+import { Notifications } from "./pages/Notifications";
 import { Upcoming } from "./pages/Upcoming";
 import { Bills } from "./pages/Bills";
 import { Forecast } from "./pages/Forecast";
@@ -42,6 +44,8 @@ export default function App() {
         <Route path="shared" element={<Shared />} />
         <Route path="payees" element={<Payees />} />
         <Route path="rules" element={<Rules />} />
+        <Route path="scenarios" element={<Scenarios />} />
+        <Route path="notifications" element={<Notifications />} />
         <Route path="salary" element={<Salary />} />
         <Route path="energy" element={<Energy />} />
         <Route path="reports" element={<Reports />} />
