@@ -10,6 +10,7 @@ type Flag = components["schemas"]["FlagOut"];
 type Anomaly = components["schemas"]["AnomalyFlagOut"];
 type Recon = components["schemas"]["ReconciliationOut"];
 type Candidate = components["schemas"]["DetectionCandidateOut"];
+type Merge = components["schemas"]["MergeCandidateOut"];
 
 const CLOSED_FLAG = new Set(["resolved", "wont_fix"]);
 
@@ -18,6 +19,7 @@ export interface ReviewData {
   anomalies: ApiState<Anomaly[]>;
   recon: ApiState<Recon[]>;
   candidates: ApiState<Candidate[]>;
+  merges: ApiState<Merge[]>;
   openFlags: Flag[];
   total: number;
   loading: boolean;
@@ -29,6 +31,8 @@ export function useReview(rev = 0): ReviewData {
   const anomalies = useApi(() => api.get("/api/v1/anomalies/queue"), ready, [rev]);
   const recon = useApi(() => api.get("/api/v1/reconcile/queue"), ready, [rev]);
   const candidates = useApi(() => api.get("/api/v1/subscriptions/candidates"), ready, [rev]);
+  // Bank-sync duplicates awaiting a merge decision (issue #271).
+  const merges = useApi(() => api.get("/api/v1/sync/merge-candidates"), ready, [rev]);
   const openFlags = (Array.isArray(flags.data) ? flags.data : [])
     .filter((f) => !CLOSED_FLAG.has(f.status));
   const pendingCandidates = (Array.isArray(candidates.data) ? candidates.data : [])
@@ -39,12 +43,15 @@ export function useReview(rev = 0): ReviewData {
     anomalies,
     recon,
     candidates,
+    merges,
     openFlags,
     total:
       openFlags.length +
       list(anomalies).filter((a) => a.status === "pending").length +
       list(recon).length +
-      pendingCandidates.length,
-    loading: flags.loading || anomalies.loading || recon.loading || candidates.loading,
+      pendingCandidates.length +
+      list(merges).filter((m) => m.status === "pending").length,
+    loading: flags.loading || anomalies.loading || recon.loading
+      || candidates.loading || merges.loading,
   };
 }
