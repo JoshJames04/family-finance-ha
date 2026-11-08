@@ -1096,12 +1096,14 @@ class LoanIn(BaseModel):
     start_date: date
     expected_payment: Money | None = None
     interest_bps_pa: int | None = Field(default=None, ge=0)
+    owner_profile_id: int | None = None  # private↔shared
     notes: str | None = Field(default=None, max_length=500)
 
 
 class LoanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    owner_profile_id: int | None
     party: str
     direction: LoanDirection
     principal_pence: int

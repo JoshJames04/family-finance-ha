@@ -5168,6 +5168,8 @@ export interface components {
             }) | null;
             /** Interest Bps Pa */
             interest_bps_pa?: number | null;
+            /** Owner Profile Id */
+            owner_profile_id?: number | null;
             /** Notes */
             notes?: string | null;
         };
@@ -5175,6 +5177,8 @@ export interface components {
         LoanOut: {
             /** Id */
             id: number;
+            /** Owner Profile Id */
+            owner_profile_id: number | null;
             /** Party */
             party: string;
             direction: components["schemas"]["LoanDirection"];

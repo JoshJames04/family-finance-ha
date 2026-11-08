@@ -62,6 +62,7 @@ def create_loan(
         expected_payment_pence=body.expected_payment.pence
         if body.expected_payment else None,
         interest_bps_pa=body.interest_bps_pa, notes=body.notes,
+        owner_profile_id=body.owner_profile_id,
         active=True)
     session.add(ln)
     session.flush()

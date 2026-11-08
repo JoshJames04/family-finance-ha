@@ -1233,6 +1233,8 @@ class Loan(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     household_id: Mapped[int] = mapped_column(
         ForeignKey("household.id"), nullable=False, index=True)
+    owner_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=True, index=True)
     party: Mapped[str] = mapped_column(String(120), nullable=False)
     direction: Mapped[LoanDirection] = mapped_column(
         Enum(LoanDirection), nullable=False)
