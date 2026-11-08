@@ -23,7 +23,7 @@ from app.domain import overtime as ot
 from app.domain import payroll as dom
 from app.domain import tax
 from app.domain.payroll import PayrollError
-from app.domain.tax import PensionMode
+from app.domain.tax import PensionMode, TaxError
 from app.persistence.models import (
     Employment,
     PayrollComponent,
@@ -86,10 +86,18 @@ def generate(
     bonus_pence: int = 0, allowance_pence: int = 0,
     unpaid_leave_pence: int = 0,
     unpaid_leave_days: Decimal | None = None,
+    allow_stale_rules: bool = False,
 ) -> PayrollRun:
     """Assemble a forecast run for a pay period."""
     if end < start:
         raise PayrollError("period end must be on/after start")
+    if employment.end_date is not None:
+        if start > employment.end_date:
+            raise PayrollError(
+                f"employment {employment.id} ended "
+                f"{employment.end_date} — no run can start after it")
+        if end > employment.end_date:   # final partial period
+            end = employment.end_date
     if unpaid_leave_days is not None:
         unpaid_leave_pence += unpaid_leave_for_days(
             session, employment, unpaid_leave_days, end)
@@ -101,7 +109,18 @@ def generate(
     # Pension % applies on post-leave pensionable gross (issue #83).
     pension_pence = pension_pence_for(employment, taxable_gross)
     tax_year = tax.tax_year_for(end)
-    rules = tax.rule_set(session, tax_year, employment.jurisdiction)
+    try:
+        rules = tax.rule_set(session, tax_year, employment.jurisdiction)
+    except TaxError:
+        # Forecasting beyond published HMRC tables: fall back to the
+        # newest known rules; the run still records which version
+        # computed it and can be regenerated when rates land.
+        if not allow_stale_rules:
+            raise
+        fallback = tax.latest_rule_set(session, employment.jurisdiction)
+        if fallback is None:
+            raise
+        rules = fallback
     params = json.loads(rules.params)
     code = dom.tax_code_at(session, employment.id, end)
     ded = tax.compute_period(

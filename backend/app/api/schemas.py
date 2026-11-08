@@ -562,6 +562,7 @@ class EmploymentPatch(BaseModel):
     work_days_per_week: Decimal | None = Field(default=None, gt=0,
                                                le=7)
     is_active: bool | None = None
+    end_date: date | None = None
 
 
 class EmploymentOut(BaseModel):
@@ -581,6 +582,19 @@ class EmploymentOut(BaseModel):
     pension_fixed_pence: int
     work_days_per_week: Decimal
     is_active: bool
+    end_date: date_t | None
+
+
+class PrepareYearIn(BaseModel):
+    year: int = Field(ge=2000, le=2200)
+
+
+class PrepareYearOut(BaseModel):
+    year: int
+    runs_created: int
+    runs_skipped: int
+    budgets_created: int
+    warnings: list[str]
 
 
 class SalaryRevisionIn(BaseModel):
