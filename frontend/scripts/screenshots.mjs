@@ -41,6 +41,11 @@ for (const mode of modes) {
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(`${mode} ${page.url()}: ${msg.text()}`);
   });
+  page.on("response", (r) => {
+    if (r.status() >= 400) errors.push(`${mode} ${page.url()}: HTTP ${r.status()} ${r.url()}`);
+  });
+  page.on("requestfailed", (r) =>
+    errors.push(`${mode} ${page.url()}: REQFAIL ${r.url()} ${r.failure()?.errorText}`));
   for (const r of routes) {
     const path = r === "dashboard" ? "" : r;
     await page.goto(`${base}/${path}`, { waitUntil: "networkidle" }).catch(() => {});
