@@ -5,8 +5,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import {
-  Download, HardDrive, Monitor, Moon, Palette, Pencil, Plus, Sun, Tags,
-  UserRound, Users,
+  CalendarClock, Download, HardDrive, Monitor, Moon, Palette, Pencil,
+  Plus, Sun, Tags, UserRound, Users,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
@@ -170,6 +170,8 @@ export function Settings() {
           </DataView>
         </Panel>
 
+        <YearPrepPanel />
+
         <Panel title="Appearance" description="Follows your system by default — override here.">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -230,6 +232,39 @@ export function Settings() {
         onSaved={() => { setEditingCategory(null); refresh(); }}
       />
     </div>
+  );
+}
+
+/** Year preparation (issue #304): roll payroll runs + budget
+ * structure forward one year — the button that used to live on
+ * the spreadsheet's "new year" sheet. */
+function YearPrepPanel() {
+  const nextYear = new Date().getFullYear() + 1;
+  const [prepping, setPrepping] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const prepare = () => {
+    setPrepping(true);
+    api.post("/api/v1/employments/prepare-year", { body: { year: nextYear } })
+      .then((r) => {
+        setResult(
+          `${r.year}: ${r.runs_created} payroll runs created`
+          + `${r.runs_skipped ? `, ${r.runs_skipped} already existed` : ""}`
+          + ` · ${r.budgets_created} budgets rolled forward`);
+        for (const w of r.warnings) toast.warning(w);
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setPrepping(false));
+  };
+  return (
+    <Panel title="Year preparation"
+      description="Create next year's forecast payroll runs for every active employer and roll the budget structure forward — the spreadsheet's 'new year sheet' as a button.">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" onClick={prepare} disabled={prepping}>
+          <CalendarClock /> {prepping ? "Preparing…" : `Prepare ${nextYear}`}
+        </Button>
+        {result && <span className="text-[12.5px] text-fg-muted">{result}</span>}
+      </div>
+    </Panel>
   );
 }
 
