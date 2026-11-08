@@ -1478,6 +1478,7 @@ class BankConnectionOut(BaseModel):
 class BankConnectIn(BaseModel):
     provider: str = Field(pattern="^starling$")
     token: SecretStr
+    label: str | None = Field(default=None, max_length=200)
 
     @field_validator("token")
     @classmethod

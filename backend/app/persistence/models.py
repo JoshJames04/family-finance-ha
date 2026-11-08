@@ -1868,10 +1868,6 @@ class BankConnection(TimestampMixin, Base):
     runs while status is ``connected`` or ``degraded``."""
 
     __tablename__ = "bank_connection"
-    __table_args__ = (
-        UniqueConstraint("household_id", "provider",
-                         name="uq_bankconn_household_provider"),
-    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     household_id: Mapped[int] = mapped_column(

@@ -52,20 +52,21 @@ function stubFetch(
 describe("Banking", () => {
   afterEach(cleanup);
 
-  it("shows the connect CTA and posts only provider+token", async () => {
+  it("shows the connect CTA and posts provider+token+label", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);
     const user = userEvent.setup();
     render(<MemoryRouter><Banking /></MemoryRouter>);
     await user.click(await screen.findByRole("button", { name: /Connect Starling/ }));
     await user.type(screen.getByLabelText(/Personal access token/), "tok_test_123");
+    await user.type(screen.getByLabelText("Label"), "Joint");
     await user.click(screen.getByRole("button", { name: "Connect" }));
     await waitFor(() => {
       const c = calls.find((x) =>
         x.method === "POST" && x.url.endsWith("/banking/connections"));
       expect(c).toBeDefined();
       const body = JSON.parse(c!.body);
-      expect(body).toEqual({ provider: "starling", token: "tok_test_123" });
+      expect(body).toEqual({ provider: "starling", token: "tok_test_123", label: "Joint" });
     });
   });
 

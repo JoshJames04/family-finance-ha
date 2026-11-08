@@ -80,11 +80,11 @@ def _check_scopes(scopes: frozenset[str]) -> None:
 def connect(session: Session, household_id: int,
             provider: BankProvider, token: str,
             validate: Validator, ring: Keyring,
-            existing: BankConnection | None = None
-            ) -> BankConnection:
+            existing: BankConnection | None = None,
+            label: str | None = None) -> BankConnection:
     """Validate → vault-store → mark connected. ``existing`` is the
     revoked/degraded row being re-authenticated (rotation keeps the
-    connection id stable)."""
+    connection id stable); ``label`` names the link ("Joint")."""
     try:
         info = validate(token)
     except TokenInvalid:
@@ -105,7 +105,7 @@ def connect(session: Session, household_id: int,
                 token.encode(), ring)
     conn.status = ConnStatus.connected
     conn.scopes = " ".join(sorted(info.scopes))
-    conn.label = info.label or conn.label
+    conn.label = label or info.label or conn.label
     conn.last_validated_at = datetime.now()
     conn.last_error = None
     session.flush()

@@ -186,6 +186,50 @@ class TestApi:
                 headers=h)
             assert r.json()["status"] == "revoked"
 
+    def test_multiple_connections_same_provider(
+            self, tmp_path: Path) -> None:
+        """A second PAT mints a second connection row (personal +
+        joint); reconnecting with a dead row present revives it
+        instead of minting a duplicate."""
+        from fastapi.testclient import TestClient
+
+        from app.main import create_app
+        app = create_app(Settings.load(
+            {"FF_DATA_DIR": str(tmp_path)}))
+        app.state.token_validator = _validator()
+        with TestClient(app) as client:
+            hid = client.post("/api/v1/households",
+                              json={"name": "H"}).json()["id"]
+            h = {"X-Household-Id": str(hid)}
+            c1 = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-1",
+                "label": "Personal"}, headers=h)
+            assert c1.status_code == 201
+            c2 = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-2",
+                "label": "Joint"}, headers=h)
+            assert c2.status_code == 201
+            cid1, cid2 = c1.json()["id"], c2.json()["id"]
+            assert cid2 != cid1
+            items = client.get("/api/v1/banking/connections",
+                               headers=h).json()
+            assert {i["id"] for i in items} == {cid1, cid2}
+            assert next(i for i in items if i["id"] == cid2
+                        )["label"] == "Joint"
+            # Kill the joint link — reconnecting revives that row
+            # (id stable, mappings preserved) rather than minting
+            # a third connection.
+            client.post(
+                f"/api/v1/banking/connections/{cid2}/disconnect",
+                headers=h)
+            c3 = client.post("/api/v1/banking/connections", json={
+                "provider": "starling", "token": "pat-3",
+                "label": "Joint"}, headers=h)
+            assert c3.status_code == 201
+            assert c3.json()["id"] == cid2
+            assert len(client.get("/api/v1/banking/connections",
+                                  headers=h).json()) == 2
+
     def test_discover_link_joint(
             self, tmp_path: Path) -> None:
         """Discover proposes a space sharing the account's uid; link

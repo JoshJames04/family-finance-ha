@@ -31,6 +31,7 @@ from app.persistence.models import (
     BankAccountMapping,
     BankConnection,
     BankProvider,
+    ConnStatus,
     MappingStatus,
     TransactionSource,
 )
@@ -75,14 +76,19 @@ def connect(
     session: SessionDep, actor: ActorDep,
     validate: ValidatorDep, ring: RingDep,
 ) -> schemas.BankConnectionOut:
+    # Multiple live links per provider are allowed (e.g. a personal
+    # PAT plus a joint-account PAT). A dead row for the same provider
+    # is revived instead of minting a duplicate.
     existing = session.scalar(select(BankConnection).where(
         BankConnection.household_id == household.id,
-        BankConnection.provider == BankProvider(body.provider)))
+        BankConnection.provider == BankProvider(body.provider),
+        BankConnection.status.in_(
+            [ConnStatus.revoked, ConnStatus.pending])))
     try:
         c = banks.connect(
             session, household.id, BankProvider(body.provider),
             body.token.get_secret_value(), validate, ring,
-            existing=existing)
+            existing=existing, label=body.label)
     except TokenInvalid as e:
         raise HTTPException(401, "token rejected by provider") from e
     except TokenRejected as e:

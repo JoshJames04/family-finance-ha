@@ -297,18 +297,16 @@ export function Banking() {
         onClose={() => setConnecting(false)}
         onSubmit={(token, label) =>
           api.post("/api/v1/banking/connections", {
-            body: { provider: "starling", token },
-          }).then(() => {
+            body: { provider: "starling", token, label: label || null },
+          }).then((c) => {
             toast.success("Starling connected — discovering accounts…");
             setConnecting(false);
             refresh();
-            // Auto-discover on first connect so the mapping step is immediate.
+            // Auto-discover on the connection just created.
             setTimeout(() => {
-              api.get("/api/v1/banking/connections").then((list) => {
-                const c = list.find((x) => x.status !== "revoked");
-                if (c) void api.post("/api/v1/banking/connections/{cid}/discover", { path: { cid: c.id } })
-                  .then(refresh).catch(() => {});
-              }).catch(() => {});
+              void api.post("/api/v1/banking/connections/{cid}/discover",
+                { path: { cid: c.id } })
+                .then(refresh).catch(() => {});
             }, 400);
           })
         }

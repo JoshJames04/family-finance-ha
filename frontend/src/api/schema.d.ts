@@ -3510,6 +3510,8 @@ export interface components {
              * Format: password
              */
             token: string;
+            /** Label */
+            label?: string | null;
         };
         /**
          * BankConnectionOut
