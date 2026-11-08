@@ -20,7 +20,7 @@ const TXNS = Array.from({ length: 21 }, (_, i) => ({
   payee: `Shop ${i + 1}`, category_id: null,
   status: i === 20 ? "reconciled" : "cleared",
   source: "manual", notes: null, external_ref: null,
-  transfer_id: null,
+  transfer_id: null, splits: [],
 }));
 
 const QUEUE = [{
@@ -123,6 +123,40 @@ describe("Transactions", () => {
       const call = calls.find((c) => c.url.includes("/correct"));
       expect(call).toBeDefined();
       expect(JSON.parse(call!.body).reason).toBe("mis-keyed payee");
+    });
+  });
+  it("split editor validates the sum and PUTs signed legs (#289)", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Transactions /></MemoryRouter>);
+    // Shop 1 is a -£10 cleared expense; reconciled Shop 21 gets no
+    // split button.
+    const splitBtn = await screen.findByLabelText("Split Shop 1");
+    expect(screen.queryByLabelText("Split Shop 21")).toBeNull();
+    await user.click(splitBtn);
+    // Save stays disabled until legs categorised + sum to parent.
+    const save = screen.getByRole("button", { name: "Save split" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    await user.selectOptions(
+      await screen.findByLabelText("Split 1 category"), "1");
+    await user.type(
+      screen.getByLabelText("Split 1 amount"), "6.00");
+    expect(save.hasAttribute("disabled")).toBe(true);
+    await user.selectOptions(
+      screen.getByLabelText("Split 2 category"), "2");
+    await user.type(
+      screen.getByLabelText("Split 2 amount"), "4.00");
+    expect(save.hasAttribute("disabled")).toBe(false);
+    await user.click(save);
+    await waitFor(() => {
+      const call = calls.find((c) => c.url.includes("/splits")
+        && c.method === "PUT");
+      expect(call).toBeDefined();
+      expect(JSON.parse(call!.body).splits).toEqual([
+        { category_id: 1, amount_pence: -600 },
+        { category_id: 2, amount_pence: -400 },
+      ]);
     });
   });
   it("reconcile queue renders and confirm posts to /confirm", async () => {
