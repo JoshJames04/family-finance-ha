@@ -653,6 +653,9 @@ class Employment(TimestampMixin, Base):
         String(400), nullable=True)  # serialised domain.paydays.PaydayRule
     is_active: Mapped[bool] = mapped_column(Boolean, default=True,
                                             nullable=False)
+    # Last day of employment; after this it generates no payroll or
+    # forecast figures but keeps all history (issue #304).
+    end_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
 
     profile: Mapped[UserProfile] = relationship()
     salary_revisions: Mapped[list[SalaryRevision]] = relationship(

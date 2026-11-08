@@ -3,6 +3,7 @@ overtime entries."""
 
 from __future__ import annotations
 
+import calendar
 import json
 from datetime import date
 from decimal import Decimal
@@ -15,10 +16,12 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import budgets as budget_dom
 from app.domain import overtime as ot
+from app.domain import pay_calendar, paydays, payrun, schedule
 from app.domain import payroll as dom
-from app.domain import payrun, schedule
 from app.persistence.models import (
+    Budget,
     DayType,
     Employment,
     OvertimeEntry,
@@ -86,6 +89,113 @@ def create_employment(
     return schemas.EmploymentOut.model_validate(e)
 
 
+@router.delete("/{emp_id}", status_code=204)
+def delete_employment(
+    emp_id: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep,
+) -> None:
+    """Remove an employment that has no payroll runs or overtime —
+    a wrong/fake entry. Once it carries history it can only be
+    end-dated (PATCH end_date), never deleted (issue #304)."""
+    e = _get(session, household.id, emp_id)
+    has_runs = session.execute(
+        select(PayrollRun.id).where(
+            PayrollRun.employment_id == e.id).limit(1)).first()
+    has_ot = session.execute(
+        select(OvertimeEntry.id).where(
+            OvertimeEntry.employment_id == e.id).limit(1)).first()
+    if has_runs is not None or has_ot is not None:
+        raise HTTPException(
+            409, "employment has payroll runs or overtime — "
+                 "set an end_date instead of deleting")
+    for rev in list(e.salary_revisions):
+        session.delete(rev)
+    session.delete(e)
+    emit(session, household.id, actor, "delete", "employment", emp_id,
+         {"employer": e.employer})
+
+
+def _shift_year(d: date, year: int) -> date:
+    """Same month/day one year on, clamped for Feb 29."""
+    try:
+        return d.replace(year=year)
+    except ValueError:
+        return d.replace(year=year, day=28)
+
+
+@router.post("/prepare-year", response_model=schemas.PrepareYearOut,
+             status_code=201)
+def prepare_year(
+    body: schemas.PrepareYearIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> schemas.PrepareYearOut:
+    """Roll the year forward (issue #304): forecast payroll runs for
+    every employment active in the year + budget structure copied
+    forward one year. Idempotent — existing runs/budgets skip."""
+    year = body.year
+    warnings: list[str] = []
+    runs_created = runs_skipped = budgets_created = 0
+    emps = session.scalars(
+        select(Employment).where(
+            Employment.household_id == household.id)).all()
+    for e in emps:
+        if e.end_date is not None and e.end_date < date(year, 1, 1):
+            continue                      # ended before the year
+        if not e.payday_rule:
+            warnings.append(
+                f"{e.employer}: no payday rule — runs skipped")
+            continue
+        rule = pay_calendar.parse_rule(e.payday_rule)
+        for m in range(1, 13):
+            start = date(year, m, 1)
+            if e.end_date is not None and start > e.end_date:
+                break                     # ended mid-year
+            end = date(year, m, calendar.monthrange(year, m)[1])
+            if e.end_date is not None and end > e.end_date:
+                end = e.end_date
+            exists = session.execute(
+                select(PayrollRun.id).where(
+                    PayrollRun.employment_id == e.id,
+                    PayrollRun.period_start == start,
+                    PayrollRun.period_end == end)
+                .limit(1)).first()
+            if exists is not None:
+                runs_skipped += 1
+                continue
+            r = payrun.generate(
+                session, e, start=start, end=end,
+                pay_date=paydays.pay_date(rule, year, m),
+                allow_stale_rules=True)
+            schedule.rematerialize_payroll_run(session, r)
+            runs_created += 1
+    for b in session.scalars(
+            select(Budget).where(
+                Budget.household_id == household.id)).all():
+        if b.end_date.year != year - 1:
+            continue                      # only budgets ending last year
+        new_start, new_end = _shift_year(b.start_date, year), _shift_year(
+            b.end_date, year)
+        clash = session.execute(
+            select(Budget.id).where(
+                Budget.household_id == household.id,
+                Budget.owner_profile_id == b.owner_profile_id,
+                Budget.start_date == new_start,
+                Budget.end_date == new_end).limit(1)).first()
+        if clash is not None:
+            continue                      # already prepared
+        _, w = budget_dom.copy_forward(session, b, b.name,
+                                       new_start, new_end)
+        warnings += w
+        budgets_created += 1
+    emit(session, household.id, actor, "prepare_year", "household",
+         household.id, {"year": year, "runs_created": runs_created,
+                        "budgets_created": budgets_created})
+    return schemas.PrepareYearOut(
+        year=year, runs_created=runs_created,
+        runs_skipped=runs_skipped, budgets_created=budgets_created,
+        warnings=warnings)
+
+
 @router.get("/{emp_id}", response_model=schemas.EmploymentOut)
 def get_employment(emp_id: int, household: HouseholdDep,
                    session: SessionDep) -> schemas.EmploymentOut:
@@ -108,7 +218,7 @@ def patch_employment(
         setattr(e, k, v)
     session.flush()
     emit(session, household.id, actor, "update", "employment", e.id,
-         changed)
+         {k: str(v) for k, v in changed.items()})
     return schemas.EmploymentOut.model_validate(e)
 
 

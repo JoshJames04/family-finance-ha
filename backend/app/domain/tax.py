@@ -167,6 +167,18 @@ def rule_set(session: Session, tax_year: str,
     return row
 
 
+def latest_rule_set(session: Session,
+                    jurisdiction: TaxJurisdiction) -> TaxRuleSet | None:
+    """Newest rule set for a jurisdiction regardless of year — the
+    fallback for forecasting beyond published HMRC tables."""
+    return session.execute(
+        select(TaxRuleSet).where(
+            TaxRuleSet.jurisdiction == jurisdiction)
+        .order_by(TaxRuleSet.tax_year.desc(),
+                  TaxRuleSet.version.desc()).limit(1)
+    ).scalar_one_or_none()
+
+
 def _allowance(code: TaxCode, params: dict[str, Any],
                cum_income: int, months: int) -> int:
     """Effective cumulative allowance incl. PA taper."""
