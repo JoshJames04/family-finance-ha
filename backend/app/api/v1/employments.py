@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import calendar
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -147,7 +147,44 @@ def prepare_year(
             warnings.append(
                 f"{e.employer}: no payday rule — runs skipped")
             continue
-        rule = pay_calendar.parse_rule(e.payday_rule)
+        try:
+            rule = pay_calendar.parse_rule(e.payday_rule)
+        except (ValueError, KeyError):
+            # legacy shorthand (e.g. "last_friday")
+            if e.payday_rule == "last_friday":
+                rule = paydays.PaydayRule(
+                    kind=paydays.RuleKind.nth_weekday, weekday=4, nth=-1)
+            else:
+                warnings.append(
+                    f"{e.employer}: unrecognised payday rule — skipped")
+                continue
+        if rule.kind is paydays.RuleKind.weekly:
+            # weekly pay → one run per ISO week in the year
+            assert rule.weekday is not None
+            last_week = date(year, 12, 28).isocalendar()[1]
+            for wk in range(1, last_week + 1):
+                pd = date.fromisocalendar(year, wk, rule.weekday)
+                start = pd - timedelta(days=6)
+                if e.end_date is not None and start > e.end_date:
+                    break
+                end = pd
+                if e.end_date is not None and end > e.end_date:
+                    end = e.end_date
+                exists = session.execute(
+                    select(PayrollRun.id).where(
+                        PayrollRun.employment_id == e.id,
+                        PayrollRun.period_start == start,
+                        PayrollRun.period_end == end)
+                    .limit(1)).first()
+                if exists is not None:
+                    runs_skipped += 1
+                    continue
+                r = payrun.generate(
+                    session, e, start=start, end=end, pay_date=pd,
+                    allow_stale_rules=True)
+                schedule.rematerialize_payroll_run(session, r)
+                runs_created += 1
+            continue
         for m in range(1, 13):
             start = date(year, m, 1)
             if e.end_date is not None and start > e.end_date:
