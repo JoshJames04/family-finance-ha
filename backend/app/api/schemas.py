@@ -1351,6 +1351,21 @@ class PairRefundOut(BaseModel):
     linked: int
 
 
+class PayeeOut(BaseModel):
+    payee: str
+    transaction_count: int
+
+
+class PayeeRenameIn(BaseModel):
+    source: str = Field(min_length=1, max_length=200)
+    target: str = Field(min_length=1, max_length=200)
+
+
+class PayeeRenameOut(BaseModel):
+    renamed: int
+    skipped: int
+
+
 class SyncCursorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
