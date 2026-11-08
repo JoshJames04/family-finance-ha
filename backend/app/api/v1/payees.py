@@ -10,7 +10,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit

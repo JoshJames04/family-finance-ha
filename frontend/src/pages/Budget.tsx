@@ -14,6 +14,7 @@ import {
 } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
+import { SharedPot } from "../components/SharedPot";
 import { Badge, type BadgeTone } from "../components/Badge";
 import { Money } from "../components/Money";
 import { Button } from "../components/Button";
@@ -472,6 +473,13 @@ export function Budget() {
                         </DataView>
                       </div>
                     </Panel>
+                  </div>
+
+                  {/* The shared pot is a budgeting decision — it lives
+                   * here, period-scoped to the viewed month (issue
+                   * #297). */}
+                  <div className="mt-4">
+                    <SharedPot period={{ start: d.start_date, end: d.end_date }} />
                   </div>
                 </>
               )}

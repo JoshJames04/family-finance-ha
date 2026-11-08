@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, BarChart3, Bell, Briefcase, Building2, CalendarClock,
   FlaskConical, Gift, Handshake, Inbox, Landmark, LayoutDashboard,
   LineChart, type LucideIcon, PiggyBank, ReceiptText, Repeat, Settings,
-  Tag, Target, Users2, Wand2, Zap,
+  Tag, Target, Wand2, Zap,
 } from "lucide-react";
 
 export interface NavItem {
@@ -27,15 +27,18 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, description: "Your money at a glance" },
       { to: "/transactions", label: "Transactions", icon: ArrowLeftRight, description: "Search, categorise and reconcile" },
-      { to: "/budget", label: "Budget", icon: Target, description: "Plan vs actual by month" },
-      { to: "/forecast", label: "Forecast", icon: LineChart, description: "Projected balance and calendar" },
       { to: "/review", label: "Review", icon: Inbox, description: "Items that need a decision" },
+      { to: "/upcoming", label: "Upcoming", icon: CalendarClock, description: "Bills, transfers and paydays ahead" },
+      { to: "/forecast", label: "Forecast", icon: LineChart, description: "Projected balance and calendar" },
+      { to: "/reports", label: "Reports", icon: BarChart3, description: "Monthly and annual summaries" },
+      { to: "/notifications", label: "Notifications", icon: Bell, description: "Alerts and their rules" },
+      { to: "/energy", label: "Energy", icon: Zap, description: "Usage, tariffs and cost" },
     ],
   },
   {
     label: "Planning",
     items: [
-      { to: "/upcoming", label: "Upcoming", icon: CalendarClock, description: "Bills, transfers and paydays ahead" },
+      { to: "/budget", label: "Budget", icon: Target, description: "Plan vs actual — incl. the shared pot" },
       { to: "/bills", label: "Bills", icon: ReceiptText, description: "Things you pay on a schedule" },
       { to: "/subscriptions", label: "Subscriptions", icon: Repeat, description: "Recurring services and renewals" },
       { to: "/goals", label: "Goals", icon: PiggyBank, description: "Savings goals and progress" },
@@ -45,17 +48,13 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Household",
+    label: "Setup",
     items: [
+      { to: "/salary", label: "Salary", icon: Briefcase, description: "Pay, deductions and payslips" },
       { to: "/accounts", label: "Accounts", icon: Landmark, description: "Balances and account health" },
       { to: "/banking", label: "Banking", icon: Building2, description: "Bank connections and sync" },
-      { to: "/shared", label: "Shared", icon: Users2, description: "Who pays what into the shared pot" },
       { to: "/payees", label: "Payees", icon: Tag, description: "Canonical merchant names" },
       { to: "/rules", label: "Rules", icon: Wand2, description: "Automatic categorisation" },
-      { to: "/notifications", label: "Notifications", icon: Bell, description: "Alert rules and inbox" },
-      { to: "/salary", label: "Salary", icon: Briefcase, description: "Payroll, payslips and overtime" },
-      { to: "/energy", label: "Energy", icon: Zap, description: "Usage, tariffs and cost" },
-      { to: "/reports", label: "Reports", icon: BarChart3, description: "Monthly and annual summaries" },
     ],
   },
 ];
