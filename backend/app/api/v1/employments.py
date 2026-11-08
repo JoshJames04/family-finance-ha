@@ -279,7 +279,7 @@ def overtime_transition(
     _get(session, household.id, emp_id)
     o = _entry(session, emp_id, entry_id)
     handlers = {"submit": ot.submit, "approve": ot.approve,
-                "reject": ot.reject}
+                "reject": ot.reject, "rework": ot.rework}
     if action not in handlers:
         raise HTTPException(404, f"unknown action {action!r}")
     handlers[action](o)
@@ -287,6 +287,41 @@ def overtime_transition(
     emit(session, household.id, actor, action, "overtime_entry", o.id,
          {"employment_id": emp_id, "status": o.status.value})
     return schemas.OvertimeOut.model_validate(o)
+
+
+@router.patch("/{emp_id}/overtime-entries/{entry_id}",
+              response_model=schemas.OvertimeOut)
+def patch_overtime(
+    emp_id: int, entry_id: int, body: schemas.OvertimePatch,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.OvertimeOut:
+    e = _get(session, household.id, emp_id)
+    o = _entry(session, emp_id, entry_id)
+    changed = body.model_dump(exclude_unset=True)
+    ot.update_entry(
+        session, o, e,
+        work_date=changed.get("work_date"),
+        hours=changed.get("hours"),
+        multiplier_bps=changed.get("multiplier_bps"),
+        day_type=changed.get("day_type"),
+        notes=changed.get("notes", ...))
+    emit(session, household.id, actor, "update", "overtime_entry", o.id,
+         {"employment_id": emp_id,
+          "fields": sorted(changed.keys())})
+    return schemas.OvertimeOut.model_validate(o)
+
+
+@router.delete("/{emp_id}/overtime-entries/{entry_id}", status_code=204)
+def delete_overtime(
+    emp_id: int, entry_id: int, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> None:
+    _get(session, household.id, emp_id)
+    o = _entry(session, emp_id, entry_id)
+    ot.delete_entry(session, o)
+    emit(session, household.id, actor, "delete", "overtime_entry",
+         entry_id, {"employment_id": emp_id,
+                    "work_date": str(o.work_date)})
 
 
 def _run(session: Session, emp_id: int, run_id: int) -> PayrollRun:
