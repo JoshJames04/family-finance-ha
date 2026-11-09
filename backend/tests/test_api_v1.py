@@ -326,6 +326,50 @@ class TestTransfersAndCommitments:
         # next_date rolled forward — no backdated burst on resume
         assert body["next_date"] >= date.today().isoformat()
 
+    def test_commitment_permanent_delete(
+        self, client: TestClient
+    ) -> None:
+        """#321: ungenerated commitments can be fully removed — the row
+        and every expected-movement row go with it."""
+        _mk_household(client)
+        aid = _mk_account(client)
+        c = client.post("/api/v1/commitments", json={
+            "name": "Old Gym", "account_id": aid, "amount": -2999,
+            "frequency": "monthly",
+            "next_date": "2026-01-01"}).json()
+        assert client.delete(
+            f"/api/v1/commitments/{c['id']}?permanent=true"
+        ).status_code == 204
+        items = client.get(
+            "/api/v1/commitments?include_inactive=true").json()["items"]
+        assert items == []
+        # row is really gone, not just paused — no expected rows left
+        em = client.get("/api/v1/expected-movements"
+                        "?start=2020-01-01&end=2030-12-31").json()
+        assert em == []
+        assert client.delete(
+            f"/api/v1/commitments/{c['id']}").status_code == 404
+
+    def test_commitment_permanent_delete_refused_when_generated(
+        self, client: TestClient
+    ) -> None:
+        """#321: a commitment with generated transactions keeps its
+        history — permanent delete 422s, pause still works."""
+        _mk_household(client)
+        aid = _mk_account(client)
+        c = client.post("/api/v1/commitments", json={
+            "name": "Rent", "account_id": aid, "amount": -120000,
+            "frequency": "monthly",
+            "next_date": "2026-01-01"}).json()
+        r = client.post(
+            f"/api/v1/commitments/{c['id']}/materialise?"
+            "horizon=2026-03-31")
+        assert r.status_code == 200
+        r = client.delete(f"/api/v1/commitments/{c['id']}?permanent=true")
+        assert r.status_code == 422
+        assert client.delete(
+            f"/api/v1/commitments/{c['id']}").status_code == 204
+
 
 class TestPayees:
     """Canonical payee list + rename/merge (issue #276)."""

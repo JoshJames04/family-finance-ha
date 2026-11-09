@@ -740,7 +740,13 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deactivate Commitment */
+        /**
+         * Deactivate Commitment
+         * @description Pause (default, reversible via /activate) or permanently remove
+         *     a commitment. Permanent delete is only allowed when the commitment
+         *     never generated a transaction — history-bearing bills stay on the
+         *     register (issue #321).
+         */
         delete: operations["deactivate_commitment_api_v1_commitments__cid__delete"];
         options?: never;
         head?: never;
@@ -8983,7 +8989,9 @@ export interface operations {
     };
     deactivate_commitment_api_v1_commitments__cid__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                permanent?: boolean;
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;

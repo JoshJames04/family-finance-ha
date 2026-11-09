@@ -88,6 +88,24 @@ describe("Bills", () => {
     ).toBe(true));
   });
 
+  it("removes ungenerated bills permanently via DELETE ?permanent=true", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Bills /></MemoryRouter>);
+    // Broadband has generated_count=3 — no Remove affordance.
+    await screen.findByLabelText("Pause Broadband");
+    expect(screen.queryByLabelText("Remove Broadband")).toBeNull();
+    // Gym is paused and ungenerated — Remove appears and hits permanent.
+    await user.click(await screen.findByLabelText("Remove Gym"));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === "DELETE"
+        && x.url.includes("/commitments/2"));
+      expect(c).toBeDefined();
+      expect(c!.url).toContain("permanent=true");
+    });
+  });
+
   it("posts the next occurrence with horizon = next_date", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);
