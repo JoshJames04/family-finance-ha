@@ -279,12 +279,15 @@ class TestPatchApi:
         lid = ln.json()["id"]
         r = client.patch(f"/api/v1/loans/{lid}", headers=h, json={
             "party": "Mum (updated)", "principal_pence": 450000,
+            "start_date": "2024-06-01", "direction": "they_owe",
             "expected_payment_pence": 8000, "interest_bps_pa": 500,
             "notes": "corrected"})
         assert r.status_code == 200, r.json()
         out = r.json()
         assert out["party"] == "Mum (updated)"
         assert out["principal_pence"] == 450_000
+        assert out["start_date"] == "2024-06-01"
+        assert out["direction"] == "they_owe"
         assert out["expected_payment_pence"] == 8_000
         assert out["interest_bps_pa"] == 500
         assert out["notes"] == "corrected"
