@@ -84,3 +84,69 @@ describe("Loans scope filter", () => {
     expect(screen.queryByText("Sibling")).toBeTruthy();
   });
 });
+
+describe("Loans edit", () => {
+  afterEach(cleanup);
+
+  it("edits an owned loan through the PATCH endpoint", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    const rows = LOANS.map((l) => ({ ...l }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (input, init) => {
+        const url = String(input);
+        const method = String(init?.method ?? "GET");
+        if (method !== "GET") {
+          calls.push({ url, method, body: String(init?.body ?? "") });
+        }
+        const body = url.includes("/api/v1/households")
+          ? { items: [{ id: 1, name: "Home" }], total: 1 }
+          : url.includes("/api/v1/profiles")
+            ? { items: PROFILES, total: PROFILES.length }
+            : method === "PATCH" && /\/api\/v1\/loans\/\d/.test(url)
+              ? (rows[0] = { ...rows[0], ...JSON.parse(String(init?.body)) })
+              : url.includes("/projection")
+                ? { baseline: { months: null, payoff_date: null },
+                    with_extra: { months: null, payoff_date: null },
+                    extra_monthly_pence: 0, months_saved: null }
+                : url.includes("/repayments")
+                  ? []
+                  : /\/api\/v1\/loans\/\d/.test(url)
+                    ? { outstanding_pence: 0, repaid_pence: 0,
+                        accrued_interest_pence: 0,
+                        expected_to_date_pence: 0, drift_pence: 0 }
+                    : url.includes("/api/v1/loans")
+                      ? { items: rows, total: rows.length }
+                      : { items: [], total: 0 };
+        return Promise.resolve(new Response(JSON.stringify(body), {
+          status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Loans /></MemoryRouter>);
+    await screen.findByText("Mum");
+
+    // Every card gets an Edit affordance — owned loans included.
+    const edits = await screen.findAllByRole("button", { name: "Edit" });
+    expect(edits.length).toBe(3);
+    await user.click(edits[0]!);
+
+    // Prefilled from the loan record.
+    await screen.findByText("Edit loan — Mum");
+    const who = screen.getByLabelText("Who") as HTMLInputElement;
+    expect(who.value).toBe("Mum");
+    await user.clear(who);
+    await user.type(who, "Mum x");
+    await user.type(screen.getByLabelText("Interest % pa"), "5");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await screen.findByText("Mum x");
+    const patch = calls.find((c) => c.method === "PATCH");
+    expect(patch).toBeTruthy();
+    expect(patch!.url).toContain("/api/v1/loans/1");
+    const sent = JSON.parse(patch!.body);
+    expect(sent.party).toBe("Mum x");
+    expect(sent.principal_pence).toBe(50000);
+    expect(sent.interest_bps_pa).toBe(500);
+    expect(sent.owner_profile_id).toBe(1);
+    expect(sent.active).toBe(true);
+  });
+});
