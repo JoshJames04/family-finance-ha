@@ -14,7 +14,7 @@ import { Badge } from "../components/Badge";
 import { Money } from "../components/Money";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
-import { Field, Input, Select, Textarea } from "../components/Field";
+import { Checkbox, Field, Input, Select, Textarea } from "../components/Field";
 import { PageHeader, Progress, Segmented, Stat } from "../components/Display";
 import { Skeleton } from "../components/Feedback";
 import {
@@ -32,6 +32,7 @@ export function Loans() {
   const [dir, setDir] = useState<Direction | "all">("all");
   const [scope, setScope] = useState<"all" | "mine" | "shared">("all");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Loan | null>(null);
   const [repaying, setRepaying] = useState<Loan | null>(null);
   const loans = useApi(
     () => api.get("/api/v1/loans", { query: { include_inactive: true } }),
@@ -92,14 +93,19 @@ export function Loans() {
             {list.map((l) => (
               <LoanCard key={l.id} loan={l} rev={rev}
                 owner={profiles.data?.items.find((p) => p.id === l.owner_profile_id)?.display_name ?? null}
+                onEdit={() => setEditing(l)}
                 onRepay={() => setRepaying(l)} />
             ))}
           </div>
         )}
       </DataView>
 
-      <AddLoanDialog open={adding} onOpenChange={setAdding}
+      <LoanDialog open={adding} onOpenChange={setAdding}
         profiles={profiles.data?.items ?? []} onSaved={refresh} />
+      {editing && (
+        <LoanDialog open onOpenChange={(o) => { if (!o) setEditing(null); }}
+          profiles={profiles.data?.items ?? []} loan={editing} onSaved={refresh} />
+      )}
       {repaying && (
         <RepayDialog loan={repaying} onOpenChange={(o) => { if (!o) setRepaying(null); }} onSaved={refresh} />
       )}
@@ -107,7 +113,7 @@ export function Loans() {
   );
 }
 
-function LoanCard({ loan: l, rev, owner, onRepay }: { loan: Loan; rev: number; owner: string | null; onRepay: () => void }) {
+function LoanCard({ loan: l, rev, owner, onEdit, onRepay }: { loan: Loan; rev: number; owner: string | null; onEdit: () => void; onRepay: () => void }) {
   const position = useApi(
     () => api.get("/api/v1/loans/{lid}", { path: { lid: l.id } }),
     true, [l.id, rev]);
@@ -177,47 +183,75 @@ function LoanCard({ loan: l, rev, owner, onRepay }: { loan: Loan; rev: number; o
         </details>
       )}
 
-      {l.active && (
-        <div className="mt-3 flex justify-end border-t border-border pt-3">
-          <Button size="sm" variant="secondary" onClick={onRepay}>Record repayment</Button>
-        </div>
-      )}
+      <div className="mt-3 flex justify-end gap-2 border-t border-border pt-3">
+        <Button size="sm" variant="ghost" onClick={onEdit}>Edit</Button>
+        {l.active && <Button size="sm" variant="secondary" onClick={onRepay}>Record repayment</Button>}
+      </div>
     </Panel>
   );
 }
 
-function AddLoanDialog({ open, onOpenChange, profiles, onSaved }: {
+function LoanDialog({ open, onOpenChange, profiles, loan, onSaved }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   profiles: components["schemas"]["ProfileOut"][];
+  loan?: Loan | null;
   onSaved: () => void;
 }) {
-  const [party, setParty] = useState("");
-  const [direction, setDirection] = useState<Direction>("they_owe");
-  const [principal, setPrincipal] = useState("");
-  const [expected, setExpected] = useState("");
-  const [startDate, setStartDate] = useState(toISODate(new Date()));
-  const [ownerId, setOwnerId] = useState("");
-  const [notes, setNotes] = useState("");
+  const editing = loan ?? null;
+  const [party, setParty] = useState(editing?.party ?? "");
+  const [direction, setDirection] = useState<Direction>(editing?.direction ?? "they_owe");
+  const [principal, setPrincipal] = useState(
+    editing ? (editing.principal_pence / 100).toString() : "");
+  const [expected, setExpected] = useState(
+    editing?.expected_payment_pence != null
+      ? (editing.expected_payment_pence / 100).toString() : "");
+  const [startDate, setStartDate] = useState(editing?.start_date ?? toISODate(new Date()));
+  const [interest, setInterest] = useState(
+    editing?.interest_bps_pa != null
+      ? (editing.interest_bps_pa / 100).toString() : "");
+  const [ownerId, setOwnerId] = useState(
+    editing?.owner_profile_id != null ? String(editing.owner_profile_id) : "");
+  const [active, setActive] = useState(editing?.active ?? true);
+  const [notes, setNotes] = useState(editing?.notes ?? "");
   const [busy, setBusy] = useState(false);
-  const valid = party.trim() && /^\d+(\.\d{1,2})?$/.test(principal);
+  const valid = party.trim() && /^\d+(\.\d{1,2})?$/.test(principal)
+    && (interest === "" || /^\d+(\.\d{1,4})?$/.test(interest));
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
     setBusy(true);
-    api.post("/api/v1/loans", {
-      body: {
-        party: party.trim(),
-        direction,
-        principal,
-        start_date: startDate,
-        expected_payment: expected || null,
-        owner_profile_id: ownerId ? Number(ownerId) : null,
-        notes: notes.trim() || null,
-      },
-    })
+    const interestBps = interest === "" ? null : Math.round(parseFloat(interest) * 100);
+    const saved = editing
+      ? api.patch("/api/v1/loans/{lid}", {
+        path: { lid: editing.id },
+        body: {
+          party: party.trim(),
+          direction,
+          principal_pence: Math.round(parseFloat(principal) * 100),
+          start_date: startDate,
+          expected_payment_pence: expected === "" ? null : Math.round(parseFloat(expected) * 100),
+          interest_bps_pa: interestBps,
+          owner_profile_id: ownerId ? Number(ownerId) : null,
+          active,
+          notes: notes.trim() || null,
+        },
+      })
+      : api.post("/api/v1/loans", {
+        body: {
+          party: party.trim(),
+          direction,
+          principal,
+          start_date: startDate,
+          expected_payment: expected || null,
+          interest_bps_pa: interestBps,
+          owner_profile_id: ownerId ? Number(ownerId) : null,
+          notes: notes.trim() || null,
+        },
+      });
+    saved
       .then(() => {
-        toast.success(`Loan with ${party.trim()} recorded`);
+        toast.success(editing ? `Loan with ${party.trim()} updated` : `Loan with ${party.trim()} recorded`);
         setParty(""); setPrincipal(""); setExpected(""); setNotes("");
         onSaved();
         onOpenChange(false);
@@ -226,11 +260,12 @@ function AddLoanDialog({ open, onOpenChange, profiles, onSaved }: {
       .finally(() => setBusy(false));
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="New loan"
-      description="Track money lent to or borrowed from someone."
+    <Dialog open={open} onOpenChange={onOpenChange}
+      title={editing ? `Edit loan — ${editing.party}` : "New loan"}
+      description={editing ? "Adjust the recorded loan; derived position stays computed." : "Track money lent to or borrowed from someone."}
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button variant="primary" type="submit" form="ff-add-loan" disabled={!valid || busy}>{busy ? "Saving…" : "Add loan"}</Button>
+        <Button variant="primary" type="submit" form="ff-add-loan" disabled={!valid || busy}>{busy ? "Saving…" : (editing ? "Save changes" : "Add loan")}</Button>
       </>}>
       <form id="ff-add-loan" onSubmit={submit} className="grid gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -248,6 +283,9 @@ function AddLoanDialog({ open, onOpenChange, profiles, onSaved }: {
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Start date">{(id) => <Input id={id} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
+          <Field label="Interest % pa" hint="Optional — simple annual rate.">{(id) => <Input id={id} inputMode="decimal" placeholder="e.g. 5" value={interest} onChange={(e) => setInterest(e.target.value.trim())} />}</Field>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
           {profiles.filter((p) => p.is_active).length > 1 && (
             <Field label="Whose loan" hint="Shared unless it's personal.">{(id) => (
               <Select id={id} aria-label="Loan owner" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
@@ -256,6 +294,14 @@ function AddLoanDialog({ open, onOpenChange, profiles, onSaved }: {
                   <option key={p.id} value={p.id}>{p.display_name}</option>
                 ))}
               </Select>
+            )}</Field>
+          )}
+          {editing && (
+            <Field label="Status" hint="Untick to mark the loan settled.">{(id) => (
+              <label className="flex h-9 items-center gap-2 text-[13px]">
+                <Checkbox id={id} checked={active} onChange={(e) => setActive(e.target.checked)} />
+                Active
+              </label>
             )}</Field>
           )}
         </div>
