@@ -11,9 +11,9 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
-## [0.2.0] — 2026-11-09
+## [1.0.0] — 2026-11-09
 
-First released image (`ghcr.io/joshjames04/family-finance-ha:0.2.0`);
+First released image (`ghcr.io/joshjames04/family-finance-ha:1.0.0`);
 pushes to `main` now auto-tag `v{version}` and fire `release.yml`.
 
 - Transactions: split transactions across categories with
