@@ -53,13 +53,15 @@ def build_extractors(
             extractors.append(BudgetYearExtractor(
                 real, household_id=household_id,
                 owner_profile_id=owner_profile_id,
-                year=int(year.group(1)), name="Annual", tables=tables))
+                year=int(year.group(1)), name="Annual", tables=tables,
+                cache=cache))
         elif "MEMBER2" in a:
             extractors.append(BudgetYearExtractor(
                 real, household_id=household_id,
                 owner_profile_id=member2_profile_id,
                 year=int(year.group(1)) if year else 2025,
-                name="Member2", tables=tables, all_owner=True))
+                name="Member2", tables=tables, all_owner=True,
+                cache=cache))
         elif "LOAN" in a:
             extractors.append(LoanLedgerExtractor(
                 real, household_id, loan_party))

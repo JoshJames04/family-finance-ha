@@ -119,12 +119,20 @@ def _app(db_path: str, wb_path: str) -> dict[str, float]:
             mism.append({"record": tid, "issue": "target missing"})
             continue
         cat, side, bid = line
-        # siblings: same cat+side across all budgets
+        # siblings: same cat+side in the SAME owner scope + year —
+        # other owners legitimately hold different lines for the
+        # same category; comparing across them is meaningless.
         sibs = {sd: o for sd, o in db.execute(
             "SELECT b.start_date, l.original_pence "
             "FROM budget_line l JOIN budget b ON b.id=l.budget_id "
-            "WHERE l.category_id = ? AND l.side = ?",
-            (cat, side)).fetchall()}
+            "WHERE l.category_id = ? AND l.side = ? "
+            "AND (b.owner_profile_id IS "
+            "    (SELECT b2.owner_profile_id FROM budget b2 "
+            "     WHERE b2.id = ?)) "
+            "AND substr(b.start_date,1,4) = "
+            "    (SELECT substr(b3.start_date,1,4) FROM budget b3 "
+            "     WHERE b3.id = ?)",
+            (cat, side, bid, bid)).fetchall()}
         checked += 1
         for mi in range(3, 15):  # cols 3..14 = JAN..DEC
             exp = cells.get(mi)
