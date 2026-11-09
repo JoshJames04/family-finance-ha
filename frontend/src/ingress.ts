@@ -10,5 +10,10 @@ export function ingressBasename(): string {
   const m = window.location.pathname.match(
     /^(\/api\/hassio_ingress\/[^/]+)/,
   );
-  return m ? m[1] : import.meta.env.BASE_URL;
+  if (m?.[1]) return m[1];
+  // Vite's `base: "./"` yields BASE_URL "./" — valid for asset URLs
+  // but not a router basename; the app always mounts at root
+  // standalone, so normalise it.
+  const base = import.meta.env.BASE_URL ?? "/";
+  return base.startsWith("/") ? base : "/";
 }

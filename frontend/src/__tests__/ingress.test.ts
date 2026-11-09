@@ -14,8 +14,8 @@ describe("ingressBasename", () => {
     expect(ingressBasename()).toBe("/api/hassio_ingress/t0k3n");
   });
 
-  it("falls back to BASE_URL for standalone", () => {
+  it("normalises a relative BASE_URL to / for standalone", () => {
     window.history.pushState({}, "", "/settings");
-    expect(ingressBasename()).toBe(import.meta.env.BASE_URL);
+    expect(ingressBasename()).toBe("/");
   });
 });
