@@ -61,6 +61,36 @@ def list_rules(
         total=len(rows), page=1, size=len(rows) or 1)
 
 
+def _ensure_space_leg(
+    session: Session, household_id: int, actor: str,
+    parent: Account, space: Account, rule: TransferRule,
+) -> None:
+    """Paired internal main→space rule for a space destination
+    (issue #345): the bank only moves main→main externally, so the
+    external leg targets the space's parent account and this derived
+    leg lands the money in the space. Skipped when an active rule
+    already covers the same parent→space flow."""
+    exists = session.scalar(select(TransferRule).where(
+        TransferRule.household_id == household_id,
+        TransferRule.source_account_id == parent.id,
+        TransferRule.dest_account_id == space.id,
+        TransferRule.active.is_(True)))
+    if exists is not None:
+        return
+    leg = TransferRule(
+        household_id=household_id, name=f"{rule.name} → {space.name}",
+        source_account_id=parent.id, dest_account_id=space.id,
+        amount_spec=rule.amount_spec, frequency=rule.frequency,
+        day_of_month=rule.day_of_month, start_date=rule.start_date,
+        end_date=rule.end_date, notes=rule.notes, active=True)
+    session.add(leg)
+    session.flush()
+    schedule.rematerialize_transfer_rule(session, leg)
+    emit(session, household_id, actor, "create", "transfer_rule",
+         leg.id, {"name": leg.name, "derived": "space_leg",
+                  "for_rule": rule.id})
+
+
 @router.post("", response_model=schemas.TransferRuleOut, status_code=201)
 def create_rule(
     body: schemas.TransferRuleIn, household: HouseholdDep,
@@ -69,10 +99,15 @@ def create_rule(
     _check_accounts(session, household.id, body.source_account_id,
                     body.dest_account_id)
     spec = transfer_rules.parse_spec(body.amount_spec.model_dump())
+    parent = transfer_rules.space_parent(session, body.dest_account_id)
+    external_dest = (parent.id
+                     if parent is not None
+                     and parent.id != body.source_account_id
+                     else body.dest_account_id)
     r = TransferRule(
         household_id=household.id, name=body.name,
         source_account_id=body.source_account_id,
-        dest_account_id=body.dest_account_id,
+        dest_account_id=external_dest,
         amount_spec=json.dumps(body.amount_spec.model_dump()),
         frequency=body.frequency, day_of_month=body.day_of_month,
         start_date=body.start_date, end_date=body.end_date,
@@ -82,6 +117,11 @@ def create_rule(
     schedule.rematerialize_transfer_rule(session, r)
     emit(session, household.id, actor, "create", "transfer_rule", r.id,
          {"name": r.name, "kind": spec.kind.value})
+    if parent is not None and external_dest != body.dest_account_id:
+        space = session.get(Account, body.dest_account_id)
+        if space is not None:
+            _ensure_space_leg(session, household.id, actor, parent,
+                              space, r)
     return schemas.TransferRuleOut.model_validate(r)
 
 
@@ -108,6 +148,16 @@ def update_rule(
     for k, v in changes.items():
         setattr(r, k, v)
     session.flush()
+    # A space destination auto-derives the paired internal leg — the
+    # external leg must land on the space's parent main account (#345).
+    space = session.get(Account, r.dest_account_id)
+    parent = transfer_rules.space_parent(session, r.dest_account_id)
+    if (parent is not None and space is not None
+            and parent.id != r.source_account_id):
+        r.dest_account_id = parent.id
+        session.flush()
+        _ensure_space_leg(session, household.id, actor, parent,
+                          space, r)
     # spec/timing edits regenerate future rows only — history untouched
     schedule.rematerialize_transfer_rule(session, r)
     emit(session, household.id, actor, "update", "transfer_rule", r.id,
