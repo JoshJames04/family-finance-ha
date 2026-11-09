@@ -6,8 +6,9 @@
  */
 import { useState } from "react";
 import { Check, ChevronDown, ShieldCheck } from "lucide-react";
-import { getProfileId, setProfileId } from "../api/client";
-import { useIdentity } from "../api/useApi";
+import { api, getProfileId, setProfileId } from "../api/client";
+import { useApi, useIdentity } from "../api/useApi";
+import { isIngress } from "../ingress";
 import { Sheet } from "../components/Dialog";
 import { Badge } from "../components/Badge";
 import { cn } from "../lib/cn";
@@ -37,9 +38,41 @@ function Avatar({ name, size = "sm" }: { name: string; size?: "sm" | "md" }) {
   );
 }
 
+interface Me {
+  id: number;
+  display_name: string;
+  role: string;
+}
+
 export function ProfileChip() {
+  const ingress = isIngress();
   const identity = useIdentity();
+  const resolved = useApi(
+    () => api.get("/api/v1/auth/me").then((d) => d as unknown as Me),
+    ingress,
+    [],
+  );
   const [open, setOpen] = useState(false);
+  if (ingress) {
+    const me = resolved.data;
+    if (!me) return null;
+    return (
+      <div
+        className="flex w-full items-center gap-2.5 px-1.5 py-1.5"
+        aria-label={`Signed in as ${me.display_name}`}
+      >
+        <Avatar name={me.display_name} />
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block truncate text-[13px] font-medium text-fg">
+            {me.display_name}
+          </span>
+          <span className="block text-[11.5px] capitalize text-fg-subtle">
+            {me.role}
+          </span>
+        </span>
+      </div>
+    );
+  }
   const currentId = getProfileId();
   const profiles = (identity.data ?? []).filter((p) => p.is_active);
   const me = profiles.find((p) => p.id === currentId) ?? profiles[0];
