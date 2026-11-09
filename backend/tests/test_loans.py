@@ -191,6 +191,33 @@ class TestApi:
                           headers=h).json()["outstanding_pence"] \
             == 500_000
 
+    def test_owner_round_trips(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        p = client.post("/api/v1/profiles", headers=h,
+                        json={"display_name": "Josh"})
+        assert p.status_code == 201, p.json()
+        pid = p.json()["id"]
+        # Member-scope (#278): a private loan is only visible to its
+        # owner, so act as Josh to create and list it.
+        hj = {**h, "X-Profile-Id": str(pid)}
+        mine = client.post("/api/v1/loans", headers=hj, json={
+            "party": "Mum", "direction": "we_owe",
+            "principal": 500000, "start_date": "2025-01-01",
+            "owner_profile_id": pid})
+        assert mine.status_code == 201, mine.json()
+        assert mine.json()["owner_profile_id"] == pid
+        shared = client.post("/api/v1/loans", headers=h, json={
+            "party": "Dad", "direction": "they_owe",
+            "principal": 10000, "start_date": "2025-01-01"})
+        items = client.get("/api/v1/loans", headers=hj).json()["items"]
+        assert {i["owner_profile_id"] for i in items} == {pid, None}
+        assert shared.json()["owner_profile_id"] is None
+        # Anonymous (pre-auth compat) sees shared rows only.
+        anon = client.get("/api/v1/loans", headers=h).json()["items"]
+        assert {i["party"] for i in anon} == {"Dad"}
+
     def test_projection_endpoint_and_running_balance(
             self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
@@ -216,6 +243,114 @@ class TestApi:
         assert proj["with_extra"]["months"] < proj["baseline"]["months"]
         assert proj["months_saved"] > 0
         assert proj["extra_monthly_pence"] == 5_000
+
+
+class TestPatchApi:
+    """Issue #278 — loans are editable (PATCH) with member-scope RBAC:
+    shared/own-private writable, other-private invisible (404) and
+    immutable (403)."""
+
+    @pytest.fixture()
+    def client(self, tmp_path: Path) -> Iterator[TestClient]:
+        settings = Settings.load({"FF_DATA_DIR": str(tmp_path)})
+        with TestClient(create_app(settings)) as c:
+            yield c
+
+    def _setup(self, client: TestClient):
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        admin = client.post("/api/v1/profiles", headers=h, json={
+            "display_name": "Admin", "role": "admin"}).json()
+        member = client.post("/api/v1/profiles", headers=h, json={
+            "display_name": "Member", "role": "member"}).json()
+        ha = {**h, "X-Profile-Id": str(admin["id"])}
+        hm = {**h, "X-Profile-Id": str(member["id"])}
+        return h, ha, hm, admin, member
+
+    def test_patch_updates_terms(self, client: TestClient) -> None:
+        h = {"X-Household-Id": str(client.post(
+            "/api/v1/households", json={"name": "H"}).json()["id"])}
+        ln = client.post("/api/v1/loans", headers=h, json={
+            "party": "Mum", "direction": "we_owe",
+            "principal": 500000, "start_date": "2025-01-01",
+            "expected_payment": 10000})
+        assert ln.status_code == 201, ln.json()
+        lid = ln.json()["id"]
+        r = client.patch(f"/api/v1/loans/{lid}", headers=h, json={
+            "party": "Mum (updated)", "principal_pence": 450000,
+            "expected_payment_pence": 8000, "interest_bps_pa": 500,
+            "notes": "corrected"})
+        assert r.status_code == 200, r.json()
+        out = r.json()
+        assert out["party"] == "Mum (updated)"
+        assert out["principal_pence"] == 450_000
+        assert out["expected_payment_pence"] == 8_000
+        assert out["interest_bps_pa"] == 500
+        assert out["notes"] == "corrected"
+        assert out["active"] is True
+        # settle + reactivate through the same endpoint
+        assert client.patch(f"/api/v1/loans/{lid}", headers=h,
+                            json={"active": False}).json()["active"] is False
+        assert client.patch(f"/api/v1/loans/{lid}", headers=h,
+                            json={"active": True}).json()["active"] is True
+
+    def test_member_scope_gates(self, client: TestClient) -> None:
+        h, ha, hm, admin, member = self._setup(client)
+        # Admin-owned private loan — invisible to the member.
+        mine = client.post("/api/v1/loans", headers=ha, json={
+            "party": "Admin loan", "direction": "they_owe",
+            "principal": 10000, "start_date": "2025-01-01",
+            "owner_profile_id": admin["id"]}).json()
+        lid = mine["id"]
+        assert client.get(f"/api/v1/loans/{lid}",
+                          headers=hm).status_code == 404
+        assert client.patch(f"/api/v1/loans/{lid}", headers=hm,
+                            json={"party": "x"}).status_code == 404
+        # Member-owned private loan — member edits own scope.
+        own = client.post("/api/v1/loans", headers=hm, json={
+            "party": "Member loan", "direction": "they_owe",
+            "principal": 10000, "start_date": "2025-01-01",
+            "owner_profile_id": member["id"]}).json()
+        mid = own["id"]
+        r = client.patch(f"/api/v1/loans/{mid}", headers=hm,
+                         json={"notes": "mine"})
+        assert r.status_code == 200
+        # Member may toggle own↔shared, never to another member.
+        assert client.patch(f"/api/v1/loans/{mid}", headers=hm, json={
+            "owner_profile_id": admin["id"]}).status_code == 403
+        assert client.patch(f"/api/v1/loans/{mid}", headers=hm, json={
+            "owner_profile_id": None}).status_code == 200
+        # Admin edits anything.
+        assert client.patch(f"/api/v1/loans/{lid}", headers=ha,
+                            json={"notes": "by admin"}).status_code == 200
+
+    def test_list_and_write_visibility(self, client: TestClient) -> None:
+        h, ha, hm, admin, member = self._setup(client)
+        client.post("/api/v1/loans", headers=ha, json={
+            "party": "Admin only", "direction": "we_owe",
+            "principal": 10000, "start_date": "2025-01-01",
+            "owner_profile_id": admin["id"]})
+        client.post("/api/v1/loans", headers=hm, json={
+            "party": "Member only", "direction": "we_owe",
+            "principal": 20000, "start_date": "2025-01-01",
+            "owner_profile_id": member["id"]})
+        client.post("/api/v1/loans", headers=ha, json={
+            "party": "Shared", "direction": "we_owe",
+            "principal": 30000, "start_date": "2025-01-01"})
+        parties = {i["party"] for i in
+                   client.get("/api/v1/loans", headers=hm).json()["items"]}
+        assert parties == {"Member only", "Shared"}
+        # Member cannot record repayments on admin's private loan
+        # (the loan is not even visible, so the sub-resource 404s).
+        admin_loan = client.post("/api/v1/loans", headers=ha, json={
+            "party": "A2", "direction": "we_owe",
+            "principal": 5000, "start_date": "2025-01-01",
+            "owner_profile_id": admin["id"]}).json()
+        assert client.post(
+            f"/api/v1/loans/{admin_loan['id']}/repayments",
+            headers=hm, json={"date": "2025-02-01",
+                              "amount": 100}).status_code == 404
 
 
 class TestProjection:

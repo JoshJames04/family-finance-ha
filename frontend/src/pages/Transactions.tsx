@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Bookmark, Check, Download, FilterX, Lock, Pencil, Plus, Receipt,
-  Scissors, StickyNote, X,
+  Scissors, StickyNote, Upload, X,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi, useHouseholds } from "../api/useApi";
@@ -85,6 +85,7 @@ export function Transactions() {
   const [correcting, setCorrecting] = useState<Txn | null>(null);
   const [noting, setNoting] = useState<Txn | null>(null);
   const [splitting, setSplitting] = useState<Txn | null>(null);
+  const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(1);
   const [loaded, setLoaded] = useState<Txn[]>([]);
   const state = useApi(
@@ -174,6 +175,9 @@ export function Transactions() {
             >
               <Download /> Export
             </a>
+            <Button variant="secondary" onClick={() => setImporting(true)}>
+              <Upload /> Import
+            </Button>
             <Button variant="primary" onClick={openQuickAdd}><Plus /> Add</Button>
           </>
         }
@@ -515,6 +519,13 @@ export function Transactions() {
               r.id === noting.id ? { ...r, notes } : r));
             toast.success(notes ? "Note saved" : "Note cleared");
           }}
+        />
+      )}
+      {importing && (
+        <ImportDialog
+          accounts={accounts.data?.items ?? []}
+          onClose={() => setImporting(false)}
+          onDone={() => { setImporting(false); refresh(); }}
         />
       )}
       <SaveFilterDialog
@@ -868,6 +879,146 @@ function SplitDialog({ txn, categories, onClose, onSaved }: {
         </div>
         {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
       </form>
+    </Dialog>
+  );
+}
+
+/** Statement file import wizard (issue #288): pick file + account →
+ * column-map (CSV) → review parsed rows with duplicate flags →
+ * commit. OFX/QIF need no mapping. */
+function ImportDialog({ accounts, onClose, onDone }: {
+  accounts: components["schemas"]["AccountOut"][];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  type Row = components["schemas"]["StatementImportRowOut"];
+  type Preview = components["schemas"]["StatementImportPreviewOut"];
+  const [file, setFile] = useState<File | null>(null);
+  const [accountId, setAccountId] = useState("");
+  const [cols, setCols] = useState({ date: "Date", payee: "Description",
+    amount: "Amount", debit: "Money Out", credit: "Money In" });
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fmt = (file?.name.split(".").pop() ?? "csv").toLowerCase();
+  const isCsv = fmt === "csv";
+
+  const doPreview = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || !accountId) return;
+    setBusy(true); setError(null);
+    const mapping = isCsv ? JSON.stringify({
+      date: cols.date, payee: cols.payee,
+      amount: cols.amount || undefined,
+      debit: cols.debit || undefined,
+      credit: cols.credit || undefined,
+    }) : "{}";
+    api.upload("/api/v1/imports/preview", file, {
+      account_id: accountId, fmt, mapping,
+    }).then((r) => setPreview(r as Preview))
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  const doCommit = () => {
+    if (!preview) return;
+    setBusy(true);
+    api.post("/api/v1/imports/{import_id}/commit",
+      { path: { import_id: preview.import_row.id } })
+      .then((r) => {
+        const imp = r as Preview["import_row"];
+        toast.success(`Imported ${imp.rows_imported} transaction${imp.rows_imported === 1 ? "" : "s"}${imp.rows_skipped ? `, ${imp.rows_skipped} duplicates skipped` : ""}`);
+        onDone();
+      })
+      .catch((err: Error) => { setError(err.message); setBusy(false); });
+  };
+
+  const dupCount = preview?.rows.filter((r) => r.duplicate).length ?? 0;
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
+      title="Import statement"
+      description="CSV, OFX or QIF from your bank. Duplicates are skipped automatically."
+      footer={preview ? (
+        <>
+          <Button variant="ghost" onClick={() => setPreview(null)}>Back</Button>
+          <Button variant="primary" onClick={doCommit}
+            disabled={busy || preview.rows.length - dupCount === 0}>
+            {busy ? "Importing…" : `Import ${preview.rows.length - dupCount} transaction${preview.rows.length - dupCount === 1 ? "" : "s"}`}
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="ff-import"
+            disabled={busy || !file || !accountId}>
+            {busy ? "Parsing…" : "Preview"}
+          </Button>
+        </>
+      )}>
+      {preview ? (
+        <div className="max-h-72 overflow-auto">
+          <table className="w-full text-[13px]">
+            <tbody>
+              {preview.rows.slice(0, 50).map((r: Row, i) => (
+                <tr key={i} className={r.duplicate ? "opacity-50" : ""}>
+                  <td className="py-1 pr-2 text-fg-subtle">{r.date}</td>
+                  <td className="truncate py-1 pr-2">{r.payee}</td>
+                  <td className="py-1 pr-2 text-right">
+                    <Money pence={r.amount_pence} signed tone="auto" /></td>
+                  <td className="w-16 text-right">
+                    {r.duplicate && <Badge tone="neutral">dup</Badge>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {preview.rows.length > 50 && (
+            <p className="mt-2 text-[12px] text-fg-subtle">
+              …and {preview.rows.length - 50} more
+            </p>)}
+          {dupCount > 0 && (
+            <p className="mt-2 text-[12.5px] text-fg-subtle">
+              {dupCount} already imported — will be skipped.
+            </p>)}
+        </div>
+      ) : (
+        <form id="ff-import" onSubmit={doPreview} className="grid gap-4">
+          <Field label="Account">{(id) => (
+            <Select id={id} aria-label="Import into account"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}>
+              <option value="">Choose account…</option>
+              {accounts.filter((a) => !a.archived).map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>))}
+            </Select>
+          )}</Field>
+          <Field label="Statement file">{(id) => (
+            <Input id={id} aria-label="Statement file" type="file"
+              accept=".csv,.ofx,.qif"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          )}</Field>
+          {isCsv && (
+            <div className="grid gap-3 rounded-xl border border-border p-3 sm:grid-cols-2">
+              <p className="col-span-full text-[12.5px] text-fg-subtle">
+                Column names — use either Amount <em>or</em> the
+                Money Out / Money In pair.
+              </p>
+              {(["date", "payee", "amount", "debit", "credit"] as const)
+                .map((k) => (
+                  <Field key={k}
+                    label={k === "debit" ? "Money out" : k === "credit" ? "Money in" : k[0]!.toUpperCase() + k.slice(1)}>
+                    {(id) => (
+                      <Input id={id} aria-label={`${k} column`}
+                        value={cols[k]}
+                        onChange={(e) =>
+                          setCols((c) => ({ ...c, [k]: e.target.value }))} />
+                    )}
+                  </Field>
+                ))}
+            </div>
+          )}
+        </form>
+      )}
+      {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
     </Dialog>
   );
 }

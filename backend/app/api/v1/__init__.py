@@ -20,6 +20,7 @@ from app.api.v1 import (
     forecast,
     goals,
     households,
+    imports,
     loans,
     migration,
     notifications,
@@ -52,6 +53,7 @@ v1_router.include_router(expected.router)
 v1_router.include_router(forecast.router)
 v1_router.include_router(goals.router)
 v1_router.include_router(loans.router)
+v1_router.include_router(imports.router)
 v1_router.include_router(migration.router)
 v1_router.include_router(reports.router)
 v1_router.include_router(analytics.router)

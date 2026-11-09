@@ -1096,12 +1096,27 @@ class LoanIn(BaseModel):
     start_date: date
     expected_payment: Money | None = None
     interest_bps_pa: int | None = Field(default=None, ge=0)
+    owner_profile_id: int | None = None  # private↔shared
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class LoanPatch(BaseModel):
+    party: str | None = Field(default=None, min_length=1,
+                              max_length=120)
+    direction: LoanDirection | None = None
+    principal_pence: int | None = None
+    start_date: date | None = None
+    expected_payment_pence: int | None = None
+    interest_bps_pa: int | None = Field(default=None, ge=0)
+    owner_profile_id: int | None = None  # private↔shared (audited)
+    active: bool | None = None
     notes: str | None = Field(default=None, max_length=500)
 
 
 class LoanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    owner_profile_id: int | None
     party: str
     direction: LoanDirection
     principal_pence: int
@@ -1819,3 +1834,28 @@ class EnergyMonthReportOut(BaseModel):
     projected_total_pence: int | None
     projected_variance_pence: int | None
     avg_daily_wh: int | None
+
+
+class StatementImportRowOut(BaseModel):
+    date: date
+    amount_pence: int
+    payee: str
+    notes: str | None
+    duplicate: bool
+
+
+class StatementImportOut(BaseModel):
+    id: int
+    account_id: int
+    filename: str
+    format: str
+    status: str
+    rows_total: int
+    rows_imported: int
+    rows_skipped: int
+    created_at: datetime
+
+
+class StatementImportPreviewOut(BaseModel):
+    import_row: StatementImportOut
+    rows: list[StatementImportRowOut]
