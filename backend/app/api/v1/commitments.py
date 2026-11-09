@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
@@ -12,7 +12,12 @@ from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.domain import schedule
 from app.domain.recurring import advance, materialise
-from app.persistence.models import Account, RecurringCommitment
+from app.persistence.models import (
+    Account,
+    ExpectedMovement,
+    ExpectedSource,
+    RecurringCommitment,
+)
 
 router = APIRouter(prefix="/commitments", tags=["commitments"])
 
@@ -124,9 +129,25 @@ def materialise_commitment(
 @router.delete("/{cid}", status_code=204)
 def deactivate_commitment(
     cid: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep,
+    actor: ActorDep, permanent: Annotated[bool, Query()] = False,
 ) -> None:
+    """Pause (default, reversible via /activate) or permanently remove
+    a commitment. Permanent delete is only allowed when the commitment
+    never generated a transaction — history-bearing bills stay on the
+    register (issue #321)."""
     c = _get(session, household.id, cid)
+    if permanent:
+        if c.generated_count:
+            raise HTTPException(
+                422, "commitment has generated transactions — pause "
+                     "instead of deleting")
+        session.execute(delete(ExpectedMovement).where(
+            ExpectedMovement.source_type == ExpectedSource.commitment,
+            ExpectedMovement.source_id == c.id))
+        session.delete(c)
+        emit(session, household.id, actor, "delete",
+             "recurring_commitment", c.id)
+        return
     c.active = False
     schedule.rematerialize_commitment(session, c)  # drops future rows
     emit(session, household.id, actor, "deactivate",

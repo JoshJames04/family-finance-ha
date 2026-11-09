@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import {
-  CalendarClock, Pause, Pencil, Play, Plus, ReceiptText, Send,
+  CalendarClock, Pause, Pencil, Play, Plus, ReceiptText, Send, Trash2,
 } from "lucide-react";
 import { api, getProfileId } from "../api/client";
 import { useApi, useIdentity } from "../api/useApi";
@@ -119,6 +119,15 @@ export function Bills() {
         refresh();
       })
       .catch((e: Error) => toast.error(e.message));
+
+  const remove = (c: Commitment) =>
+    api.delete("/api/v1/commitments/{cid}",
+      { path: { cid: c.id }, query: { permanent: true } })
+      .then(() => {
+        toast.success(`${c.name} removed`);
+        refresh();
+      })
+      .catch((err: Error) => toast.error(err.message));
   const resume = (c: Commitment) =>
     api.post("/api/v1/commitments/{cid}/activate", { path: { cid: c.id } })
       .then(() => { toast.success(`${c.name} resumed`); refresh(); })
@@ -240,6 +249,11 @@ export function Bills() {
                               aria-label={`Edit ${c.name}`} title="Edit"><Pencil /></Button>
                             <Button size="sm" variant="ghost" onClick={() => pause(c)}
                               aria-label={`Pause ${c.name}`} title="Pause — stops generating"><Pause /></Button>
+                            {!c.generated_count && (
+                              <Button size="sm" variant="ghost" onClick={() => remove(c)}
+                                aria-label={`Remove ${c.name}`} title="Remove permanently — never generated">
+                                <Trash2 /></Button>
+                            )}
                           </div>
                         </li>
                       );
@@ -267,6 +281,11 @@ export function Bills() {
                         aria-label={`Resume ${c.name}`}><Play /> Resume</Button>
                       <Button size="sm" variant="ghost" onClick={() => setEditing(c)}
                         aria-label={`Edit ${c.name}`}><Pencil /></Button>
+                      {!c.generated_count && (
+                        <Button size="sm" variant="ghost" onClick={() => remove(c)}
+                          aria-label={`Remove ${c.name}`} title="Remove permanently — never generated">
+                          <Trash2 /></Button>
+                      )}
                     </li>
                   ))}
                 </ul>
