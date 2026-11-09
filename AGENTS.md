@@ -31,7 +31,8 @@ children done → epic Done; any child active → In Progress.
 
 ## Verification before claiming done
 
-- `cd backend && python -m pytest tests/ -q` (full suite)
+- `cd backend && python -m pytest tests/ -q -m "not perf"` (full suite)
+- `python -m pytest -m perf` runs the non-gating perf budgets (#132)
 - `python -m ruff check app/ tests/` and `python -m mypy app/`
 - New migration → `alembic upgrade head`, then downgrade one step,
   upgrade again; `alembic heads` must print exactly one head.
