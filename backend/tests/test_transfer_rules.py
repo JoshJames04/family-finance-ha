@@ -380,6 +380,102 @@ class TestApi:
         assert s["matched_pence"] == 80000
         assert s["outstanding_pence"] == 10000
 
+    def test_patch_source_and_dest(self, client: TestClient) -> None:
+        """Issue #344: rule endpoints are editable after creation —
+        wrong account picks no longer need delete+recreate."""
+        h, src, dst = self._setup(client)
+        other = client.post("/api/v1/accounts", json={
+            "name": "Food", "type": "joint", "opening_balance": 0,
+            "opening_date": "2025-01-01"}, headers=h).json()["id"]
+        rid = client.post("/api/v1/transfer-rules", headers=h, json={
+            "name": "Share", "source_account_id": src,
+            "dest_account_id": dst,
+            "amount_spec": {"kind": "fixed", "pence": 50000},
+            "frequency": "monthly", "day_of_month": 1,
+            "start_date": "2025-01-01"}).json()["id"]
+        r = client.patch(f"/api/v1/transfer-rules/{rid}", headers=h,
+                         json={"dest_account_id": other})
+        assert r.status_code == 200, r.json()
+        assert r.json()["dest_account_id"] == other
+        rows = client.get("/api/v1/expected-movements", headers=h,
+                          params={"start": date.today().isoformat(),
+                                  "end": "2027-12-31"}).json()
+        legs = [m for m in rows if m["source_id"] == rid]
+        assert legs
+        assert {m["account_id"] for m in legs} == {src, other}
+
+    def test_patch_same_account_rejected(
+            self, client: TestClient) -> None:
+        h, src, dst = self._setup(client)
+        rid = client.post("/api/v1/transfer-rules", headers=h, json={
+            "name": "Share", "source_account_id": src,
+            "dest_account_id": dst,
+            "amount_spec": {"kind": "fixed", "pence": 50000},
+            "frequency": "monthly", "day_of_month": 1,
+            "start_date": "2025-01-01"}).json()["id"]
+        r = client.patch(f"/api/v1/transfer-rules/{rid}", headers=h,
+                         json={"dest_account_id": src})
+        assert r.status_code == 422
+
+    def test_pause_and_resume_via_active(
+            self, client: TestClient) -> None:
+        h, src, dst = self._setup(client)
+        rid = client.post("/api/v1/transfer-rules", headers=h, json={
+            "name": "Share", "source_account_id": src,
+            "dest_account_id": dst,
+            "amount_spec": {"kind": "fixed", "pence": 50000},
+            "frequency": "monthly", "day_of_month": 1,
+            "start_date": "2025-01-01"}).json()["id"]
+        assert client.patch(f"/api/v1/transfer-rules/{rid}", headers=h,
+                            json={"active": False}).status_code == 200
+        rows = client.get("/api/v1/expected-movements", headers=h,
+                          params={"start": date.today().isoformat(),
+                                  "end": "2027-12-31"}).json()
+        assert not [m for m in rows if m["source_id"] == rid]
+        assert client.patch(f"/api/v1/transfer-rules/{rid}", headers=h,
+                            json={"active": True}).status_code == 200
+        rows = client.get("/api/v1/expected-movements", headers=h,
+                          params={"start": date.today().isoformat(),
+                                  "end": "2027-12-31"}).json()
+        assert [m for m in rows if m["source_id"] == rid]
+
+    def test_delete_removes_rule_keeps_matched(
+            self, client: TestClient) -> None:
+        """Issue #344: DELETE is a true removal — unmatched generated
+        movements go with it; matched history is preserved."""
+        h, src, dst = self._setup(client)
+        rid = client.post("/api/v1/transfer-rules", headers=h, json={
+            "name": "Share", "source_account_id": src,
+            "dest_account_id": dst,
+            "amount_spec": {"kind": "fixed", "pence": 80000},
+            "frequency": "monthly", "day_of_month": 1,
+            "start_date": "2025-01-01"}).json()["id"]
+        rows = client.get("/api/v1/expected-movements", headers=h,
+                          params={"start": date.today().isoformat(),
+                                  "end": "2027-12-31"}).json()
+        in_leg = next(m for m in rows
+                      if m["source_id"] == rid
+                      and m["account_id"] == dst
+                      and m["amount_pence"] > 0)
+        tx = client.post("/api/v1/transactions", headers=h, json={
+            "account_id": dst, "date": in_leg["expected_date"],
+            "payee": "Share in", "amount": "800"}).json()
+        m = client.post(
+            f"/api/v1/expected-movements/{in_leg['id']}/matches",
+            headers=h, json={"transaction_id": tx["id"]})
+        assert m.status_code == 201, m.json()
+
+        assert client.delete(
+            f"/api/v1/transfer-rules/{rid}", headers=h).status_code == 204
+        listed = client.get("/api/v1/transfer-rules", headers=h,
+                            params={"include_inactive": "true"}).json()
+        assert not [r for r in listed["items"] if r["id"] == rid]
+        rows = client.get("/api/v1/expected-movements", headers=h,
+                          params={"start": date.today().isoformat(),
+                                  "end": "2027-12-31"}).json()
+        remaining = [m for m in rows if m["source_id"] == rid]
+        assert [m["id"] for m in remaining] == [in_leg["id"]]
+
     def test_same_account_rejected(self, client: TestClient) -> None:
         h, src, _ = self._setup(client)
         r = client.post("/api/v1/transfer-rules", headers=h, json={

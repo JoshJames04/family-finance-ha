@@ -2241,8 +2241,14 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deactivate Rule */
-        delete: operations["deactivate_rule_api_v1_transfer_rules__rid__delete"];
+        /**
+         * Delete Rule
+         * @description Permanent removal (issue #344): every *unmatched* expected
+         *     movement the rule generated goes with it — matched rows stay:
+         *     ``expected_match`` FKs to them and real money already met the
+         *     obligation. Pause is the softer option (PATCH ``active=false``).
+         */
+        delete: operations["delete_rule_api_v1_transfer_rules__rid__delete"];
         options?: never;
         head?: never;
         /** Update Rule */
@@ -7149,6 +7155,10 @@ export interface components {
         TransferRulePatch: {
             /** Name */
             name?: string | null;
+            /** Source Account Id */
+            source_account_id?: number | null;
+            /** Dest Account Id */
+            dest_account_id?: number | null;
             /** Amount Spec */
             amount_spec?: (components["schemas"]["FixedSpecIn"] | components["schemas"]["IncomePctSpecIn"] | components["schemas"]["BudgetLineSpecIn"]) | null;
             frequency?: components["schemas"]["Frequency"] | null;
@@ -7160,6 +7170,8 @@ export interface components {
             end_date?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Active */
+            active?: boolean | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -12646,7 +12658,7 @@ export interface operations {
             };
         };
     };
-    deactivate_rule_api_v1_transfer_rules__rid__delete: {
+    delete_rule_api_v1_transfer_rules__rid__delete: {
         parameters: {
             query?: never;
             header?: {
