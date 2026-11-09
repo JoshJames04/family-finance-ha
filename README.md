@@ -5,7 +5,7 @@ designed to become the single source of truth for a household's financial life:
 budgeting, forecasting, payroll, savings, debts, subscriptions and day-to-day
 spending — all in one place, under your control.
 
-> **Status:** Pre-implementation planning. The development backlog lives in
+> **Status:** Active development. A working Home Assistant app, React frontend and FastAPI backend are in the repository. `develop` is the integration branch; `main` is the release branch. This is not yet approved for production household financial use. The development backlog lives in
 > GitHub Issues; delivery is tracked on the
 > [Family Finance project board](https://github.com/users/JoshJames04/projects/1)
 > (Backlog / Board / Current Sprint / Roadmap / By Epic views) with phases in
