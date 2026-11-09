@@ -4,6 +4,7 @@
  * relative to `document.baseURI`, so requests stay under the Home
  * Assistant ingress prefix automatically.
  */
+import { isIngress } from "../ingress";
 import type { paths } from "./schema";
 
 /** Paths that support a given HTTP method. */
@@ -141,9 +142,10 @@ export async function request<
   if (init?.body !== undefined) headers["Content-Type"] = "application/json";
   const hid = init?.householdId ?? getHouseholdId();
   if (hid !== null) headers["X-Household-Id"] = String(hid);
-  // Standalone/dev identity — ignored under ingress, where the
-  // Supervisor injects the HA user identity instead.
-  const pid = getProfileId();
+  // Standalone/dev identity only — under ingress the Supervisor
+  // injects the HA user identity and a stored header could only
+  // contradict it, so it is never sent (#341).
+  const pid = isIngress() ? null : getProfileId();
   if (pid !== null) headers["X-Profile-Id"] = String(pid);
 
   // Leading "." resolves relative to baseURI → ingress-safe.
@@ -177,7 +179,7 @@ export const api = {
                  fields?: Record<string, string>) => {
     const headers: Record<string, string> = {};
     const hid = getHouseholdId();
-    const pid = getProfileId();
+    const pid = isIngress() ? null : getProfileId();
     if (hid !== null) headers["X-Household-Id"] = String(hid);
     if (pid !== null) headers["X-Profile-Id"] = String(pid);
     const form = new FormData();
@@ -191,7 +193,7 @@ export const api = {
   download: async (path: string) => {
     const headers: Record<string, string> = {};
     const hid = getHouseholdId();
-    const pid = getProfileId();
+    const pid = isIngress() ? null : getProfileId();
     if (hid !== null) headers["X-Household-Id"] = String(hid);
     if (pid !== null) headers["X-Profile-Id"] = String(pid);
     const res = await fetch(`.${path}`, { headers });
