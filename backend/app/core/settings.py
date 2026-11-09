@@ -64,7 +64,9 @@ class Settings(BaseSettings):
 
     @property
     def resolved_backup_dir(self) -> Path:
-        return self.backup_dir or (self.data_dir / "backups")
+        if self.backup_dir is not None and str(self.backup_dir).strip():
+            return self.backup_dir
+        return self.data_dir / "backups"
 
     @property
     def restore_marker(self) -> Path:
@@ -103,8 +105,13 @@ class Settings(BaseSettings):
             env_kwargs.get("options_file")
             or Path(str(env_kwargs.get("data_dir", "/data"))) / "options.json"
         )
+        # The Supervisor serialises unset options as "" — normalise
+        # those to absent so "" never reaches fields where it would
+        # parse as Path("") (truthy!) or SecretStr("").
         options: dict[str, Any] = (
-            json.loads(opts_path.read_text()) if opts_path.is_file() else {}
+            {k: v for k, v in json.loads(opts_path.read_text()).items()
+             if v != ""}
+            if opts_path.is_file() else {}
         )
         merged = {**options, **env_kwargs}
         if environ is None:
