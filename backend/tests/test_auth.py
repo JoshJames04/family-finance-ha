@@ -111,6 +111,60 @@ class TestIngressTrust:
             assert r.status_code == 401
 
 
+class TestIngressTrustMatrix:
+    """Issue #364 — the trusted ingress path must be unreachable from
+    every untrusted network route, not just the canonical one."""
+
+    def test_partial_remote_header_set_denied(self, tmp_path: Path):
+        """Any remote-user header from an untrusted peer is a spoof —
+        a bare X-Remote-User-Name must not slip through because the
+        uid header is absent."""
+        with TestClient(_app(tmp_path, FF_INGRESS="true")) as c:
+            r = c.get("/api/v1/auth/me",
+                      headers={"X-Remote-User-Name": "mallory"})
+            assert r.status_code == 401
+
+    def test_forwarded_for_cannot_launder_peer(self, tmp_path: Path):
+        """The trust decision reads the transport peer
+        (``request.client``), never X-Forwarded-For — claiming the
+        supervisor IP in XFF must not launder an untrusted peer."""
+        with TestClient(_app(tmp_path, FF_INGRESS="true")) as c:
+            r = c.get("/api/v1/auth/me", headers={
+                "X-Remote-User-Id": "evil",
+                "X-Forwarded-For": auth.SUPERVISOR_IP})
+            assert r.status_code == 401
+
+    def test_spoof_denied_in_standalone_mode(self, tmp_path: Path):
+        """Remote-user headers are Supervisor-only in every mode —
+        a direct-URL standalone deployment must reject them too, or
+        port 8099 publication becomes an identity-spoof route."""
+        with TestClient(_app(tmp_path, FF_ENV="ci")) as c:
+            r = c.get("/api/v1/auth/me", headers={
+                "X-Remote-User-Id": "evil"})
+            assert r.status_code == 401
+
+    def test_spoof_beats_valid_session(self, tmp_path: Path):
+        """A valid standalone session must not rescue a request that
+        also carries spoofed remote headers — the spoof check runs
+        before any identity resolution."""
+        with TestClient(_app(tmp_path, FF_ENV="ci")) as c:
+            p = _seed_profile(c, password="pw")
+            c.post("/api/v1/auth/login",
+                   json={"username": "Mum", "password": "pw"})
+            r = c.get("/api/v1/auth/me", headers={
+                "X-Remote-User-Id": "evil"})
+            assert r.status_code == 401
+
+    def test_no_identity_under_ingress_is_denied(
+            self, tmp_path: Path, monkeypatch):
+        """A direct-port request under ingress with no supervisor
+        headers resolves nobody — protected routes fail closed."""
+        monkeypatch.setattr(auth, "SUPERVISOR_IP", "testclient")
+        with TestClient(_app(tmp_path, FF_INGRESS="true")) as c:
+            c.post("/api/v1/households", json={"name": "H"})
+            assert c.get("/api/v1/auth/me").status_code == 401
+
+
 class TestStandaloneSessions:
     ENV = {"FF_ENV": "ci"}
     def test_login_cookie_and_me(self, tmp_path: Path):
