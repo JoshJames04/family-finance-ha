@@ -46,7 +46,9 @@ COPY --from=web /web/dist ./web
 # Starts as root so the entrypoint can chown the mounted /data volume
 # (the HA Supervisor writes options.json root-owned), then drops to ff.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Strip CR — a CRLF checkout (Windows dev box) would break the shebang.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+    && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8099
 VOLUME ["/data"]

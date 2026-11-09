@@ -68,6 +68,39 @@ jobs:
           docker inspect ff:ci --format \
             '{{index .Config.Labels "org.opencontainers.image.version"}}' \
             | grep -Fx "${{ needs.verify.outputs.version }}"
+      - name: Supervisor-mode smoke (add-on boot path)
+        run: |
+          set -euo pipefail
+          # Simulate the Supervisor: root-owned options.json with ""
+          # option values, SUPERVISOR_TOKEN env, a named /data volume,
+          # and a client pinned at the supervisor IP — then RESTART to
+          # cover the existing-DB pre-migration snapshot path.
+          docker volume create ff-data >/dev/null
+          docker run --rm -v ff-data:/d alpine sh -c \
+            'echo "{\"admin_token\":\"\",\"backup_dir\":\"\"}" \
+             > /d/options.json && chmod 600 /d/options.json'
+          docker network create --subnet 172.30.32.0/24 ff-net >/dev/null
+          docker run -d --name ffsup --network ff-net \
+            --ip 172.30.32.10 -e SUPERVISOR_TOKEN=ci \
+            -v ff-data:/data ff:ci
+          for i in $(seq 1 90); do
+            st=$(docker inspect ffsup \
+                 --format '{{.State.Health.Status}}' 2>/dev/null || true)
+            [ "$st" = healthy ] && break || sleep 2
+          done
+          docker inspect ffsup --format '{{.State.Health.Status}}' \
+            | grep -q healthy
+          docker restart ffsup >/dev/null   # second boot
+          sup="docker run --rm --network ff-net --ip 172.30.32.2 \
+               curlimages/curl -sf"
+          for i in $(seq 1 45); do
+            $sup http://ffsup:8099/healthz && break || sleep 2
+          done
+          $sup http://ffsup:8099/healthz
+          $sup http://ffsup:8099/ | grep -qi html
+          $sup -H "X-Remote-User-Id: ci" \
+            -H "X-Remote-User-Display-Name: CI" \
+            http://ffsup:8099/api/v1/auth/me | grep -q '"role":"admin"'
 
   publish:
     needs: [verify, smoke]
