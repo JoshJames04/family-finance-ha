@@ -176,6 +176,44 @@ class TestAdminEndpoints:
         finally:
             conn.close()
 
+    def test_download_and_upload_restore(self, tmp_path: Path) -> None:
+        """Download streams a snapshot; uploading one queues a restore
+        (issue #328)."""
+        s = _settings(tmp_path)
+        with TestClient(create_app(s)) as c:
+            hid = c.post("/api/v1/households",
+                         json={"name": "H1"}).json()["id"]
+            h = {"X-Household-Id": str(hid), **ADMIN}
+            name = c.post("/api/v1/admin/backups",
+                          headers=h).json()["name"]
+            dl = c.get(f"/api/v1/admin/backups/{name}/download",
+                       headers=h)
+            assert dl.status_code == 200
+            assert dl.content[:15] == b"SQLite format 3"
+            # Pattern-guarded names only — no traversal, no other files.
+            assert c.get("/api/v1/admin/backups/evil.db/download",
+                         headers=h).status_code == 404
+            assert c.get("/api/v1/admin/backups/"
+                         "ff-19990101T000000.db/download",
+                         headers=h).status_code == 404
+            # Upload → verify → marker; then a corrupt upload is refused.
+            up = c.post("/api/v1/admin/restore/upload", headers=h,
+                        files={"file": ("snap.db", dl.content)})
+            assert up.status_code == 202
+            assert s.restore_marker.is_file()
+            s.restore_marker.unlink()
+            bad = c.post("/api/v1/admin/restore/upload", headers=h,
+                         files={"file": ("bad.db", b"not sqlite")})
+            assert bad.status_code == 422
+            assert not s.restore_marker.exists()
+        assert not s.restore_marker.exists()
+        conn = sqlite3.connect(db_file)
+        try:
+            assert conn.execute(
+                "SELECT count(*) FROM household").fetchone()[0] == 1
+        finally:
+            conn.close()
+
 
 class TestFailedMigration:
     def test_failed_upgrade_restores_and_degrades(

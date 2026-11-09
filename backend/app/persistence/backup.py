@@ -22,7 +22,7 @@ SNAPSHOT_RE = re.compile(r"ff-\d{8}T\d{6}(-\d+)?\.db")
 RESTORE_MARKER = "restore.pending"
 
 
-def _name(now: datetime | None = None, seq: int = 0) -> str:
+def next_name(now: datetime | None = None, seq: int = 0) -> str:
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S")
     suffix = f"-{seq}" if seq else ""
     return f"ff-{stamp}{suffix}.db"
@@ -34,7 +34,7 @@ def create_snapshot(engine: Engine, backup_dir: Path,
     backup_dir.mkdir(parents=True, exist_ok=True)
     seq = 0
     while True:
-        target = backup_dir / _name(now, seq)
+        target = backup_dir / next_name(now, seq)
         if not target.exists():
             break
         seq += 1
