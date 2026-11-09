@@ -1,5 +1,5 @@
 name: Family Finance
-version: "1.0.0"
+version: "1.0.1"
 slug: family_finance
 description: >-
   Self-hosted household finance for Home Assistant — budgets, forecasts,
@@ -24,8 +24,8 @@ ports:
 ports_description:
   8099/tcp: "App API + web UI — publish only if the custom integration or admin API needs a direct URL"
 options:
-  admin_token: null
-  backup_dir: null
+  admin_token: ""
+  backup_dir: ""
 schema:
   admin_token: "str?"
   backup_dir: "str?"
