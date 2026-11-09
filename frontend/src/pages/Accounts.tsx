@@ -5,7 +5,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  Archive, ArchiveRestore, BadgeCheck, Landmark, Plus, Receipt,
+  Archive, ArchiveRestore, BadgeCheck, Landmark, Pencil, Plus,
+  Receipt,
 } from "lucide-react";
 import { api, getProfileId } from "../api/client";
 import { useApi, useIdentity } from "../api/useApi";
@@ -45,6 +46,7 @@ export function Accounts() {
   const [scope, setScope] = useState<Scope>("all");
   const [adding, setAdding] = useState(false);
   const [verifying, setVerifying] = useState<Account | null>(null);
+  const [editing, setEditing] = useState<Account | null>(null);
   const accounts = useAccounts(rev);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const identity = useIdentity();
@@ -141,6 +143,7 @@ export function Accounts() {
                 account={a}
                 owner={ownerName(a.owner_profile_id)}
                 onVerify={() => setVerifying(a)}
+                onEdit={() => setEditing(a)}
                 onLifecycle={() => lifecycle(a)}
                 rev={rev}
               />
@@ -162,14 +165,24 @@ export function Accounts() {
           onSaved={refresh}
         />
       )}
+      {editing && (
+        <EditAccountDialog
+          account={editing}
+          profiles={profiles.data?.items ?? []}
+          onOpenChange={(o) => { if (!o) setEditing(null); }}
+          onSaved={refresh}
+        />
+      )}
     </div>
   );
 }
 
-function AccountCard({ account: a, owner, onVerify, onLifecycle, rev }: {
+function AccountCard({ account: a, owner, onVerify, onEdit,
+  onLifecycle, rev }: {
   account: Account;
   owner: string | null;
   onVerify: () => void;
+  onEdit: () => void;
   onLifecycle: () => void;
   rev: number;
 }) {
@@ -226,7 +239,11 @@ function AccountCard({ account: a, owner, onVerify, onLifecycle, rev }: {
         >
           <Receipt className="size-4" /> Transactions
         </Link>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onLifecycle}
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onEdit}
+          aria-label={`Edit ${a.name}`}>
+          <Pencil />
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onLifecycle}
           aria-label={a.archived ? `Reopen ${a.name}` : `Archive ${a.name}`}>
           {a.archived ? <ArchiveRestore /> : <Archive />}
         </Button>
@@ -402,6 +419,68 @@ function AddAccountDialog({ open, onOpenChange, profiles, onSaved }: {
           </Field>
         </div>
         <p className="text-[12.5px] text-fg-subtle">The opening balance is recorded as of the date above; transactions carry it forward from there.</p>
+      </form>
+    </Dialog>
+  );
+}
+
+function EditAccountDialog({ account, profiles, onOpenChange, onSaved }: {
+  account: Account;
+  profiles: Profile[];
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(account.name);
+  const [ownerId, setOwnerId] = useState(
+    account.owner_profile_id ? String(account.owner_profile_id) : "");
+  const [busy, setBusy] = useState(false);
+  const valid = name.trim().length > 0;
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    api.patch("/api/v1/accounts/{account_id}", {
+      path: { account_id: account.id },
+      body: {
+        name: name.trim(),
+        owner_profile_id: ownerId ? Number(ownerId) : null,
+      },
+    })
+      .then(() => {
+        toast.success(`${name.trim()} updated`);
+        onSaved();
+        onOpenChange(false);
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={onOpenChange}
+      title={`Edit ${account.name}`}
+      description="Rename the account or reassign it to a member — shared stays visible to everyone."
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" type="submit" form="ff-edit-account" disabled={!valid || busy}>
+            {busy ? "Saving…" : "Save changes"}
+          </Button>
+        </>
+      }
+    >
+      <form id="ff-edit-account" onSubmit={submit} className="grid gap-4">
+        <Field label="Name">
+          {(id) => <Input id={id} autoFocus value={name} onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <Field label="Owner" hint="Shared accounts are visible to the whole household.">
+          {(id) => (
+            <Select id={id} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+              <option value="">Shared</option>
+              {profiles.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+            </Select>
+          )}
+        </Field>
       </form>
     </Dialog>
   );
