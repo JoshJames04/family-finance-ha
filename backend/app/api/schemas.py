@@ -447,6 +447,7 @@ class ProfileOut(BaseModel):
     display_name: str
     role: Role
     is_active: bool
+    ha_user_id: str | None = None
 
 
 class DashboardLayoutIn(BaseModel):
@@ -466,6 +467,7 @@ class ProfilePatch(BaseModel):
     role: Role | None = None
     display_name: str | None = Field(
         default=None, min_length=1, max_length=120)
+    ha_user_id: str | None = Field(default=None, max_length=64)
 
 
 class ShareBudgetIn(BaseModel):

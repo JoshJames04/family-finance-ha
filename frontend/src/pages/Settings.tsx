@@ -38,6 +38,7 @@ export function Settings() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
   const [addingMember, setAddingMember] = useState(false);
+  const [linking, setLinking] = useState<Profile | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready, [rev]);
@@ -129,9 +130,18 @@ export function Settings() {
                     <IconTile icon={UserRound} label={p.display_name} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13.5px] font-medium">{p.display_name}</p>
-                      <p className="text-[12px] text-fg-subtle">{p.is_active ? "Active" : "Deactivated"}</p>
+                      <p className="text-[12px] text-fg-subtle">
+                        {p.is_active ? "Active" : "Deactivated"}
+                        {p.ha_user_id ? " · HA linked" : ""}
+                      </p>
                     </div>
                     <Badge tone={ROLE_TONE[p.role]}>{p.role}</Badge>
+                    {!p.ha_user_id && (
+                      <Button size="sm" variant="ghost" onClick={() => setLinking(p)}
+                        aria-label={`Link ${p.display_name} to a Home Assistant account`}>
+                        Link
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => toggleMember(p)}
                       aria-label={`${p.is_active ? "Deactivate" : "Activate"} ${p.display_name}`}>
                       {p.is_active ? "Deactivate" : "Activate"}
@@ -272,6 +282,9 @@ export function Settings() {
         </div>
       </Dialog>
       <AddMemberDialog open={addingMember} onOpenChange={setAddingMember} onSaved={refresh} />
+      {linking && (
+        <LinkIdentityDialog profile={linking} onClose={() => setLinking(null)} onSaved={refresh} />
+      )}
       <AddCategoryDialog open={addingCategory} onOpenChange={setAddingCategory} parents={parents.filter((c) => !c.archived)} onSaved={refresh} />
       <EditCategoryDialog
         category={editingCategory}
@@ -404,6 +417,47 @@ function AddMemberDialog({ open, onOpenChange, onSaved }: {
             <option value="admin">Admin — manage household</option>
             <option value="viewer">Viewer — read only</option>
           </Select>
+        )}</Field>
+      </form>
+    </Dialog>
+  );
+}
+
+function LinkIdentityDialog({ profile, onClose, onSaved }: {
+  profile: Profile;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [uid, setUid] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uid.trim()) return;
+    setBusy(true);
+    api.patch("/api/v1/profiles/{profile_id}", {
+      path: { profile_id: profile.id },
+      body: { ha_user_id: uid.trim() },
+    })
+      .then(() => {
+        toast.success(`${profile.display_name} linked to Home Assistant`);
+        onSaved();
+        onClose();
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}
+      title={`Link ${profile.display_name}`}
+      description="Paste their Home Assistant user ID (Settings → People → Users). If a duplicate member holds it, that copy is deactivated."
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-link-identity" disabled={!uid.trim() || busy}>{busy ? "Linking…" : "Link account"}</Button>
+      </>}>
+      <form id="ff-link-identity" onSubmit={submit} className="grid gap-4">
+        <Field label="Home Assistant user ID">{(id) => (
+          <Input id={id} autoFocus placeholder="e.g. 6855b4b31c3d4b83b777fa075e1b1a76"
+            value={uid} onChange={(e) => setUid(e.target.value)} />
         )}</Field>
       </form>
     </Dialog>

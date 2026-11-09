@@ -149,6 +149,39 @@ class TestApiLifecycle:
             headers={**h, "X-Profile-Id": str(member["id"])})
         assert r.status_code == 403
 
+    def test_link_identity_moves_uid_and_deactivates_dupe(
+            self, client: TestClient) -> None:
+        """Issue #340 — admin links an HA uid to the real profile;
+        an auto-provisioned duplicate holding it is detached and
+        deactivated in the same audited operation."""
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        admin = client.post("/api/v1/profiles", json={
+            "display_name": "Admin", "role": "admin"},
+            headers=h).json()
+        real = client.post("/api/v1/profiles", json={
+            "display_name": "Alice", "role": "member"},
+            headers=h).json()
+        dupe = client.post("/api/v1/profiles", json={
+            "display_name": "Alice", "role": "member",
+            "ha_user_id": "uid-123"}, headers=h).json()
+        ha = {**h, "X-Profile-Id": str(admin["id"])}
+        r = client.patch(f"/api/v1/profiles/{real['id']}",
+                         json={"ha_user_id": "uid-123"}, headers=ha)
+        assert r.status_code == 200, r.text
+        assert r.json()["ha_user_id"] == "uid-123"
+        rows = {p["id"]: p for p in
+                client.get("/api/v1/profiles", headers=h).json()["items"]}
+        assert rows[real["id"]]["ha_user_id"] == "uid-123"
+        assert rows[dupe["id"]]["ha_user_id"] is None
+        assert rows[dupe["id"]]["is_active"] is False
+        # member actor cannot link
+        r = client.patch(f"/api/v1/profiles/{dupe['id']}",
+                         json={"ha_user_id": "uid-9"},
+                         headers={**h, "X-Profile-Id": str(real["id"])})
+        assert r.status_code == 403
+
     def test_role_change_audit(self, session: Session,
                                household: Household) -> None:
         """AC: role changes are audit-logged with actor + old→new."""
