@@ -1,9 +1,11 @@
 name: tag-on-main
 
-# Push to main → tag v{version} on the merge commit → fires release.yml
-# (verify → smoke → multi-arch publish → GitHub release). Idempotent:
-# if the tag already exists the run exits cleanly, so repeated pushes
-# to main between releases are harmless.
+# Push to main → tag v{version} on the merge commit → dispatch
+# release.yml (verify → smoke → multi-arch publish → GitHub release).
+# Dispatch, not the tag-push event: GITHUB_TOKEN events never cascade
+# into other workflows, so the tag alone cannot fire release.yml.
+# Idempotent: an existing tag exits cleanly, so repeated pushes to
+# main between releases are harmless.
 
 on:
   push:
@@ -11,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   tag:
@@ -28,4 +31,8 @@ jobs:
           fi
           git tag "v$v" "$GITHUB_SHA"
           git push origin "v$v"
-          echo "tagged v$v on $GITHUB_SHA — release.yml will now run"
+          echo "tagged v$v on $GITHUB_SHA"
+          gh workflow run release.yml -f tag="v$v" --ref main
+          echo "dispatched release.yml for v$v"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
