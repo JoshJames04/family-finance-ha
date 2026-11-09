@@ -53,7 +53,7 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
 EXPOSE 8099
 VOLUME ["/data"]
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=120s \
   CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:8099/healthz',timeout=4)" || exit 1
 
 CMD ["docker-entrypoint.sh"]
