@@ -87,3 +87,24 @@ def test_balance_resolves_space_by_category(
     c = StarlingClient()
     assert c.balance("pat", "uid-1", "cat-space") == 40000
     assert c.balance("pat", "uid-1", "cat-spend") == 5000
+
+
+def test_balance_prefers_effective_over_cleared(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Starling's app shows effectiveBalance (cleared + pending) —
+    the sync must report what the bank shows (issue #316)."""
+    monkeypatch.setattr(starling, "_get", _fake_get({
+        "balance": {
+            "clearedBalance": {"currency": "GBP", "minorUnits": 100000},
+            "effectiveBalance": {"currency": "GBP",
+                                 "minorUnits": 99500}}}))
+    assert StarlingClient().balance("pat", "uid-1") == 99500
+
+
+def test_balance_without_effective_errors(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(starling, "_get", _fake_get({
+        "balance": {
+            "clearedBalance": {"currency": "GBP", "minorUnits": 100000}}}))
+    with pytest.raises(UpstreamError):
+        StarlingClient().balance("pat", "uid-1")
