@@ -118,4 +118,19 @@ describe("Banking", () => {
     await waitFor(() => expect(calls.some((c) =>
       c.method === "POST" && c.url.endsWith("/mappings/3/ignore"))).toBe(true));
   });
+
+  it("un-ignores an ignored mapping back to proposed", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls, {
+      connections: [CONNECTION],
+      mappings: [{ ...MAPPING, status: "ignored" }],
+    });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Banking /></MemoryRouter>);
+    await screen.findByText("Joint Account");
+    await user.click(screen.getByRole("button",
+      { name: "Propose Joint Account again" }));
+    await waitFor(() => expect(calls.some((c) =>
+      c.method === "POST" && c.url.endsWith("/mappings/3/unignore"))).toBe(true));
+  });
 });

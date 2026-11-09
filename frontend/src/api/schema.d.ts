@@ -3233,6 +3233,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/banking/mappings/{mid}/unignore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unignore
+         * @description Return an ignored mapping to proposed so it can be linked —
+         *     reversible counterpart to ignore (issue #316).
+         */
+        post: operations["unignore_api_v1_banking_mappings__mid__unignore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/banking/connections/{cid}/sync-balances": {
         parameters: {
             query?: never;
@@ -14897,6 +14918,40 @@ export interface operations {
         };
     };
     ignore_api_v1_banking_mappings__mid__ignore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                mid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankMappingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unignore_api_v1_banking_mappings__mid__unignore_post: {
         parameters: {
             query?: never;
             header?: {
