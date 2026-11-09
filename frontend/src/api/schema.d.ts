@@ -3836,6 +3836,8 @@ export interface components {
             bytes: number;
             /** Ok */
             ok: boolean;
+            /** Taken At */
+            taken_at?: string | null;
         };
         /** BalanceVerificationOut */
         BalanceVerificationOut: {
