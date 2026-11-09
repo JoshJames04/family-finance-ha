@@ -11,6 +11,19 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-11-09
+
+### Changed
+
+- **Integration renamed to "Family Finance (Entities)"** — the add-on
+  and the HACS integration showed identical update cards; they now
+  read as two distinct components.
+
+### Added
+
+- **`addon/CHANGELOG.md`** — the Supervisor update card shows release
+  notes instead of "No changelog found".
+
 ## [1.1.0] — 2026-11-09
 
 ### Added
