@@ -148,7 +148,7 @@ class TestIngressTrustMatrix:
         also carries spoofed remote headers — the spoof check runs
         before any identity resolution."""
         with TestClient(_app(tmp_path, FF_ENV="ci")) as c:
-            p = _seed_profile(c, password="pw")
+            _seed_profile(c, password="pw")
             c.post("/api/v1/auth/login",
                    json={"username": "Mum", "password": "pw"})
             r = c.get("/api/v1/auth/me", headers={
