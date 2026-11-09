@@ -17,9 +17,14 @@ panel_icon: mdi:finance
 panel_title: Finance
 homeassistant_api: true
 backup_exclude: []
-map: []
+map:
+  - share:rw
 ports: {}
 ports_description: {}
-options: {}
-schema: {}
+options:
+  admin_token: null
+  backup_dir: null
+schema:
+  admin_token: "str?"
+  backup_dir: "str?"
 watchdog: http://[HOST]:[PORT:8099]/healthz
