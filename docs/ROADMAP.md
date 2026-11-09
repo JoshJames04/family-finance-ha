@@ -46,8 +46,7 @@ Covers: Epics 13, 14, 15.
 
 ### M7 — Production Readiness and v1.0 Release
 **Exit:** full test pyramid green incl. backup/restore/upgrade/rollback;
-migration acceptance scenario passed — **workbook retired**; release
-checklist, docs, v1.0 tag.
+migration acceptance scenario passed; parallel-run period reviewed; **workbook retirement separately approved by Josh**; release checklist, docs, v1.0 tag. Until explicit approval, Excel remains the source of truth.
 Covers: Epic 17 + hardening backlog.
 
 ## 2. MVP vs v1.0
