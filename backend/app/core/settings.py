@@ -36,6 +36,48 @@ class Settings(BaseSettings):
     ha_url: str = "http://supervisor/core"
     supervisor_token: SecretStr | None = None
     options_file: Path | None = None
+    backup_dir: Path | None = None
+    backup_keep: int = 7
+    backup_interval_hours: float = 24.0  # 0 disables the scheduler
+    # issue #70 job runner — scheduled feed sync cadence (Starling
+    # allows ~1000 req/day; 4h is comfortably inside) and the tick
+    # period the runner wakes on. 0 disables each.
+    sync_interval_minutes: float = 240.0
+    scheduler_tick_seconds: float = 60.0
+    # issue #23: SPA root. FF_WEB_DIR overrides; container ships the
+    # bundle at /app/web; dev falls back to repo frontend/dist.
+    web_dir: Path | None = None
+    admin_token: SecretStr | None = None
+    vault_key: SecretStr | None = None  # FF_VAULT_KEY; file fallback
+    ingress: bool = False               # FF_INGRESS: addon mode
+
+    @property
+    def resolved_web_dir(self) -> Path | None:
+        if self.web_dir is not None:
+            return self.web_dir if self.web_dir.is_dir() else None
+        for cand in (Path("/app/web"),
+                     Path(__file__).resolve().parents[3]
+                     / "frontend" / "dist"):
+            if cand.is_dir():
+                return cand
+        return None
+
+    @property
+    def resolved_backup_dir(self) -> Path:
+        return self.backup_dir or (self.data_dir / "backups")
+
+    @property
+    def restore_marker(self) -> Path:
+        return self.data_dir / "restore.pending"
+
+    @property
+    def database_path(self) -> Path | None:
+        """SQLite file behind ``resolved_database_url``, if file-based."""
+        url = self.resolved_database_url
+        if not url.startswith("sqlite:///"):
+            return None
+        path = Path(url.removeprefix("sqlite:///"))
+        return None if path.name == ":memory:" else path
 
     @property
     def resolved_database_url(self) -> str:

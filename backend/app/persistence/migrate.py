@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from alembic import command
@@ -10,7 +11,11 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy.engine import Engine
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+# Source checkout: backend/ sits two levels up. Installed image: alembic.ini
+# + migrations/ are copied beside WORKDIR and FF_BACKEND_DIR points there.
+BACKEND_DIR = Path(os.environ.get(
+    "FF_BACKEND_DIR",
+    Path(__file__).resolve().parent.parent.parent))
 
 
 def alembic_config(db_url: str) -> Config:

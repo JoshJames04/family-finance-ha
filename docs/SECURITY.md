@@ -16,6 +16,18 @@ mobile lock screens).
 - **AuthN:** trust HA's authenticated session at the ingress layer; in
   standalone mode, app-managed auth. Never trust a header without verifying
   HA actually injected it.
+- **Ingress trust boundary (spike #27):** `X-Remote-User-*` headers are
+  trustworthy only because the Supervisor strips client copies and
+  re-injects its own. Header trust therefore reduces to *source trust* —
+  the backend accepts them only from `172.30.32.2`, and any deployment
+  exposing the app outside the supervisor network must disable
+  header-based auth entirely. The middleware treats remote-user headers
+  on a non-supervisor socket as spoof attempts, not missing auth.
+- **Identity key:** `X-Remote-User-Id` (UUID) is the stable profile key;
+  username/display-name are refreshed decoration, never lookup keys.
+- **Standalone sessions:** Secure + HttpOnly + SameSite=Strict cookies,
+  server-side session store, rotation on privilege change, absolute
+  expiry; logout invalidates server-side.
 - **AuthZ:** application-level RBAC — `admin` / `member` / `viewer` —
   enforced in the API on every request. HA dashboard visibility is **not**
   a security boundary.
@@ -29,7 +41,10 @@ mobile lock screens).
 - TLS terminated by HA/proxy; app never binds a public port.
 - Backups encrypted at rest via HA backup protection; app snapshots obey the
   same policy.
-- Audit trail (append-only) on all financial mutations and auth events.
+- Audit trail (append-only) on all financial mutations and auth events:
+  SQLite triggers `audit_event_no_update`/`audit_event_no_delete` abort
+  UPDATE/DELETE at the database layer, and amount-like payload keys are
+  stored as sha256 digests so the log never carries raw figures.
 - No real financial data in dev, CI, tests, issues or docs — synthetic
   fixtures only (see `tests/fixtures/README.md`).
 
@@ -43,6 +58,28 @@ mobile lock screens).
 - Least-privilege Starling scopes; read-only; no payment initiation.
 - `SECURITY.md` at repo root defines the disclosure policy.
 
+### 4.1 Standing verification (CI gates)
+
+Security is verified continuously, not once:
+
+- `backend/tests/test_security.py` runs in the normal suite and asserts
+  the current guarantees: `X-Household-Id` header spoofing is rejected
+  (unknown/non-integer IDs), cross-household access on every scoped
+  route returns 404/409, the audit log has no mutation routes and an
+  append-only model (no `updated_at`), and hostile inputs (injection
+  strings, oversized payloads, invalid pagination) are rejected or
+  stored safely.
+- `backend/tests/test_audit_integrity.py` verifies the append-only
+  triggers reject UPDATE/DELETE at the DB layer, statically walks every
+  `/api/v1` route to prove each mutation handler emits an audit event,
+  and asserts amount-like payload fields are sha256 digests.
+- Dependabot covers pip, npm and GitHub Actions ecosystems.
+- The `tests` workflow fails on `pip-audit` (OSV) or `npm audit
+  --audit-level=high` findings — new critical/high vulnerabilities
+  block merges.
+- `repo-hygiene` fails on forbidden files (workbooks, secrets, DBs)
+  and runs gitleaks.
+
 ## 5. Privacy UX
 
 - Notification content suppresses amounts/payees on lock-screen-visible
@@ -53,3 +90,16 @@ mobile lock screens).
 
 - No telemetry, no external analytics, no outbound calls except configured
   integrations (Starling) and update checks (opt-in).
+
+## 7. Migration/import threat notes
+
+- The workbook parser opens files read-only and never writes to the
+  source; source hash + mtime are recorded so tampering between runs is
+  detectable.
+- Imported rows are staged as `import_record` before commit; nothing
+  reaches the ledger without an extractor decision.
+- Rollback voids derived rows rather than deleting them, preserving the
+  audit trail.
+- The real workbook and any file derived from it are forbidden in the
+  repository (`.gitignore` + CI gate); only synthetic fixtures are used
+  in tests.

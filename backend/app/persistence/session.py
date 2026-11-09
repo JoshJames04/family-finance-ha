@@ -25,6 +25,8 @@ def get_session() -> Iterator[Session]:
         session.commit()
     except Exception:
         session.rollback()
+        for path in session.info.pop("payslip_paths", set()):
+            path.unlink(missing_ok=True)
         raise
     finally:
         session.close()

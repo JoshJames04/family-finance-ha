@@ -1,0 +1,32 @@
+name: Family Finance
+version: "1.0.0"
+slug: family_finance
+description: >-
+  Self-hosted household finance for Home Assistant — budgets, forecasts,
+  payroll and migration from the legacy workbook.
+arch:
+  - amd64
+  - aarch64
+image: ghcr.io/joshjames04/family-finance-ha
+url: https://github.com/JoshJames04/family-finance-ha
+startup: application
+init: false
+ingress: true
+panel_sidebar: true
+panel_icon: mdi:finance
+panel_title: Finance
+homeassistant_api: true
+backup_exclude: []
+map:
+  - share:rw
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: "App API + web UI — publish only if the custom integration or admin API needs a direct URL"
+options:
+  admin_token: null
+  backup_dir: null
+schema:
+  admin_token: "str?"
+  backup_dir: "str?"
+watchdog: http://[HOST]:[PORT:8099]/healthz

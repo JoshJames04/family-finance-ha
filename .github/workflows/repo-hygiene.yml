@@ -2,18 +2,19 @@ name: repo-hygiene
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 permissions:
   contents: read
+  pull-requests: read  # gitleaks-action lists PR commits on pull_request events
 
 jobs:
   forbidden-files:
     # This repo must never contain real financial data or credentials.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Fail if sensitive file patterns are committed
         run: |
           if find . -type f \( -iname '*.xlsx' -o -iname '*.xlsm' -o -iname '*.xls' \
@@ -28,24 +29,24 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   docs-integrity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Required project documents exist
         run: |
           required=(
             README.md CONTRIBUTING.md SECURITY.md LICENSE
             docs/PRD.md docs/ARCHITECTURE.md docs/DATA-MODEL.md
             docs/HA-DEPLOYMENT.md docs/MIGRATION.md docs/ROADMAP.md
-            docs/SECURITY.md docs/adr/README.md
+            docs/SECURITY.md docs/RELEASE.md docs/adr/README.md
             .github/PULL_REQUEST_TEMPLATE.md
             .github/ISSUE_TEMPLATE/epic.md
             .github/ISSUE_TEMPLATE/user_story.md
@@ -74,3 +75,10 @@ jobs:
           if bad:
               print('\n'.join(bad)); sys.exit(1)
           PY
+
+  version-consistency:
+    # backend/app/__init__.py is the single version source (issue #25).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python scripts/version.py check

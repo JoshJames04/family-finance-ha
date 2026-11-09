@@ -15,7 +15,7 @@ Pydantic boundary rules (strict):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from functools import total_ordering
 from typing import Any, Self
 
@@ -44,9 +44,16 @@ class Money:
 
     @classmethod
     def of_pounds(cls, value: int | str | Decimal) -> Self:
-        dec = Decimal(str(value))
-        return cls(pence=int((dec * 100).quantize(Decimal("1"),
-                                                rounding=ROUND_HALF_EVEN)))
+        if isinstance(value, float | bool):
+            raise TypeError("floats/bools are not valid money input")
+        try:
+            dec = Decimal(str(value))
+            pence = int((dec * 100).quantize(
+                Decimal("1"), rounding=ROUND_HALF_EVEN))
+        except (InvalidOperation, ValueError, OverflowError) as e:
+            raise ValueError(
+                f"unparsable money value {value!r}") from e
+        return cls(pence=pence)
 
     # ---- arithmetic ---------------------------------------------------
     def __add__(self, other: Self) -> Self:
@@ -107,7 +114,10 @@ class Money:
         if isinstance(value, str):
             return cls.of_pounds(value)
         if isinstance(value, dict) and "pence" in value:
-            return cls.of_pence(int(value["pence"]))
+            pence = value["pence"]
+            if isinstance(pence, int) and not isinstance(pence, bool):
+                return cls.of_pence(pence)
+            raise ValueError("pence must be an integer")
         raise ValueError(f"cannot parse Money from {type(value).__name__}")
 
     @classmethod
@@ -120,6 +130,24 @@ class Money:
                 lambda m: m.pence
             ),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, _core: core_schema.CoreSchema, _handler: Any
+    ) -> dict[str, Any]:
+        """OpenAPI shape — accepted forms at the wire boundary."""
+        return {
+            "anyOf": [
+                {"type": "integer",
+                 "description": "minor units (pence)"},
+                {"type": "string", "pattern": r"^-?\d+(\.\d{1,2})?$",
+                 "description": "pounds, max 2dp"},
+                {"type": "object", "additionalProperties": False,
+                 "properties": {"pence": {"type": "integer"}},
+                 "required": ["pence"]},
+            ],
+            "title": "Money",
+        }
 
 
 ZERO = Money.of_pence(0)

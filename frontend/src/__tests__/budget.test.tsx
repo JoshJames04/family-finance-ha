@@ -1,0 +1,139 @@
+/** #125: five-value budget table, reason-enforced revision, locked
+ * period renders read-only. */
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import { Budget } from "../pages/Budget";
+
+const BUDGETS = { items: [
+  { id: 1, owner_profile_id: null, name: "April", period_type: "monthly",
+    start_date: "2026-04-01", end_date: "2026-04-30", status: "approved" },
+], total: 1 };
+
+const DETAIL = {
+  ...BUDGETS.items[0],
+  lines: [
+    { id: 11, category_id: 1, side: "expense", original_pence: 30000,
+      revised_pence: null, rollover: false, effective_pence: 30000 },
+  ],
+  read_only: false,
+};
+
+const ACTUALS = {
+  budget_id: 1, totals: { "11": 12000 },
+  lines: { "11": {
+    original_pence: 30000, revised_pence: null, revision_reason: null,
+    effective_pence: 30000, actual_pence: 12000, variance_pence: 18000,
+    accuracy_pct: 40, original_accuracy_pct: 40 } },
+};
+
+const FLAT_CATS = { items: [
+  { id: 1, household_id: 1, parent_id: null,
+    name: "Food", is_system: false, archived: false },
+], total: 1 };
+
+function stubFetch(
+  calls: { url: string; method: string; body: string }[],
+  opts: { locked?: boolean; categories?: object; detail?: object } = {},
+) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(
+    (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: String(init?.body ?? "") });
+      if (method !== "GET") {
+        return Promise.resolve(new Response(JSON.stringify(DETAIL.lines[0]),
+          { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      const detail = opts.locked
+        ? { ...DETAIL, status: "locked" } : (opts.detail ?? DETAIL);
+      const body = url.includes("/api/v1/households")
+        ? { items: [{ id: 1, name: "Home" }], total: 1 }
+        : url.includes("/actuals")
+          ? ACTUALS
+          : url.includes("/api/v1/budgets/1")
+            ? detail
+            : url.includes("/api/v1/budgets")
+              ? BUDGETS
+              : url.includes("/api/v1/categories")
+                ? (opts.categories ?? FLAT_CATS)
+                : url.includes("expected-movements")
+                  ? []
+                  : { items: [], total: 0 };
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+}
+
+describe("Budget", () => {
+  afterEach(cleanup);
+  it("renders planned/spent/over-under/used columns", async () => {
+    stubFetch([]);
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    await screen.findByText("Food");
+    for (const h of ["Planned", "Spent", "Over/under", "Used"]) {
+      expect(screen.getByText(h)).toBeTruthy();
+    }
+    // Usage is £120 spent of the £300 plan → 40%.
+    expect(screen.getByText("40%")).toBeTruthy();
+  });
+  it("revision demands a reason and PATCHes with it", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    await user.click(await screen.findByLabelText("Adjust Food"));
+    const reason = await screen.findByLabelText("Revision reason");
+    const submit = screen.getByRole("button", { name: "Save revision" });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    await user.type(reason, "income drop");
+    expect(submit.hasAttribute("disabled")).toBe(false);
+    await user.click(submit);
+    await waitFor(() => {
+      const call = calls.find((c) =>
+        c.url.includes("/lines/11") && c.method === "PATCH");
+      expect(call).toBeDefined();
+      const body = JSON.parse(call!.body);
+      expect(body.reason).toBe("income drop");
+      expect(body.amount).toBe("300");
+    });
+  });
+  it("locked budget renders read-only (no revise affordance)", async () => {
+    stubFetch([], { locked: true });
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    await screen.findByText("locked — read-only");
+    expect(screen.queryByLabelText("Adjust Food")).toBeNull();
+  });
+  it("groups lines into sections with subtotals when parents exist", async () => {
+    const detail = {
+      ...DETAIL,
+      lines: [
+        { id: 11, category_id: 1, side: "expense", original_pence: 30000,
+          revised_pence: null, rollover: false, effective_pence: 30000 },
+        { id: 12, category_id: 2, side: "expense", original_pence: 15000,
+          revised_pence: null, rollover: false, effective_pence: 15000 },
+      ],
+    };
+    const categories = { items: [
+      { id: 10, household_id: 1, parent_id: null,
+        name: "Household Bills", is_system: false, archived: false },
+      { id: 1, household_id: 1, parent_id: 10,
+        name: "Food", is_system: false, archived: false },
+      { id: 2, household_id: 1, parent_id: 10,
+        name: "Electric", is_system: false, archived: false },
+    ], total: 3 };
+    stubFetch([], { detail, categories });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    // Section header with subtotal, both children under it.
+    const header = await screen.findByRole("button", { name: /Household Bills/ });
+    expect(screen.getByText("Food")).toBeTruthy();
+    expect(screen.getByText("Electric")).toBeTruthy();
+    // Collapse hides the rows; expand brings them back.
+    await user.click(header);
+    await waitFor(() => expect(screen.queryByText("Food")).toBeNull());
+    await user.click(await screen.findByRole("button", { name: /Household Bills/ }));
+    await screen.findByText("Food");
+  });
+});

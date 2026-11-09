@@ -1,0 +1,31 @@
+name: tag-on-main
+
+# Push to main → tag v{version} on the merge commit → fires release.yml
+# (verify → smoke → multi-arch publish → GitHub release). Idempotent:
+# if the tag already exists the run exits cleanly, so repeated pushes
+# to main between releases are harmless.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag v{version} if it does not exist
+        run: |
+          set -euo pipefail
+          v="$(python scripts/version.py get)"
+          python scripts/version.py check
+          if git ls-remote --tags origin "refs/tags/v$v" | grep -q .; then
+            echo "tag v$v already exists — nothing to release"
+            exit 0
+          fi
+          git tag "v$v" "$GITHUB_SHA"
+          git push origin "v$v"
+          echo "tagged v$v on $GITHUB_SHA — release.yml will now run"
