@@ -9,8 +9,8 @@ import { undoToast } from "../lib/toast";
 import {
   CalendarClock, Pause, Pencil, Play, Plus, ReceiptText, Send, Trash2,
 } from "lucide-react";
-import { api, getProfileId } from "../api/client";
-import { useApi, useIdentity } from "../api/useApi";
+import { api } from "../api/client";
+import { useApi, useIdentity, useMeProfileId } from "../api/useApi";
 import { useAccounts, useCategories, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
@@ -71,7 +71,7 @@ export function Bills() {
   const accounts = useAccounts(rev);
   const categories = useCategories();
   const identity = useIdentity();
-  const me = identity.data ? getProfileId() : null;
+  const me = useMeProfileId();
   const memberCount = (identity.data ?? []).filter((p) => p.is_active).length;
   const [editing, setEditing] = useState<Commitment | "new" | null>(null);
   const refresh = () => setRev((r) => r + 1);

@@ -9,8 +9,8 @@ import {
   ArrowLeftRight, Check, ChevronDown, HandCoins, Pencil, Plus,
   SlidersHorizontal, Trash2, Users2,
 } from "lucide-react";
-import { api, getProfileId } from "../api/client";
-import { useApi, useIdentity } from "../api/useApi";
+import { api } from "../api/client";
+import { useApi, useIdentity, useMeProfileId } from "../api/useApi";
 import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "./DataView";
@@ -54,7 +54,7 @@ export function SharedPot({ period }: {
 }) {
   const ready = useReady();
   const identity = useIdentity();
-  const me = identity.data ? getProfileId() : null;
+  const me = useMeProfileId();
   const [rev, setRev] = useState(0);
   const accounts = useAccounts(rev);
   const rules = useApi(() => api.get("/api/v1/transfer-rules"), ready, [rev]);
