@@ -21,7 +21,7 @@ import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Segmented } from "../components/Display";
 import { EmptyState } from "../components/Feedback";
 import { setThemePref, useTheme, type ThemePref } from "../theme/useTheme";
-import { formatBytes } from "../lib/format";
+import { formatBytes, formatDateTime } from "../lib/format";
 
 type Profile = components["schemas"]["ProfileOut"];
 type Role = components["schemas"]["Role"];
@@ -79,10 +79,15 @@ export function Settings() {
       refresh();
     }).catch((e: Error) => toast.error(e.message));
 
-  const backupNow = () =>
+  const [backingUp, setBackingUp] = useState(false);
+  const backupNow = () => {
+    if (backingUp) return;
+    setBackingUp(true);
     api.post("/api/v1/admin/backups")
       .then((b) => { toast.success(`Backup saved (${formatBytes(b.bytes)})`); refresh(); })
-      .catch((e: Error) => toast.error(e.message));
+      .catch((e: Error) => toast.error(e.message))
+      .finally(() => setTimeout(() => setBackingUp(false), 1500));
+  };
 
   const restoreFile = useRef<HTMLInputElement>(null);
   const [pendingRestore, setPendingRestore] = useState<File | null>(null);
@@ -231,7 +236,9 @@ export function Settings() {
           description={`Family Finance ${version.data ? String(version.data["version"] ?? "") : ""}`}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={backupNow}><HardDrive /> Back up now</Button>
+            <Button variant="secondary" onClick={backupNow} disabled={backingUp}>
+            <HardDrive /> {backingUp ? "Backing up…" : "Back up now"}
+          </Button>
             <a
               href="./api/v1/transactions/export.csv"
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
@@ -250,9 +257,14 @@ export function Settings() {
           </div>
           {(backups.data ?? []).length > 0 ? (
             <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
-              {(backups.data ?? []).slice(0, 5).map((b: Backup) => (
+              {(backups.data ?? []).slice(0, 5).map((b: Backup, i: number) => (
                 <li key={b.name} className="flex items-center justify-between gap-3 px-3 py-2 text-[12.5px]">
-                  <span className="truncate font-medium">{b.name}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium" title={b.name}>
+                      {b.taken_at ? formatDateTime(b.taken_at) : b.name}
+                    </span>
+                    {i === 0 && <Badge>Latest</Badge>}
+                  </span>
                   <span className="flex shrink-0 items-center gap-1">
                     <span className="tnum text-fg-subtle">{formatBytes(b.bytes)}{b.ok ? "" : " · incomplete"}</span>
                     <Button size="sm" variant="ghost" onClick={() => downloadSnapshot(b.name)}

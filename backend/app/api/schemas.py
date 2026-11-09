@@ -540,6 +540,7 @@ class BackupOut(BaseModel):
     name: str
     bytes: int
     ok: bool
+    taken_at: datetime | None = None
 
 
 class RestoreRequest(BaseModel):
