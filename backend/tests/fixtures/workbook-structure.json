@@ -1122,11 +1122,42 @@
         ]
       }
     },
+    "Salary History": {
+      "state": "visible",
+      "dimensions": "A1:I14",
+      "tables": {
+        "tblEmploymentHistory": "B9:I14"
+      },
+      "signature_rows": [
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+        ".ssssssss",
+        ".nnnssssn",
+        ".nnnssssn",
+        ".nnnssssn",
+        ".nnnssssn",
+        ".nnnssssn"
+      ],
+      "formula_cols": [],
+      "literal_in_formula_col": [],
+      "error_cells": [],
+      "hardcoded_formula_cells": [],
+      "merged": [],
+      "validations": [],
+      "comment_cells": 0,
+      "formula_patterns": {}
+    },
     "Overtime": {
       "state": "visible",
-      "dimensions": "A1:L58",
+      "dimensions": "A1:L61",
       "tables": {
-        "tblOvertime": "B5:I58"
+        "tblOvertime": "B5:I61"
       },
       "signature_rows": [
         "............",
@@ -1281,39 +1312,6 @@
           "I17"
         ]
       }
-    },
-    "Salary History": {
-      "state": "visible",
-      "dimensions": "A1:I16",
-      "tables": {
-        "tblEmploymentHistory": "B9:I16"
-      },
-      "signature_rows": [
-        ".........",
-        ".........",
-        ".........",
-        ".........",
-        ".........",
-        ".........",
-        ".........",
-        ".........",
-        ".ssssssss",
-        ".nnnssssn",
-        ".nnnssssn",
-        ".nnnssssn",
-        ".nnnssssn",
-        ".nnnssssn",
-        ".nnnssssn",
-        ".nnnssssn"
-      ],
-      "formula_cols": [],
-      "literal_in_formula_col": [],
-      "error_cells": [],
-      "hardcoded_formula_cells": [],
-      "merged": [],
-      "validations": [],
-      "comment_cells": 0,
-      "formula_patterns": {}
     },
     "Piecework Co": {
       "state": "hidden",

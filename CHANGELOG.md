@@ -11,6 +11,52 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-11-09
+
+### Added
+
+- **Link HA identity to an existing profile** (#340): admin action
+  that attaches a Home Assistant user to a pre-existing household
+  member instead of always creating a new profile.
+- **Backup list UX** (#371): newest-first ordering by parsed
+  timestamp, a `Latest` badge, and human-readable labels via the
+  shared formatter.
+- **Add-on icon + logo** (#401): `icon.png`/`logo.png` rendered from
+  the brand SVG — the add-on no longer shows "No app icon".
+- **Migration parity tooling** (#387, #389): `tools/reconcile_parity.py`
+  recomputes workbook totals against the imported database at
+  row/month level; `docs/PARITY-MATRIX.md` maps every worksheet to
+  its domain, UI surface and tests.
+- **Cross-install restore e2e** (#375): snapshot → new install →
+  token re-rotation covered end-to-end.
+- **Performance budget guardrails** (#132): measured budgets with
+  CI enforcement.
+- **Bank-ledger integrity fixes** (#350): duplicate bills and
+  subscriptions, Starling account discovery/ownership, member-scoped
+  loans, permanent deletion/archive behaviour, Christmas gift
+  reconciliation, account editing, and migration export/import.
+
+### Fixed
+
+- **Budget parity drift** (#388): `BudgetYearExtractor` only
+  imported literal month cells — mid-year edits stored as formulas
+  were silently dropped. Formula cells now resolve through the
+  workbook cached-values map; all 169 imported budget rows
+  reconcile at month-cell level.
+- **Backup button double-fire** (#371): Back up now disables for
+  the request plus a 1.5 s cooldown, so same-second snapshot
+  collisions can't be created from the UI.
+
+### Changed
+
+- **Lint gates are blocking** (#373): ruff and mypy failures now
+  fail CI instead of reporting.
+- **Same-PR doc updates required** (#376, #385): behaviour,
+  security and ops changes must update their docs in the same PR.
+- **Workbook retirement sign-off recorded** (#391, #56): owner
+  approval + 2026-11-09 retirement date in `docs/MIGRATION.md`
+  §7.1; defect-B flag disposition documented.
+
 ## [1.0.5] — 2026-11-09
 
 ### Fixed
@@ -27,8 +73,6 @@ release pipeline (multi-arch GHCR image + GitHub release).
   `start-period=120s` covers the boot window.
 - (v1.0.4 was tagged but its release build failed on a strict-TS
   error in `ingress.ts` — skipped; 1.0.5 contains it and the fix.)
-
-## [1.0.3] — 2026-11-09
 
 ## [1.0.3] — 2026-11-09
 

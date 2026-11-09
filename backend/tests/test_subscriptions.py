@@ -18,10 +18,12 @@ from app.domain import subscriptions as subs
 from app.domain.subscriptions import SubscriptionError
 from app.main import create_app
 from app.persistence.models import (
+    Account,
     ExpectedMovement,
     ExpectedSource,
     Frequency,
     Household,
+    RecurringCommitment,
     Subscription,
 )
 
@@ -133,6 +135,27 @@ class TestForecastEmission:
                 ExpectedMovement.expected_date >= date(2026, 3, 21))
         ).scalars().all()
         assert remaining == []
+
+
+class TestMutualExclusion:
+    def test_commitment_covered_payee_rejected(
+            self, session: Session, household: Household) -> None:
+        """Issue #313 — the registers are either/or: creating a
+        subscription for an active bill's payee is rejected."""
+        a = Account(household_id=household.id, name="Joint",
+                    type="joint", opening_date=date(2025, 1, 1))
+        session.add(a)
+        session.flush()
+        session.add(RecurringCommitment(
+            household_id=household.id, name="IFTTT Pro",
+            account_id=a.id, amount_pence=-299,
+            frequency=Frequency.monthly, day_of_month=28,
+            next_date=date(2026, 11, 28), generated_count=0))
+        session.flush()
+        with pytest.raises(SubscriptionError, match="covered by an active bill"):
+            subs.create(session, household.id, payee="ifttt pro",
+                        frequency=Frequency.monthly, expected_pence=299,
+                        next_renewal_date=date(2026, 11, 30))
 
 
 class TestApi:

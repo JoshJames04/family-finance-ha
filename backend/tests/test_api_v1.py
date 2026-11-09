@@ -304,6 +304,21 @@ class TestTransfersAndCommitments:
             "amount": None})
         assert r.status_code == 422
 
+    def test_commitment_rejected_when_subscription_covers_payee(
+            self, client: TestClient) -> None:
+        """Issue #313 — the registers are either/or: a payee tracked
+        as an active subscription cannot also become a bill."""
+        _mk_household(client)
+        aid = _mk_account(client)
+        s = client.post("/api/v1/subscriptions", json={
+            "payee": "IFTTT Pro", "frequency": "monthly",
+            "expected": 299, "next_renewal_date": "2026-11-30"})
+        assert s.status_code == 201, s.text
+        r = client.post("/api/v1/commitments", json={
+            "name": "ifttt pro", "account_id": aid, "amount": -299,
+            "frequency": "monthly", "next_date": "2026-11-28"})
+        assert r.status_code == 409
+
     def test_commitment_deactivate_activate(
         self, client: TestClient
     ) -> None:

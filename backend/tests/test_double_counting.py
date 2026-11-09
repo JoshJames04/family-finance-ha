@@ -48,12 +48,15 @@ DOMAIN = Path(__file__).parents[1] / "app" / "domain"
 # Repayment rows, not Transaction rows — the guard doesn't apply.
 # _monthly_net feeds balance accumulation — legs are in-flight money
 # either side of a month boundary (same basis as net_worth_at).
+# _reconcile_opening restamps openings so ledger == provider balance;
+# it must match current_balance's all-legs basis to be correct.
 ALLOWLIST = {
     "current_balance",
     "refundable_balance",
     "contributed_pence",
     "repaid_pence",
     "_monthly_net",
+    "_reconcile_opening",
 }
 
 

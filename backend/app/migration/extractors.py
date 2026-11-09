@@ -150,6 +150,7 @@ class BudgetYearExtractor:
         all_owner: bool = False,
         label_col: int = 2,
         first_month_col: int = 3,
+        cache: dict[tuple[str, int, int], Any] | None = None,
     ) -> None:
         self.sheet = sheet
         self.household_id = household_id
@@ -157,6 +158,7 @@ class BudgetYearExtractor:
         self.year = year
         self.name = name
         self.all_owner = all_owner
+        self.cache = cache or {}
         self.label_col = label_col
         self.first_month_col = first_month_col
         self._row_tables: list[tuple[int, int, str]] = []
@@ -253,18 +255,24 @@ class BudgetYearExtractor:
     ) -> tuple[str, int] | None:
         vals = record_values(record)
         label = vals.get(self.label_col)
-        months = {
-            c - self.first_month_col + 1: float(v)
-            for c, v in vals.items()
-            if self.first_month_col <= c < self.first_month_col + 12
-            and isinstance(v, (int, float))
-        }
-        if not isinstance(label, str) or not months:
-            return None
         m = _ROW_RE.search(record.cell_range)
         if m is None:
             return None
-        section = self._section(int(m.group(1)))
+        row_no = int(m.group(1))
+        # Literal month cells plus formula cells resolved through
+        # Excel's cached results — a mid-year edit stored as a
+        # formula still produces its month's line (issue #388).
+        months: dict[int, float] = {}
+        for c in range(self.first_month_col,
+                       self.first_month_col + 12):
+            v = vals.get(c)
+            if not isinstance(v, (int, float)):
+                v = _cached_num(self.cache, self.sheet, row_no, c)
+            if isinstance(v, (int, float)):
+                months[c - self.first_month_col + 1] = float(v)
+        if not isinstance(label, str) or not months:
+            return None
+        section = self._section(row_no)
         if section is None:
             return None
         owner_id, side = section

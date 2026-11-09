@@ -7,6 +7,9 @@ and writes the pending-restore marker the next boot applies.
 
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
@@ -30,13 +33,44 @@ def _settings(request: Request) -> Settings:
     return s
 
 
+def _taken_at(name: str) -> datetime | None:
+    """Parse the ``ff-YYYYMMDDTHHMMSS(-seq).db`` timestamp (#371)."""
+    m = re.match(r"ff-(\d{8})T(\d{6})(-\d+)?\.db", name)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1) + m.group(2),
+                                 "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _sort_key(name: str) -> tuple[int, int, str]:
+    """Chronological key: timestamp, then seq — ``ff-...-1.db``
+    lexes *before* ``ff-....db`` alphabetically, so name order
+    alone mis-orders same-second snapshots."""
+    m = re.match(r"ff-(\d{8})T(\d{6})(-(\d+))?\.db", name)
+    if not m:
+        return (0, 0, name)
+    seq = int(m.group(4) or 0)
+    try:
+        ts = int(datetime.strptime(m.group(1) + m.group(2),
+                                   "%Y%m%d%H%M%S").timestamp())
+    except ValueError:
+        ts = 0
+    return (ts, seq, name)
+
+
 @router.get("/backups", response_model=list[schemas.BackupOut])
 def list_backups(request: Request) -> list[schemas.BackupOut]:
     backup_dir = _settings(request).resolved_backup_dir
+    snaps = sorted(backup.list_snapshots(backup_dir),
+                   key=lambda p: _sort_key(p.name), reverse=True)
     return [
         schemas.BackupOut(name=p.name, bytes=p.stat().st_size,
-                          ok=backup.verify_snapshot(p))
-        for p in backup.list_snapshots(backup_dir)
+                          ok=backup.verify_snapshot(p),
+                          taken_at=_taken_at(p.name))
+        for p in snaps  # newest first (issue #371)
     ]
 
 
@@ -78,16 +112,20 @@ def upload_restore(file: UploadFile, request: Request,
     """Accept a snapshot file, verify integrity, and queue the restore
     for next boot (issue #328)."""
     settings = _settings(request)
-    backup_dir = settings.resolved_backup_dir
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    # Uploads live under ``pending/`` — ``list_snapshots`` only scans
+    # the backup dir itself, so a restore payload can never be
+    # mistaken for a real backup (issue #342).
+    pending_dir = settings.resolved_backup_dir / backup.PENDING_DIR
+    pending_dir.mkdir(parents=True, exist_ok=True)
     seq = 0
-    while (dest := backup_dir / backup.next_name(seq=seq)).exists():
+    while (dest := pending_dir / backup.next_name(seq=seq)).exists():
         seq += 1
     dest.write_bytes(file.file.read())
     if not backup.verify_snapshot(dest):
         dest.unlink(missing_ok=True)
         raise HTTPException(422, "file is not a valid snapshot")
-    backup.request_restore(settings.restore_marker, dest.name)
+    backup.request_restore(
+        settings.restore_marker, f"{backup.PENDING_DIR}/{dest.name}")
     emit(session, household.id, actor, "restore_uploaded", "database",
          0, {"snapshot": dest.name})
     return schemas.RestoreAccepted(name=dest.name)

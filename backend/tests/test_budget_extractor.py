@@ -129,6 +129,36 @@ def _member_extractor(household: Household, member2: UserProfile):
         tables=MEMBER2_TABLES, all_owner=True)
 
 
+def test_formula_month_cells_resolve_via_cache(
+        session: Session, household: Household, owner: UserProfile,
+        wb_path: Path):
+    """#388 — a mid-year edit stored as a formula still produces its
+    month's line, resolved through the cached-values map."""
+    ex = BudgetYearExtractor(
+        "Budget-2025", household_id=household.id,
+        owner_profile_id=owner.id, year=2025, name="Annual",
+        tables=YEAR_TABLES,
+        cache={("Budget-2025", 15, 5): 67.13})
+    batch, _ = create_batch(session, household.id, wb_path, "tester")
+    # Row 15 (tblPersonal2025): MAR is a formula cell — literal
+    # months map, the formula month resolves from the cache.
+    rec = ImportRecord(
+        batch_id=batch.id, sheet="Budget-2025",
+        cell_range="Budget-2025!B15:O15",
+        interpreted_value='[[2, "Phone"], [3, 20.0], [5, "=C15+47.13"],'
+                          ' [6, 67.13]]',
+        classification="actual")
+    out = ex.map_record(session, batch, rec)
+    assert out is not None and out[0] == "budget_line"
+    lines = session.execute(
+        select(BudgetLine).join(Budget)).scalars().all()
+    by_month = {ln.budget.start_date.month: ln.original_pence
+                for ln in lines}
+    assert by_month[1] == 2000
+    assert by_month[3] == 6713  # formula month resolved, not dropped
+    assert by_month[4] == 6713
+
+
 def _lines(session: Session, budget: Budget) -> list[BudgetLine]:
     return list(session.execute(
         select(BudgetLine).where(BudgetLine.budget_id == budget.id)

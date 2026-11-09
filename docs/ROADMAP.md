@@ -46,8 +46,7 @@ Covers: Epics 13, 14, 15.
 
 ### M7 — Production Readiness and v1.0 Release
 **Exit:** full test pyramid green incl. backup/restore/upgrade/rollback;
-migration acceptance scenario passed — **workbook retired**; release
-checklist, docs, v1.0 tag.
+migration acceptance scenario passed; parallel-run period reviewed; **workbook retirement separately approved by Alice**; release checklist, docs, v1.0 tag. Until explicit approval, Excel remains the source of truth.
 Covers: Epic 17 + hardening backlog.
 
 ## 2. MVP vs v1.0
@@ -79,3 +78,38 @@ M1 platform ─► M2 data model ─► M2 import validation ─► M3 budgeting
 
 Import validation precedes switching off Excel; stable internal APIs precede
 HA sensors; tested backup/restore precedes v1.0.
+
+
+## 5. Assurance work added 09/11/2026
+
+Two cross-cutting assurance epics have been added to the backlog:
+
+### Excel-to-app functional parity
+Parent: [Epic #351](https://github.com/JoshJames04/family-finance-ha/issues/351)
+
+- [ ] [#353](https://github.com/JoshJames04/family-finance-ha/issues/353)
+- [ ] [#354](https://github.com/JoshJames04/family-finance-ha/issues/354)
+- [ ] [#355](https://github.com/JoshJames04/family-finance-ha/issues/355)
+- [ ] [#356](https://github.com/JoshJames04/family-finance-ha/issues/356)
+- [ ] [#357](https://github.com/JoshJames04/family-finance-ha/issues/357)
+- [ ] [#358](https://github.com/JoshJames04/family-finance-ha/issues/358)
+- [ ] [#359](https://github.com/JoshJames04/family-finance-ha/issues/359)
+- [ ] [#360](https://github.com/JoshJames04/family-finance-ha/issues/360)
+- [ ] [#361](https://github.com/JoshJames04/family-finance-ha/issues/361)
+- [ ] [#362](https://github.com/JoshJames04/family-finance-ha/issues/362)
+
+This work verifies workbook behaviours and historical data through backend, frontend and deterministic tests. Excel retirement remains blocked until issue #362 is accepted and Alice explicitly authorises retirement.
+
+### Engineering robustness, security and operational assurance
+Parent: [Epic #352](https://github.com/JoshJames04/family-finance-ha/issues/352)
+
+- [ ] [#363](https://github.com/JoshJames04/family-finance-ha/issues/363)
+- [ ] [#364](https://github.com/JoshJames04/family-finance-ha/issues/364)
+- [ ] [#365](https://github.com/JoshJames04/family-finance-ha/issues/365)
+- [ ] [#366](https://github.com/JoshJames04/family-finance-ha/issues/366)
+- [ ] [#367](https://github.com/JoshJames04/family-finance-ha/issues/367)
+- [ ] [#368](https://github.com/JoshJames04/family-finance-ha/issues/368)
+
+These checks harden CI/CD, ingress/RBAC, ledger and Starling invariants, backup/restore, migrations/releases, observability and operator documentation. Work is to be delivered via focused PRs with evidence; no production deployment or real-data migration without Alice's explicit approval.
+
+**Project status:** Backlog / Not started. Update issue and project-board status as work begins and PRs merge; do not mark complete based on implementation presence alone.

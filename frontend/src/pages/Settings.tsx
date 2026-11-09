@@ -21,7 +21,7 @@ import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Segmented } from "../components/Display";
 import { EmptyState } from "../components/Feedback";
 import { setThemePref, useTheme, type ThemePref } from "../theme/useTheme";
-import { formatBytes } from "../lib/format";
+import { formatBytes, formatDateTime } from "../lib/format";
 
 type Profile = components["schemas"]["ProfileOut"];
 type Role = components["schemas"]["Role"];
@@ -38,6 +38,7 @@ export function Settings() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
   const [addingMember, setAddingMember] = useState(false);
+  const [linking, setLinking] = useState<Profile | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready, [rev]);
@@ -78,10 +79,15 @@ export function Settings() {
       refresh();
     }).catch((e: Error) => toast.error(e.message));
 
-  const backupNow = () =>
+  const [backingUp, setBackingUp] = useState(false);
+  const backupNow = () => {
+    if (backingUp) return;
+    setBackingUp(true);
     api.post("/api/v1/admin/backups")
       .then((b) => { toast.success(`Backup saved (${formatBytes(b.bytes)})`); refresh(); })
-      .catch((e: Error) => toast.error(e.message));
+      .catch((e: Error) => toast.error(e.message))
+      .finally(() => setTimeout(() => setBackingUp(false), 1500));
+  };
 
   const restoreFile = useRef<HTMLInputElement>(null);
   const [pendingRestore, setPendingRestore] = useState<File | null>(null);
@@ -129,9 +135,18 @@ export function Settings() {
                     <IconTile icon={UserRound} label={p.display_name} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13.5px] font-medium">{p.display_name}</p>
-                      <p className="text-[12px] text-fg-subtle">{p.is_active ? "Active" : "Deactivated"}</p>
+                      <p className="text-[12px] text-fg-subtle">
+                        {p.is_active ? "Active" : "Deactivated"}
+                        {p.ha_user_id ? " · HA linked" : ""}
+                      </p>
                     </div>
                     <Badge tone={ROLE_TONE[p.role]}>{p.role}</Badge>
+                    {!p.ha_user_id && (
+                      <Button size="sm" variant="ghost" onClick={() => setLinking(p)}
+                        aria-label={`Link ${p.display_name} to a Home Assistant account`}>
+                        Link
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => toggleMember(p)}
                       aria-label={`${p.is_active ? "Deactivate" : "Activate"} ${p.display_name}`}>
                       {p.is_active ? "Deactivate" : "Activate"}
@@ -221,7 +236,9 @@ export function Settings() {
           description={`Family Finance ${version.data ? String(version.data["version"] ?? "") : ""}`}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={backupNow}><HardDrive /> Back up now</Button>
+            <Button variant="secondary" onClick={backupNow} disabled={backingUp}>
+            <HardDrive /> {backingUp ? "Backing up…" : "Back up now"}
+          </Button>
             <a
               href="./api/v1/transactions/export.csv"
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
@@ -240,9 +257,14 @@ export function Settings() {
           </div>
           {(backups.data ?? []).length > 0 ? (
             <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
-              {(backups.data ?? []).slice(0, 5).map((b: Backup) => (
+              {(backups.data ?? []).slice(0, 5).map((b: Backup, i: number) => (
                 <li key={b.name} className="flex items-center justify-between gap-3 px-3 py-2 text-[12.5px]">
-                  <span className="truncate font-medium">{b.name}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium" title={b.name}>
+                      {b.taken_at ? formatDateTime(b.taken_at) : b.name}
+                    </span>
+                    {i === 0 && <Badge>Latest</Badge>}
+                  </span>
                   <span className="flex shrink-0 items-center gap-1">
                     <span className="tnum text-fg-subtle">{formatBytes(b.bytes)}{b.ok ? "" : " · incomplete"}</span>
                     <Button size="sm" variant="ghost" onClick={() => downloadSnapshot(b.name)}
@@ -272,6 +294,9 @@ export function Settings() {
         </div>
       </Dialog>
       <AddMemberDialog open={addingMember} onOpenChange={setAddingMember} onSaved={refresh} />
+      {linking && (
+        <LinkIdentityDialog profile={linking} onClose={() => setLinking(null)} onSaved={refresh} />
+      )}
       <AddCategoryDialog open={addingCategory} onOpenChange={setAddingCategory} parents={parents.filter((c) => !c.archived)} onSaved={refresh} />
       <EditCategoryDialog
         category={editingCategory}
@@ -404,6 +429,47 @@ function AddMemberDialog({ open, onOpenChange, onSaved }: {
             <option value="admin">Admin — manage household</option>
             <option value="viewer">Viewer — read only</option>
           </Select>
+        )}</Field>
+      </form>
+    </Dialog>
+  );
+}
+
+function LinkIdentityDialog({ profile, onClose, onSaved }: {
+  profile: Profile;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [uid, setUid] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uid.trim()) return;
+    setBusy(true);
+    api.patch("/api/v1/profiles/{profile_id}", {
+      path: { profile_id: profile.id },
+      body: { ha_user_id: uid.trim() },
+    })
+      .then(() => {
+        toast.success(`${profile.display_name} linked to Home Assistant`);
+        onSaved();
+        onClose();
+      })
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}
+      title={`Link ${profile.display_name}`}
+      description="Paste their Home Assistant user ID (Settings → People → Users). If a duplicate member holds it, that copy is deactivated."
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="submit" form="ff-link-identity" disabled={!uid.trim() || busy}>{busy ? "Linking…" : "Link account"}</Button>
+      </>}>
+      <form id="ff-link-identity" onSubmit={submit} className="grid gap-4">
+        <Field label="Home Assistant user ID">{(id) => (
+          <Input id={id} autoFocus placeholder="e.g. 6855b4b31c3d4b83b777fa075e1b1a76"
+            value={uid} onChange={(e) => setUid(e.target.value)} />
         )}</Field>
       </form>
     </Dialog>

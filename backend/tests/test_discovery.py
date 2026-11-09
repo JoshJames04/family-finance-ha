@@ -25,6 +25,7 @@ from app.persistence.models import (
     MappingStatus,
     Transaction,
     TransactionSource,
+    TransactionStatus,
 )
 
 
@@ -224,6 +225,57 @@ class TestBalances:
         n = discovery.sync_balances(session, conn, client, "pat-1")
         assert n == 0
         assert client.calls == 0    # proposed rows aren't polled
+
+    def test_opening_reconciled_when_history_predates_it(
+            self, session: Session, household: Household,
+            conn: BankConnection) -> None:
+        """Issue #348 — opening stamped at link-day while the feed
+        holds earlier history is restamped so the ledger agrees
+        with the provider balance."""
+        from app.domain.accounts import current_balance
+        acct = Account(household_id=household.id, name="Synced",
+                       type="personal", opening_balance_pence=50000,
+                       opening_date=date(2026, 11, 8))
+        session.add(acct)
+        session.flush()
+        session.add_all([
+            Transaction(account_id=acct.id, date=date(2025, 1, 1),
+                        amount_pence=50000, payee="Opening balance",
+                        status=TransactionStatus.reconciled,
+                        source=TransactionSource.system,
+                        external_ref=f"open:{acct.id}"),
+            Transaction(account_id=acct.id, date=date(2026, 8, 11),
+                        amount_pence=-12000, payee="Shop",
+                        status=TransactionStatus.cleared,
+                        source=TransactionSource.starling,
+                        external_ref="feed-1")])
+        session.flush()
+        client = FakeClient(
+            [DiscoveredAccount("uid-1", "Synced")],
+            balances={"uid-1": 45228})
+        rows = discovery.discover(session, conn, client, "pat-1")
+        discovery.link(session, rows[0], acct)
+        discovery.sync_balances(session, conn, client, "pat-1")
+        assert current_balance(session, acct.id) == 45228
+        assert acct.opening_balance_pence == 57228
+
+    def test_no_opening_fabricated_on_empty_ledger(
+            self, session: Session, household: Household,
+            conn: BankConnection) -> None:
+        """#348 guard — a fresh link before the first feed sync must
+        not stamp a phantom opening the incoming history would then
+        double-count."""
+        acct = _account(session, household)
+        client = FakeClient(
+            [DiscoveredAccount("uid-1", "Personal")],
+            balances={"uid-1": 152340})
+        rows = discovery.discover(session, conn, client, "pat-1")
+        discovery.link(session, rows[0], acct)
+        discovery.sync_balances(session, conn, client, "pat-1")
+        count = session.scalar(select(func.count(Transaction.id))
+                               .where(Transaction.account_id
+                                      == acct.id))
+        assert (count or 0) == 0
 
 
 class TestFeedMapping:
