@@ -110,9 +110,14 @@ def resolve_identity(request: Request,
     if settings.ingress:
         household = session.scalar(
             select(Household).order_by(Household.id).limit(1))
-        if household is not None:
-            return _ha_profile(session, household, request)
-        return None
+        if household is None:
+            # Fresh install bootstrap: the first ingress request with
+            # supervisor identity materialises the household so
+            # _ha_profile can provision the first user as admin.
+            household = Household(name="Household")
+            session.add(household)
+            session.flush()
+        return _ha_profile(session, household, request)
     return _session_profile(session, request)
 
 

@@ -11,6 +11,23 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.0.2] — 2026-11-09
+
+### Fixed
+
+- Add-on served a blank ingress panel: nothing enabled
+  `FF_INGRESS`, so supervisor `x-remote-user-*` headers were
+  ignored and every request resolved anonymous. The entrypoint
+  now maps the Supervisor-injected `SUPERVISOR_TOKEN` to
+  `FF_SUPERVISOR_TOKEN` and enables `FF_INGRESS` whenever it is
+  present (overridable; standalone runs unaffected).
+- Fresh installs had no `Household` row for ingress identity to
+  provision into — `resolve_identity` now materialises the
+  household on the first supervisor request so the first HA user
+  bootstraps as admin.
+- Removed the `watchdog` line — a port-mapped watchdog could
+  restart-loop the add-on during the long first-boot migration.
+
 ## [1.0.1] — 2026-11-09
 
 ### Fixed
