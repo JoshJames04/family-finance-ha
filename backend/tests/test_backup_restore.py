@@ -148,6 +148,24 @@ class TestAdminEndpoints:
                 **h, "X-Profile-Id": "nope"}
             ).status_code == 403
 
+    def test_list_newest_first_with_taken_at(
+            self, tmp_path: Path) -> None:
+        """#371 — the list is newest-first, carries a parsed
+        timestamp, and orders same-second seq-suffixed names
+        chronologically (``-1`` lexes before ``.db``)."""
+        s = _settings(tmp_path)
+        with TestClient(create_app(s)) as c:
+            hid = c.post("/api/v1/households",
+                         json={"name": "H"}).json()["id"]
+            h = {"X-Household-Id": str(hid), **ADMIN}
+            names = [c.post("/api/v1/admin/backups",
+                            headers=h).json()["name"]
+                     for _ in range(2)]
+            items = c.get("/api/v1/admin/backups",
+                          headers=h).json()
+            assert [i["name"] for i in items] == names[::-1]
+            assert all(i["taken_at"] for i in items)
+
     def test_backup_restore_flow(self, tmp_path: Path) -> None:
         """Manual backup + pending restore applied at next boot."""
         s = _settings(tmp_path)

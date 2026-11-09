@@ -250,9 +250,17 @@ export function Settings() {
           </div>
           {(backups.data ?? []).length > 0 ? (
             <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
-              {(backups.data ?? []).slice(0, 5).map((b: Backup) => (
+              {(backups.data ?? []).slice(0, 5).map((b: Backup, i: number) => (
                 <li key={b.name} className="flex items-center justify-between gap-3 px-3 py-2 text-[12.5px]">
-                  <span className="truncate font-medium">{b.name}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium" title={b.name}>
+                      {b.taken_at
+                        ? new Date(b.taken_at).toLocaleString(undefined,
+                          { dateStyle: "medium", timeStyle: "short" })
+                        : b.name}
+                    </span>
+                    {i === 0 && <Badge>Latest</Badge>}
+                  </span>
                   <span className="flex shrink-0 items-center gap-1">
                     <span className="tnum text-fg-subtle">{formatBytes(b.bytes)}{b.ok ? "" : " · incomplete"}</span>
                     <Button size="sm" variant="ghost" onClick={() => downloadSnapshot(b.name)}
