@@ -79,10 +79,15 @@ export function Settings() {
       refresh();
     }).catch((e: Error) => toast.error(e.message));
 
-  const backupNow = () =>
+  const [backingUp, setBackingUp] = useState(false);
+  const backupNow = () => {
+    if (backingUp) return;
+    setBackingUp(true);
     api.post("/api/v1/admin/backups")
       .then((b) => { toast.success(`Backup saved (${formatBytes(b.bytes)})`); refresh(); })
-      .catch((e: Error) => toast.error(e.message));
+      .catch((e: Error) => toast.error(e.message))
+      .finally(() => setTimeout(() => setBackingUp(false), 1500));
+  };
 
   const restoreFile = useRef<HTMLInputElement>(null);
   const [pendingRestore, setPendingRestore] = useState<File | null>(null);
@@ -231,7 +236,9 @@ export function Settings() {
           description={`Family Finance ${version.data ? String(version.data["version"] ?? "") : ""}`}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={backupNow}><HardDrive /> Back up now</Button>
+            <Button variant="secondary" onClick={backupNow} disabled={backingUp}>
+            <HardDrive /> {backingUp ? "Backing up…" : "Back up now"}
+          </Button>
             <a
               href="./api/v1/transactions/export.csv"
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
