@@ -256,6 +256,31 @@ class Transaction(TimestampMixin, Base):
         back_populates="refund_of", foreign_keys=[refund_of_id])
     corrects: Mapped[Transaction | None] = relationship(
         remote_side=[id], foreign_keys=[corrects_id])
+    splits: Mapped[list[TransactionSplit]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan",
+        order_by="TransactionSplit.position")
+
+
+class TransactionSplit(TimestampMixin, Base):
+    """One category slice of a transaction (issue #289). Splits must
+    sum to the parent ``amount_pence``; a transaction with no splits
+    behaves as a single implicit split on its own ``category_id``."""
+
+    __tablename__ = "transaction_split"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("category.id"), nullable=False, index=True)
+    amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    position: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False)
+
+    transaction: Mapped[Transaction] = relationship(
+        back_populates="splits")
+    category: Mapped[Category] = relationship()
 
 
 class Transfer(TimestampMixin, Base):

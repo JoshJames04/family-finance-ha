@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Bookmark, Check, Download, FilterX, Lock, Pencil, Plus, Receipt,
-  StickyNote, X,
+  Scissors, StickyNote, X,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi, useHouseholds } from "../api/useApi";
@@ -84,6 +84,7 @@ export function Transactions() {
   const [bulkCat, setBulkCat] = useState("");
   const [correcting, setCorrecting] = useState<Txn | null>(null);
   const [noting, setNoting] = useState<Txn | null>(null);
+  const [splitting, setSplitting] = useState<Txn | null>(null);
   const [page, setPage] = useState(1);
   const [loaded, setLoaded] = useState<Txn[]>([]);
   const state = useApi(
@@ -418,6 +419,9 @@ export function Transactions() {
                         <td className="hidden px-3 sm:table-cell">
                           <div className="flex items-center gap-1">
                             <Badge tone={STATUS_TONE[t.status]}>{t.status}</Badge>
+                            {t.splits.length > 0 && (
+                              <Badge tone="info">split ×{t.splits.length}</Badge>
+                            )}
                             {!locked && t.status !== "void" && (
                               <Button
                                 variant="ghost"
@@ -427,6 +431,18 @@ export function Transactions() {
                                 onClick={() => setNoting(t)}
                               >
                                 <StickyNote />
+                              </Button>
+                            )}
+                            {!locked && t.status !== "void" &&
+                             t.status !== "reconciled" && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Split ${t.payee}`}
+                                title={t.splits.length ? "Edit split" : "Split across categories"}
+                                onClick={() => setSplitting(t)}
+                              >
+                                <Scissors />
                               </Button>
                             )}
                             {t.status === "reconciled" && (
@@ -474,6 +490,19 @@ export function Transactions() {
           categories={cats}
           onDone={() => { setCorrecting(null); refresh(); toast.success("Correction issued"); }}
           onCancel={() => setCorrecting(null)}
+        />
+      )}
+      {splitting && (
+        <SplitDialog
+          txn={splitting}
+          categories={cats}
+          onClose={() => setSplitting(null)}
+          onSaved={(splits) => {
+            setSplitting(null);
+            setLoaded((prev) => prev.map((r) =>
+              r.id === splitting.id ? { ...r, splits } : r));
+            toast.success(splits.length ? "Split saved" : "Split cleared");
+          }}
         />
       )}
       {noting && (
@@ -706,6 +735,138 @@ function NoteDialog({ txn, onClose, onSaved }: {
             autoFocus
           />
         )}</Field>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Split a transaction across categories (issue #289). Legs are
+ * entered as positive magnitudes; the parent's sign is applied on
+ * save — an expense splits into expense legs. */
+function SplitDialog({ txn, categories, onClose, onSaved }: {
+  txn: Txn;
+  categories: Category[];
+  onClose: () => void;
+  onSaved: (splits: Txn["splits"]) => void;
+}) {
+  type Leg = { category_id: string; amount: string };
+  const seed: Leg[] = txn.splits.map((s) => ({
+    category_id: String(s.category_id),
+    amount: (Math.abs(s.amount_pence) / 100).toString(),
+  }));
+  const [legs, setLegs] = useState<Leg[]>(
+    seed.length ? seed : [
+      { category_id: "", amount: "" },
+      { category_id: "", amount: "" },
+    ]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sign = txn.amount_pence >= 0 ? 1 : -1;
+  const entered = legs.map((l) =>
+    Math.round(Number.parseFloat(l.amount || "0") * 100));
+  const total = entered.reduce((a, b) => a + b, 0);
+  const remaining = Math.abs(txn.amount_pence) - total;
+  const valid = legs.length >= 2
+    && legs.every((l, i) => l.category_id !== ""
+      && (entered[i] ?? 0) > 0)
+    && remaining === 0;
+
+  const setLeg = (i: number, patch: Partial<Leg>) =>
+    setLegs((prev) => prev.map((l, j) => j === i ? { ...l, ...patch } : l));
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    api.put("/api/v1/transactions/{txn_id}/splits", {
+      path: { txn_id: txn.id },
+      body: {
+        splits: legs.map((l, i) => ({
+          category_id: Number(l.category_id),
+          amount_pence: sign * (entered[i] ?? 0),
+        })),
+      },
+    }).then((r) => onSaved(r.splits)).catch((err) => {
+      setBusy(false);
+      setError(err instanceof Error ? err.message : "Split failed");
+    });
+  };
+
+  const clearAll = () => {
+    setBusy(true);
+    api.put("/api/v1/transactions/{txn_id}/splits", {
+      path: { txn_id: txn.id }, body: { splits: [] },
+    }).then((r) => onSaved(r.splits)).catch((err) => {
+      setBusy(false);
+      setError(err instanceof Error ? err.message : "Clear failed");
+    });
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
+      title={`Split — ${txn.payee}`}
+      description={<>
+        {formatSmartDate(txn.date)} · <Money pence={txn.amount_pence} signed tone="auto" />
+      </>}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        {txn.splits.length > 0 && (
+          <Button variant="ghost" onClick={clearAll} disabled={busy}>
+            Clear split
+          </Button>
+        )}
+        <Button variant="primary" type="submit" form="ff-split"
+          disabled={busy || !valid}>
+          {busy ? "Saving…" : "Save split"}
+        </Button>
+      </>}>
+      <form id="ff-split" onSubmit={submit} className="grid gap-3">
+        {legs.map((leg, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Select
+              aria-label={`Split ${i + 1} category`}
+              value={leg.category_id}
+              onChange={(e) => setLeg(i, { category_id: e.target.value })}
+            >
+              <option value="">Category…</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+            <Input
+              aria-label={`Split ${i + 1} amount`}
+              inputMode="decimal"
+              placeholder="0.00"
+              value={leg.amount}
+              onChange={(e) => setLeg(i, { amount: e.target.value })}
+            />
+            <Button
+              type="button" variant="ghost" size="icon-sm"
+              aria-label={`Remove split ${i + 1}`}
+              onClick={() =>
+                setLegs((prev) => prev.filter((_, j) => j !== i))}
+            >
+              <X />
+            </Button>
+          </div>
+        ))}
+        <div className="flex items-center justify-between">
+          <Button
+            type="button" variant="secondary" size="sm"
+            onClick={() =>
+              setLegs((prev) => [...prev,
+              { category_id: "", amount: "" }])}
+          >
+            <Plus /> Add leg
+          </Button>
+          <p className={cn("text-[12.5px]",
+            remaining === 0 ? "text-positive" : "text-fg-subtle")}>
+            {remaining === 0
+              ? "Balances"
+              : <>Remaining <Money pence={sign * remaining} signed /></>}
+          </p>
+        </div>
+        {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
       </form>
     </Dialog>
   );

@@ -196,6 +196,26 @@ class TransactionCorrect(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class TransactionSplitIn(BaseModel):
+    category_id: int
+    amount_pence: int
+
+
+class TransactionSplitsPut(BaseModel):
+    """Whole-set replace for a transaction's splits (issue #289)."""
+    splits: list[TransactionSplitIn] = Field(min_length=0,
+                                           max_length=50)
+
+
+class TransactionSplitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    transaction_id: int
+    category_id: int
+    amount_pence: int
+    position: int
+
+
 class TransactionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -213,6 +233,7 @@ class TransactionOut(BaseModel):
     refund_of_id: int | None
     suggested_category_id: int | None
     corrects_id: int | None
+    splits: list[TransactionSplitOut] = []
 
 
 class BulkTransactionOp(BaseModel):
