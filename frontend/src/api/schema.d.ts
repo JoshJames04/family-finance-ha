@@ -1671,7 +1671,11 @@ export interface paths {
         delete: operations["deactivate_loan_api_v1_loans__lid__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Patch Loan
+         * @description Edit a loan's terms, owner or active flag (#278).
+         */
+        patch: operations["patch_loan_api_v1_loans__lid__patch"];
         trace?: never;
     };
     "/api/v1/loans/{lid}/repayments": {
@@ -5197,6 +5201,26 @@ export interface components {
             active: boolean;
             /** Notes */
             notes: string | null;
+        };
+        /** LoanPatch */
+        LoanPatch: {
+            /** Party */
+            party?: string | null;
+            direction?: components["schemas"]["LoanDirection"] | null;
+            /** Principal Pence */
+            principal_pence?: number | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Expected Payment Pence */
+            expected_payment_pence?: number | null;
+            /** Interest Bps Pa */
+            interest_bps_pa?: number | null;
+            /** Owner Profile Id */
+            owner_profile_id?: number | null;
+            /** Active */
+            active?: boolean | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** LoanPositionOut */
         LoanPositionOut: {
@@ -11056,6 +11080,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11088,6 +11113,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11123,6 +11149,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 lid: number;
@@ -11157,6 +11184,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 lid: number;
@@ -11183,11 +11211,51 @@ export interface operations {
             };
         };
     };
+    patch_loan_api_v1_loans__lid__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                lid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoanPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoanOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_repayments_api_v1_loans__lid__repayments_get: {
         parameters: {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 lid: number;
@@ -11222,6 +11290,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 lid: number;
@@ -11261,6 +11330,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 lid: number;
@@ -11295,6 +11365,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 lid: number;
