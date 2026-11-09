@@ -43,11 +43,15 @@ RUN pip install --no-cache-dir --no-deps --force-reinstall .
 # SPA bundle from stage 1 — served by app.main's fallback route.
 COPY --from=web /web/dist ./web
 
-USER ff
+# Starts as root so the entrypoint can chown the mounted /data volume
+# (the HA Supervisor writes options.json root-owned), then drops to ff.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 8099
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:8099/healthz',timeout=4)" || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8099"]
+CMD ["docker-entrypoint.sh"]
