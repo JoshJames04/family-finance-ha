@@ -96,7 +96,7 @@ describe("Shared page", () => {
   });
 
   it("guides members without a shared budget", async () => {
-    stubFetch([BUDGETS[1]]); // owned budget only
+    stubFetch([BUDGETS[1]!]); // owned budget only
     render(<MemoryRouter><Shared /></MemoryRouter>);
     await screen.findByText("No shared budget");
     expect(screen.getByRole("button",
