@@ -143,6 +143,41 @@ class TestDiscovery:
         rows = discovery.discover(session, conn, client, "pat-1")
         assert rows[0].status == MappingStatus.ignored
 
+    def test_unignore_reproposes(
+            self, session: Session, conn: BankConnection) -> None:
+        client = FakeClient([DiscoveredAccount("uid-1", "Pot")])
+        rows = discovery.discover(session, conn, client, "pat-1")
+        discovery.ignore(session, rows[0])
+        discovery.unignore(session, rows[0])
+        assert rows[0].status == MappingStatus.proposed
+
+    def test_provider_rename_updates_untouched_account_name(
+            self, session: Session, household: Household,
+            conn: BankConnection) -> None:
+        """Provider rename flows to the linked account when its name
+        still matches the old label (issue #316)."""
+        acct = _account(session, household, name="Personal")
+        client = FakeClient([DiscoveredAccount("uid-1", "Personal")])
+        rows = discovery.discover(session, conn, client, "pat-1")
+        discovery.link(session, rows[0], acct)
+        client.items = [DiscoveredAccount("uid-1", "Personal Current")]
+        discovery.discover(session, conn, client, "pat-1")
+        assert acct.name == "Personal Current"
+
+    def test_provider_rename_preserves_custom_account_name(
+            self, session: Session, household: Household,
+            conn: BankConnection) -> None:
+        """A user-customised account name is never stomped by a
+        provider rename (issue #316)."""
+        acct = _account(session, household, name="My Spending")
+        client = FakeClient([DiscoveredAccount("uid-1", "Personal")])
+        rows = discovery.discover(session, conn, client, "pat-1")
+        discovery.link(session, rows[0], acct)
+        client.items = [DiscoveredAccount("uid-1", "Personal Current")]
+        rows = discovery.discover(session, conn, client, "pat-1")
+        assert rows[0].external_label == "Personal Current"
+        assert acct.name == "My Spending"
+
 
 class TestLinking:
     def test_cross_household_link_rejected(

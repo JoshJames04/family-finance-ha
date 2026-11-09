@@ -114,6 +114,9 @@ export function Banking() {
   const ignoreMapping = (m: Mapping) =>
     act(api.post("/api/v1/banking/mappings/{mid}/ignore", { path: { mid: m.id } }),
       `${m.external_label} ignored`);
+  const unignoreMapping = (m: Mapping) =>
+    act(api.post("/api/v1/banking/mappings/{mid}/unignore", { path: { mid: m.id } }),
+      `${m.external_label} proposed again`);
 
   const syncable = (c: Connection) => c.status === "connected" || c.status === "degraded";
 
@@ -288,7 +291,12 @@ export function Banking() {
                   {ignored.map((m) => (
                     <li key={m.id} className="flex items-center gap-3 px-4 py-2.5 text-fg-subtle">
                       <X className="size-3.5" />
-                      <span className="text-[13px]">{m.external_label}</span>
+                      <span className="flex-1 text-[13px]">{m.external_label}</span>
+                      <Button size="sm" variant="ghost" disabled={busyId === m.id}
+                        onClick={() => unignoreMapping(m)}
+                        aria-label={`Propose ${m.external_label} again`}>
+                        Un-ignore
+                      </Button>
                     </li>
                   ))}
                 </ul>
