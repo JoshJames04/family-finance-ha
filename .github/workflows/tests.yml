@@ -39,8 +39,8 @@ jobs:
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
         run: |
-          ruff check . || true   # ratchet: enforce once configured
-          mypy app || mypy src || true
+          ruff check .
+          mypy app
       - name: Unit & integration tests
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
