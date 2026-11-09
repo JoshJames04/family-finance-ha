@@ -20,7 +20,9 @@ spreadsheet.
 ## Access
 
 Runs entirely through ingress — open **Finance** in the Home Assistant
-sidebar. No ports to expose.
+sidebar. Publishing port `8099` under the add-on's *Network* section is
+optional and only needed if the `family_finance` custom integration or
+the admin API should reach the app at `http://<ha-host>:8099` directly.
 
 ## Options
 
