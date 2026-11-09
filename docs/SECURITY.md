@@ -38,6 +38,28 @@ mobile lock screens).
 - **Data scoping:** shared household data vs `private(owner)` data scoped in
   queries, not UI hiding.
 
+### 2.1 Ingress trust audit (#364, 2026-11-09)
+
+Verified on `develop` — `TestIngressTrust` + `TestIngressTrustMatrix` in
+`backend/tests/test_auth.py`:
+
+- Remote-user headers from **any** non-`172.30.32.2` peer → 401 before
+  routing, in **both** ingress and standalone modes — including partial
+  header sets (uid absent) and requests that also carry a valid session.
+- The trust decision reads the transport peer (`request.client`), never
+  `X-Forwarded-For` — an XFF claim of the supervisor IP cannot launder an
+  untrusted peer. Uvicorn is not run with `--proxy-headers` trusts beyond
+  its localhost-only default.
+- Under ingress: `X-Profile-Id` resolves nobody, headerless requests are
+  anonymous, and the first supervisor identity bootstraps household+admin
+  — subsequent identities provision as `member`.
+- Add-on publishes no host port by default (`8099/tcp: null`); if an
+  operator publishes it, the supervisor-IP allowlist remains the barrier
+  and standalone session auth still applies.
+- Household scoping + deny-by-default route coverage:
+  `test_cross_scope_on_every_scoped_route`,
+  `test_every_route_has_authz_or_is_public`.
+
 ## 3. Data protection
 
 - Credentials & bank tokens in an encrypted vault (key from HA secrets /
