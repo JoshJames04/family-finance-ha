@@ -79,9 +79,17 @@ def discover(session: Session, conn: BankConnection,
             session.add(m)
             rows.append(m)
         else:
+            old_label = m.external_label
             m.external_label = d.label          # rename propagates
             m.external_kind = d.kind
             m.external_category_uid = d.category_uid or ""
+            if m.account_id is not None and d.label != old_label:
+                acct = session.get(Account, m.account_id)
+                # Only rename the internal account when it still
+                # carries the provider's previous label — a
+                # user-customised name is never stomped.
+                if acct is not None and acct.name == old_label:
+                    acct.name = d.label
             if m.status == MappingStatus.closed:
                 m.status = (MappingStatus.linked
                             if m.account_id is not None
@@ -111,6 +119,13 @@ def ignore(session: Session, mapping: BankAccountMapping) -> None:
     if mapping.status != MappingStatus.proposed:
         raise DiscoveryError("only proposed mappings can be ignored")
     mapping.status = MappingStatus.ignored
+    session.flush()
+
+
+def unignore(session: Session, mapping: BankAccountMapping) -> None:
+    if mapping.status != MappingStatus.ignored:
+        raise DiscoveryError("only ignored mappings can be un-ignored")
+    mapping.status = MappingStatus.proposed
     session.flush()
 
 
