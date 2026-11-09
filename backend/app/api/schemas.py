@@ -447,6 +447,7 @@ class ProfileOut(BaseModel):
     display_name: str
     role: Role
     is_active: bool
+    ha_user_id: str | None = None
 
 
 class DashboardLayoutIn(BaseModel):
@@ -466,6 +467,7 @@ class ProfilePatch(BaseModel):
     role: Role | None = None
     display_name: str | None = Field(
         default=None, min_length=1, max_length=120)
+    ha_user_id: str | None = Field(default=None, max_length=64)
 
 
 class ShareBudgetIn(BaseModel):
@@ -538,6 +540,7 @@ class BackupOut(BaseModel):
     name: str
     bytes: int
     ok: bool
+    taken_at: datetime | None = None
 
 
 class RestoreRequest(BaseModel):
@@ -953,12 +956,15 @@ class TransferRuleIn(BaseModel):
 
 class TransferRulePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
+    source_account_id: int | None = None
+    dest_account_id: int | None = None
     amount_spec: AmountSpecIn | None = None
     frequency: Frequency | None = None
     day_of_month: int | None = Field(default=None, ge=1, le=31)
     start_date: date | None = None
     end_date: date | None = None
     notes: str | None = Field(default=None, max_length=500)
+    active: bool | None = None
 
 
 class TransferRuleOut(BaseModel):

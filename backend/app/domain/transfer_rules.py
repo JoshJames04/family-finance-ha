@@ -26,17 +26,38 @@ from sqlalchemy.orm import Session
 from app.domain.recurring import advance
 from app.domain.reporting import external_only
 from app.persistence.models import (
+    Account,
     AmountKind,
+    BankAccountMapping,
     Budget,
     BudgetLine,
     BudgetStatus,
     Transaction,
+    TransactionStatus,
     TransferRule,
 )
 
 
 class TransferRuleError(Exception):
     """Domain validation failure → API maps to 409."""
+
+
+def space_parent(session: Session, account_id: int) -> Account | None:
+    """If the account is a provider *space*, return its parent main
+    account — a space shares ``external_uid`` with the parent mapping
+    on the same connection (issue #345). ``None`` for ordinary
+    accounts or unmapped spaces."""
+    space = session.scalar(select(BankAccountMapping).where(
+        BankAccountMapping.account_id == account_id,
+        BankAccountMapping.external_kind == "space"))
+    if space is None:
+        return None
+    parent = session.scalar(select(BankAccountMapping).where(
+        BankAccountMapping.connection_id == space.connection_id,
+        BankAccountMapping.external_uid == space.external_uid,
+        BankAccountMapping.external_kind == "account",
+        BankAccountMapping.account_id.is_not(None)))
+    return session.get(Account, parent.account_id) if parent else None
 
 
 @dataclass(frozen=True)
@@ -105,6 +126,7 @@ def evaluate(session: Session, rule: TransferRule,
             select(func.coalesce(func.sum(
                 Transaction.amount_pence), 0)).where(
             Transaction.account_id == rule.source_account_id,
+            Transaction.status != TransactionStatus.void,
             Transaction.amount_pence > 0,
             Transaction.date >= since,
             Transaction.date < on))).scalar_one()

@@ -29,9 +29,20 @@ children done → epic Done; any child active → In Progress.
 - CI (`tests.yml` + `repo-hygiene`) runs on every PR — the repo is
   public, so runs are free; do not skip fixing red CI.
 
+## Documentation currency (required every change)
+
+README.md and docs/ are living documents — every PR that changes
+behaviour, security, ops, deployment or workflows must update the
+affected docs **in the same PR**, not a follow-up. When unsure which
+doc owns a fact, check: README (feature overview + getting started),
+docs/SECURITY.md (identity/authZ), docs/MIGRATION.md (moving installs,
+workbook retirement), docs/CICD-HA.md (pipeline + required checks),
+docs/ARCHITECTURE.md (design), AGENTS.md (verification + workflow).
+
 ## Verification before claiming done
 
-- `cd backend && python -m pytest tests/ -q` (full suite)
+- `cd backend && python -m pytest tests/ -q -m "not perf"` (full suite)
+- `python -m pytest -m perf` runs the non-gating perf budgets (#132)
 - `python -m ruff check app/ tests/` and `python -m mypy app/`
 - New migration → `alembic upgrade head`, then downgrade one step,
   upgrade again; `alembic heads` must print exactly one head.
@@ -47,8 +58,8 @@ children done → epic Done; any child active → In Progress.
 
 ## PR review & merge workflow (post-2026-11-07)
 
-- All PRs target `develop` directly (stacked bases retired — merges must land on the default branch for `Closes #N` to fire).
-- Every PR body must end with `Closes #<issue>` so merge auto-closes the issue.
+- `main` is the repo's default branch; `develop` remains the integration branch. All feature/fix PRs target `develop` directly; releases flow `develop → main`.
+- GitHub only fires `Closes #N` on merges to the default branch (`main`), so develop merges no longer auto-close issues — close the issue manually when its PR merges (or let the release PR close it at ship time). Keep `Closes #<issue>` in PR bodies for traceability.
 - Author is the repo owner — GitHub blocks self-review, so approval = the owner enabling **auto-merge** on the PR after review. Never pre-enable auto-merge; the owner clicks it (or instructs) after reviewing.
 - `develop` is protected: all check contexts required (`backend`, `frontend`, `migrations`, `e2e`, `image`, `hacs-validate`, `ha-integration` matrix, `docs-integrity`, `forbidden-files`, `secret-scan`, `version-consistency`); no review requirement (self-authored PRs can't satisfy it).
 - Merge order: bottom-up (#225 first). Merge commits only — squash rewrites SHAs and pollutes stacked diffs. Each merge shrinks the next PR's diff automatically.

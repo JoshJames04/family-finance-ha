@@ -56,6 +56,21 @@ class TestOpening:
         session.commit()
         assert transaction_count(session, a.id) == 1
 
+    def test_voided_rows_never_count(
+        self, session: Session, household: Household
+    ) -> None:
+        """Issue #347 — current_balance excludes status='void'."""
+        a = _open(session, household, pence=1000)
+        session.add_all([
+            Transaction(account_id=a.id, date=D0, amount_pence=-400,
+                        payee="kept", status=TransactionStatus.cleared,
+                        source=TransactionSource.manual),
+            Transaction(account_id=a.id, date=D0, amount_pence=-99900,
+                        payee="voided", status=TransactionStatus.void,
+                        source=TransactionSource.manual)])
+        session.flush()
+        assert current_balance(session, a.id) == 600
+
 
 class TestArchive:
     def test_archive_and_reopen(

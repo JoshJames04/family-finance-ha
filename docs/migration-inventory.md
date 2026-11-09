@@ -11,8 +11,8 @@ the real-name mapping lives in `data/migration-map.local.json`
 | `Josh - 2025` | visible | A1:T66 | 7 |
 | `Josh - 2026` | visible | A1:Q76 | 5 |
 | `Josh - 2027` | visible | A1:Q75 | 4 |
-| `Overtime` | visible | A1:L58 | 0 |
-| `Salary History` | visible | A1:I16 | 0 |
+| `Salary History` | visible | A1:I14 | 0 |
+| `Overtime` | visible | A1:L61 | 0 |
 | `Slow Boat` | hidden | A1:AC96 | 0 |
 | `Monthly Model` | hidden | A1:AB39 | 0 |
 | `Tax Tables` | hidden | A1:M38 | 0 |
@@ -360,8 +360,17 @@ the real-name mapping lives in `data/migration-map.local.json`
     )
 )` ×1 @ ['F6']
 
+### `Salary History` (visible)
+- dims `A1:I14`, merged []
+- formula columns: []
+- literals inside formula columns (0): []
+- hardcoded-constant formulas (0): []
+- error cells (0): []
+- validations: []
+- top formula patterns:
+
 ### `Overtime` (visible)
-- dims `A1:L58`, merged []
+- dims `A1:L61`, merged []
 - formula columns: [3, 6, 7, 8, 9]
 - literals inside formula columns (25): ['C1', 'F1', 'G1', 'H1', 'I1', 'C2', 'F2', 'G2', 'H2', 'I2', 'C3', 'F3', 'G3', 'H3', 'I3']
 - hardcoded-constant formulas (0): []
@@ -403,15 +412,6 @@ _xlfn.XLOOKUP(
 )` ×12 @ ['G6', 'G7', 'G8', 'G9', 'G10', 'G11']
     - `=tblOvertime[[#This Row],[Hourly Rate]] * tblOvertime[[#This Row],[Multiplier]]` ×12 @ ['H6', 'H7', 'H8', 'H9', 'H10', 'H11']
     - `=ROUNDDOWN(tblOvertime[[#This Row],[Overtime Rate]] * tblOvertime[[#This Row],[Hours]],#)` ×12 @ ['I6', 'I7', 'I8', 'I9', 'I10', 'I11']
-
-### `Salary History` (visible)
-- dims `A1:I16`, merged []
-- formula columns: []
-- literals inside formula columns (0): []
-- hardcoded-constant formulas (0): []
-- error cells (0): []
-- validations: []
-- top formula patterns:
 
 ### `Slow Boat` (hidden)
 - dims `A1:AC96`, merged ['E2:F2', 'E3:F3']

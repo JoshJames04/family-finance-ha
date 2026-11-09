@@ -83,6 +83,19 @@ class TestSnapshots:
         assert remaining == [p.name for p in snaps[-2:]]
         assert backup.latest_snapshot(bdir) == snaps[-1]
 
+    def test_marker_accepts_pending_prefix(self, tmp_path: Path) -> None:
+        """#342 — marker roundtrip accepts pending/ uploads and
+        still rejects anything else."""
+        marker = tmp_path / "restore.pending"
+        backup.request_restore(marker, "pending/ff-20261109T000000.db")
+        assert backup.take_pending_restore(
+            marker) == "pending/ff-20261109T000000.db"
+        backup.request_restore(marker, "ff-20261109T000000.db")
+        assert backup.take_pending_restore(
+            marker) == "ff-20261109T000000.db"
+        with pytest.raises(ValueError):
+            backup.request_restore(marker, "pending/../evil.db")
+
     def test_verify_rejects_garbage(self, tmp_path: Path) -> None:
         bad = tmp_path / "ff-20260101T000000.db"
         bad.write_bytes(b"not a database")
@@ -134,6 +147,24 @@ class TestAdminEndpoints:
             assert c.get("/api/v1/admin/backups", headers={
                 **h, "X-Profile-Id": "nope"}
             ).status_code == 403
+
+    def test_list_newest_first_with_taken_at(
+            self, tmp_path: Path) -> None:
+        """#371 — the list is newest-first, carries a parsed
+        timestamp, and orders same-second seq-suffixed names
+        chronologically (``-1`` lexes before ``.db``)."""
+        s = _settings(tmp_path)
+        with TestClient(create_app(s)) as c:
+            hid = c.post("/api/v1/households",
+                         json={"name": "H"}).json()["id"]
+            h = {"X-Household-Id": str(hid), **ADMIN}
+            names = [c.post("/api/v1/admin/backups",
+                            headers=h).json()["name"]
+                     for _ in range(2)]
+            items = c.get("/api/v1/admin/backups",
+                          headers=h).json()
+            assert [i["name"] for i in items] == names[::-1]
+            assert all(i["taken_at"] for i in items)
 
     def test_backup_restore_flow(self, tmp_path: Path) -> None:
         """Manual backup + pending restore applied at next boot."""
@@ -201,6 +232,17 @@ class TestAdminEndpoints:
                         files={"file": ("snap.db", dl.content)})
             assert up.status_code == 202
             assert s.restore_marker.is_file()
+            # issue #342 — uploads live under pending/ and never
+            # appear in the backups list.
+            marker_name = s.restore_marker.read_text().strip()
+            assert marker_name.startswith("pending/ff-")
+            assert (s.resolved_backup_dir / marker_name).is_file()
+            listed = c.get("/api/v1/admin/backups", headers=h).json()
+            names = [b["name"] for b in
+                     (listed["items"] if isinstance(listed, dict)
+                      else listed)]
+            assert marker_name not in names
+            assert not any(n.startswith("pending") for n in names)
             s.restore_marker.unlink()
             bad = c.post("/api/v1/admin/restore/upload", headers=h,
                          files={"file": ("bad.db", b"not sqlite")})

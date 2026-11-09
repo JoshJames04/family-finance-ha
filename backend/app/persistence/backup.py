@@ -20,6 +20,11 @@ from app.persistence.engine import vacuum_into
 
 SNAPSHOT_RE = re.compile(r"ff-\d{8}T\d{6}(-\d+)?\.db")
 RESTORE_MARKER = "restore.pending"
+PENDING_DIR = "pending"
+# Restore markers may reference an uploaded file under ``pending/``
+# (kept out of ``list_snapshots`` — issue #342) or a listed snapshot.
+MARKER_RE = re.compile(
+    rf"(?:{PENDING_DIR}/)?ff-\d{{8}}T\d{{6}}(-\d+)?\.db")
 
 
 def next_name(now: datetime | None = None, seq: int = 0) -> str:
@@ -91,7 +96,7 @@ def restore_from(snapshot: Path, db_path: Path) -> None:
 
 def request_restore(marker: Path, snapshot_name: str) -> None:
     """Write the pending-restore marker — applied at next boot."""
-    if not SNAPSHOT_RE.fullmatch(snapshot_name):
+    if not MARKER_RE.fullmatch(snapshot_name):
         raise ValueError(f"invalid snapshot name: {snapshot_name!r}")
     marker.write_text(snapshot_name)
 
@@ -102,4 +107,4 @@ def take_pending_restore(marker: Path) -> str | None:
         return None
     name = marker.read_text().strip()
     marker.unlink()
-    return name if SNAPSHOT_RE.fullmatch(name) else None
+    return name if MARKER_RE.fullmatch(name) else None

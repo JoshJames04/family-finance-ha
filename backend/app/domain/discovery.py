@@ -16,15 +16,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.accounts import OPENING_PAYEE
 from app.domain.sync import FeedItem
 from app.persistence.models import (
     Account,
     BankAccountMapping,
     BankConnection,
     MappingStatus,
+    Transaction,
+    TransactionSource,
+    TransactionStatus,
 )
 
 
@@ -141,5 +145,47 @@ def sync_balances(session: Session, conn: BankConnection,
                if m.external_kind == "space" else None)
         m.balance_pence = client.balance(token, m.external_uid, cat)
         m.balance_at = datetime.now()
+        if m.account_id is not None:
+            _reconcile_opening(session, m.account_id, m.balance_pence)
     session.flush()
     return len(rows)
+
+
+def _reconcile_opening(session: Session, account_id: int,
+                       balance_pence: int) -> None:
+    """Issue #348: an opening stamped at *link day* while the feed
+    already holds earlier history double-counts that history in the
+    ledger. Restamp (or create) the opening so the ledger agrees
+    with the provider — but only once ledger history predating
+    ``opening_date`` actually exists, so a fresh link before the
+    first feed sync never fabricates a phantom opening."""
+    open_ref = f"open:{account_id}"
+    acct = session.get(Account, account_id)
+    if acct is None:
+        return
+    earliest = session.scalar(select(func.min(Transaction.date)).where(
+        Transaction.account_id == account_id,
+        Transaction.status != TransactionStatus.void,
+        func.coalesce(Transaction.external_ref, "") != open_ref))
+    if earliest is None or earliest >= acct.opening_date:
+        return
+    opening = session.scalar(select(Transaction).where(
+        Transaction.account_id == account_id,
+        Transaction.external_ref == open_ref))
+    others = int(session.scalar(select(func.coalesce(
+        func.sum(Transaction.amount_pence), 0)).where(
+        Transaction.account_id == account_id,
+        Transaction.status != TransactionStatus.void,
+        func.coalesce(Transaction.external_ref, "") != open_ref)) or 0)
+    desired = balance_pence - others
+    if opening is not None:
+        if opening.amount_pence != desired:
+            opening.amount_pence = desired
+            acct.opening_balance_pence = desired
+    else:
+        session.add(Transaction(
+            account_id=account_id, date=acct.opening_date,
+            amount_pence=desired, payee=OPENING_PAYEE,
+            status=TransactionStatus.reconciled,
+            source=TransactionSource.system, external_ref=open_ref))
+        acct.opening_balance_pence = desired

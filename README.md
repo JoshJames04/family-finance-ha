@@ -5,7 +5,7 @@ designed to become the single source of truth for a household's financial life:
 budgeting, forecasting, payroll, savings, debts, subscriptions and day-to-day
 spending — all in one place, under your control.
 
-> **Status:** Pre-implementation planning. The development backlog lives in
+> **Status:** Active development. A working Home Assistant app, React frontend and FastAPI backend are in the repository. `develop` is the integration branch; `main` is the release branch. This is not yet approved for production household financial use. The development backlog lives in
 > GitHub Issues; delivery is tracked on the
 > [Family Finance project board](https://github.com/users/JoshJames04/projects/1)
 > (Backlog / Board / Current Sprint / Roadmap / By Epic views) with phases in
@@ -76,8 +76,9 @@ Full rationale and trade-offs are documented in
 ## Development
 
 All work flows through GitHub Issues: epics → user stories/tasks → pull
-requests against `main`. See [CONTRIBUTING](CONTRIBUTING.md) for branching,
-Definition of Ready/Done, labels and review standards.
+requests against `develop`; `main` is release-only. See
+[CONTRIBUTING](CONTRIBUTING.md) for branching, Definition of Ready/Done,
+labels and review standards.
 
 ### Quickstart (dev environment)
 
@@ -97,7 +98,7 @@ app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
 
 ## Privacy
 
-This repository is private. No real financial data, workbook files, account
+This repository is public. No real financial data, workbook files, account
 numbers or credentials may ever be committed. Development and tests use
 synthetic fixtures only — see [SECURITY.md](SECURITY.md) and
 [tests/fixtures/README.md](tests/fixtures/README.md).

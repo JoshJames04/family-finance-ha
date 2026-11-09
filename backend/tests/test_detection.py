@@ -23,6 +23,7 @@ from app.persistence.models import (
     DetectionCandidate,
     Frequency,
     Household,
+    RecurringCommitment,
     SubscriptionStatus,
     Transaction,
     TransactionStatus,
@@ -226,6 +227,19 @@ class TestLifecycle:
         detection.confirm(session, c)
         _pay(session, acct, "Streamflix",
              [date(2026, 3, 15), date(2026, 4, 15)], [1_099] * 2)
+        assert detection.scan(session, household.id) == []
+
+    def test_commitment_covered_payee_skipped(
+            self, session: Session, household: Household,
+            acct: Account) -> None:
+        """Issue #313 — a payee covered by an active bill never
+        surfaces as a subscription candidate."""
+        session.add(RecurringCommitment(
+            household_id=household.id, name="Streamflix",
+            account_id=acct.id, amount_pence=-1_099,
+            frequency=Frequency.monthly, day_of_month=15,
+            next_date=date(2026, 3, 15), generated_count=0))
+        self._seed(session, acct)
         assert detection.scan(session, household.id) == []
 
 

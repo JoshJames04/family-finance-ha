@@ -6,7 +6,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
@@ -17,6 +17,9 @@ from app.persistence.models import (
     Account,
     AmountKind,
     Confidence,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
     TransferRule,
 )
 
@@ -58,6 +61,36 @@ def list_rules(
         total=len(rows), page=1, size=len(rows) or 1)
 
 
+def _ensure_space_leg(
+    session: Session, household_id: int, actor: str,
+    parent: Account, space: Account, rule: TransferRule,
+) -> None:
+    """Paired internal main→space rule for a space destination
+    (issue #345): the bank only moves main→main externally, so the
+    external leg targets the space's parent account and this derived
+    leg lands the money in the space. Skipped when an active rule
+    already covers the same parent→space flow."""
+    exists = session.scalar(select(TransferRule).where(
+        TransferRule.household_id == household_id,
+        TransferRule.source_account_id == parent.id,
+        TransferRule.dest_account_id == space.id,
+        TransferRule.active.is_(True)))
+    if exists is not None:
+        return
+    leg = TransferRule(
+        household_id=household_id, name=f"{rule.name} → {space.name}",
+        source_account_id=parent.id, dest_account_id=space.id,
+        amount_spec=rule.amount_spec, frequency=rule.frequency,
+        day_of_month=rule.day_of_month, start_date=rule.start_date,
+        end_date=rule.end_date, notes=rule.notes, active=True)
+    session.add(leg)
+    session.flush()
+    schedule.rematerialize_transfer_rule(session, leg)
+    emit(session, household_id, actor, "create", "transfer_rule",
+         leg.id, {"name": leg.name, "derived": "space_leg",
+                  "for_rule": rule.id})
+
+
 @router.post("", response_model=schemas.TransferRuleOut, status_code=201)
 def create_rule(
     body: schemas.TransferRuleIn, household: HouseholdDep,
@@ -66,10 +99,15 @@ def create_rule(
     _check_accounts(session, household.id, body.source_account_id,
                     body.dest_account_id)
     spec = transfer_rules.parse_spec(body.amount_spec.model_dump())
+    parent = transfer_rules.space_parent(session, body.dest_account_id)
+    external_dest = (parent.id
+                     if parent is not None
+                     and parent.id != body.source_account_id
+                     else body.dest_account_id)
     r = TransferRule(
         household_id=household.id, name=body.name,
         source_account_id=body.source_account_id,
-        dest_account_id=body.dest_account_id,
+        dest_account_id=external_dest,
         amount_spec=json.dumps(body.amount_spec.model_dump()),
         frequency=body.frequency, day_of_month=body.day_of_month,
         start_date=body.start_date, end_date=body.end_date,
@@ -79,6 +117,11 @@ def create_rule(
     schedule.rematerialize_transfer_rule(session, r)
     emit(session, household.id, actor, "create", "transfer_rule", r.id,
          {"name": r.name, "kind": spec.kind.value})
+    if parent is not None and external_dest != body.dest_account_id:
+        space = session.get(Account, body.dest_account_id)
+        if space is not None:
+            _ensure_space_leg(session, household.id, actor, parent,
+                              space, r)
     return schemas.TransferRuleOut.model_validate(r)
 
 
@@ -89,11 +132,32 @@ def update_rule(
 ) -> schemas.TransferRuleOut:
     r = _get(session, household.id, rid)
     changes = body.model_dump(exclude_unset=True)
+    # Explicit null is only meaningful for nullable columns — drop it
+    # elsewhere rather than breaking the NOT NULL constraint on flush.
+    for k in ("name", "source_account_id", "dest_account_id",
+              "frequency", "day_of_month", "start_date", "active"):
+        if changes.get(k) is None:
+            changes.pop(k, None)
+    if {"source_account_id", "dest_account_id"} & changes.keys():
+        _check_accounts(
+            session, household.id,
+            changes.get("source_account_id", r.source_account_id),
+            changes.get("dest_account_id", r.dest_account_id))
     if "amount_spec" in changes and changes["amount_spec"] is not None:
         changes["amount_spec"] = json.dumps(changes["amount_spec"])
     for k, v in changes.items():
         setattr(r, k, v)
     session.flush()
+    # A space destination auto-derives the paired internal leg — the
+    # external leg must land on the space's parent main account (#345).
+    space = session.get(Account, r.dest_account_id)
+    parent = transfer_rules.space_parent(session, r.dest_account_id)
+    if (parent is not None and space is not None
+            and parent.id != r.source_account_id):
+        r.dest_account_id = parent.id
+        session.flush()
+        _ensure_space_leg(session, household.id, actor, parent,
+                          space, r)
     # spec/timing edits regenerate future rows only — history untouched
     schedule.rematerialize_transfer_rule(session, r)
     emit(session, household.id, actor, "update", "transfer_rule", r.id,
@@ -102,15 +166,25 @@ def update_rule(
 
 
 @router.delete("/{rid}", status_code=204)
-def deactivate_rule(
+def delete_rule(
     rid: int, household: HouseholdDep, session: SessionDep,
     actor: ActorDep,
 ) -> None:
+    """Permanent removal (issue #344): every *unmatched* expected
+    movement the rule generated goes with it — matched rows stay:
+    ``expected_match`` FKs to them and real money already met the
+    obligation. Pause is the softer option (PATCH ``active=false``)."""
     r = _get(session, household.id, rid)
-    r.active = False
-    schedule.rematerialize_transfer_rule(session, r)
-    emit(session, household.id, actor, "deactivate", "transfer_rule",
-         r.id)
+    session.execute(
+        delete(ExpectedMovement).where(
+            ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+            ExpectedMovement.source_id == r.id,
+            ExpectedMovement.id.not_in(
+                select(ExpectedMatch.movement_id))))
+    session.delete(r)
+    session.flush()
+    emit(session, household.id, actor, "delete", "transfer_rule", rid,
+         {"name": r.name})
 
 
 @router.post("/{rid}/materialise", status_code=200)
