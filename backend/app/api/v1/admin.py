@@ -78,16 +78,20 @@ def upload_restore(file: UploadFile, request: Request,
     """Accept a snapshot file, verify integrity, and queue the restore
     for next boot (issue #328)."""
     settings = _settings(request)
-    backup_dir = settings.resolved_backup_dir
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    # Uploads live under ``pending/`` — ``list_snapshots`` only scans
+    # the backup dir itself, so a restore payload can never be
+    # mistaken for a real backup (issue #342).
+    pending_dir = settings.resolved_backup_dir / backup.PENDING_DIR
+    pending_dir.mkdir(parents=True, exist_ok=True)
     seq = 0
-    while (dest := backup_dir / backup.next_name(seq=seq)).exists():
+    while (dest := pending_dir / backup.next_name(seq=seq)).exists():
         seq += 1
     dest.write_bytes(file.file.read())
     if not backup.verify_snapshot(dest):
         dest.unlink(missing_ok=True)
         raise HTTPException(422, "file is not a valid snapshot")
-    backup.request_restore(settings.restore_marker, dest.name)
+    backup.request_restore(
+        settings.restore_marker, f"{backup.PENDING_DIR}/{dest.name}")
     emit(session, household.id, actor, "restore_uploaded", "database",
          0, {"snapshot": dest.name})
     return schemas.RestoreAccepted(name=dest.name)

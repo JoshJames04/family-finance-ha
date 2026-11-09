@@ -12,11 +12,14 @@ from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.domain import schedule
 from app.domain.recurring import advance, materialise
+from app.domain.subscriptions import normalise_payee
 from app.persistence.models import (
     Account,
     ExpectedMovement,
     ExpectedSource,
     RecurringCommitment,
+    Subscription,
+    SubscriptionStatus,
 )
 
 router = APIRouter(prefix="/commitments", tags=["commitments"])
@@ -57,6 +60,17 @@ def create_commitment(
     if (body.amount is None) == (body.formula is None):
         raise HTTPException(
             422, "exactly one of amount or formula is required")
+    # issue #313 — a payee already tracked as an active subscription
+    # cannot also register as a bill; the same obligation would
+    # otherwise forecast twice.
+    clash = session.scalar(select(Subscription.id).where(
+        Subscription.household_id == household.id,
+        Subscription.status == SubscriptionStatus.active,
+        Subscription.payee_normalised == normalise_payee(body.name)))
+    if clash is not None:
+        raise HTTPException(
+            409, f"{body.name} is already tracked as a subscription — "
+            "cancel it first or keep it as the single record")
     c = RecurringCommitment(
         household_id=household.id, name=body.name, account_id=a.id,
         category_id=body.category_id,

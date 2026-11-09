@@ -131,6 +131,21 @@ class TestStateMachine:
         assert vault.retrieve(session, household.id, conn.vault_ref,
                               ring) == b"pat-2"
 
+    def test_undecryptable_credential_surfaces_conn_error(
+            self, session: Session, household: Household,
+            conn: BankConnection, ring: vault.Keyring,
+            tmp_path: Path) -> None:
+        """Issue #349 — ciphertext written under another install's
+        .vault_key raises ConnError (route → 422 re-authenticate),
+        never a bare decrypt exception → 500."""
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        other = vault.keyring(Settings.load(
+            {"FF_DATA_DIR": str(other_dir)}))
+        with pytest.raises(banks.ConnError, match="re-authenticate"):
+            banks.token(session, conn, other)
+        assert "re-authenticate" in (conn.last_error or "")
+
     def test_disconnect_purges_vault(
             self, session: Session, household: Household,
             conn: BankConnection, ring: vault.Keyring) -> None:
