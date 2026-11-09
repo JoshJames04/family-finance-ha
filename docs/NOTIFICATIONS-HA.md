@@ -109,6 +109,34 @@ actions:
                need attention in the Finance panel."
 ```
 
+### Entity triggers (alternative to events)
+
+The same two counters are also exposed as entities, so a state
+trigger works too — useful when the automation editor's state picker
+is easier than writing an event type:
+
+| Entity | State |
+|---|---|
+| `sensor.family_finance_notifications_pending` | count of unacknowledged app notifications |
+| `sensor.family_finance_payslips_pending_review` | count of payslips awaiting review |
+
+```yaml
+alias: Finance — payslip awaiting review (entity)
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.family_finance_payslips_pending_review
+    above: 0
+actions:
+  - action: notify.notify
+    data:
+      title: "Family Finance"
+      message: "A payslip is extracted and awaiting your review."
+```
+
+Both fire on the same underlying count — events for one-shot
+notification, entities for automations that prefer state conditions
+(e.g. "and still pending after 1 hour" reminders).
+
 ## 3. The payslip flow end-to-end
 
 1. User uploads a payslip in the panel → status `needs_review`.

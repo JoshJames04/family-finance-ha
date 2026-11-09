@@ -55,6 +55,16 @@ SENSORS: tuple[FamilyFinanceSensorDescription, ...] = (
         name="Outstanding commitments",
         api_field="outstanding_commitments",
         icon="mdi:clipboard-alert"),
+    FamilyFinanceSensorDescription(
+        key="notifications_pending",
+        name="Notifications pending",
+        api_field="notifications_pending",
+        icon="mdi:bell-badge"),
+    FamilyFinanceSensorDescription(
+        key="payslips_pending_review",
+        name="Payslips pending review",
+        api_field="payslips_pending_review",
+        icon="mdi:file-document-alert"),
     # Sensitive — monetary values, disabled until the household opts in.
     FamilyFinanceSensorDescription(
         key="total_balance", name="Total balance",

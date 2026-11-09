@@ -28,6 +28,7 @@ COORDINATOR_FIELDS = {
     "next_payday", "month_spend_pence", "month_remaining_pence",
     "budget_variance_pence", "goals_on_track", "goals_total",
     "outstanding_commitments",
+    "notifications_pending", "payslips_pending_review",
 }
 
 
@@ -63,6 +64,7 @@ class TestContract:
             "next_payday", "goals_on_track",
             "outstanding_commitments", "total_balance",
             "month_spend", "month_remaining", "budget_variance",
+            "notifications_pending", "payslips_pending_review",
         }
 
 
