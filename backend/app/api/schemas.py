@@ -953,12 +953,15 @@ class TransferRuleIn(BaseModel):
 
 class TransferRulePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
+    source_account_id: int | None = None
+    dest_account_id: int | None = None
     amount_spec: AmountSpecIn | None = None
     frequency: Frequency | None = None
     day_of_month: int | None = Field(default=None, ge=1, le=31)
     start_date: date | None = None
     end_date: date | None = None
     notes: str | None = Field(default=None, max_length=500)
+    active: bool | None = None
 
 
 class TransferRuleOut(BaseModel):
