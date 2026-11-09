@@ -29,6 +29,16 @@ children done → epic Done; any child active → In Progress.
 - CI (`tests.yml` + `repo-hygiene`) runs on every PR — the repo is
   public, so runs are free; do not skip fixing red CI.
 
+## Documentation currency (required every change)
+
+README.md and docs/ are living documents — every PR that changes
+behaviour, security, ops, deployment or workflows must update the
+affected docs **in the same PR**, not a follow-up. When unsure which
+doc owns a fact, check: README (feature overview + getting started),
+docs/SECURITY.md (identity/authZ), docs/MIGRATION.md (moving installs,
+workbook retirement), docs/CICD-HA.md (pipeline + required checks),
+docs/ARCHITECTURE.md (design), AGENTS.md (verification + workflow).
+
 ## Verification before claiming done
 
 - `cd backend && python -m pytest tests/ -q -m "not perf"` (full suite)
