@@ -18,6 +18,10 @@ release pipeline (multi-arch GHCR image + GitHub release).
 - Add-on options `admin_token` / `backup_dir` defaulted to `null`,
   which the Supervisor rejects on save — they now default to empty
   strings (equivalent to unset).
+- Container start crashed with `PermissionError` reading
+  `/data/options.json` (the Supervisor writes it root-owned) —
+  a `docker-entrypoint.sh` now chowns `/data` before dropping to
+  the unprivileged `ff` user.
 - `release.yml` accepts `workflow_dispatch` + `tag` input and is
   dispatched directly by `tag-on-main` (GITHUB_TOKEN tag pushes cannot
   cascade); the release step tolerates an already-existing release.
