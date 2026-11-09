@@ -180,6 +180,17 @@ class FamilyFinanceClient:
         outstanding = await self._get_optional(
             "/api/v1/expected/outstanding") or []
 
+        rules = await self._get_optional(
+            "/api/v1/notifications/rules") or []
+        kind_by_rule = {r["id"]: r.get("kind") for r in rules}
+        events = await self._get_optional(
+            "/api/v1/notifications/events") or []
+        # ``delivered`` = surfaced to the user and still unacknowledged.
+        pending = [e for e in events if e.get("state") == "delivered"]
+        payslip_reviews = sum(
+            1 for e in pending
+            if kind_by_rule.get(e.get("rule_id")) == "payslip_review")
+
         return {
             "app_version": version.get("version", "unknown"),
             "account_count": len(acct_rows),
@@ -197,4 +208,6 @@ class FamilyFinanceClient:
             "goals_on_track": on_track,
             "goals_total": len(goal_rows),
             "outstanding_commitments": len(outstanding),
+            "notifications_pending": len(pending),
+            "payslips_pending_review": payslip_reviews,
         }

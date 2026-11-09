@@ -235,3 +235,20 @@ def test_parse_handles_free_text_noise() -> None:
     out, warnings = _parse("no numbers here at all\n")
     assert out["components"] == {}
     assert warnings
+
+
+def test_upload_raises_payslip_review_notification(
+        client: TestClient) -> None:
+    headers, emp_id, run_id, path, payslip_id = _upload(client)
+    rules = client.get("/api/v1/notifications/rules",
+                       headers=headers).json()
+    review_rules = {r["id"] for r in rules
+                    if r["kind"] == "payslip_review"}
+    assert review_rules, "upload should auto-create a review rule"
+    events = client.get("/api/v1/notifications/events",
+                        headers=headers).json()
+    matches = [e for e in events
+               if e["rule_id"] in review_rules
+               and e["dedup_key"] == f"payslip:{payslip_id}:review"]
+    assert len(matches) == 1
+    assert matches[0]["state"] == "pending"

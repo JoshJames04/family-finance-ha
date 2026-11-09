@@ -5,10 +5,12 @@ Payloads are SANITISED: counts, flags and enum-style fields only —
 never payees, notes, or individual amounts (same privacy contract as
 the opt-in sensors).
 
-- ``family_finance_bill_due``       — upcoming-bill count rose
-- ``family_finance_sync_failed``    — a poll failed (once per streak)
-- ``family_finance_goal_milestone`` — goals-on-track count rose
-- ``family_finance_low_balance``    — total balance crossed below zero
+- ``family_finance_bill_due``              — upcoming-bill count rose
+- ``family_finance_sync_failed``           — a poll failed (once per streak)
+- ``family_finance_goal_milestone``        — goals-on-track count rose
+- ``family_finance_low_balance``           — total balance crossed below zero
+- ``family_finance_notification_pending``  — unacknowledged events rose
+- ``family_finance_payslip_review``        — payslips awaiting review rose
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ EVENT_BILL_DUE = f"{DOMAIN_PREFIX}bill_due"
 EVENT_SYNC_FAILED = f"{DOMAIN_PREFIX}sync_failed"
 EVENT_GOAL_MILESTONE = f"{DOMAIN_PREFIX}goal_milestone"
 EVENT_LOW_BALANCE = f"{DOMAIN_PREFIX}low_balance"
+EVENT_NOTIFICATION_PENDING = f"{DOMAIN_PREFIX}notification_pending"
+EVENT_PAYSLIP_REVIEW = f"{DOMAIN_PREFIX}payslip_review"
 
 
 def process_summary(
@@ -52,6 +56,18 @@ def process_summary(
         hass.bus.async_fire(EVENT_LOW_BALANCE, {
             "account_count": int(new.get("account_count") or 0),
             "threshold_pence": 0,
+        })
+
+    pending_new = int(new.get("notifications_pending") or 0)
+    if pending_new > int(prev.get("notifications_pending") or 0):
+        hass.bus.async_fire(EVENT_NOTIFICATION_PENDING, {
+            "pending_count": pending_new,
+        })
+
+    review_new = int(new.get("payslips_pending_review") or 0)
+    if review_new > int(prev.get("payslips_pending_review") or 0):
+        hass.bus.async_fire(EVENT_PAYSLIP_REVIEW, {
+            "pending_count": review_new,
         })
 
 
