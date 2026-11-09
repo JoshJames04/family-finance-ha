@@ -11,6 +11,26 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-11-09
+
+First released image (`ghcr.io/joshjames04/family-finance-ha:0.2.0`);
+pushes to `main` now auto-tag `v{version}` and fire `release.yml`.
+
+- Transactions: split transactions across categories with
+  double-counting guards preserved in all amount aggregates (#289).
+- Loans: member-scope filtering + full edit (party, direction,
+  principal, expected payment, interest, owner, active) with
+  RBAC visibility/write gates matching accounts/budgets (#278).
+- Banking: bank-statement file import — CSV/OFX/QIF (#288).
+- Shared pot: dedicated Shared page for the household bills pot
+  (#277).
+- Home Assistant: `family_finance_payslip_review` /
+  `family_finance_notification_pending` events plus
+  `notifications_pending` / `payslips_pending_review` sensors for
+  user automations (#307).
+- Release pipeline: `tag-on-main` workflow closes the
+  "push to main → HA update offered" path.
+
 ## [0.1.0] — development line
 
 - Monorepo platform: FastAPI backend, React/Vite frontend, HA stub,
