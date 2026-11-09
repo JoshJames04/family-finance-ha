@@ -21,7 +21,7 @@ _SENSITIVE_KEY = re.compile(r"pence|amount|balance", re.IGNORECASE)
 
 
 def _digest(value: Any) -> str:
-    raw = json.dumps(value, sort_keys=True)
+    raw = json.dumps(value, sort_keys=True, default=str)
     return "sha256:" + hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -44,7 +44,7 @@ def emit(
     e = AuditEvent(
         household_id=household_id, actor=actor, action=action,
         entity_type=entity_type, entity_id=entity_id,
-        payload=json.dumps(_scrub(payload)) if payload else None,
+        payload=json.dumps(_scrub(payload), default=str) if payload else None,
     )
     session.add(e)
     return e
