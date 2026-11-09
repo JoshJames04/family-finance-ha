@@ -1,7 +1,7 @@
 # GitHub CI/CD → Home Assistant: getting releases live
 
-**Status:** Plan — most of the pipeline exists today; this document
-maps the end-to-end path and names the gaps.
+**Status:** Live — the full push-to-main → HA-update path is
+implemented; remaining gap rows are hardening options.
 
 ## 1. What exists today
 
@@ -43,8 +43,10 @@ feature PR ──► develop ──► release PR develop→main ──► tag v
 3. **Release PR `develop → main`.** `main` is release-only; this PR is
    the approval gate (organisation rules — owner authorises). Body
    keeps `Closes #N` for issues that close on release.
-4. **Tag.** `git tag vX.Y.Z && git push origin vX.Y.Z` on the merge
-   commit → fires `release.yml`.
+4. **Tag (automatic).** `tag-on-main.yml` runs on every push to
+   `main`: it reads `scripts/version.py get`, verifies consistency,
+   and pushes `v{version}` on the merge commit if the tag does not
+   already exist → fires `release.yml`.
 5. **Publish.** CI builds smoke-tested multi-arch image, pushes to
    GHCR, creates the GitHub release.
 6. **HA update.** Supervisor's add-on store refresh sees
@@ -58,7 +60,7 @@ feature PR ──► develop ──► release PR develop→main ──► tag v
 
 | Gap | Decision needed | Recommendation |
 |---|---|---|
-| Who tags | Owner-only vs CI-on-merge-to-main | Keep owner-gated: a release is a deliberate act with real household data at stake — tag manually after merging the release PR. Optionally a `workflow_dispatch` "cut release" job that opens the version-bump PR |
+| Who tags | Owner-only vs CI-on-merge-to-main | **Decided: CI-on-merge-to-main.** `tag-on-main.yml` tags `v{version}` automatically; the owner gate is the release PR merge itself. Tag push fires `release.yml`; re-pushes are no-ops while the tag exists |
 | Update channel | Manual Supervisor update vs auto-update | Recommend manual: Supervisor shows Update when `config.yaml` version changes; the user applies it at a chosen moment. HA auto-update is fine to enable later |
 | `:latest` tag | Update detection depends on version field, not the tag itself — Supervisor compares `config.yaml` version to installed version | Keep `:latest` for `main` releases only; never push `:latest` from develop builds |
 | Dev images | No `develop` tag published today | Optional: tag `v*-dev` builds as `:edge` for pre-release testing in a second add-on install; keep off the release path |
@@ -81,9 +83,8 @@ feature PR ──► develop ──► release PR develop→main ──► tag v
 
 ## 5. Minimal viable loop (what "live" means tomorrow)
 
-The pipeline is already sufficient to ship: the only manual acts are
-`version.py set`, the release PR merge, and the tag push — three
-deliberate steps between "code on develop" and "Update available in
-Home Assistant". Nothing in CI/CD needs building before the first
-real release; the recommendations above are hardening, not
-prerequisites.
+The pipeline is sufficient to ship: the only manual acts are
+`version.py set` on `develop` and merging the release PR to `main` —
+`tag-on-main` then tags `v{version}`, `release.yml` publishes, and
+the Supervisor offers the update. Two deliberate steps between
+"code on develop" and "Update available in Home Assistant".
