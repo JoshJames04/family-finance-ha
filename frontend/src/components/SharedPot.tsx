@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeftRight, Check, ChevronDown, HandCoins, Pencil, Plus,
-  SlidersHorizontal, Users2,
+  SlidersHorizontal, Trash2, Users2,
 } from "lucide-react";
 import { api, getProfileId } from "../api/client";
 import { useApi, useIdentity } from "../api/useApi";
@@ -68,6 +68,7 @@ export function SharedPot({ period }: {
     () => api.get("/api/v1/expected-movements/contributions/by-member", { query: { start: period.start, end: period.end } }),
     ready, [period.start, period.end, rev]);
   const [editing, setEditing] = useState<Rule | "new" | null>(null);
+  const [removing, setRemoving] = useState<Rule | null>(null);
   const [matching, setMatching] = useState<{ movement: Movement; member: string } | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -196,8 +197,21 @@ export function SharedPot({ period }: {
       }).catch((e: Error) => toast.error(e.message));
 
   const toggleRule = (r: Rule) =>
+    api.patch("/api/v1/transfer-rules/{rid}", {
+      path: { rid: r.id }, body: { active: !r.active } })
+      .then(() => {
+        toast.success(r.active ? `${r.name} paused` : `${r.name} resumed`);
+        refresh();
+      })
+      .catch((e: Error) => toast.error(e.message));
+
+  const removeRule = (r: Rule) =>
     api.delete("/api/v1/transfer-rules/{rid}", { path: { rid: r.id } })
-      .then(() => { toast.success(`${r.name} paused`); refresh(); })
+      .then(() => {
+        toast.success(`${r.name} removed`);
+        setRemoving(null);
+        refresh();
+      })
       .catch((e: Error) => toast.error(e.message));
 
   return (
@@ -386,7 +400,9 @@ export function SharedPot({ period }: {
                             <Button size="sm" variant="ghost" onClick={() => setEditing(r)}
                               aria-label={`Edit ${r.name}`}><Pencil /></Button>
                             <Button size="sm" variant="ghost" onClick={() => toggleRule(r)}
-                              aria-label={`Pause ${r.name}`}>{r.active ? "Pause" : "Paused"}</Button>
+                              aria-label={`Pause ${r.name}`}>{r.active ? "Pause" : "Resume"}</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setRemoving(r)}
+                              aria-label={`Remove ${r.name}`}><Trash2 /></Button>
                           </div>
                         </li>
                       );
@@ -425,6 +441,23 @@ export function SharedPot({ period }: {
           onDone={() => { setMatching(null); refresh(); }}
         />
       )}
+      <Dialog open={removing !== null}
+        onOpenChange={(o) => { if (!o) setRemoving(null); }}
+        title={`Remove ${removing?.name ?? "rule"}?`}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRemoving(null)}>Cancel</Button>
+            <Button variant="primary" onClick={() => removing && removeRule(removing)}>
+              Remove
+            </Button>
+          </>
+        }>
+        <p className="text-[13px] text-fg-subtle">
+          The rule and its unfulfilled expected payments are deleted.
+          Payments already matched against it stay in history. Pausing
+          keeps the rule but stops future payments.
+        </p>
+      </Dialog>
     </Panel>
   );
 }
@@ -667,7 +700,10 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
       : api.patch("/api/v1/transfer-rules/{rid}", {
           path: { rid: rule!.id },
           body: {
-            name: body.name, amount_spec: body.amount_spec,
+            name: body.name,
+            source_account_id: body.source_account_id,
+            dest_account_id: body.dest_account_id,
+            amount_spec: body.amount_spec,
             frequency: body.frequency, day_of_month: body.day_of_month,
           },
         });
@@ -691,31 +727,28 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
         </Button>
       </>}>
       <form id="ff-share" onSubmit={submit} className="grid gap-4">
-        {isNew && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Member">{(id) => (
-              <Select id={id} value={memberId} onChange={(e) => { setMemberId(e.target.value); setSourceId(""); }}>
-                {profiles.filter((p) => p.is_active).map((p) => (
-                  <option key={p.id} value={p.id}>{p.display_name}</option>
-                ))}
-              </Select>
-            )}</Field>
-            <Field label="From their account">{(id) => (
-              <Select id={id} required value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
-                <option value="" disabled>Choose…</option>
-                {memberAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </Select>
-            )}</Field>
-          </div>
-        )}
-        {isNew && (
-          <Field label="Into the shared account">{(id) => (
-            <Select id={id} required value={destId} onChange={(e) => setDestId(e.target.value)}>
-              <option value="" disabled>Choose…</option>
-              {sharedAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Member">{(id) => (
+            <Select id={id} value={memberId} onChange={(e) => { setMemberId(e.target.value); setSourceId(""); }}>
+              {profiles.filter((p) => p.is_active).map((p) => (
+                <option key={p.id} value={p.id}>{p.display_name}</option>
+              ))}
             </Select>
           )}</Field>
-        )}
+          <Field label="From their account">{(id) => (
+            <Select id={id} required value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+              <option value="" disabled>Choose…</option>
+              {memberAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Select>
+          )}</Field>
+        </div>
+        <Field label="Into the shared account" hint={isNew ? undefined : "Any account is allowed when editing."}>{(id) => (
+          <Select id={id} required value={destId} onChange={(e) => setDestId(e.target.value)}>
+            <option value="" disabled>Choose…</option>
+            {(isNew ? sharedAccounts : accounts.filter((a) => !a.archived && String(a.id) !== sourceId))
+              .map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+        )}</Field>
         <Field label="Rule name" hint={`Defaults to "${effectiveName}".`}>{(id) => (
           <Input id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder={effectiveName} />
         )}</Field>
