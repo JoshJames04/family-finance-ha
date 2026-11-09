@@ -21,7 +21,7 @@ import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Segmented } from "../components/Display";
 import { EmptyState } from "../components/Feedback";
 import { setThemePref, useTheme, type ThemePref } from "../theme/useTheme";
-import { formatBytes } from "../lib/format";
+import { formatBytes, formatDateTime } from "../lib/format";
 
 type Profile = components["schemas"]["ProfileOut"];
 type Role = components["schemas"]["Role"];
@@ -261,10 +261,7 @@ export function Settings() {
                 <li key={b.name} className="flex items-center justify-between gap-3 px-3 py-2 text-[12.5px]">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="truncate font-medium" title={b.name}>
-                      {b.taken_at
-                        ? new Date(b.taken_at).toLocaleString(undefined,
-                          { dateStyle: "medium", timeStyle: "short" })
-                        : b.name}
+                      {b.taken_at ? formatDateTime(b.taken_at) : b.name}
                     </span>
                     {i === 0 && <Badge>Latest</Badge>}
                   </span>
