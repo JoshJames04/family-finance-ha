@@ -146,10 +146,13 @@ class StarlingClient:
                     raise UpstreamError(502, "space carries no balance")
         data = _get(
             token, f"/api/v2/accounts/{external_uid}/balance")
-        cleared = data.get("clearedBalance", {})
-        if not isinstance(cleared, dict):
+        # effectiveBalance (cleared + pending unsettled) is what the
+        # Starling app displays — always sync that figure.
+        effective = data.get("effectiveBalance", {})
+        if not isinstance(effective, dict) \
+                or "minorUnits" not in effective:
             raise UpstreamError(502, "malformed balance payload")
-        return int(str(cleared["minorUnits"]))
+        return int(str(effective["minorUnits"]))
 
     def feed_items(self, token: str, external_uid: str,
                    category_uid: str, since: str

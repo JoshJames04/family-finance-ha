@@ -286,10 +286,11 @@ def sync_transactions(
         token = banks.token(session, c, ring)
     except ConnError as e:
         raise HTTPException(422, str(e)) from e
-    # Reconcile provider state first — account renames/closures at the
-    # bank propagate on every sync, not just manual rediscovery
-    # (issue #316).
+    # Reconcile provider state first — account renames/closures and
+    # live balances at the bank propagate on every sync, not just
+    # manual rediscovery (issue #316).
     discovery.discover(session, c, client, token)
+    refreshed = discovery.sync_balances(session, c, client, token)
     mappings = session.scalars(
         select(BankAccountMapping).where(
             BankAccountMapping.connection_id == c.id,
@@ -326,4 +327,4 @@ def sync_transactions(
                         "error": run.error})
     emit(session, household.id, actor, "bank_sync",
          "bank_connection", c.id)
-    return {"runs": results}
+    return {"runs": results, "balances_refreshed": refreshed}
