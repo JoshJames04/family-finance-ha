@@ -20,7 +20,18 @@ spreadsheet.
 ## Access
 
 Runs entirely through ingress — open **Finance** in the Home Assistant
-sidebar. No ports to expose and no options to configure.
+sidebar. No ports to expose.
+
+## Options
+
+- `admin_token` — required for the admin backup/restore API
+  (`POST /api/v1/admin/backups`, `POST /api/v1/admin/restore`).
+  Leave unset to keep those endpoints closed.
+- `backup_dir` — where database snapshots are written. Point it at
+  `/share/...` (e.g. `/share/family-finance`) to make snapshots
+  reachable through the Samba or File editor add-ons — the easiest way
+  to seed data onto a fresh install. Defaults to the add-on's own
+  storage.
 
 ## Data
 
