@@ -1,0 +1,35 @@
+name: ha-dev-channel
+
+# Monthly smoke test against Home Assistant's dev branch — catches
+# upstream breakage early without blocking releases (issue #105).
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+jobs:
+  dev-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Install HA dev + test harness
+        run: |
+          # phacc's deps pin a released HA — install it first for the
+          # plugin machinery, then force dev core on top. --no-deps on
+          # the dev install avoids resolver fights with phacc's pins;
+          # HA's own deps are already satisfied by the phacc install.
+          pip install pytest-homeassistant-custom-component
+          pip install --no-deps \
+            "homeassistant @ git+https://github.com/home-assistant/core.git@dev"
+          python -c "import homeassistant; print(homeassistant.__version__)"
+      - name: Integration tests against dev
+        run: pytest tests/ha -v
+      - name: Report outcome
+        if: failure()
+        run: |
+          echo "::warning::HA dev-channel smoke failed — investigate \
+            before the next release; not release-blocking."

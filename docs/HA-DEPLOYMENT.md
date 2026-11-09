@@ -49,18 +49,52 @@ Same image runs standalone for HA Container users:
 - **Events/triggers** for automations (bill due, sync failure, milestone).
 - **Privacy:** sensors opt-in; sensitive values (balances) can be configured
   off; nothing personal in entity names.
+- **Sensor privacy model (implemented):** every monetary-value entity
+  (`sensor.family_finance_total_balance`, `..._month_spend`,
+  `..._month_remaining`, `..._budget_variance`) is
+  `entity_registry_enabled_default=False` — a default install exposes
+  counts, dates and statuses only. Each entity must be enabled
+  explicitly in *Settings → Devices & Services → Entities*. Entity
+  attributes carry only aggregate context (`app_version`, totals) —
+  never payees, counterparties, or per-record amounts.
+- **Recorder exclusion:** HA's recorder still stores history for any
+  enabled entity. Households that enable monetary sensors may exclude
+  them from long-term history via `configuration.yaml`:
+
+  ```yaml
+  recorder:
+    exclude:
+      entity_globs:
+        - sensor.family_finance_total_balance
+        - sensor.family_finance_month_spend
+        - sensor.family_finance_month_remaining
+        - sensor.family_finance_budget_variance
+  ```
+
+  Exclusion is a hardening choice, not a requirement — the entities
+  exist only because the household enabled them.
 - Compatibility pinned to a supported HA version range, tested in CI matrix.
 
 ## 5. Backup, upgrade, rollback
 
 - App data participates in HA backup/restore; plus app-level scheduled
-  `VACUUM INTO` snapshots with rotation (see Epic 17).
-- Upgrades: DB migrations run at app start, pre-migration snapshot
-  automatically created; failed migration → automatic restore of snapshot and
-  refuse to start (logged, health endpoint reports failure).
+  `VACUUM INTO` snapshots (`FF_BACKUP_INTERVAL_HOURS`, default 24h) with
+  keep-N rotation (`FF_BACKUP_KEEP`, default 7) under
+  `<data_dir>/backups` (see Epic 17).
+- Upgrades: DB migrations run at app start; a pre-migration snapshot is
+  taken automatically. A failed migration restores the snapshot, boots
+  the app degraded, and `GET /readyz` reports `503` via the `boot`
+  component — data is never left half-migrated. An unreachable DB file
+  still fails fast at boot.
+- Manual backup/restore: `POST /api/v1/admin/backups` and
+  `POST /api/v1/admin/restore`, gated by `X-Admin-Token`
+  (`FF_ADMIN_TOKEN`; fail-closed when unset) and audited. Restore never
+  replaces the live file — it verifies the snapshot's integrity and
+  writes `<data_dir>/restore.pending`, applied at the next boot before
+  the engine opens.
 - Rollback: install previous image; downgrade migrations tested in CI.
-- Data corruption guard: integrity check (`PRAGMA integrity_check`) on boot
-  and scheduled.
+- Data corruption guard: integrity check (`PRAGMA integrity_check`) on
+  boot and on every snapshot.
 
 ## 6. Environments
 

@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -35,7 +36,57 @@ def install_error_handlers(app: FastAPI) -> None:
                              exc: RequestValidationError) -> JSONResponse:
         return problem(422, "Validation failed",
                        detail="Request failed schema validation",
-                       errors=exc.errors())
+                       errors=jsonable_encoder(exc.errors()))
+
+    # Domain-rule violations → 409 Conflict
+    from app.domain.accounts import AccountNotEmptyError
+    from app.domain.budgets import BudgetError
+    from app.domain.categories import CategoryCycleError
+    from app.domain.contributions import MatchError
+    from app.domain.detection import DetectionError
+    from app.domain.energy import EnergyError
+    from app.domain.goals import GoalError
+    from app.domain.loans import LoanError
+    from app.domain.payroll import PayrollError
+    from app.domain.periods import (
+        PeriodLockedError,
+        ReconciledImmutableError,
+    )
+    from app.domain.refunds import RefundError
+    from app.domain.seasonal import SeasonalError
+    from app.domain.subscriptions import SubscriptionError
+    from app.domain.transactions import InvalidTransitionError
+    from app.domain.transfer_rules import TransferRuleError
+    from app.domain.transfers import TransferError
+
+    domain_conflicts = (
+        AccountNotEmptyError, BudgetError, CategoryCycleError,
+        PayrollError, PeriodLockedError, ReconciledImmutableError,
+        RefundError, InvalidTransitionError, TransferError,
+        TransferRuleError, MatchError, GoalError, LoanError,
+        SeasonalError, SubscriptionError, DetectionError, EnergyError,
+    )
+    for exc_type in domain_conflicts:
+        @app.exception_handler(exc_type)
+        async def domain_exc(_: Request, exc: Exception) -> JSONResponse:
+            return problem(409, "Domain rule violated", detail=str(exc))
+
+    # Out-of-range identifiers (e.g. id > int64 passed as a path or
+    # header param) hit OverflowError at the SQLite boundary — a
+    # client validation failure, not a server fault → 422.
+    @app.exception_handler(OverflowError)
+    async def overflow_exc(_: Request,
+                           exc: OverflowError) -> JSONResponse:
+        return problem(422, "Validation failed",
+                       detail="identifier or value out of range")
+
+    # Uniqueness/FK violations (e.g. transaction dedup key) → 409.
+    from sqlalchemy.exc import IntegrityError
+
+    @app.exception_handler(IntegrityError)
+    async def integrity_exc(_: Request,
+                            exc: IntegrityError) -> JSONResponse:
+        return problem(409, "Conflict with existing data")
 
     @app.exception_handler(Exception)
     async def unhandled(_: Request, exc: Exception) -> JSONResponse:

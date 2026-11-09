@@ -1,0 +1,156 @@
+{
+  "schema": 1,
+  "note": "HMRC payroll golden dataset (issue #84). All money in integer pence per period (monthly). Expected values hand-computed from the GOV.UK-published parameters for each year — see docs/TAX-RULES.md for sources. Any engine regression or accidental parameter drift must fail this suite loudly.",
+  "sources": {
+    "income_tax": "https://www.gov.uk/income-tax-rates",
+    "scottish_tax": "https://www.gov.uk/scottish-income-tax",
+    "ni": "https://www.gov.uk/guidance/rates-and-thresholds-for-employers-2025-to-2026",
+    "student_loans": "https://www.gov.uk/repaying-your-student-loan/what-you-pay"
+  },
+  "cases": [
+    {
+      "desc": "2024-25 rUK: below-PA monthly pay — zero deductions",
+      "year": "2024-25", "jurisdiction": "england_wales",
+      "gross_pence": 83000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 0, "ni": 0, "sl": 0, "net": 83000}
+    },
+    {
+      "desc": "2024-25 rUK: £30k — tax £290.50, NI £116.20",
+      "year": "2024-25", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 0, "net": 209330}
+    },
+    {
+      "desc": "2024-25 rUK: £60k — crosses into higher rate",
+      "year": "2024-25", "jurisdiction": "england_wales",
+      "gross_pence": 500000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 95266, "ni": 26754, "sl": 0, "net": 377980}
+    },
+    {
+      "desc": "2024-25 rUK: £150k — PA fully tapered",
+      "year": "2024-25", "jurisdiction": "england_wales",
+      "gross_pence": 1250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 447524, "ni": 41754, "sl": 0, "net": 760722}
+    },
+    {
+      "desc": "2025-26 rUK: frozen thresholds identical to 24-25",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 0, "net": 209330}
+    },
+    {
+      "desc": "2025-26 cumulative month 6: YTD £12,500 paid £1,452.50 → same £290.50",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 6,
+      "ytd_gross_pence": 1250000, "ytd_tax_pence": 145250,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 0, "net": 209330}
+    },
+    {
+      "desc": "W1M1 basis: period-9 ignores YTD entirely",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L M1", "period": 9,
+      "ytd_gross_pence": 2000000, "ytd_tax_pence": 500000,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 0, "net": 209330}
+    },
+    {
+      "desc": "BR code: flat 20% on all earnings",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "BR", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 50000, "ni": 11620, "sl": 0, "net": 188380}
+    },
+    {
+      "desc": "0T code: no allowance, banded",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "0T", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 50000, "ni": 11620, "sl": 0, "net": 188380}
+    },
+    {
+      "desc": "K500: £5,000 negative allowance adds taxable income",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "K500", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 58333, "ni": 11620, "sl": 0, "net": 180047}
+    },
+    {
+      "desc": "NT: no tax deducted at all",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "NT", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 0, "ni": 11620, "sl": 0, "net": 238380}
+    },
+    {
+      "desc": "2025-26 Scotland £30k: six-band split",
+      "year": "2025-26", "jurisdiction": "scotland",
+      "gross_pence": 250000, "code": "S1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 29022, "ni": 11620, "sl": 0, "net": 209358}
+    },
+    {
+      "desc": "2025-26 Scotland £60k: into 42% higher band",
+      "year": "2025-26", "jurisdiction": "scotland",
+      "gross_pence": 500000, "code": "S1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 110114, "ni": 26754, "sl": 0, "net": 363132}
+    },
+    {
+      "desc": "Plan 2 2025-26: 9% over £2,372.50/mo",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "plan2",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 1147, "net": 208183}
+    },
+    {
+      "desc": "Plan 1 2024-25: 9% over £2,082.50/mo",
+      "year": "2024-25", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "plan1",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 3757, "net": 205573}
+    },
+    {
+      "desc": "Postgrad loan: 6% over £1,750/mo",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "postgrad",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 4500, "net": 204830}
+    },
+    {
+      "desc": "NI category C (pension age): zero employee NI",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "C", "plan": "none",
+      "expect": {"tax": 29050, "ni": 0, "sl": 0, "net": 220950}
+    },
+    {
+      "desc": "NI category M (under 21): standard below UEL",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "M", "plan": "none",
+      "expect": {"tax": 29050, "ni": 11620, "sl": 0, "net": 209330}
+    },
+    {
+      "desc": "Net-pay pension 5%: tax reduced, NI on full gross",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "pension_mode": "net_pay", "pension_pence": 12500,
+      "expect": {"tax": 26550, "ni": 11620, "sl": 0, "net": 199330}
+    },
+    {
+      "desc": "Salary sacrifice 5%: tax AND NI reduced",
+      "year": "2025-26", "jurisdiction": "england_wales",
+      "gross_pence": 250000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "pension_mode": "salary_sacrifice", "pension_pence": 12500,
+      "expect": {"tax": 26550, "ni": 10620, "sl": 0, "net": 200330}
+    }
+  ]
+}

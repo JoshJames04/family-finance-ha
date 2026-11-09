@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "family-finance-backend"
-version = "0.1.0"
+version = "1.0.0"
 description = "Family Finance — self-hosted household finance app backend"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,16 +15,25 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "apscheduler>=3.10",
+    "openpyxl>=3.1",
+    "cryptography>=50,<51",
+    "python-multipart>=0.0.20",
+    "pypdf>=5.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "pytest-xdist>=3.6",
     "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
+    "types-openpyxl>=3.1",
     "coverage>=7.6",
+    "schemathesis>=4.0",
+    "jsonschema>=4.23",
 ]
 
 [project.scripts]

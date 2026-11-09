@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 permissions:
@@ -12,7 +12,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Detect backend presence
         id: check
         run: |
@@ -22,7 +22,7 @@ jobs:
             echo "present=no" >> "$GITHUB_OUTPUT"
             echo "::notice::No backend/ found - skipping backend job"
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.check.outputs.present == 'yes'
         with:
           python-version: '3.13'
@@ -31,6 +31,10 @@ jobs:
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
         run: pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
+      - name: Dependency vulnerability gate (pip)
+        if: steps.check.outputs.present == 'yes'
+        working-directory: backend
+        run: pip install pip-audit && pip-audit --skip-editable --vulnerability-service osv
       - name: Lint & typecheck
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
@@ -40,12 +44,62 @@ jobs:
       - name: Unit & integration tests
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
-        run: pytest -x --cov --cov-report=term-missing
+        run: pytest -x -n auto --dist loadscope --cov --cov-report=term-missing
+      - name: Backup restore verification (release gate)
+        if: steps.check.outputs.present == 'yes'
+        working-directory: backend
+        run: python scripts/verify_restore.py
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend + frontend deps
+        run: |
+          pip install -e 'backend[dev]'
+          npm --prefix frontend ci
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Playwright e2e (dev stack)
+        working-directory: frontend
+        run: npx playwright test
+
+  image:
+    # issue #23: prove the add-on image builds + serves the SPA
+    # on every PR (the multi-arch matrix stays in release.yml).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build add-on image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: ff:ci
+      - name: Smoke — healthz + SPA index
+        run: |
+          set -euo pipefail
+          docker run -d --name ff -p 8099:8099             -e FF_ENV=ci -e FF_DATA_DIR=/tmp ff:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8099/healthz && break || sleep 1
+          done
+          curl -sf http://localhost:8099/ | grep -qi "html"
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Detect frontend presence
         id: check
         run: |
@@ -55,26 +109,86 @@ jobs:
             echo "present=no" >> "$GITHUB_OUTPUT"
             echo "::notice::No frontend/ found - skipping frontend job"
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.check.outputs.present == 'yes'
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Dependency vulnerability gate (npm)
+        if: steps.check.outputs.present == 'yes'
+        working-directory: frontend
+        run: npm ci && npm audit --audit-level=high
       - name: Install, typecheck, test, build
         if: steps.check.outputs.present == 'yes'
         working-directory: frontend
         run: |
           npm ci
           npm run typecheck
-          npm test -- --run
+          npm test
           npm run build
+
+  ha-integration:
+    # Custom component scaffold: config flow + coordinator availability
+    # under the real HA test harness (issue #100).
+    # Matrix over the pinned supported floor and the latest release —
+    # each phacc release pins a specific HA core version (issue #105).
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        harness:
+          - "pytest-homeassistant-custom-component==0.13.310"
+          - "pytest-homeassistant-custom-component"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Detect integration presence
+        id: check
+        run: |
+          if [ -f custom_components/family_finance/manifest.json ]; then
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::No custom_components found - skipping HA job"
+          fi
+      - uses: actions/setup-python@v7
+        if: steps.check.outputs.present == 'yes'
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: tests/requirements_test.txt
+      - name: Install test harness
+        if: steps.check.outputs.present == 'yes'
+        run: pip install "${{ matrix.harness }}"
+      - name: Integration tests
+        if: steps.check.outputs.present == 'yes'
+        run: pytest tests/ha -v
+
+  hacs-validate:
+    # HACS custom-repository installability (issue #105).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Detect integration presence
+        id: check
+        run: |
+          if [ -f custom_components/family_finance/manifest.json ]; then
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::No custom_components found - skipping HACS job"
+          fi
+      # hacs/action only validates public repositories; this repo is
+      # private, so the same structural checks run locally instead.
+      - name: HACS metadata validation
+        if: steps.check.outputs.present == 'yes'
+        run: python scripts/check_hacs_metadata.py
 
   migrations:
     # Every schema change must prove upgrade AND downgrade on a scratch DB.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Detect migrations presence
         id: check
         run: |
@@ -84,13 +198,16 @@ jobs:
             echo "present=no" >> "$GITHUB_OUTPUT"
             echo "::notice::No migrations found - skipping migrations job"
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.check.outputs.present == 'yes'
         with:
           python-version: '3.13'
       - name: Upgrade/downgrade migration test
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
+        env:
+          FF_DATABASE_URL: sqlite:///./ci_migrations.db
         run: |
           pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
+          test "$(alembic heads | wc -l)" -eq 1 || { echo "Multiple migration heads"; alembic heads; exit 1; }
           alembic upgrade head && alembic downgrade -1 && alembic upgrade head

@@ -1,43 +1,21 @@
 """Core schema: constraints, hierarchy rules, account types."""
 
 from datetime import date
-from pathlib import Path
 
 import pytest
 import sqlalchemy.exc
-from sqlalchemy.orm import sessionmaker
 
 from app.domain.categories import (
     CategoryCycleError,
     create_category,
     reparent,
 )
-from app.persistence.engine import create_app_engine
-from app.persistence.migrate import upgrade_head
 from app.persistence.models import (
     Account,
     AccountType,
-    Household,
     Role,
     UserProfile,
 )
-
-
-@pytest.fixture()
-def session(tmp_path: Path):
-    url = f"sqlite:///{(tmp_path / 'c.db').as_posix()}"
-    upgrade_head(url)
-    factory = sessionmaker(bind=create_app_engine(url))
-    with factory() as s:
-        yield s
-
-
-@pytest.fixture()
-def household(session):
-    hh = Household(name="Test Household")
-    session.add(hh)
-    session.flush()
-    return hh
 
 
 def test_household_and_profile(household, session) -> None:

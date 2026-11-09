@@ -8,6 +8,8 @@
 *.key
 secrets.yaml
 data/
+# Embedded statutory parameter files are code data, not user data
+!backend/app/domain/data/
 *.sqlite
 *.sqlite3
 *.db
@@ -30,6 +32,9 @@ node_modules/
 coverage/
 .vite/
 
+# Generated OpenAPI spec (frontend `gen:api` produces it)
+backend/openapi.json
+
 # OS / editor
 .DS_Store
 Thumbs.db
@@ -40,3 +45,13 @@ Thumbs.db
 # Tooling
 .turbo/
 *.log
+
+# TypeScript build info
+*.tsbuildinfo
+frontend/test-results/
+.venv-ha/
+
+# Playwright e2e scratch DB + reports
+frontend/e2e/.data/
+frontend/playwright-report/
+.ux-audit/
