@@ -95,11 +95,12 @@ def require_admin(
         if p is not None and p.is_active and p.role == Role.admin:
             return
     settings = request.app.state.settings
-    expected = settings.admin_token
+    expected = (settings.admin_token.get_secret_value()
+                if settings.admin_token is not None else None)
     given = request.headers.get("x-admin-token")
     ok = (
-        expected is not None and given is not None
-        and hmac.compare_digest(given, expected.get_secret_value())
+        bool(expected) and given is not None
+        and hmac.compare_digest(given, expected)  # type: ignore[arg-type]
     )
     if not ok:
         raise HTTPException(403, "admin token required")
