@@ -1,6 +1,6 @@
 # Product Requirements — Family Finance
 
-**Status:** Draft for implementation planning
+**Status:** Active development specification — requirements remain subject to the acceptance gates in GitHub Issues
 **Owner:** JoshJames04
 **Audience:** Maintainer(s), future contributors
 
