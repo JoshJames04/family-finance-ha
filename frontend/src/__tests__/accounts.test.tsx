@@ -1,6 +1,6 @@
 /** #278: member-scope filtering on Accounts — Mine/Shared/All narrows
  * the card list by account ownership. */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -28,20 +28,33 @@ const PROFILES = [
     totp_enabled: false },
 ];
 
-function stubFetch() {
+function stubFetch(
+  calls?: { url: string; method: string; body: string }[],
+  rows: typeof ACCOUNTS = ACCOUNTS,
+) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(
-    (input) => {
+    async (input, init) => {
       const url = String(input);
-      const body = url.includes("/api/v1/households")
+      const method = init?.method ?? "GET";
+      const body = typeof init?.body === "string" ? init.body : "";
+      calls?.push({ url, method, body });
+      if (method === "PATCH" && /\/api\/v1\/accounts\/\d+/.test(url)) {
+        const id = Number(url.match(/accounts\/(\d+)/)![1]);
+        const acct = rows.find((a) => a.id === id);
+        if (acct) Object.assign(acct, JSON.parse(body));
+        return new Response(JSON.stringify(acct), {
+          status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      const payload = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
         : url.includes("/api/v1/profiles")
           ? { items: PROFILES, total: PROFILES.length }
           : url.includes("/api/v1/accounts")
-            ? { items: ACCOUNTS, total: ACCOUNTS.length }
+            ? { items: rows, total: rows.length }
             : url.includes("/api/v1/analytics/net-worth")
               ? { net_worth_pence: 0 }
               : { items: [], total: 0 };
-      return Promise.resolve(new Response(JSON.stringify(body), {
+      return Promise.resolve(new Response(JSON.stringify(payload), {
         status: 200, headers: { "Content-Type": "application/json" } }));
     });
 }
@@ -72,5 +85,28 @@ describe("Accounts scope filter", () => {
     await screen.findByText("Josh Current");
     expect(screen.queryByText("Chloe Current")).toBeTruthy();
     expect(screen.queryByText("Joint Bills")).toBeTruthy();
+  });
+
+  it("edits name and owner via PATCH", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    const rows = ACCOUNTS.map((a) => ({ ...a }));
+    stubFetch(calls, rows);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Accounts /></MemoryRouter>);
+    await screen.findByText("Joint Bills");
+    await user.click(screen.getByRole("button",
+      { name: "Edit Joint Bills" }));
+    const nameInput = await screen.findByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "House Bills");
+    await user.selectOptions(screen.getByLabelText(/Owner/), "1");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === "PATCH"
+        && x.url.endsWith("/accounts/4"));
+      expect(c).toBeDefined();
+      const body = JSON.parse(c!.body);
+      expect(body).toEqual({ name: "House Bills", owner_profile_id: 1 });
+    });
   });
 });
