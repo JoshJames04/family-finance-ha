@@ -11,6 +11,32 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.0.3] — 2026-11-09
+
+### Fixed
+
+- **Startup crash on the second and every later add-on boot**: the
+  Supervisor serialises unset options as `""`, and `backup_dir: ""`
+  parsed as `Path("")` — truthy — so `resolved_backup_dir` became a
+  bare relative name and the pre-migration `VACUUM INTO` snapshot
+  failed trying to write under `/app`. `""` option values now
+  normalise to unset, and `resolved_backup_dir` falls back on
+  blank paths.
+- `require_admin` treated `admin_token: ""` as configured, so an
+  explicit empty `X-Admin-Token:` header could satisfy the
+  comparison — empty tokens now count as unset (fail-closed).
+- `docker-entrypoint.sh` CRLF hardening: the Dockerfile strips
+  carriage returns at build time and `.gitattributes` pins
+  `*.sh eol=lf`, so Windows checkouts can't break the shebang.
+
+### Added
+
+- `release.yml` smoke now runs a Supervisor-mode pass: root-owned
+  `options.json` with `""` values, `SUPERVISOR_TOKEN`, a named
+  `/data` volume, a supervisor-IP client, and a restart to cover
+  the existing-DB snapshot path — ingress identity bootstrap,
+  SPA serving and `/healthz` all asserted.
+
 ## [1.0.2] — 2026-11-09
 
 ### Fixed
