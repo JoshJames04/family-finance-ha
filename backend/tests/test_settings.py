@@ -37,6 +37,25 @@ def test_env_beats_options_file(tmp_path: Path) -> None:
     assert s.log_level == "DEBUG"
 
 
+def test_empty_options_values_normalise_to_unset(tmp_path: Path) -> None:
+    """The Supervisor serialises unset options as "". If those reach
+    the fields, Path("") is truthy (resolved_backup_dir becomes a
+    bare relative name and VACUUM writes into CWD) and SecretStr("")
+    could satisfy an empty admin header. They must parse as unset."""
+    (tmp_path / "options.json").write_text(json.dumps(
+        {"admin_token": "", "backup_dir": ""}))
+    s = Settings.load({"FF_DATA_DIR": str(tmp_path)})
+    assert s.backup_dir is None
+    assert s.admin_token is None
+    assert s.resolved_backup_dir == tmp_path / "backups"
+
+
+def test_blank_backup_dir_falls_back(tmp_path: Path) -> None:
+    s = Settings.load({"FF_DATA_DIR": str(tmp_path),
+                       "FF_BACKUP_DIR": "  "})
+    assert s.resolved_backup_dir == tmp_path / "backups"
+
+
 def test_secrets_not_serialised() -> None:
     s = Settings.load({"FF_SUPERVISOR_TOKEN": "dev-supervisor-token"})
     assert "dev-supervisor-token" not in s.model_dump_json()
