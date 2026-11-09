@@ -72,6 +72,21 @@ class TestIngressTrust:
             assert r.json()["role"] == "admin"
             assert r.json()["display_name"] == "Dad"
 
+    def test_fresh_install_bootstraps_household(self, tmp_path: Path,
+                                                monkeypatch):
+        """A fresh add-on install has no household — the first
+        supervisor-identity request must materialise it and provision
+        the first user as admin, or the panel can never render."""
+        monkeypatch.setattr(auth, "SUPERVISOR_IP", "testclient")
+        with TestClient(_app(tmp_path, FF_INGRESS="true")) as c:
+            r = c.get("/api/v1/auth/me", headers={
+                "X-Remote-User-Id": "ha-123",
+                "X-Remote-User-Display-Name": "Dad"})
+            assert r.status_code == 200
+            assert r.json()["role"] == "admin"
+            h = c.get("/api/v1/households").json()
+            assert h["total"] == 1
+
     def test_second_ingress_user_is_member(self, tmp_path: Path,
                                            monkeypatch):
         monkeypatch.setattr(auth, "SUPERVISOR_IP", "testclient")
