@@ -87,15 +87,25 @@ backup → stage → commit → reconcile → rollback test → re-commit →
 retirement gate. Run against the real workbook (local only, counts
 never values):
 
-- staged 528 records; 404 imported; 2,335 entities across 12 sheets
-- rollback voided 90 transactions; re-commit re-mapped all 404 —
+- staged 529 records; 405 imported; 2,345 entities across 12 sheets
+- rollback voided 90 transactions; re-commit re-mapped all 405 —
   idempotent
+- `tools/reconcile_parity.py` run against the imported DB: gifts,
+  overtime, payroll and all 169 budget rows reconcile to the penny
+  (row/month level); zero untraceable transactions; loan ledger carries
+  one documented difference (defect B)
 - defect flags raised by the detector: B ×1 (loan remaining-balance
-  `#REF!` — reconstructed; awaits reviewer disposition in the queue)
-- gate: `ready=False` until every flag is resolved via
+  `#REF!` in the amount column — detector reconstruction corroborated
+  by the workbook's cached totals). Disposition `wont_fix`: the
+  workbook cell cannot be repaired from the file; the ledger imports
+  without the broken row and the residual is documented. If the
+  payment was real, the owner enters it as a manual repayment in-app
+  after migration — that is verifiable from bank records, not the file
+- gate: `ready=True` once the flag is resolved via
   `/api/v1/migration/flags/{id}/resolve` — correct behaviour
 
-Sign-off: _pending user parallel-run month_ · retirement date: _pending_
+Sign-off: approved by the household owner — parallel-run month waived
+on reconcile evidence + live use · retirement date: 2026-11-09
 
 ### §7.2 Moving installs (snapshot → new install)
 
