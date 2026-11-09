@@ -11,6 +11,16 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.0.4] — 2026-11-09
+
+### Fixed
+
+- **Blank white panel under ingress**: `BrowserRouter` used
+  `basename="/"` but HA mounts the app at
+  `/api/hassio_ingress/<token>/`, so the router refused to render.
+  The basename is now derived from `window.location` at startup —
+  the ingress prefix when present, `BASE_URL` standalone.
+
 ## [1.0.3] — 2026-11-09
 
 ### Fixed
