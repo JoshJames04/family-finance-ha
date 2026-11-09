@@ -17,11 +17,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
+from cryptography.exceptions import InvalidTag
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import vault
-from app.domain.vault import Keyring
+from app.domain.vault import Keyring, VaultError
 from app.persistence.models import (
     BankConnection,
     BankProvider,
@@ -155,8 +156,15 @@ def token(session: Session, conn: BankConnection,
     an API boundary."""
     if conn.status == ConnStatus.revoked:
         raise ConnError("connection is revoked — re-authenticate")
-    return vault.retrieve(
-        session, conn.household_id, conn.vault_ref, ring).decode()
+    try:
+        return vault.retrieve(
+            session, conn.household_id, conn.vault_ref, ring).decode()
+    except (VaultError, InvalidTag) as e:
+        # issue #349: ciphertext written under another install's
+        # .vault_key (or a missing ref) is unrecoverable locally —
+        # the user must re-enter the token.
+        conn.last_error = "stored credential unreadable — re-authenticate"
+        raise ConnError(conn.last_error) from e
 
 
 def syncable(conn: BankConnection) -> bool:

@@ -16,6 +16,7 @@ from app.domain.recurring import advance
 from app.persistence.models import (
     Frequency,
     PriceChangeEvent,
+    RecurringCommitment,
     Subscription,
     SubscriptionPrice,
     SubscriptionStatus,
@@ -45,6 +46,17 @@ def create(
     norm = normalise_payee(payee)
     if not norm:
         raise SubscriptionError("payee has no usable name characters")
+    # issue #313 — a payee covered by an active bill (commitment)
+    # cannot also register as a subscription; the same obligation
+    # would otherwise forecast twice.
+    covered = {normalise_payee(n) for n in session.execute(
+        select(RecurringCommitment.name).where(
+            RecurringCommitment.household_id == household_id,
+            RecurringCommitment.active.is_(True))).scalars().all()}
+    if norm in covered:
+        raise SubscriptionError(
+            f"{payee} is already covered by an active bill — "
+            "cancel the bill first or keep it as the single record")
     sub = Subscription(
         household_id=household_id, payee=payee,
         payee_normalised=norm, frequency=frequency,
