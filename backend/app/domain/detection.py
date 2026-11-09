@@ -31,6 +31,7 @@ from app.persistence.models import (
     CandidateType,
     DetectionCandidate,
     Frequency,
+    RecurringCommitment,
     Subscription,
     SubscriptionPrice,
     SubscriptionStatus,
@@ -134,11 +135,21 @@ def _outflow_clusters(
 
 
 def _registered_payees(session: Session, household_id: int) -> set[str]:
-    return set(session.execute(
+    """Payees already tracked — active subscriptions plus active
+    commitments (issue #313): a bill must never surface as a
+    subscription candidate."""
+    registered = set(session.execute(
         select(Subscription.payee_normalised).where(
             Subscription.household_id == household_id,
             Subscription.status == SubscriptionStatus.active)
     ).scalars().all())
+    registered.update(
+        normalise_payee(name) for name in session.execute(
+            select(RecurringCommitment.name).where(
+                RecurringCommitment.household_id == household_id,
+                RecurringCommitment.active.is_(True))
+        ).scalars().all())
+    return registered
 
 
 def _same_signature(
