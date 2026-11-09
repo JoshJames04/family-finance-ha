@@ -345,6 +345,178 @@
           ]
         }
       }
+    },
+    {
+      "tax_year": "2026-27",
+      "jurisdiction": "england_wales",
+      "version": 1,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 3770000,
+            "rate": 2000
+          },
+          {
+            "limit": 12514000,
+            "rate": 4000
+          },
+          {
+            "limit": null,
+            "rate": 4500
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              0
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              0
+            ],
+            "Z": [
+              200,
+              0
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2690000,
+            900
+          ],
+          "plan2": [
+            2938500,
+            900
+          ],
+          "plan4": [
+            3379500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        }
+      }
+    },
+    {
+      "tax_year": "2026-27",
+      "jurisdiction": "scotland",
+      "version": 1,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 396700,
+            "rate": 1900
+          },
+          {
+            "limit": 1695600,
+            "rate": 2000
+          },
+          {
+            "limit": 3109200,
+            "rate": 2100
+          },
+          {
+            "limit": 6243000,
+            "rate": 4200
+          },
+          {
+            "limit": 12514000,
+            "rate": 4500
+          },
+          {
+            "limit": null,
+            "rate": 4800
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              0
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              0
+            ],
+            "Z": [
+              200,
+              0
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2690000,
+            900
+          ],
+          "plan2": [
+            2938500,
+            900
+          ],
+          "plan4": [
+            3379500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        }
+      }
     }
   ]
 }

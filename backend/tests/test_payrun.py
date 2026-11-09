@@ -82,6 +82,24 @@ class TestGenerate:
         base = 3_600_000 * 30 // 365
         assert run.gross_pence == base + o.pay_pence + 50_000
 
+    def test_allowance_joins_earnings_and_taxes(
+            self, session: Session, emp: Employment) -> None:
+        """#399 — a fixed allowance (fire-warden/first-aider style)
+        lands as its own component, joins gross, and is taxed +
+        NI'd through compute_period like any other earning."""
+        plain = payrun.generate(session, emp, start=APR_S, end=APR_E,
+                                pay_date=PAY)
+        run = payrun.generate(session, emp, start=APR_S, end=APR_E,
+                              pay_date=PAY, allowance_pence=15_000)
+        kinds = {c.kind: c.forecast_pence for c in run.components}
+        assert kinds[PayrollComponentKind.allowance] == 15_000
+        assert run.gross_pence == plain.gross_pence + 15_000
+        # allowance is taxable + NIable: both deductions grow
+        assert abs(kinds[PayrollComponentKind.tax]) \
+            > abs(plain.gross_pence - plain.net_pence) - abs(
+                kinds[PayrollComponentKind.ni])
+        assert run.net_pence < plain.net_pence + 15_000
+
     def test_period_validation(self, session: Session,
                                emp: Employment) -> None:
         with pytest.raises(PayrollError):
