@@ -631,6 +631,27 @@ export interface paths {
         patch: operations["patch_transaction_api_v1_transactions__txn_id__patch"];
         trace?: never;
     };
+    "/api/v1/transactions/{txn_id}/splits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Splits
+         * @description Replace a transaction's split set (issue #289). Splits must sum
+         *     to the parent amount; reconciled rows refuse — use ``correct``.
+         */
+        put: operations["put_splits_api_v1_transactions__txn_id__splits_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/{txn_id}/correct": {
         parameters: {
             query?: never;
@@ -4224,6 +4245,8 @@ export interface components {
         CommitmentPatch: {
             /** Name */
             name?: string | null;
+            /** Account Id */
+            account_id?: number | null;
             /** Category Id */
             category_id?: number | null;
             /** Amount */
@@ -6738,6 +6761,11 @@ export interface components {
             suggested_category_id: number | null;
             /** Corrects Id */
             corrects_id: number | null;
+            /**
+             * Splits
+             * @default []
+             */
+            splits: components["schemas"]["TransactionSplitOut"][];
         };
         /** TransactionPatch */
         TransactionPatch: {
@@ -6754,6 +6782,34 @@ export interface components {
          * @enum {string}
          */
         TransactionSource: "manual" | "starling" | "excel_import" | "system" | "manual_verification";
+        /** TransactionSplitIn */
+        TransactionSplitIn: {
+            /** Category Id */
+            category_id: number;
+            /** Amount Pence */
+            amount_pence: number;
+        };
+        /** TransactionSplitOut */
+        TransactionSplitOut: {
+            /** Id */
+            id: number;
+            /** Transaction Id */
+            transaction_id: number;
+            /** Category Id */
+            category_id: number;
+            /** Amount Pence */
+            amount_pence: number;
+            /** Position */
+            position: number;
+        };
+        /**
+         * TransactionSplitsPut
+         * @description Whole-set replace for a transaction's splits (issue #289).
+         */
+        TransactionSplitsPut: {
+            /** Splits */
+            splits: components["schemas"]["TransactionSplitIn"][];
+        };
         /**
          * TransactionStatus
          * @enum {string}
@@ -8478,6 +8534,45 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["TransactionPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_splits_api_v1_transactions__txn_id__splits_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                txn_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransactionSplitsPut"];
             };
         };
         responses: {

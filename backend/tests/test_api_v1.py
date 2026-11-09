@@ -172,6 +172,59 @@ class TestTransactions:
                          json={"payee": "edited"})
         assert r.status_code == 409
 
+    def test_splits_put_and_validation(self, client: TestClient) -> None:
+        _mk_household(client)
+        aid = _mk_account(client)
+        groceries = client.post("/api/v1/categories",
+                                json={"name": "Groceries"}).json()
+        gifts = client.post("/api/v1/categories",
+                            json={"name": "Gifts"}).json()
+        t = self._mk(client, aid, pence=-1299)
+        r = client.put(f"/api/v1/transactions/{t['id']}/splits", json={
+            "splits": [
+                {"category_id": groceries["id"], "amount_pence": -800},
+                {"category_id": gifts["id"], "amount_pence": -499}]})
+        assert r.status_code == 200, r.text
+        assert [(s["category_id"], s["amount_pence"]) for s in
+                r.json()["splits"]] == [
+            (groceries["id"], -800), (gifts["id"], -499)]
+        bad = client.put(f"/api/v1/transactions/{t['id']}/splits", json={
+            "splits": [
+                {"category_id": groceries["id"], "amount_pence": -800},
+                {"category_id": gifts["id"], "amount_pence": -400}]})
+        assert bad.status_code == 422
+        single = client.put(
+            f"/api/v1/transactions/{t['id']}/splits", json={
+                "splits": [{"category_id": groceries["id"],
+                            "amount_pence": -1299}]})
+        assert single.status_code == 422
+        cleared = client.put(f"/api/v1/transactions/{t['id']}/splits",
+                             json={"splits": []})
+        assert cleared.status_code == 200
+        assert cleared.json()["splits"] == []
+
+    def test_splits_reconciled_must_correct(
+            self, client: TestClient) -> None:
+        _mk_household(client)
+        aid = _mk_account(client)
+        cat = client.post("/api/v1/categories",
+                          json={"name": "Food"}).json()
+        t = self._mk(client, aid)
+        assert client.patch(f"/api/v1/transactions/{t['id']}",
+                            json={"status": "cleared"}).status_code == 200
+        assert client.patch(f"/api/v1/transactions/{t['id']}",
+                            json={"status": "reconciled"}
+                            ).status_code == 200
+        r = client.put(f"/api/v1/transactions/{t['id']}/splits", json={
+            "splits": [
+                {"category_id": cat["id"], "amount_pence": -300},
+                {"category_id": cat["id"], "amount_pence": -200}]})
+        assert r.status_code == 409
+        corrected = client.post(
+            f"/api/v1/transactions/{t['id']}/correct",
+            json={"reason": "split it"})
+        assert corrected.status_code == 200, corrected.text
+
     def test_bulk_categorise(self, client: TestClient) -> None:
         _mk_household(client)
         aid = _mk_account(client)
