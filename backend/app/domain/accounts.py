@@ -108,10 +108,12 @@ def merge_accounts(
 
 
 def current_balance(session: Session, account_id: int) -> int:
-    """Derived from the ledger (opening row included) — pence."""
+    """Derived from the ledger (opening row included) — pence.
+    Voided rows never count (issue #347)."""
     return int(session.execute(
         select(func.coalesce(func.sum(Transaction.amount_pence), 0))
-        .where(Transaction.account_id == account_id)
+        .where(Transaction.account_id == account_id,
+               Transaction.status != TransactionStatus.void)
     ).scalar_one())
 
 

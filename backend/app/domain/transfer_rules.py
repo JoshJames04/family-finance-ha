@@ -33,6 +33,7 @@ from app.persistence.models import (
     BudgetLine,
     BudgetStatus,
     Transaction,
+    TransactionStatus,
     TransferRule,
 )
 
@@ -125,6 +126,7 @@ def evaluate(session: Session, rule: TransferRule,
             select(func.coalesce(func.sum(
                 Transaction.amount_pence), 0)).where(
             Transaction.account_id == rule.source_account_id,
+            Transaction.status != TransactionStatus.void,
             Transaction.amount_pence > 0,
             Transaction.date >= since,
             Transaction.date < on))).scalar_one()
