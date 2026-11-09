@@ -3,8 +3,10 @@
 Two layers:
 1. A static gate that AST-scans ``app/domain`` for every
    ``func.sum(Transaction.amount_pence)`` aggregate and requires the
-   enclosing function to apply ``external_only`` — unless the function
-   is explicitly allowlisted with a documented reason.
+   enclosing function to apply ``external_only`` or state its own
+   ``transfer_id`` predicate (splits-helper callers choose between
+   ``is_(None)`` and ``isnot(None)`` per report) — unless the
+   function is explicitly allowlisted with a documented reason.
 2. Behavioural proof that a transfer-heavy dataset produces zero
    income/expense impact on every reporting surface.
 """
@@ -86,14 +88,17 @@ class TestStaticContract:
             for fn, line in _sum_sites(path):
                 if fn in ALLOWLIST:
                     continue
-                # the enclosing function must apply external_only
+                # the enclosing function must apply external_only —
+                # or state its own transfer_id predicate (splits
+                # rollups pass is_(None)/isnot(None) via wheres)
                 seg = source.splitlines()
                 body = "\n".join(seg[max(0, line - 60):line + 60])
-                if "external_only" not in body:
+                if "external_only" not in body \
+                        and "transfer_id" not in body:
                     violations.append(f"{path.name}:{line} ({fn})")
         assert not violations, (
-            "amount_pence aggregates missing external_only: "
-            + ", ".join(violations))
+            "amount_pence aggregates missing external_only/"
+            "transfer_id guard: " + ", ".join(violations))
 
     def test_allowlist_entries_exist(self) -> None:
         """Allowlisted functions must actually exist — no dead names."""
