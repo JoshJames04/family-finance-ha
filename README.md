@@ -76,8 +76,9 @@ Full rationale and trade-offs are documented in
 ## Development
 
 All work flows through GitHub Issues: epics → user stories/tasks → pull
-requests against `main`. See [CONTRIBUTING](CONTRIBUTING.md) for branching,
-Definition of Ready/Done, labels and review standards.
+requests against `develop`; `main` is release-only. See
+[CONTRIBUTING](CONTRIBUTING.md) for branching, Definition of Ready/Done,
+labels and review standards.
 
 ### Quickstart (dev environment)
 
@@ -97,7 +98,7 @@ app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
 
 ## Privacy
 
-This repository is private. No real financial data, workbook files, account
+This repository is public. No real financial data, workbook files, account
 numbers or credentials may ever be committed. Development and tests use
 synthetic fixtures only — see [SECURITY.md](SECURITY.md) and
 [tests/fixtures/README.md](tests/fixtures/README.md).

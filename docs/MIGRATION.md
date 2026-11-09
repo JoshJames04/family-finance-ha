@@ -96,3 +96,23 @@ never values):
   `/api/v1/migration/flags/{id}/resolve` — correct behaviour
 
 Sign-off: _pending user parallel-run month_ · retirement date: _pending_
+
+### §7.2 Moving installs (snapshot → new install)
+
+A `VACUUM INTO` snapshot carries the full database — but **not** the
+`.vault_key` file in the data dir. On a new install a fresh key is
+generated, so migrated bank credentials fail to decrypt: sync then
+returns **422 "re-authenticate"** (never 500 — #349), and the fix is
+`POST /api/v1/banking/connections/{cid}/rotate` with the PAT or a
+fresh PAT.
+
+- Restore uploads land under `backups/pending/` — they never appear
+  in the backups list (#342), so only genuine backups are downloadable.
+- Profile identities: restored profiles have `ha_user_id = NULL`; the
+  first ingress login would auto-provision a duplicate member. Admin
+  links the real HA user id via Settings → member → **Link** (or
+  `PATCH /api/v1/profiles/{id}`), which also deactivates the duplicate
+  (#340).
+- `GET /api/v1/admin/backups` + `/download` →
+  `POST /api/v1/admin/restore/upload` → restart; boot applies the
+  pending restore before migrations open the engine.

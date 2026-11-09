@@ -25,6 +25,10 @@ mobile lock screens).
   on a non-supervisor socket as spoof attempts, not missing auth.
 - **Identity key:** `X-Remote-User-Id` (UUID) is the stable profile key;
   username/display-name are refreshed decoration, never lookup keys.
+  Under ingress `X-Profile-Id` is ignored server-side (#341) and the UI
+  presents no member switcher — identity comes only from the HA user.
+  Standalone/dev mode keeps `X-Profile-Id` as the explicit non-ingress
+  path.
 - **Standalone sessions:** Secure + HttpOnly + SameSite=Strict cookies,
   server-side session store, rotation on privilege change, absolute
   expiry; logout invalidates server-side.
