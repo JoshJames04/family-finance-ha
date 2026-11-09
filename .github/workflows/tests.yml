@@ -44,7 +44,7 @@ jobs:
       - name: Unit & integration tests
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
-        run: pytest -x --cov --cov-report=term-missing
+        run: pytest -x -n auto --dist loadscope --cov --cov-report=term-missing
       - name: Backup restore verification (release gate)
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
