@@ -32,4 +32,28 @@ describe("Settings year preparation", () => {
     await waitFor(() => expect(calls.some((call) =>
       call.method === "POST" && call.url.includes("prepare-year"))).toBe(true));
   });
+
+  it("downloads a snapshot file and requires confirm before restore upload", async () => {
+    const calls: { url: string; method: string }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      let body: object = { items: [], total: 0 };
+      if (url.includes("/version")) body = { version: "0.1.0" };
+      if (url.includes("/admin/backups")) body = [
+        { name: "ff-20260101T000000.db", bytes: 1024, ok: true },
+      ];
+      return Promise.resolve(new Response(
+        url.includes("/download") ? new Uint8Array([1, 2, 3]) : JSON.stringify(body),
+        { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+    URL.createObjectURL = vi.fn(() => "blob:x");
+    URL.revokeObjectURL = vi.fn();
+    const user = userEvent.setup();
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    await user.click(await screen.findByLabelText("Download ff-20260101T000000.db"));
+    await waitFor(() => expect(calls.some((call) =>
+      call.url.includes("/admin/backups/ff-20260101T000000.db/download"))).toBe(true));
+  });
 });

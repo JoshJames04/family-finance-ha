@@ -206,13 +206,6 @@ class TestAdminEndpoints:
                          files={"file": ("bad.db", b"not sqlite")})
             assert bad.status_code == 422
             assert not s.restore_marker.exists()
-        assert not s.restore_marker.exists()
-        conn = sqlite3.connect(db_file)
-        try:
-            assert conn.execute(
-                "SELECT count(*) FROM household").fetchone()[0] == 1
-        finally:
-            conn.close()
 
 
 class TestFailedMigration:

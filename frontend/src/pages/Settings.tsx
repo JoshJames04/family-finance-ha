@@ -1,12 +1,12 @@
 /** Settings: household members and roles, category management,
  * appearance (system/light/dark), and data — version, backups and
  * export. */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import {
   CalendarClock, Download, HardDrive, Monitor, Moon, Palette, Pencil,
-  Plus, Sun, Tags, UserRound, Users,
+  Plus, Sun, Tags, Upload, UserRound, Users,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
@@ -82,6 +82,26 @@ export function Settings() {
     api.post("/api/v1/admin/backups")
       .then((b) => { toast.success(`Backup saved (${formatBytes(b.bytes)})`); refresh(); })
       .catch((e: Error) => toast.error(e.message));
+
+  const restoreFile = useRef<HTMLInputElement>(null);
+  const [pendingRestore, setPendingRestore] = useState<File | null>(null);
+  const downloadSnapshot = (name: string) =>
+    api.download(`/api/v1/admin/backups/${name}/download`)
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch((e: Error) => toast.error(e.message));
+  const uploadSnapshot = () => {
+    const f = pendingRestore;
+    if (!f) return;
+    setPendingRestore(null);
+    api.upload("/api/v1/admin/restore/upload", f)
+      .then(() => toast.success("Restore queued — restart the app to apply it"))
+      .catch((e: Error) => toast.error(e.message));
+  };
 
   const cats = categories.data?.items ?? [];
   const parents = cats.filter((c) => c.parent_id === null);
@@ -208,13 +228,26 @@ export function Settings() {
             >
               <Download /> Export transactions (CSV)
             </a>
+            <Button variant="secondary" onClick={() => restoreFile.current?.click()}>
+              <Upload /> Restore from file…
+            </Button>
+            <input ref={restoreFile} type="file" accept=".db" className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setPendingRestore(f);
+                e.target.value = "";
+              }} />
           </div>
           {(backups.data ?? []).length > 0 ? (
             <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
               {(backups.data ?? []).slice(0, 5).map((b: Backup) => (
                 <li key={b.name} className="flex items-center justify-between gap-3 px-3 py-2 text-[12.5px]">
                   <span className="truncate font-medium">{b.name}</span>
-                  <span className="tnum shrink-0 text-fg-subtle">{formatBytes(b.bytes)}{b.ok ? "" : " · incomplete"}</span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <span className="tnum text-fg-subtle">{formatBytes(b.bytes)}{b.ok ? "" : " · incomplete"}</span>
+                    <Button size="sm" variant="ghost" onClick={() => downloadSnapshot(b.name)}
+                      aria-label={`Download ${b.name}`} title="Download snapshot"><Download /></Button>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -225,6 +258,19 @@ export function Settings() {
         </Panel>
       </div>
 
+      <Dialog open={pendingRestore !== null}
+        onOpenChange={(o) => { if (!o) setPendingRestore(null); }}
+        title="Restore from snapshot?">
+        <p className="text-[13px] text-fg-muted">
+          <strong>{pendingRestore?.name}</strong> will replace <strong>all</strong> current
+          data when the app next starts. This cannot be undone — take a backup first
+          if in doubt.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setPendingRestore(null)}>Cancel</Button>
+          <Button variant="primary" onClick={uploadSnapshot}>Queue restore</Button>
+        </div>
+      </Dialog>
       <AddMemberDialog open={addingMember} onOpenChange={setAddingMember} onSaved={refresh} />
       <AddCategoryDialog open={addingCategory} onOpenChange={setAddingCategory} parents={parents.filter((c) => !c.archived)} onSaved={refresh} />
       <EditCategoryDialog
