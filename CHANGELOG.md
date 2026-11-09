@@ -11,7 +11,7 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
-## [1.0.4] — 2026-11-09
+## [1.0.5] — 2026-11-09
 
 ### Fixed
 
@@ -20,6 +20,15 @@ release pipeline (multi-arch GHCR image + GitHub release).
   `/api/hassio_ingress/<token>/`, so the router refused to render.
   The basename is now derived from `window.location` at startup —
   the ingress prefix when present, `BASE_URL` standalone.
+- **Add-on restart loop**: the Docker `HEALTHCHECK` had no
+  `start-period`, so health probes failed during the long
+  first-boot migration, marked the container unhealthy and the
+  Supervisor restarted it — killing it mid-migration in a loop.
+  `start-period=120s` covers the boot window.
+- (v1.0.4 was tagged but its release build failed on a strict-TS
+  error in `ingress.ts` — skipped; 1.0.5 contains it and the fix.)
+
+## [1.0.3] — 2026-11-09
 
 ## [1.0.3] — 2026-11-09
 
