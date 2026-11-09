@@ -26,20 +26,23 @@ the admin API should reach the app at `http://<ha-host>:8099` directly.
 
 ## Options
 
-- `admin_token` — required for the admin backup/restore API
-  (`POST /api/v1/admin/backups`, `POST /api/v1/admin/restore`).
-  Leave unset to keep those endpoints closed.
-- `backup_dir` — where database snapshots are written. Point it at
-  `/share/...` (e.g. `/share/family-finance`) to make snapshots
-  reachable through the Samba or File editor add-ons — the easiest way
-  to seed data onto a fresh install. Defaults to the add-on's own
-  storage.
+- `admin_token` — unlocks the admin backup/restore API for
+  out-of-band callers. Leave unset to keep those endpoints closed to
+  anything but an admin member signed in through ingress.
+- `backup_dir` — where snapshots are written. Point it at
+  `/share/...` to reach them through the Samba or File editor add-ons;
+  not needed for the download/upload flow.
 
 ## Data
 
 Data lives in the add-on's own storage and is covered by Home Assistant
 backups. The app is the system of record: the legacy spreadsheet is
 used once, as a migration source, never at runtime.
+
+Moving an existing install's data here is two clicks: **Settings →
+Data & backups → download icon** on a snapshot on the old install,
+then **Restore from file…** on this one. The restore applies on the
+next add-on start and replaces everything currently stored.
 
 ## Updating
 
