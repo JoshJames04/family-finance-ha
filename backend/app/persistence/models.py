@@ -191,6 +191,7 @@ class TransactionSource(enum.StrEnum):
     manual = "manual"
     starling = "starling"
     excel_import = "excel_import"
+    file_import = "file_import"
     system = "system"
     manual_verification = "manual_verification"
 
@@ -208,7 +209,8 @@ class Transaction(TimestampMixin, Base):
             "status IN ('pending','cleared','reconciled','void')",
             name="ck_transaction_status"),
         CheckConstraint(
-            "source IN ('manual','starling','excel_import','system')",
+            "source IN ('manual','starling','excel_import','file_import',"
+            "'system','manual_verification')",
             name="ck_transaction_source"),
     )
 
@@ -232,6 +234,8 @@ class Transaction(TimestampMixin, Base):
                                                      nullable=True)
     import_record_id: Mapped[int | None] = mapped_column(Integer,
                                                          nullable=True)
+    statement_import_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, index=True)
     transfer_id: Mapped[int | None] = mapped_column(
         ForeignKey("transfer.id"), nullable=True, index=True)
     refund_of_id: Mapped[int | None] = mapped_column(
@@ -448,6 +452,47 @@ class ImportBatch(Base):
 
     records: Mapped[list[ImportRecord]] = relationship(
         back_populates="batch", cascade="all, delete-orphan")
+
+
+class StatementImportStatus(enum.StrEnum):
+    preview = "preview"
+    committed = "committed"
+    rolled_back = "rolled_back"
+
+
+class StatementImport(TimestampMixin, Base):
+    """One bank-statement file import (issue #288) — CSV/OFX/QIF.
+
+    ``payload`` holds the normalized preview rows (bounded by the 2 MB
+    upload cap) so commit replays exactly what the member reviewed;
+    ``mapping`` records the column mapping used for CSV."""
+
+    __tablename__ = "statement_import"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id"), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    format: Mapped[str] = mapped_column(String(10), nullable=False)
+    mapping: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict)
+    payload: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict)
+    status: Mapped[StatementImportStatus] = mapped_column(
+        Enum(StatementImportStatus),
+        default=StatementImportStatus.preview, nullable=False)
+    rows_total: Mapped[int] = mapped_column(Integer, default=0,
+                                            nullable=False)
+    rows_imported: Mapped[int] = mapped_column(Integer, default=0,
+                                               nullable=False)
+    rows_skipped: Mapped[int] = mapped_column(Integer, default=0,
+                                              nullable=False)
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime,
+                                                          nullable=True)
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime,
+                                                            nullable=True)
 
 
 class ImportRecord(Base):
@@ -1233,6 +1278,8 @@ class Loan(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     household_id: Mapped[int] = mapped_column(
         ForeignKey("household.id"), nullable=False, index=True)
+    owner_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=True, index=True)
     party: Mapped[str] = mapped_column(String(120), nullable=False)
     direction: Mapped[LoanDirection] = mapped_column(
         Enum(LoanDirection), nullable=False)

@@ -159,6 +159,66 @@ describe("Transactions", () => {
       ]);
     });
   });
+  it("import wizard previews then commits (#288)", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        calls.push({ url, method, body: "" });
+        const body = method !== "GET"
+          ? url.includes("/commit")
+            ? { id: 5, account_id: 1, filename: "s.csv", format: "csv",
+                status: "committed", rows_total: 2, rows_imported: 2,
+                rows_skipped: 0, created_at: "2026-04-01T00:00:00" }
+            : { import_row: { id: 5, account_id: 1, filename: "s.csv",
+                    format: "csv", status: "preview", rows_total: 2,
+                    rows_imported: 0, rows_skipped: 0,
+                    created_at: "2026-04-01T00:00:00" },
+                rows: [
+                  { date: "2026-04-01", amount_pence: -2540,
+                    payee: "TESCO", notes: null, duplicate: false },
+                  { date: "2026-04-02", amount_pence: -1099,
+                    payee: "NETFLIX", notes: null, duplicate: true },
+                ] }
+          : url.includes("/api/v1/households")
+            ? { items: [{ id: 1, name: "Home" }], total: 1 }
+            : url.includes("/api/v1/accounts")
+              ? { items: [{ id: 1, name: "Current", type: "personal",
+                    currency: "GBP", opening_balance_pence: 0,
+                    opening_date: "2026-01-01", owner_profile_id: null,
+                    institution_ref: null, archived: false,
+                    min_balance_pence: null }], total: 1 }
+              : url.includes("/api/v1/transactions")
+                ? { items: TXNS, total: TXNS.length, page: 1, size: 500 }
+                : { items: [], total: 0 };
+        return Promise.resolve(new Response(JSON.stringify(body), {
+          status: 200, headers: { "Content-Type": "application/json" } }));
+      });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Transactions /></MemoryRouter>);
+    await user.click(
+      await screen.findByRole("button", { name: /Import/ }));
+    await user.selectOptions(
+      await screen.findByLabelText("Import into account"), "1");
+    await user.upload(
+      screen.getByLabelText("Statement file"),
+      new File(["d"], "s.csv", { type: "text/csv" }));
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    // Preview shows both rows, dup flagged, commit counts only new.
+    await screen.findByText("TESCO");
+    expect(screen.getByText("dup")).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Import 1 transaction" }));
+    await waitFor(() =>
+      expect(calls.some((c) =>
+        c.url.includes("/imports/5/commit")
+        && c.method === "POST")).toBe(true));
+    // The upload itself went to /imports/preview as multipart.
+    expect(calls.some((c) =>
+      c.url.includes("/imports/preview")
+      && c.method === "POST")).toBe(true);
+  });
   it("reconcile queue renders and confirm posts to /confirm", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls, { queue: true });
