@@ -918,6 +918,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/backups/{name}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Backup
+         * @description Stream a snapshot — moving installs is download + upload
+         *     (issue #328). Name is pinned to the snapshot pattern, so no
+         *     path traversal is possible.
+         */
+        get: operations["download_backup_api_v1_admin_backups__name__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/restore/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Restore
+         * @description Accept a snapshot file, verify integrity, and queue the restore
+         *     for next boot (issue #328).
+         */
+        post: operations["upload_restore_api_v1_admin_restore_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/restore": {
         parameters: {
             query?: never;
@@ -3902,6 +3945,11 @@ export interface components {
         };
         /** Body_upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post */
         Body_upload_payslip_api_v1_employments__emp_id__payroll_runs__run_id__payslips_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_restore_api_v1_admin_restore_upload_post */
+        Body_upload_restore_api_v1_admin_restore_upload_post: {
             /** File */
             file: string;
         };
@@ -9434,6 +9482,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BackupOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_backup_api_v1_admin_backups__name__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_restore_api_v1_admin_restore_upload_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_restore_api_v1_admin_restore_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreAccepted"];
                 };
             };
             /** @description Validation Error */
