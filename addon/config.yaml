@@ -1,5 +1,5 @@
 name: Family Finance
-version: "1.0.1"
+version: "1.0.2"
 slug: family_finance
 description: >-
   Self-hosted household finance for Home Assistant — budgets, forecasts,
@@ -29,4 +29,3 @@ options:
 schema:
   admin_token: "str?"
   backup_dir: "str?"
-watchdog: http://[HOST]:[PORT:8099]/healthz
