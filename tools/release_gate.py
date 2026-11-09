@@ -97,8 +97,8 @@ def check_openapi_sync() -> tuple[str, str]:
 
 def check_docs() -> tuple[str, str]:
     required = ["ARCHITECTURE.md", "DATA-MODEL.md", "MIGRATION.md",
-                "PERFORMANCE.md", "RELEASE.md", "ROADMAP.md",
-                "SECURITY.md", "HA-DEPLOYMENT.md"]
+                "OPERATIONS.md", "PERFORMANCE.md", "RELEASE.md",
+                "ROADMAP.md", "SECURITY.md", "HA-DEPLOYMENT.md"]
     missing = [d for d in required
                if not (REPO / "docs" / d).exists()]
     return (PASS if not missing else FAIL,
