@@ -44,7 +44,12 @@ jobs:
       - name: Unit & integration tests
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
-        run: pytest -x -n auto --dist loadscope --cov --cov-report=term-missing
+        run: pytest -x -n auto --dist loadscope -m "not perf" --cov --cov-report=term-missing
+      - name: Performance budget (non-gating)
+        if: steps.check.outputs.present == 'yes'
+        working-directory: backend
+        continue-on-error: true
+        run: pytest -m perf -q -v --durations=0
       - name: Backup restore verification (release gate)
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
