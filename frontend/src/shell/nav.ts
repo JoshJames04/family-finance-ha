@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, BarChart3, Bell, Briefcase, Building2, CalendarClock,
   Clock, FlaskConical, Gift, Handshake, Inbox, Landmark, LayoutDashboard,
   LineChart, type LucideIcon, PiggyBank, ReceiptText, Repeat, Settings,
-  Tag, Target, Wand2, Zap,
+  Tag, Target, Users2, Wand2, Zap,
 } from "lucide-react";
 
 export interface NavItem {
@@ -39,6 +39,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Planning",
     items: [
       { to: "/budget", label: "Budget", icon: Target, description: "Plan vs actual — incl. the shared pot" },
+      { to: "/shared", label: "Shared", icon: Users2, description: "Who pays what into the shared pot" },
       { to: "/bills", label: "Bills", icon: ReceiptText, description: "Things you pay on a schedule" },
       { to: "/subscriptions", label: "Subscriptions", icon: Repeat, description: "Recurring services and renewals" },
       { to: "/goals", label: "Goals", icon: PiggyBank, description: "Savings goals and progress" },
