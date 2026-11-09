@@ -19,8 +19,10 @@ homeassistant_api: true
 backup_exclude: []
 map:
   - share:rw
-ports: {}
-ports_description: {}
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: "App API + web UI — publish only if the custom integration or admin API needs a direct URL"
 options:
   admin_token: null
   backup_dir: null
