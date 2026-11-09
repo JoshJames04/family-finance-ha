@@ -146,6 +146,33 @@ def update_profile(
     if body.display_name is not None:
         p.display_name = body.display_name
         session.flush()
+    if body.ha_user_id is not None:
+        # issue #340 — linking an HA identity moves it off any
+        # auto-provisioned duplicate holding it: that copy is
+        # deactivated (it can never be logged into again anyway).
+        uid = body.ha_user_id.strip()
+        if not uid:
+            raise HTTPException(422, "ha_user_id must be non-empty")
+        holders = session.execute(
+            select(UserProfile).where(
+                UserProfile.household_id == household.id,
+                UserProfile.ha_user_id == uid,
+                UserProfile.id != p.id)).scalars().all()
+        for h in holders:
+            h.ha_user_id = None
+            if h.is_active:
+                h.is_active = False
+                revoke_sessions_for(session, h.id)
+                emit(session, household.id, actor,
+                     "deactivate", "user_profile", h.id,
+                     {"reason": "superseded by identity link",
+                      "display_name": h.display_name})
+        p.ha_user_id = uid
+        session.flush()
+        emit(session, household.id, actor, "link_identity",
+             "user_profile", p.id,
+             {"ha_user_id": uid,
+              "superseded": [h.id for h in holders]})
     return schemas.ProfileOut.model_validate(p)
 
 

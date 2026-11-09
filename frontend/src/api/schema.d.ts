@@ -6199,12 +6199,16 @@ export interface components {
             role: components["schemas"]["Role"];
             /** Is Active */
             is_active: boolean;
+            /** Ha User Id */
+            ha_user_id?: string | null;
         };
         /** ProfilePatch */
         ProfilePatch: {
             role?: components["schemas"]["Role"] | null;
             /** Display Name */
             display_name?: string | null;
+            /** Ha User Id */
+            ha_user_id?: string | null;
         };
         /** ProjectionDayOut */
         ProjectionDayOut: {
