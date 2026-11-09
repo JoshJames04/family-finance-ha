@@ -7,7 +7,8 @@ and writes the pending-restore marker the next boot applies.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from app.api import schemas
 from app.api.audit import emit
@@ -53,6 +54,43 @@ def create_backup(request: Request, household: HouseholdDep,
          {"snapshot": snap.name, "rotated": deleted})
     return schemas.BackupOut(name=snap.name, bytes=snap.stat().st_size,
                              ok=backup.verify_snapshot(snap))
+
+
+@router.get("/backups/{name}/download")
+def download_backup(name: str, request: Request) -> FileResponse:
+    """Stream a snapshot — moving installs is download + upload
+    (issue #328). Name is pinned to the snapshot pattern, so no
+    path traversal is possible."""
+    if not backup.SNAPSHOT_RE.fullmatch(name):
+        raise HTTPException(404, "snapshot not found")
+    path = _settings(request).resolved_backup_dir / name
+    if not path.is_file():
+        raise HTTPException(404, "snapshot not found")
+    return FileResponse(path, filename=name,
+                        media_type="application/octet-stream")
+
+
+@router.post("/restore/upload", response_model=schemas.RestoreAccepted,
+             status_code=202)
+def upload_restore(file: UploadFile, request: Request,
+                   household: HouseholdDep, session: SessionDep,
+                   actor: ActorDep) -> schemas.RestoreAccepted:
+    """Accept a snapshot file, verify integrity, and queue the restore
+    for next boot (issue #328)."""
+    settings = _settings(request)
+    backup_dir = settings.resolved_backup_dir
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    seq = 0
+    while (dest := backup_dir / backup.next_name(seq=seq)).exists():
+        seq += 1
+    dest.write_bytes(file.file.read())
+    if not backup.verify_snapshot(dest):
+        dest.unlink(missing_ok=True)
+        raise HTTPException(422, "file is not a valid snapshot")
+    backup.request_restore(settings.restore_marker, dest.name)
+    emit(session, household.id, actor, "restore_uploaded", "database",
+         0, {"snapshot": dest.name})
+    return schemas.RestoreAccepted(name=dest.name)
 
 
 @router.post("/restore", response_model=schemas.RestoreAccepted,
