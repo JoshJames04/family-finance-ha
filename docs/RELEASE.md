@@ -60,7 +60,10 @@ jobs; the last three are manual evidence.
    `chore/` branch → PR to `develop` (the version bump lands on
    `develop`, then rides to `main`).
 3. Open the release PR `develop` → `main`; review the aggregate diff.
-4. Merge, then tag from `main`:
+4. Merge the release PR to `main`. `.github/workflows/tag-on-main.yml`
+   automatically tags `vX.Y.Z` on the merge commit and pushes it —
+   no manual tag step (it exits cleanly if the tag already exists).
+   Manual fallback if automation fails:
 
    ```bash
    git checkout main && git pull

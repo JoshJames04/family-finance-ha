@@ -1,11 +1,13 @@
 {
   "domain": "family_finance",
   "name": "Family Finance",
-  "codeowners": ["@JoshJames04"],
+  "codeowners": [
+    "@JoshJames04"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/JoshJames04/family-finance-ha",
   "integration_type": "service",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/JoshJames04/family-finance-ha/issues",
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
