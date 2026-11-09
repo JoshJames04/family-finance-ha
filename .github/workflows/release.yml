@@ -3,6 +3,11 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v1.0.0"
+        required: true
 
 permissions:
   contents: write
@@ -18,13 +23,16 @@ jobs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Tag must match __version__
         run: |
           set -euo pipefail
           v="$(python scripts/version.py get)"
           python scripts/version.py check
-          [ "${{ github.ref_name }}" = "v${v}" ] || {
-            echo "tag ${{ github.ref_name }} != v${v}"; exit 1; }
+          tag="${{ inputs.tag || github.ref_name }}"
+          [ "$tag" = "v${v}" ] || {
+            echo "tag $tag != v${v}"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
         id: v
 
@@ -33,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: docker/setup-buildx-action@v4
       - name: Build single-arch image
         uses: docker/build-push-action@v6
@@ -64,6 +74,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v3
@@ -89,6 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: GitHub release with generated changelog
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
