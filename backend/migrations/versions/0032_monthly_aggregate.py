@@ -6,7 +6,7 @@ worth — rebuildable identically from raw transactions + loans.
 Revision ID: 0032_monthly_aggregate
 Revises: 0031_price_change
 """
-from typing import Sequence
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
