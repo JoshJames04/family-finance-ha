@@ -10,18 +10,28 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import loans
-from app.persistence.models import Loan, Repayment, Transaction
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import loans, rbac
+from app.persistence.models import Loan, Repayment, Role, Transaction, UserProfile
 
 router = APIRouter(prefix="/loans", tags=["loans"])
 
 
-def _get(session: Session, household_id: int, lid: int) -> Loan:
+def _get(
+    session: Session, household_id: int, lid: int,
+    profile: UserProfile | None = None,
+) -> Loan:
     ln = session.get(Loan, lid)
-    if ln is None or ln.household_id != household_id:
+    if (ln is None or ln.household_id != household_id
+            or not rbac.visible(ln.owner_profile_id, profile)):
         raise HTTPException(404, f"loan {lid} not found")
     return ln
+
+
+def _write(ln: Loan, profile: UserProfile | None) -> None:
+    """Mutation gate on a resolved resource (issue #278)."""
+    if not rbac.write_allowed(ln.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
 
 
 def _position(session: Session, ln: Loan) -> schemas.LoanPositionOut:
@@ -38,12 +48,14 @@ def _position(session: Session, ln: Loan) -> schemas.LoanPositionOut:
 @router.get("", response_model=schemas.Page[schemas.LoanOut])
 def list_loans(
     household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     include_inactive: Annotated[bool, Query()] = False,
 ) -> schemas.Page[schemas.LoanOut]:
     stmt = select(Loan).where(Loan.household_id == household.id)
     if not include_inactive:
         stmt = stmt.where(Loan.active.is_(True))
-    rows = list(session.execute(stmt).scalars().all())
+    rows = [ln for ln in session.execute(stmt).scalars().all()
+            if rbac.visible(ln.owner_profile_id, profile)]
     return schemas.Page(
         items=[schemas.LoanOut.model_validate(ln) for ln in rows],
         total=len(rows), page=1, size=len(rows) or 1)
@@ -52,8 +64,10 @@ def list_loans(
 @router.post("", response_model=schemas.LoanOut, status_code=201)
 def create_loan(
     body: schemas.LoanIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.LoanOut:
+    if not rbac.write_allowed(body.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     ln = Loan(
         household_id=household.id, party=body.party,
         direction=body.direction,
@@ -71,21 +85,46 @@ def create_loan(
     return schemas.LoanOut.model_validate(ln)
 
 
+@router.patch("/{lid}", response_model=schemas.LoanOut)
+def patch_loan(
+    lid: int, body: schemas.LoanPatch, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
+) -> schemas.LoanOut:
+    """Edit a loan's terms, owner or active flag (#278)."""
+    ln = _get(session, household.id, lid, profile)
+    _write(ln, profile)
+    changed = body.model_dump(exclude_unset=True)
+    new_owner = changed.get("owner_profile_id")
+    if ("owner_profile_id" in changed and profile is not None
+            # Scope change: non-admin may only toggle own/None (#32).
+            and profile.role != Role.admin
+            and new_owner not in (None, profile.id)):
+        raise HTTPException(403, "cannot reassign ownership")
+    for k, v in changed.items():
+        setattr(ln, k, v)
+    emit(session, household.id, actor, "update", "loan", ln.id,
+         {k: (v.value if hasattr(v, "value") else v)
+          for k, v in changed.items()})
+    return schemas.LoanOut.model_validate(ln)
+
+
 @router.get("/{lid}", response_model=schemas.LoanPositionOut)
 def loan_position(
     lid: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> schemas.LoanPositionOut:
     """Derived position — outstanding is always computed (#93)."""
-    return _position(session, _get(session, household.id, lid))
+    return _position(session, _get(session, household.id, lid, profile))
 
 
 @router.post("/{lid}/repayments",
              response_model=schemas.RepaymentOut, status_code=201)
 def add_repayment(
     lid: int, body: schemas.RepaymentIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.RepaymentOut:
-    ln = _get(session, household.id, lid)
+    ln = _get(session, household.id, lid, profile)
+    _write(ln, profile)
     rp = Repayment(loan_id=ln.id, date=body.date,
                    amount_pence=body.amount.pence, notes=body.notes)
     if body.transaction_id is not None:
@@ -108,9 +147,10 @@ def add_repayment(
             response_model=list[schemas.RepaymentOut])
 def list_repayments(
     lid: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
 ) -> list[schemas.RepaymentOut]:
     """History with running outstanding after each entry (#94)."""
-    ln = _get(session, household.id, lid)
+    ln = _get(session, household.id, lid, profile)
     out = []
     for r, bal in loans.repayment_balances(session, ln):
         row = schemas.RepaymentOut.model_validate(r)
@@ -123,10 +163,11 @@ def list_repayments(
             response_model=schemas.LoanProjectionOut)
 def loan_projection(
     lid: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
     extra_monthly: Annotated[int, Query(ge=0)] = 0,
 ) -> schemas.LoanProjectionOut:
     """What-if: debt-free date at expected rate vs rate + extra (#94)."""
-    ln = _get(session, household.id, lid)
+    ln = _get(session, household.id, lid, profile)
     base = loans.projected_payoff(session, ln)
     extra = loans.projected_payoff(
         session, ln, extra_monthly_pence=extra_monthly)
@@ -144,9 +185,10 @@ def loan_projection(
 @router.delete("/{lid}/repayments/{rid}", status_code=204)
 def delete_repayment(
     lid: int, rid: int, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> None:
-    ln = _get(session, household.id, lid)
+    ln = _get(session, household.id, lid, profile)
+    _write(ln, profile)
     rp = session.get(Repayment, rid)
     if rp is None or rp.loan_id != ln.id:
         raise HTTPException(404, f"repayment {rid} not found")
@@ -159,8 +201,9 @@ def delete_repayment(
 @router.delete("/{lid}", status_code=204)
 def deactivate_loan(
     lid: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep,
+    actor: ActorDep, profile: ProfileDep,
 ) -> None:
-    ln = _get(session, household.id, lid)
+    ln = _get(session, household.id, lid, profile)
+    _write(ln, profile)
     ln.active = False
     emit(session, household.id, actor, "deactivate", "loan", ln.id)
