@@ -70,6 +70,12 @@ def _get(token: str, path: str) -> dict[str, object]:
 class StarlingClient:
     """Production BankClient — resolves the token per call."""
 
+    def __init__(self) -> None:
+        # One client instance serves a whole request; caching the
+        # spaces listing avoids re-fetching it once per space balance
+        # inside a single /sync (issue #316 — rate-limit pressure).
+        self._spaces_cache: dict[str, list[DiscoveredAccount]] = {}
+
     def validate_token(self, token: str) -> TokenInfo:
         data = _get(token, "/api/v2/identity/token")
         scopes = data.get("scopes", [])
@@ -110,6 +116,9 @@ class StarlingClient:
         per-space balance. The payload splits them: ``savingsGoals``
         use ``savingsGoalUid``, ``spendingSpaces`` use ``spaceUid`` —
         both are the feed ``categoryUid``."""
+        cached = self._spaces_cache.get(account_uid)
+        if cached is not None:
+            return cached
         data = _get(token, f"/api/v2/account/{account_uid}/spaces")
         out = []
         for key in ("savingsGoals", "spendingSpaces"):
@@ -132,6 +141,7 @@ class StarlingClient:
                     kind="space",
                     balance_pence=pence,
                     category_uid=str(uid)))
+        self._spaces_cache[account_uid] = out
         return out
 
     def balance(self, token: str, external_uid: str,
