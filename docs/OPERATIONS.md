@@ -80,7 +80,8 @@ If an upgrade boots badly:
 `GET /api/v1/diagnostics` returns a sanitised JSON bundle:
 
 - `app.version`, `database.alembic_revision`, per-table row counts
-- `scheduler` — configured `tick_seconds` + `sync_interval_minutes`
+- `scheduler` — `tick_seconds`, effective `sync_interval_minutes`
+  and its `sync_interval_source` (`environment` | `app` | `default`)
 - `sync[]` — per-account cursor status, `retry_at`, last success
 - `bank_connections[]` — provider status + sanitised last error
 - `recent_failures` — last 10 failed sync runs + notification
@@ -107,7 +108,11 @@ All logs are structured JSON (`ts`, `level`, `logger`, `msg`,
 Two ticks run from the app lifespan (`sync_tick`, `notify_tick`):
 
 - `sync_tick` drains queued manual refreshes past their backoff
-  window and runs due scheduled syncs (default cadence 4 h). For each
+  window and runs due scheduled syncs. Cadence resolves per wake
+  (issue #431): an explicit `FF_SYNC_INTERVAL_MINUTES` /
+  `options.json` value wins, then the admin-saved value from
+  Settings → Banking & synchronisation (persisted in `app_meta`,
+  survives restarts/backups), then the 4 h default. For each
   connection with due work it first refreshes provider state —
   account discovery (renames/closures) and live balances — then pulls
   the transaction feeds, matching what the manual Sync button does.

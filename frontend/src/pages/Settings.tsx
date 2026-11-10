@@ -9,7 +9,8 @@ import {
   Plus, Sun, Tags, Upload, UserRound, Users,
 } from "lucide-react";
 import { api } from "../api/client";
-import { useApi } from "../api/useApi";
+import { isIngress } from "../ingress";
+import { useApi, useIdentity, useMeProfileId } from "../api/useApi";
 import { useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
@@ -27,6 +28,7 @@ type Profile = components["schemas"]["ProfileOut"];
 type Role = components["schemas"]["Role"];
 type Category = components["schemas"]["CategoryOut"];
 type Backup = components["schemas"]["BackupOut"];
+type BankingSync = components["schemas"]["BankingSyncSettingsOut"];
 type Employment = components["schemas"]["EmploymentOut"];
 type PayrollRun = components["schemas"]["PayrollRunOut"];
 
@@ -209,6 +211,8 @@ export function Settings() {
 
         <YearPrepPanel />
 
+        <BankingSyncPanel />
+
         <Panel title="Appearance" description="Follows your system by default — override here.">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -388,6 +392,142 @@ function YearPrepPanel() {
           runs and budget rows.
         </p>
       </Dialog>
+    </Panel>
+  );
+}
+
+/** Current profile's admin flag — ingress reads supervisor-injected
+ * identity via `/auth/me`; standalone resolves the stored profile. */
+function useIsAdmin(ready: boolean): boolean {
+  const ingress = isIngress();
+  const identity = useIdentity();
+  const meId = useMeProfileId();
+  const me = useApi(
+    () => api.get("/api/v1/auth/me")
+      .then((d) => d as unknown as { role: string }),
+    ready && ingress, []);
+  if (ingress) return me.data?.role === "admin";
+  if (meId === null) return false;
+  return identity.data?.find((p) => p.id === meId)?.role === "admin";
+}
+
+const SYNC_CHOICES = [15, 30, 60, 120, 240, 360, 720, 1440];
+
+function intervalLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const h = minutes / 60;
+  return h === 1 ? "1 hour" : `${h} hours`;
+}
+
+/** Banking & synchronisation (issue #431): persisted, admin-editable
+ * Starling poll cadence + per-connection sync status. */
+function BankingSyncPanel() {
+  const ready = useReady();
+  const isAdmin = useIsAdmin(ready);
+  const [rev, setRev] = useState(0);
+  const refresh = () => setRev((r) => r + 1);
+  const sync = useApi(() => api.get("/api/v1/settings/banking"), ready, [rev]);
+  const s = sync.data;
+  const [choice, setChoice] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const current = choice ?? String(s?.interval_minutes ?? 240);
+  const dirty = s != null && Number(current) !== s.interval_minutes;
+  const canEdit = isAdmin && (s?.editable ?? false);
+  const options = SYNC_CHOICES.includes(Number(current))
+    ? SYNC_CHOICES
+    : [...SYNC_CHOICES, Number(current)].sort((a, b) => a - b);
+
+  const save = () => {
+    setSaving(true);
+    api.patch("/api/v1/settings/banking", {
+      body: { sync_interval_minutes: Number(current) },
+    }).then(() => {
+      toast.success(`Automatic sync set to every ${intervalLabel(Number(current))}`);
+      setChoice(null);
+      refresh();
+    }).catch((e: Error) => toast.error(e.message))
+      .finally(() => setSaving(false));
+  };
+
+  const syncNow = (cid: number) => {
+    setBusyId(cid);
+    api.post("/api/v1/banking/connections/{cid}/sync", { path: { cid } })
+      .then(() => toast.success("Manual sync queued"))
+      .catch((e: Error) => toast.error(e.message))
+      .finally(() => { setBusyId(null); refresh(); });
+  };
+
+  return (
+    <Panel
+      title="Banking & synchronisation"
+      description="How often Family Finance checks the bank for new activity. Automatic sync runs in the background; Sync now is manual.">
+      <DataView state={sync} empty="No banking status" emptyIcon={CalendarClock}>
+        {(s) => (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <Field label="Check for new bank activity every">{(id) => (
+                <Select id={id} value={current} disabled={!canEdit}
+                  onChange={(e) => setChoice(e.target.value)}>
+                  {options.map((m) => (
+                    <option key={m} value={m}>{intervalLabel(m)}</option>
+                  ))}
+                </Select>
+              )}</Field>
+              {canEdit && (
+                <Button variant="secondary" onClick={save}
+                  disabled={!dirty || saving}>
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              )}
+            </div>
+            {s.source === "environment" ? (
+              <p className="text-[12px] text-fg-subtle">
+                Set by deployment configuration — in-app changes are disabled.
+              </p>
+            ) : !isAdmin ? (
+              <p className="text-[12px] text-fg-subtle">
+                Only an admin can change the automatic sync interval.
+              </p>
+            ) : null}
+            {s.connections.length === 0 ? (
+              <p className="text-[12.5px] text-fg-subtle">
+                No bank accounts linked — connect Starling under Banking.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {s.connections.map((c, i) => (
+                  <li key={`${c.connection_id}-${c.account_id ?? i}`}
+                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[12.5px]">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="font-medium capitalize">{c.provider}</span>
+                      <Badge tone={c.status === "connected" ? "success" : "warning"}>
+                        {c.status}
+                      </Badge>
+                      {c.refresh_queued && <Badge tone="info">queued</Badge>}
+                    </span>
+                    <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-fg-subtle">
+                      <span>Last ok {c.last_success_at ? formatDateTime(c.last_success_at) : "never"}</span>
+                      {c.next_due_at && (
+                        <span>
+                          {c.refresh_queued ? "Runs" : "Next"} {formatDateTime(c.next_due_at)}
+                        </span>
+                      )}
+                      <Button size="sm" variant="ghost"
+                        disabled={busyId === c.connection_id}
+                        onClick={() => syncNow(c.connection_id)}
+                        aria-label={`Sync now for connection ${c.connection_id}`}>
+                        Sync now
+                      </Button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </DataView>
     </Panel>
   );
 }
