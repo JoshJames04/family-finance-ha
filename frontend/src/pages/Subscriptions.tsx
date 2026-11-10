@@ -145,6 +145,7 @@ export function Subscriptions() {
           emptyAction={<Button variant="primary" onClick={() => setAdding(true)}><Plus /> Add subscription</Button>}
         >
           {(items) => (
+            <div className="overflow-x-auto">
             <table className="ff-table w-full text-[13.5px]">
               <thead className="text-left text-[12px] text-fg-subtle">
                 <tr className="h-9 border-b border-border">
@@ -193,6 +194,7 @@ export function Subscriptions() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </DataView>
       </Panel>

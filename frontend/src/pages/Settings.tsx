@@ -210,7 +210,7 @@ export function Settings() {
         <YearPrepPanel />
 
         <Panel title="Appearance" description="Follows your system by default — override here.">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <IconTile icon={Palette} label="theme" />
               <div>
