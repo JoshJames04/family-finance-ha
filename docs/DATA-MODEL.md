@@ -101,6 +101,22 @@ Safe-to-spend, forecast positions, net worth and report outputs are
 **derived** — cached tables allowed for performance but always rebuildable
 from the above.
 
+### Budget page KPIs (issue #415)
+
+Four distinct measures; labels must never conflate them:
+
+- **Planned spending** — sum of approved (effective) expense lines for
+  the period; never changes because money was spent.
+- **Spent so far** — real transactions attributed to expense lines in
+  the window (category-matched, non-void, non-transfer).
+- **Left to spend** — planned − spent; a negative result is reported
+  as an overspend of that magnitude, never a bare negative.
+- **Bills remaining** — commitment/subscription expected movements in
+  the window not yet matched by a real transaction (`expected_match`);
+  past-due unmatched rows count (overdue, not gone). Member budgets
+  are scoped to the owner's accounts.
+- **Income received** — actual income matched to income lines.
+
 ## 9. Integrity rules (enforced in domain + DB constraints)
 
 - Sum of transfer legs per transfer = 0 across accounts.

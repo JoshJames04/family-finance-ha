@@ -18,11 +18,15 @@ from sqlalchemy.orm import Session
 
 from app.domain import splits
 from app.persistence.models import (
+    Account,
     Budget,
     BudgetLine,
     BudgetLineSide,
     BudgetPeriodType,
     BudgetStatus,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
     ReportingPeriod,
     Transaction,
     TransactionStatus,
@@ -174,6 +178,35 @@ def actuals_for_budget(session: Session, budget: Budget) -> dict[int, int]:
         out[line.id] = -total if line.side == BudgetLineSide.expense \
             else total
     return out
+
+
+def bills_remaining(session: Session, budget: Budget
+                    ) -> tuple[int, int]:
+    """Unpaid scheduled outgoings left in the budget period (issue
+    #415). Commitment/subscription expected movements in the window
+    that no real transaction has matched — a past-due unposted one is
+    overdue, not gone, so it still counts. Member budgets see only
+    movements on the owner's accounts; shared budgets see the
+    household. Returns ``(pence, count)`` with pence positive."""
+    matched = select(ExpectedMatch.movement_id)
+    conds = [
+        ExpectedMovement.household_id == budget.household_id,
+        ExpectedMovement.source_type.in_(
+            [ExpectedSource.commitment, ExpectedSource.subscription]),
+        ExpectedMovement.expected_date >= budget.start_date,
+        ExpectedMovement.expected_date <= budget.end_date,
+        ExpectedMovement.amount_pence < 0,
+        ExpectedMovement.dismissed_at.is_(None),
+        ExpectedMovement.id.not_in(matched)]
+    if budget.owner_profile_id is not None:
+        conds.append(ExpectedMovement.account_id.in_(
+            select(Account.id).where(
+                Account.owner_profile_id == budget.owner_profile_id)))
+    total, count = session.execute(
+        select(func.coalesce(func.sum(ExpectedMovement.amount_pence), 0),
+               func.count(ExpectedMovement.id))
+        .where(*conds)).one()
+    return -int(total), int(count)
 
 
 # ---------- templates + copy-forward (issue #59) ----------------------

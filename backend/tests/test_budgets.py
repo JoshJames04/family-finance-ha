@@ -4,7 +4,7 @@ Status transitions, frozen originals, locked-period read-only, overlap
 without double-counting, per-line actuals.
 """
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -23,9 +23,14 @@ from app.persistence.models import (
     BudgetPeriodType,
     BudgetStatus,
     Category,
+    Confidence,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
     ReportingPeriod,
     Transaction,
     TransactionStatus,
+    UserProfile,
 )
 
 
@@ -153,6 +158,88 @@ class TestDomain:
         line = dom.add_line(session, b, category.id,
                             BudgetLineSide.income, 280000)
         assert dom.actuals_for_budget(session, b)[line.id] == 300000
+
+
+class TestBillsRemaining:
+    """#415: unpaid scheduled outgoings left in the period —
+    unmatched commitment/subscription expected movements; matched
+    (paid), dismissed, income and out-of-window rows excluded."""
+
+    def _mv(self, session: Session, household, *, d: date,
+            amount: int = -5000, acct: Account | None = None,
+            source: ExpectedSource = ExpectedSource.commitment,
+            sid: int = 1) -> ExpectedMovement:
+        m = ExpectedMovement(
+            household_id=household.id,
+            account_id=acct.id if acct else None,
+            expected_date=d, amount_pence=amount, label="bill",
+            confidence=Confidence.scheduled, source_type=source,
+            source_id=sid)
+        session.add(m)
+        session.flush()
+        return m
+
+    def test_unmatched_in_window_counts(
+            self, session: Session, household, category) -> None:
+        b = _mk_budget(session, household)      # 2026-05-01..31
+        acct = Account(household_id=household.id, name="A",
+                       type=AccountType.joint, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1), archived=False)
+        session.add(acct)
+        session.flush()
+        keep1 = self._mv(session, household, d=date(2026, 5, 20))
+        self._mv(session, household, d=date(2026, 4, 30))  # overdue in-window? no — before start
+        self._mv(session, household, d=date(2026, 5, 3))   # overdue, in-window
+        self._mv(session, household, d=date(2026, 6, 1))   # after end
+        self._mv(session, household, d=date(2026, 5, 10), amount=2000)   # income
+        paid = self._mv(session, household, d=date(2026, 5, 12))
+        t = Transaction(account_id=acct.id, date=date(2026, 5, 12),
+                        amount_pence=-5000, payee="x",
+                        category_id=category.id,
+                        status=TransactionStatus.cleared)
+        session.add(t)
+        session.flush()
+        session.add(ExpectedMatch(movement_id=paid.id,
+                                  transaction_id=t.id, matched_pence=5000))
+        dismissed = self._mv(session, household, d=date(2026, 5, 15))
+        dismissed.dismissed_at = datetime(2026, 5, 1)
+        session.flush()
+        pence, count = dom.bills_remaining(session, b)
+        assert pence == 10000 and count == 2   # keep1 + the overdue one
+        assert keep1.amount_pence == -5000
+
+    def test_member_budget_scoped_to_owner(
+            self, session: Session, household) -> None:
+        owner = UserProfile(household_id=household.id,
+                            display_name="O", is_active=True)
+        session.add(owner)
+        session.flush()
+        mine = Account(household_id=household.id, name="Mine",
+                       type=AccountType.personal, currency="GBP",
+                       opening_balance_pence=0,
+                       opening_date=date(2026, 1, 1), archived=False,
+                       owner_profile_id=owner.id)
+        theirs = Account(household_id=household.id, name="Theirs",
+                         type=AccountType.personal, currency="GBP",
+                         opening_balance_pence=0,
+                         opening_date=date(2026, 1, 1), archived=False)
+        session.add_all([mine, theirs])
+        session.flush()
+        b = _mk_budget(session, household)
+        b.owner_profile_id = owner.id
+        self._mv(session, household, d=date(2026, 5, 20), acct=mine)
+        self._mv(session, household, d=date(2026, 5, 21), acct=theirs)
+        self._mv(session, household, d=date(2026, 5, 22))  # no account
+        pence, count = dom.bills_remaining(session, b)
+        assert pence == 5000 and count == 1
+
+    def test_actuals_api_surfaces_bills_remaining(
+            self, session: Session, household) -> None:
+        b = _mk_budget(session, household)
+        self._mv(session, household, d=date(2026, 5, 20))
+        pence, count = dom.bills_remaining(session, b)
+        assert (pence, count) == (5000, 1)
 
 
 class TestApi:
