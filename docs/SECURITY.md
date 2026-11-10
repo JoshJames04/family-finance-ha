@@ -117,15 +117,13 @@ Security is verified continuously, not once:
 - No telemetry, no external analytics, no outbound calls except configured
   integrations (Starling) and update checks (opt-in).
 
-## 7. Migration/import threat notes
+## 7. Import threat notes
 
-- The workbook parser opens files read-only and never writes to the
-  source; source hash + mtime are recorded so tampering between runs is
-  detectable.
-- Imported rows are staged as `import_record` before commit; nothing
-  reaches the ledger without an extractor decision.
+- Statement uploads are size-capped and parsed in memory; each import is
+  staged as a `statement_import` preview — nothing reaches the ledger
+  until a member commits the reviewed rows.
 - Rollback voids derived rows rather than deleting them, preserving the
   audit trail.
-- The real workbook and any file derived from it are forbidden in the
+- Source financial files (workbooks, exports) are forbidden in the
   repository (`.gitignore` + CI gate); only synthetic fixtures are used
   in tests.

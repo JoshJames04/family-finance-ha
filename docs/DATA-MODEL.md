@@ -27,7 +27,7 @@ is never hard-deleted.
   date, amount (signed pence), payee, category, status
   (`pending`|`cleared`|`reconciled`|`void`), notes, source
   (`manual`|`starling`|`excel_import`|`system`), external ref (dedup key),
-  provenance ref → `import_record`, `transfer_id` (nullable).
+  `statement_import_id` / `transfer_id` (nullable).
 - **transfer** — two transaction legs (debit+credit), rule ref, matched flag.
   Transfers are excluded from income/expense by query contract.
 - **recurring_commitment** — amount or formula, frequency, next/last dates,
@@ -48,13 +48,11 @@ is never hard-deleted.
 
 ## 4. Import & provenance
 
-- **import_batch** — file hash, timestamp, actor, status
-  (`dry_run`|`committed`|`rolled_back`), row counts, report ref.
-- **import_record** — batch, sheet, cell range, raw value, interpreted value,
-  classification (`actual`|`forecast_overwritten`|`aggregate`|`unknown`),
-  target entity + id, flag for review.
-- **migration_flag** — defect register outcome (A–F), resolution status,
-  reviewer note.
+- **statement_import** — one bank-statement file import (CSV/OFX/QIF):
+  account, filename, format, column mapping, bounded preview payload,
+  status (`preview`|`committed`|`rolled_back`), row counts.
+- `transaction.statement_import_id` links committed rows back to the
+  batch for audit + rollback.
 
 ## 5. Payroll
 
@@ -121,6 +119,5 @@ Four distinct measures; labels must never conflate them:
 
 - Sum of transfer legs per transfer = 0 across accounts.
 - `actual_amount` on a locked budget line is read-only snapshot.
-- Every `transaction.source='excel_import'` has an `import_record`.
 - Corrections never modify the original row — they supersede it.
 - Deleting an account with transactions requires transfer/merge workflow.

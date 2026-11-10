@@ -594,7 +594,6 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [endConfirmed, setEndConfirmed] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const revs = [...(revisions.data ?? [])].sort(
     (a, b) => b.effective_date.localeCompare(a.effective_date));
   const removeRevision = (r: SalaryRevision) =>
@@ -635,11 +634,6 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
             <Button size="sm" variant="secondary" onClick={onEnding}>End employment</Button>
           )}
           <Button size="sm" variant="secondary" onClick={() => setSalaryOpen(true)}>New salary</Button>
-          {e.employment_type === "piecework" && (
-            <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>
-              Review imported history
-            </Button>
-          )}
           <Button size="icon-sm" variant="ghost" aria-label={`Delete ${e.employer}`}
             onClick={onDelete}><Trash2 /></Button>
         </div>
@@ -699,11 +693,6 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
       {editing && (
         <EditEmploymentDialog employment={e}
           onOpenChange={(o) => { if (!o) setEditing(false); }}
-          onSaved={onChanged} />
-      )}
-      {importOpen && (
-        <PieceworkImportDialog employment={e}
-          onOpenChange={(open) => { if (!open) setImportOpen(false); }}
           onSaved={onChanged} />
       )}
     </Panel>
@@ -1065,61 +1054,6 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
         </tr>
       )}
     </>
-  );
-}
-
-function PieceworkImportDialog({ employment, onOpenChange, onSaved }: {
-  employment: Employment;
-  onOpenChange: (open: boolean) => void;
-  onSaved: () => void;
-}) {
-  type ImportRow = components["schemas"]["HistoricalPieceworkImportOut"];
-  const [rows, setRows] = useState<ImportRow[]>([]);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    api.get("/api/v1/employments/{emp_id}/piecework-import/preview", {
-      path: { emp_id: employment.id },
-    }).then((value) => setRows(value as ImportRow[]))
-      .catch((err: Error) => toast.error(err.message));
-  }, [employment.id]);
-  const confirm = () => {
-    const ids = rows.filter((row) => row.mapped_delivery_id === null)
-      .map((row) => row.transaction_id);
-    if (!ids.length) return;
-    setBusy(true);
-    api.post("/api/v1/employments/{emp_id}/piecework-import/confirm", {
-      path: { emp_id: employment.id },
-      body: { transaction_ids: ids },
-    }).then(() => {
-      toast.success("Imported history mapped for review");
-      onSaved();
-      onOpenChange(false);
-    }).catch((err: Error) => toast.error(err.message))
-      .finally(() => setBusy(false));
-  };
-  return (
-    <Dialog open onOpenChange={onOpenChange}
-      title={`Review imported history — ${employment.employer}`}
-      description="Only Piecework Co imports are shown. Source transactions remain unchanged; mapped shifts are review-marked and excluded from future forecasts.">
-      <div className="grid gap-3">
-        {rows.length === 0 ? (
-          <p className="text-[13px] text-fg-subtle">No eligible imported history found.</p>
-        ) : <ul className="divide-y divide-border rounded-lg border border-border">
-          {rows.map((row) => <li key={row.transaction_id}
-            className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
-            <span>{formatSmartDate(row.work_date)} · <Money pence={row.imported_total_pence} /></span>
-            <Badge tone={row.mapped_delivery_id === null ? "warning" : "success"}>
-              {row.mapped_delivery_id === null ? "needs review" : "mapped"}
-            </Badge>
-          </li>)}
-        </ul>}
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant="primary" disabled={busy || !rows.some((row) => row.mapped_delivery_id === null)}
-            onClick={confirm}>{busy ? "Mapping…" : "Confirm mapping"}</Button>
-        </div>
-      </div>
-    </Dialog>
   );
 }
 

@@ -1,5 +1,10 @@
 # Workbook → app parity traceability matrix (issue #387)
 
+**Status:** Historical record — written while the migration machinery
+existed. Extractor names, `/migration/*` routes and `test_*extractor`
+files below have since been removed with the retired pipeline; they are
+kept here as evidence of the parity verification performed.
+
 Every workbook area traced to its app equivalent — backend domain,
 API surface, frontend screen, covering test — with a parity verdict.
 Sheet names use the pseudonymised aliases that were generated for

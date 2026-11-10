@@ -81,7 +81,7 @@ function ReviewCallout() {
       <span className="grid size-8 place-items-center rounded-lg bg-warning/15 text-warning"><Inbox className="size-4" /></span>
       <span className="flex-1">
         <b className="font-semibold">{review.total} item{review.total === 1 ? "" : "s"} need{review.total === 1 ? "s" : ""} your review</b>
-        <span className="text-fg-muted"> — {review.openFlags.length > 0 ? "including a migration check before the workbook can be retired" : "matches, detections and unusual activity"}</span>
+        <span className="text-fg-muted"> — matches, detections and unusual activity</span>
       </span>
       <ArrowRight className="size-4 text-fg-muted" />
     </Link>
