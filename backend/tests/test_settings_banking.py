@@ -45,7 +45,8 @@ def _household(client: TestClient) -> int:
 
 class TestBankingSettingsGet:
     def test_defaults(self, tmp_path: Path) -> None:
-        with TestClient(_app(tmp_path)) as c:
+        with TestClient(_app(tmp_path,
+                             FF_SCHEDULER_TICK_SECONDS="60")) as c:
             _household(c)
             r = c.get("/api/v1/settings/banking")
             assert r.status_code == 200
