@@ -201,8 +201,11 @@ def budget_actuals(
     totals = dom.actuals_for_budget(session, b)
     lines = {line.id: dom.line_analysis(totals[line.id], line)
              for line in b.lines}
+    rem_pence, rem_count = dom.bills_remaining(session, b)
     return schemas.BudgetActuals(
-        budget_id=b.id, totals=totals, lines=lines)
+        budget_id=b.id, totals=totals, lines=lines,
+        bills_remaining_pence=rem_pence,
+        bills_remaining_count=rem_count)
 
 
 # ---------- templates + copy-forward (issue #59) ----------------------

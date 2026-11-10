@@ -87,6 +87,25 @@ describe("Dashboard", () => {
     await screen.findByText("Accounts");
     expect(screen.getByText("Safe to spend")).toBeTruthy();
   });
+  it("#414: a failed households probe still renders a saved layout", async () => {
+    // The bug: households error left `ready` false forever →
+    // hydration never ran → permanent blank grid + empty Customise.
+    localStorage.setItem("ff.dashboard", JSON.stringify(
+      { order: ["accounts", "upcoming"], hidden: [] }));
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      const body = url.includes("/api/v1/households")
+        ? Promise.resolve(new Response("boom", { status: 500 }))
+        : Promise.resolve(new Response(
+            JSON.stringify({ items: [], total: 0 }),
+            { status: 200,
+              headers: { "Content-Type": "application/json" } }));
+      return body;
+    });
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+    expect(await screen.findByText("Accounts")).toBeTruthy();
+    localStorage.removeItem("ff.dashboard");
+  });
   it("reorder PUTs the new order to the member endpoint", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);
