@@ -8,8 +8,8 @@ import {
   Archive, ArchiveRestore, BadgeCheck, Landmark, Pencil, Plus,
   Receipt,
 } from "lucide-react";
-import { api, getProfileId } from "../api/client";
-import { useApi, useIdentity } from "../api/useApi";
+import { api } from "../api/client";
+import { useApi, useMeProfileId } from "../api/useApi";
 import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { Panel } from "../components/Panel";
@@ -49,8 +49,7 @@ export function Accounts() {
   const [editing, setEditing] = useState<Account | null>(null);
   const accounts = useAccounts(rev);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
-  const identity = useIdentity();
-  const me = identity.data ? getProfileId() : null;
+  const me = useMeProfileId();
   const netWorth = useApi(() => api.get("/api/v1/analytics/net-worth"), ready, [rev]);
   const ownerName = (id: number | null) =>
     profiles.data?.items.find((p) => p.id === id)?.display_name ?? null;
