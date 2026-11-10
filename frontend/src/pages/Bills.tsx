@@ -93,8 +93,17 @@ export function Bills() {
   /* ---- summary ---- */
   const monthlyTotal = active.reduce(
     (s, c) => s + (c.amount_pence != null ? monthlyPence(Math.abs(c.amount_pence), c.frequency) : 0), 0);
-  const next = [...active]
-    .sort((a, b) => a.next_date.localeCompare(b.next_date))[0];
+  /* Next due = earliest unmaterialised occurrence dated today or
+   * later (#412). next_date only advances on posting, so a past
+   * value means the scheduled date arrived unpaid — that's overdue,
+   * not upcoming, and is surfaced on its own tile. */
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = active.filter((c) => c.next_date >= today)
+    .sort((a, b) => a.next_date.localeCompare(b.next_date));
+  const overdue = active.filter((c) => c.next_date < today)
+    .sort((a, b) => a.next_date.localeCompare(b.next_date));
+  const next = upcoming[0];
+  const oldestOverdue = overdue[0];
 
   /* ---- grouping: same sections as Budget, ungrouped last ---- */
   const sections = useMemo(() => {
@@ -176,12 +185,24 @@ export function Bills() {
       >
         {() => (
           <>
-            <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {/* #413: one column on narrow phones → no horizontal
+                scroll; reflows to 2/3/5 columns as width allows. */}
+            <div className="mb-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
               <Stat label="Monthly bills" value={<Money pence={monthlyTotal} />}
                 hint={`${active.length} active`} className="rounded-xl border border-border bg-surface p-4 shadow-card" />
               <Stat label="Next due" value={next ? next.name : "—"}
-                hint={next ? formatWeekdayDayMonth(next.next_date) : undefined}
+                hint={next
+                  ? next.next_date === today
+                    ? "Due today"
+                    : formatWeekdayDayMonth(next.next_date)
+                  : undefined}
                 className="rounded-xl border border-border bg-surface p-4 shadow-card" />
+              <Stat label="Overdue" value={overdue.length}
+                hint={oldestOverdue
+                  ? `Oldest ${formatWeekdayDayMonth(oldestOverdue.next_date)}`
+                  : undefined}
+                className={cn("rounded-xl border bg-surface p-4 shadow-card",
+                  overdue.length ? "border-negative/40" : "border-border")} />
               <Stat label="Annualised" value={<Money pence={monthlyTotal * 12} />}
                 className="rounded-xl border border-border bg-surface p-4 shadow-card" />
               <Stat label="Paused" value={paused.length}
