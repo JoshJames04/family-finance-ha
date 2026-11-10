@@ -116,10 +116,10 @@ export function Shared() {
                 <p className="mb-3 text-[13px] font-medium uppercase tracking-wide text-fg-subtle">
                   By section
                 </p>
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {rows.map(([name, pence]) => (
                     <div key={name}
-                      className="flex items-center justify-between text-[13.5px]">
+                      className="flex min-w-0 items-center justify-between gap-2 text-[13.5px]">
                       <span className="truncate">{name}</span>
                       <Money pence={pence} className="font-medium" />
                     </div>

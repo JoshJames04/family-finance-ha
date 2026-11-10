@@ -168,6 +168,7 @@ export function Reports() {
                 {s.figures.length === 0 ? (
                   <p className="px-4 py-5 text-[13px] text-fg-subtle">No activity this period.</p>
                 ) : (
+                  <div className="overflow-x-auto">
                   <table className="ff-table w-full text-[13.5px]">
                     <tbody>
                       {s.figures.map((f: Figure) => (
@@ -195,6 +196,7 @@ export function Reports() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </Panel>
             ))}
@@ -218,6 +220,7 @@ export function Reports() {
           flush
           className="mt-4"
         >
+          <div className="overflow-x-auto">
           <table className="ff-table w-full text-[13.5px]">
             <thead>
               <tr className="border-b border-border text-left text-[12px] text-fg-subtle">
@@ -248,6 +251,7 @@ export function Reports() {
               })}
             </tbody>
           </table>
+          </div>
         </Panel>
       )}
       {accuracy.data && accuracy.data.length === 0 && (
