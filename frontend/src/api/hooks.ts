@@ -103,11 +103,11 @@ export type Report = components["schemas"]["ReportOut"];
 
 /** Pull a figure (by key) out of a ReportOut section. */
 export function reportFigure(r: Report | null | undefined, section: string, key: string) {
-  return r?.sections.find((s) => s.key === section)?.figures.find((f) => f.key === key);
+  return r?.sections?.find((s) => s.key === section)?.figures?.find((f) => f.key === key);
 }
 
 /** Total of every figure in a section (e.g. spend by category). */
 export function reportSectionTotal(r: Report | null | undefined, section: string): number {
-  return (r?.sections.find((s) => s.key === section)?.figures ?? [])
+  return (r?.sections?.find((s) => s.key === section)?.figures ?? [])
     .reduce((s, f) => s + Math.abs(f.amount_pence ?? 0), 0);
 }

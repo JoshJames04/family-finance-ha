@@ -17,15 +17,26 @@ export interface ApiState<T> {
   error: string | null;
 }
 
-/** Fetch households, persist the first as active, expose the id. */
+/** Max attempts before a households failure is surfaced as a
+ * terminal error — covers ~30 s of backend restart behind the
+ * add-on/ingress proxy (issue #430). */
+const HOUSEHOLD_ATTEMPTS = 8;
+
+/** Fetch households, persist the first as active, expose the id.
+ * Retries transient failures with backoff — the SPA can load while
+ * the backend is still starting, and a mount-time failure used to
+ * leave `data` null forever, silently starving every `useReady`
+ * consumer (issue #430). */
 export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
   const [state, setState] = useState<ApiState<{ id: number; name: string }[]>>({
     data: null,
     loading: true,
     error: null,
   });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     api
       .get("/api/v1/households")
       .then((page) => {
@@ -37,14 +48,21 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
         setState({ data: items, loading: false, error: null });
       })
       .catch((e: Error) => {
-        if (!cancelled) {
+        if (cancelled) return;
+        if (attempt + 1 < HOUSEHOLD_ATTEMPTS) {
+          setState({ data: null, loading: true, error: e.message });
+          timer = setTimeout(
+            () => setAttempt((a) => a + 1),
+            Math.min(4000, 500 * 2 ** attempt));
+        } else {
           setState({ data: null, loading: false, error: e.message });
         }
       });
     return () => {
       cancelled = true;
+      if (timer !== undefined) clearTimeout(timer);
     };
-  }, []);
+  }, [attempt]);
   return state;
 }
 
@@ -57,6 +75,12 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
  */
 export function useIdentity(): ApiState<Profile[]> {
   const households = useHouseholds();
+  // Also settle on a *terminal* households failure: identity then
+  // resolves (catch → []) so `useReady` lifts and each consumer's
+  // own call can surface the real error — instead of every widget
+  // silently rendering its empty state forever (issue #430).
+  const settled = households.data !== null
+    || (households.error !== null && !households.loading);
   const state = useApi(
     () =>
       api
@@ -79,7 +103,7 @@ export function useIdentity(): ApiState<Profile[]> {
         // Identity is optional (fresh installs have no profiles) — a
         // failed probe must never block readiness.
         .catch(() => [] as Profile[]),
-    households.data !== null,
+    settled,
     [households.data?.length],
   );
   return state;
