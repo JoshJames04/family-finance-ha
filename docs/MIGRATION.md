@@ -1,7 +1,10 @@
 # Excel Migration Strategy — `Family Budget.xlsx`
 
-**Status:** Strategy — workbook inspection spike will produce the authoritative
-structural inventory before import implementation.
+**Status:** Historical record — the workbook was retired 2026-11-09 and
+the one-shot migration machinery (extractors, `import_*`/`migration_flag`
+tables, `/api/v1/migration/*` routes) has since been removed. This
+document remains as evidence of the migration strategy and retirement
+gate; the commands and endpoints below no longer exist.
 
 ## 1. Source inventory (assessed)
 
@@ -82,7 +85,8 @@ fidelity.
 
 ### §7.1 Acceptance run evidence (issue #56)
 
-`tools/run_migration.py` executes this gate end-to-end locally:
+`tools/run_migration.py` executed this gate end-to-end locally
+(one-shot tooling — removed after workbook retirement):
 backup → stage → commit → reconcile → rollback test → re-commit →
 retirement gate. Run against the real workbook (local only, counts
 never values):
@@ -90,7 +94,7 @@ never values):
 - staged 529 records; 405 imported; 2,345 entities across 12 sheets
 - rollback voided 90 transactions; re-commit re-mapped all 405 —
   idempotent
-- `tools/reconcile_parity.py` run against the imported DB: gifts,
+- `tools/reconcile_parity.py` (since removed) ran against the imported DB: gifts,
   overtime, payroll and all 169 budget rows reconcile to the penny
   (row/month level); zero untraceable transactions; loan ledger carries
   one documented difference (defect B)

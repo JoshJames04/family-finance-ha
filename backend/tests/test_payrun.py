@@ -84,7 +84,7 @@ class TestGenerate:
 
     def test_allowance_joins_earnings_and_taxes(
             self, session: Session, emp: Employment) -> None:
-        """#399 — a fixed allowance (fire-warden/first-aider style)
+        """#399 — a fixed allowance (duty-allowance style)
         lands as its own component, joins gross, and is taxed +
         NI'd through compute_period like any other earning."""
         plain = payrun.generate(session, emp, start=APR_S, end=APR_E,

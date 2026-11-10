@@ -13,6 +13,14 @@ data/
 *.sqlite
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+<<<<<<< HEAD
+
+# Local credential material — never commit
+=======
+>>>>>>> feature/437-integration-outbox
+.vault_key
 
 # Python
 __pycache__/

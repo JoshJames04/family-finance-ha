@@ -6,6 +6,7 @@ can replace the stdlib default transparently."""
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import banks, discovery, vault
+from app.domain import banks, discovery, settle, vault
 from app.domain import sync as sync_domain
 from app.domain.banks import (
     ConnError,
@@ -35,6 +36,8 @@ from app.persistence.models import (
     MappingStatus,
     TransactionSource,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/banking", tags=["banking"])
 
@@ -325,6 +328,20 @@ def sync_transactions(
                         "deduped": run.deduped,
                         "merge_candidates": run.merge_candidates,
                         "error": run.error})
+    # Post-ingest settlement (issue #429): the manual Sync button
+    # reconciles the same way scheduled/webhook syncs do — pairs
+    # transfers, links refunds, matches expected movements. A
+    # settlement fault must not fail the request or roll back the
+    # ingested feed rows.
+    auto_matched = review_queued = 0
+    try:
+        settled = settle.post_sync(session, household.id)
+        auto_matched, review_queued = settled.matched, settled.queued
+    except Exception:
+        log.exception("post-sync settlement failed for household %d",
+                      household.id)
     emit(session, household.id, actor, "bank_sync",
          "bank_connection", c.id)
-    return {"runs": results, "balances_refreshed": refreshed}
+    return {"runs": results, "balances_refreshed": refreshed,
+            "auto_matched": auto_matched,
+            "review_queued": review_queued}

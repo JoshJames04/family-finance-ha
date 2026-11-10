@@ -198,8 +198,7 @@ class TransactionSource(enum.StrEnum):
 
 class Transaction(TimestampMixin, Base):
     """Signed-pence ledger row. History is never edited — corrections
-    supersede. `transfer_id`/`import_record_id` are plain ints until their
-    tables land (Epic 3/4), when FKs are added."""
+    supersede."""
 
     __tablename__ = "transaction"
     __table_args__ = (
@@ -232,8 +231,6 @@ class Transaction(TimestampMixin, Base):
         nullable=False)
     external_ref: Mapped[str | None] = mapped_column(String(128),
                                                      nullable=True)
-    import_record_id: Mapped[int | None] = mapped_column(Integer,
-                                                         nullable=True)
     statement_import_id: Mapped[int | None] = mapped_column(
         Integer, nullable=True, index=True)
     transfer_id: Mapped[int | None] = mapped_column(
@@ -409,51 +406,6 @@ class AuditEvent(Base):
         DateTime, server_default=func.now())
 
 
-class ImportStatus(enum.StrEnum):
-    dry_run = "dry_run"
-    committed = "committed"
-    rolled_back = "rolled_back"
-
-
-class RowClass(enum.StrEnum):
-    actual = "actual"
-    forecast_overwritten = "forecast_overwritten"
-    aggregate = "aggregate"
-    unknown = "unknown"
-
-
-class ImportBatch(Base):
-    """One workbook import attempt — dry_run, committed, or rolled_back."""
-
-    __tablename__ = "import_batch"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    household_id: Mapped[int] = mapped_column(
-        ForeignKey("household.id"), nullable=False, index=True)
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    sha256: Mapped[str] = mapped_column(String(64), nullable=False,
-                                        index=True)
-    file_mtime: Mapped[str] = mapped_column(String(40), nullable=False)
-    actor: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[ImportStatus] = mapped_column(
-        Enum(ImportStatus), default=ImportStatus.dry_run, nullable=False)
-    rows_read: Mapped[int] = mapped_column(Integer, default=0,
-                                           nullable=False)
-    rows_imported: Mapped[int] = mapped_column(Integer, default=0,
-                                               nullable=False)
-    rows_flagged: Mapped[int] = mapped_column(Integer, default=0,
-                                              nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now())
-    committed_at: Mapped[datetime | None] = mapped_column(DateTime,
-                                                          nullable=True)
-    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime,
-                                                            nullable=True)
-
-    records: Mapped[list[ImportRecord]] = relationship(
-        back_populates="batch", cascade="all, delete-orphan")
-
-
 class StatementImportStatus(enum.StrEnum):
     preview = "preview"
     committed = "committed"
@@ -493,50 +445,6 @@ class StatementImport(TimestampMixin, Base):
                                                           nullable=True)
     rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime,
                                                             nullable=True)
-
-
-class ImportRecord(Base):
-    """Per-cell provenance: sheet/cell, raw + interpreted, classification,
-    target ref, review flag. Never dropped — survives rollback."""
-
-    __tablename__ = "import_record"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    batch_id: Mapped[int] = mapped_column(
-        ForeignKey("import_batch.id"), nullable=False, index=True)
-    sheet: Mapped[str] = mapped_column(String(120), nullable=False)
-    cell_range: Mapped[str] = mapped_column(String(40), nullable=False)
-    raw_value: Mapped[str | None] = mapped_column(String(2000),
-                                                  nullable=True)
-    interpreted_value: Mapped[str | None] = mapped_column(String(2000),
-                                                          nullable=True)
-    classification: Mapped[RowClass] = mapped_column(
-        Enum(RowClass), nullable=False, index=True)
-    target_entity: Mapped[str | None] = mapped_column(String(40),
-                                                      nullable=True)
-    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    review_flag: Mapped[bool] = mapped_column(Boolean, default=False,
-                                              nullable=False)
-
-    batch: Mapped[ImportBatch] = relationship(back_populates="records")
-
-
-class MigrationFlag(Base):
-    """Defect register outcome (A–F) per batch."""
-
-    __tablename__ = "migration_flag"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    batch_id: Mapped[int] = mapped_column(
-        ForeignKey("import_batch.id"), nullable=False, index=True)
-    defect_id: Mapped[str] = mapped_column(String(4), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="detected",
-                                        nullable=False)
-    detail: Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    reviewer_note: Mapped[str | None] = mapped_column(String(2000),
-                                                      nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now())
 
 
 class BudgetPeriodType(enum.StrEnum):
@@ -2258,3 +2166,31 @@ class EnergyConfig(TimestampMixin, Base):
         ForeignKey("category.id"), nullable=True)
 
     budget_category: Mapped[Category | None] = relationship()
+
+
+class IntegrationEvent(Base):
+    """Durable integration-outbox row (issue #437 / ADR-0009).
+
+    Appended in the same transaction as the state change that caused
+    it; ``id`` is the monotonic cursor the HA integration drains.
+    ``dedup_key`` makes once-per-entity transitions idempotent —
+    replays no-op against the unique constraint."""
+
+    __tablename__ = "integration_event"
+    __table_args__ = (
+        UniqueConstraint("dedup_key", name="uq_integration_event_dedup"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_kind: Mapped[str | None] = mapped_column(
+        String(32), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict,
+                                          nullable=False)
+    dedup_key: Mapped[str | None] = mapped_column(
+        String(128), nullable=True)

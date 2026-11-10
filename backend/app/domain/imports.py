@@ -3,7 +3,7 @@
 Parse CSV/OFX/QIF into normalized rows, fingerprint each
 (date+amount+payee → ``imp:<sha1>`` external_ref) so re-importing the
 same file or an overlapping period dedups at the database constraint,
-and track each import as an ``ImportBatch`` for audit + rollback.
+and track each import as a ``StatementImport`` for audit + rollback.
 Everything here is advisory until the member commits a preview.
 """
 

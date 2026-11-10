@@ -1,16 +1,22 @@
 # Workbook → app parity traceability matrix (issue #387)
 
+**Status:** Historical record — written while the migration machinery
+existed. Extractor names, `/migration/*` routes and `test_*extractor`
+files below have since been removed with the retired pipeline; they are
+kept here as evidence of the parity verification performed.
+
 Every workbook area traced to its app equivalent — backend domain,
 API surface, frontend screen, covering test — with a parity verdict.
-Sheet names use the pseudonymised aliases from
-`docs/migration-inventory.md` (issue #386); the real-name map is
+Sheet names use the pseudonymised aliases that were generated for
+the structural inventory (issue #386, inventory removed with the
+one-shot tooling after retirement); the real-name map remains
 `data/migration-map.local.json` (gitignored).
 
 Verdicts: **PASS** (parity exercised by tests) · **GAP** (feature
 missing or unverified) · **DIFF** (intentional difference, approved) ·
 **DATA** (import path exists; numeric reconciliation pending — #389).
 
-## Yearly budget sheets — `Member -2024/25/26/27`
+## Yearly budget sheets — `Member - 2024/25/26/27`
 
 Tables per year: `tblIncome` (income rows), `tblPersonal`/`tblDaily`
 (owner lines), `tblHouse`/`tblShared`/`tblOther` (shared lines),

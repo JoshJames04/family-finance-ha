@@ -21,20 +21,15 @@ from app.domain import overtime as ot
 from app.domain import pay_calendar, paydays, payrun, schedule
 from app.domain import payroll as dom
 from app.persistence.models import (
-    Account,
     Budget,
     DayType,
     DeliveryCharge,
     DeliveryEntry,
     Employment,
-    ImportRecord,
     OvertimeEntry,
     OvertimeStatus,
     PayrollRun,
     SalaryRevision,
-    Transaction,
-    TransactionSource,
-    TransactionStatus,
     UserProfile,
 )
 
@@ -654,83 +649,6 @@ def delete_delivery(
     emit(session, household.id, actor, "delete", "delivery_entry",
          entry_id, {"employment_id": emp_id,
                     "work_date": str(d.work_date)})
-
-
-@router.get("/{emp_id}/piecework-import/preview",
-            response_model=list[schemas.HistoricalPieceworkImportOut])
-def preview_piecework_import(
-    emp_id: int, household: HouseholdDep, session: SessionDep,
-) -> list[schemas.HistoricalPieceworkImportOut]:
-    """Preview imported income without changing source transactions."""
-    _piecework(session, household.id, emp_id)
-    rows = session.scalars(
-        select(Transaction).join(Account).join(
-            ImportRecord, ImportRecord.id == Transaction.import_record_id).where(
-            Account.household_id == household.id,
-            Transaction.source == TransactionSource.excel_import,
-            Transaction.status == TransactionStatus.cleared,
-            Transaction.amount_pence > 0,
-            ImportRecord.sheet.ilike("%piecework%"))
-        .order_by(Transaction.date, Transaction.id)).all()
-    linked = set(session.scalars(select(
-        DeliveryEntry.source_transaction_id).where(
-            DeliveryEntry.employment_id == emp_id,
-            DeliveryEntry.source_transaction_id.is_not(None))).all())
-    return [
-        schemas.HistoricalPieceworkImportOut(
-            transaction_id=t.id, work_date=t.date,
-            imported_total_pence=t.amount_pence,
-            mapped_delivery_id=None if t.id not in linked else next(
-                (d.id for d in session.scalars(select(DeliveryEntry).where(
-                    DeliveryEntry.source_transaction_id == t.id))), None))
-        for t in rows]
-
-
-@router.post("/{emp_id}/piecework-import/confirm",
-             response_model=list[schemas.DeliveryOut], status_code=201)
-def confirm_piecework_import(
-    emp_id: int, body: schemas.HistoricalPieceworkImportConfirmIn,
-    household: HouseholdDep, session: SessionDep, actor: ActorDep,
-) -> list[schemas.DeliveryOut]:
-    """Map imported amounts to immutable, review-flagged piecework shifts."""
-    e = _piecework(session, household.id, emp_id)
-    rows = session.scalars(
-        select(Transaction).join(Account).join(
-            ImportRecord, ImportRecord.id == Transaction.import_record_id).where(
-            Account.household_id == household.id,
-            Transaction.id.in_(body.transaction_ids),
-            Transaction.source == TransactionSource.excel_import,
-            Transaction.status == TransactionStatus.cleared,
-            Transaction.amount_pence > 0,
-            ImportRecord.sheet.ilike("%piecework%"))).all()
-    found = {row.id: row for row in rows}
-    if len(found) != len(set(body.transaction_ids)):
-        raise HTTPException(404, "one or more source transactions not found")
-    output: list[DeliveryEntry] = []
-    for transaction in rows:
-        existing = session.scalar(select(DeliveryEntry).where(
-            DeliveryEntry.source_transaction_id == transaction.id))
-        if existing is not None:
-            if existing.employment_id != e.id:
-                raise HTTPException(409, "source transaction already mapped")
-            output.append(existing)
-            continue
-        shift = DeliveryEntry(
-            employment_id=e.id, work_date=transaction.date, hours=0,
-            hourly_rate_pence=0, deliveries=0, delivery_rate_pence=0,
-            tips_pence=0, source_transaction_id=transaction.id,
-            imported_total_pence=transaction.amount_pence,
-            needs_review=True, notes="Imported historical amount; review split")
-        shift.charges = [DeliveryCharge(
-            amount_pence=transaction.amount_pence, label="Imported total")]
-        session.add(shift)
-        session.flush()
-        output.append(shift)
-        emit(session, household.id, actor, "create", "delivery_entry",
-             shift.id, {"employment_id": e.id,
-                        "source_transaction_id": transaction.id,
-                        "needs_review": True})
-    return [schemas.DeliveryOut.model_validate(row) for row in output]
 
 
 @router.get("/{emp_id}/overtime-entries",

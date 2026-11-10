@@ -87,6 +87,55 @@ describe("Dashboard", () => {
     await screen.findByText("Accounts");
     expect(screen.getByText("Safe to spend")).toBeTruthy();
   });
+  it("#430: households transient failure retries — widgets populate", async () => {
+    // The bug: a mount-time households failure froze readiness
+    // forever — every widget hook silently stayed not-ready.
+    let householdsCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/v1/households")) {
+        householdsCalls += 1;
+        if (householdsCalls < 3) {
+          return Promise.resolve(
+            new Response("boot", { status: 500 }));
+        }
+        return Promise.resolve(new Response(
+          JSON.stringify({ items: [{ id: 1, name: "Home" }],
+                           total: 1 }),
+          { status: 200,
+            headers: { "Content-Type": "application/json" } }));
+      }
+      const body = url.includes("/profiles/me/dashboard")
+        ? dashOk
+        : url.includes("/api/v1/accounts") &&
+            !url.includes("projection")
+          ? { items: [{ id: 1, name: "Joint", type: "joint",
+              currency: "GBP", opening_balance_pence: 0,
+              opening_date: "2026-01-01", owner_profile_id: null,
+              institution_ref: null, archived: false,
+              min_balance_pence: 0 }], total: 1 }
+          : { items: [], total: 0 };
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+    await screen.findByText("Accounts");
+    // After the retry, the widget's own fetch resolves and data shows.
+    expect(await screen.findByText("Joint", {}, { timeout: 5000 }))
+      .toBeTruthy();
+  }, 15000);
+  it("#430: terminal households failure surfaces an error, not silent empty", async () => {
+    // A dead backend fails every call — widgets must surface the
+    // error once readiness settles, never a permanent empty state.
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(new Response("dead", { status: 500 })));
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+    // The grid still renders from the local/default layout…
+    await screen.findByText("Accounts");
+    // …and the failure becomes visible instead of "No accounts yet".
+    expect(await screen.findAllByRole("alert", {}, { timeout: 25000 }))
+      .not.toHaveLength(0);
+  }, 45000);
   it("#414: a failed households probe still renders a saved layout", async () => {
     // The bug: households error left `ready` false forever →
     // hydration never ran → permanent blank grid + empty Customise.

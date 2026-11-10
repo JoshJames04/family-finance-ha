@@ -1166,46 +1166,6 @@ export interface paths {
         patch: operations["patch_delivery_api_v1_employments__emp_id__deliveries__entry_id__patch"];
         trace?: never;
     };
-    "/api/v1/employments/{emp_id}/piecework-import/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Preview Piecework Import
-         * @description Preview imported income without changing source transactions.
-         */
-        get: operations["preview_piecework_import_api_v1_employments__emp_id__piecework_import_preview_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/employments/{emp_id}/piecework-import/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Confirm Piecework Import
-         * @description Map imported amounts to immutable, review-flagged piecework shifts.
-         */
-        post: operations["confirm_piecework_import_api_v1_employments__emp_id__piecework_import_confirm_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/employments/{emp_id}/overtime-entries": {
         parameters: {
             query?: never;
@@ -1853,7 +1813,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/migration/batches/{batch_id}/report": {
+    "/api/v1/integration/events": {
         parameters: {
             query?: never;
             header?: never;
@@ -1861,10 +1821,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Report
-         * @description Structural reconciliation report — counts/residuals only.
+         * Events
+         * @description Ordered event drain — HA polls from its persisted cursor.
          */
-        get: operations["get_report_api_v1_migration_batches__batch_id__report_get"];
+        get: operations["events_api_v1_integration_events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1873,59 +1833,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/migration/batches/{batch_id}/retirement-gate": {
+    "/api/v1/integration/settings": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
+        /** Get Settings */
+        get: operations["get_settings_api_v1_integration_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
         /**
-         * Get Retirement Gate
-         * @description Workbook-retirement gate: ready only when committed and every
-         *     flag resolved (#56 reads this).
+         * Patch Settings
+         * @description Financial detail on the HA event bus is explicit opt-in:
+         *     names and amounts may persist in bus events, recorder, traces
+         *     and notification providers. Admin-only; the change is audited
+         *     and takes effect on the next poll.
          */
-        get: operations["get_retirement_gate_api_v1_migration_batches__batch_id__retirement_gate_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/migration/flags": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Flags */
-        get: operations["list_flags_api_v1_migration_flags_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/migration/flags/{flag_id}/resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Resolve Flag */
-        post: operations["resolve_flag_api_v1_migration_flags__flag_id__resolve_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
+        patch: operations["patch_settings_api_v1_integration_settings_patch"];
         trace?: never;
     };
     "/api/v1/reports/monthly": {
@@ -2588,6 +2517,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/banking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Banking Settings */
+        get: operations["banking_settings_api_v1_settings_banking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Banking Settings */
+        patch: operations["update_banking_settings_api_v1_settings_banking_patch"];
+        trace?: never;
+    };
     "/api/v1/notifications/rules": {
         parameters: {
             query?: never;
@@ -3065,7 +3012,10 @@ export interface paths {
         put?: never;
         /**
          * Run
-         * @description Re-score pending transactions against expected movements.
+         * @description Re-score pending/cleared transactions against expected
+         *     movements. Reliable matches settle the occurrence (issue #429);
+         *     ``dry_run`` reports the same counts with nothing persisted —
+         *     the report-first path for historical backfill.
          */
         post: operations["run_api_v1_reconcile_accounts__account_id__run_post"];
         delete?: never;
@@ -3934,6 +3884,33 @@ export interface components {
             /** Balance At */
             balance_at: string | null;
         };
+        /**
+         * BankingSyncSettingsOut
+         * @description Effective bank-sync cadence + where it comes from
+         *     (``environment`` | ``app`` | ``default``) and per-connection
+         *     status (issue #431).
+         */
+        BankingSyncSettingsOut: {
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Source */
+            source: string;
+            /** Editable */
+            editable: boolean;
+            /** Min Minutes */
+            min_minutes: number;
+            /** Max Minutes */
+            max_minutes: number;
+            /** Tick Seconds */
+            tick_seconds: number;
+            /** Connections */
+            connections: components["schemas"]["ConnectionSyncStatusOut"][];
+        };
+        /** BankingSyncSettingsPatch */
+        BankingSyncSettingsPatch: {
+            /** Sync Interval Minutes */
+            sync_interval_minutes: number;
+        };
         /** Body_preview_api_v1_imports_preview_post */
         Body_preview_api_v1_imports_preview_post: {
             /** File */
@@ -4454,6 +4431,34 @@ export interface components {
          * @enum {string}
          */
         Confidence: "scheduled" | "estimated";
+        /**
+         * ConnectionSyncStatusOut
+         * @description Per-linked-mapping bank sync state for the Settings panel
+         *     (issue #431). Timestamps only — names, refs and amounts never
+         *     cross this boundary.
+         */
+        ConnectionSyncStatusOut: {
+            /** Connection Id */
+            connection_id: number;
+            /** Provider */
+            provider: string;
+            /** Status */
+            status: string;
+            /** Last Error */
+            last_error: string | null;
+            /** Account Id */
+            account_id: number | null;
+            /** Last Attempted At */
+            last_attempted_at: string | null;
+            /** Last Success At */
+            last_success_at: string | null;
+            /** Refresh Queued */
+            refresh_queued: boolean;
+            /** Retry At */
+            retry_at: string | null;
+            /** Next Due At */
+            next_due_at: string | null;
+        };
         /** ContributionMatchIn */
         ContributionMatchIn: {
             /** Transaction Id */
@@ -5130,21 +5135,6 @@ export interface components {
             /** Pence */
             pence: number;
         };
-        /** FlagOut */
-        FlagOut: {
-            /** Id */
-            id: number;
-            /** Batch Id */
-            batch_id: number;
-            /** Defect Id */
-            defect_id: string;
-            /** Status */
-            status: string;
-            /** Detail */
-            detail: string | null;
-            /** Reviewer Note */
-            reviewer_note: string | null;
-        };
         /** ForecastRowOut */
         ForecastRowOut: {
             /** Category Id */
@@ -5279,30 +5269,6 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** HistoricalPieceworkImportConfirmIn */
-        HistoricalPieceworkImportConfirmIn: {
-            /** Transaction Ids */
-            transaction_ids: number[];
-        };
-        /** HistoricalPieceworkImportOut */
-        HistoricalPieceworkImportOut: {
-            /** Transaction Id */
-            transaction_id: number;
-            /**
-             * Work Date
-             * Format: date
-             */
-            work_date: string;
-            /** Imported Total Pence */
-            imported_total_pence: number;
-            /**
-             * Needs Review
-             * @default true
-             */
-            needs_review: boolean;
-            /** Mapped Delivery Id */
-            mapped_delivery_id?: number | null;
-        };
         /** HouseholdIn */
         HouseholdIn: {
             /** Name */
@@ -5324,6 +5290,43 @@ export interface components {
             kind: "income_pct";
             /** Bps */
             bps: number;
+        };
+        /** IntegrationEventOut */
+        IntegrationEventOut: {
+            /** Seq */
+            seq: number;
+            /** Event Type */
+            event_type: string;
+            /** Entity Kind */
+            entity_kind: string | null;
+            /** Entity Id */
+            entity_id: number | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+        };
+        /** IntegrationFeedOut */
+        IntegrationFeedOut: {
+            /** Events */
+            events: components["schemas"]["IntegrationEventOut"][];
+            /** Next Cursor */
+            next_cursor: number;
+        };
+        /** IntegrationSettingsOut */
+        IntegrationSettingsOut: {
+            /** Detail */
+            detail: string;
+        };
+        /** IntegrationSettingsPatch */
+        IntegrationSettingsPatch: {
+            /** Detail */
+            detail: string;
         };
         /**
          * LoanDirection
@@ -6442,13 +6445,6 @@ export interface components {
              * Format: date
              */
             due_date: string;
-        };
-        /** ResolveIn */
-        ResolveIn: {
-            /** Status */
-            status: string;
-            /** Note */
-            note: string;
         };
         /** RestoreAccepted */
         RestoreAccepted: {
@@ -10264,77 +10260,6 @@ export interface operations {
             };
         };
     };
-    preview_piecework_import_api_v1_employments__emp_id__piecework_import_preview_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-            };
-            path: {
-                emp_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HistoricalPieceworkImportOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_piecework_import_api_v1_employments__emp_id__piecework_import_confirm_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-                "x-actor-id"?: string | null;
-            };
-            path: {
-                emp_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HistoricalPieceworkImportConfirmIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeliveryOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_overtime_api_v1_employments__emp_id__overtime_entries_get: {
         parameters: {
             query?: {
@@ -11844,81 +11769,11 @@ export interface operations {
             };
         };
     };
-    get_report_api_v1_migration_batches__batch_id__report_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-            };
-            path: {
-                batch_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_retirement_gate_api_v1_migration_batches__batch_id__retirement_gate_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-            };
-            path: {
-                batch_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_flags_api_v1_migration_flags_get: {
+    events_api_v1_integration_events_get: {
         parameters: {
             query?: {
-                batch_id?: number | null;
-                unresolved_only?: boolean;
+                after?: number;
+                limit?: number;
             };
             header?: {
                 "x-household-id"?: number | null;
@@ -11934,7 +11789,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FlagOut"][];
+                    "application/json": components["schemas"]["IntegrationFeedOut"];
                 };
             };
             /** @description Validation Error */
@@ -11948,21 +11803,50 @@ export interface operations {
             };
         };
     };
-    resolve_flag_api_v1_migration_flags__flag_id__resolve_post: {
+    get_settings_api_v1_integration_settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_settings_api_v1_integration_settings_patch: {
         parameters: {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
-            path: {
-                flag_id: number;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResolveIn"];
+                "application/json": components["schemas"]["IntegrationSettingsPatch"];
             };
         };
         responses: {
@@ -11972,7 +11856,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FlagOut"];
+                    "application/json": components["schemas"]["IntegrationSettingsOut"];
                 };
             };
             /** @description Validation Error */
@@ -13544,6 +13428,74 @@ export interface operations {
             };
         };
     };
+    banking_settings_api_v1_settings_banking_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankingSyncSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_banking_settings_api_v1_settings_banking_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankingSyncSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankingSyncSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_rules_api_v1_notifications_rules_get: {
         parameters: {
             query?: never;
@@ -14596,7 +14548,9 @@ export interface operations {
     };
     run_api_v1_reconcile_accounts__account_id__run_post: {
         parameters: {
-            query?: never;
+            query?: {
+                dry_run?: boolean;
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
