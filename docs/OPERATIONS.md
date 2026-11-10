@@ -80,6 +80,7 @@ If an upgrade boots badly:
 `GET /api/v1/diagnostics` returns a sanitised JSON bundle:
 
 - `app.version`, `database.alembic_revision`, per-table row counts
+- `scheduler` — configured `tick_seconds` + `sync_interval_minutes`
 - `sync[]` — per-account cursor status, `retry_at`, last success
 - `bank_connections[]` — provider status + sanitised last error
 - `recent_failures` — last 10 failed sync runs + notification
@@ -106,8 +107,13 @@ All logs are structured JSON (`ts`, `level`, `logger`, `msg`,
 Two ticks run from the app lifespan (`sync_tick`, `notify_tick`):
 
 - `sync_tick` drains queued manual refreshes past their backoff
-  window and runs due scheduled syncs (default cadence 4 h). One
-  mapping's failure marks its own run/cursor — never aborts the tick.
+  window and runs due scheduled syncs (default cadence 4 h). For each
+  connection with due work it first refreshes provider state —
+  account discovery (renames/closures) and live balances — then pulls
+  the transaction feeds, matching what the manual Sync button does.
+  A provider error on the refresh marks `conn.last_error` but never
+  starves the feed pull; one mapping's failure marks its own
+  run/cursor — never aborts the tick.
 - `notify_tick` evaluates enabled rules and delivers pending
   notification deliveries. A rule's exception is logged and the tick
   continues.
