@@ -20,7 +20,7 @@ release pipeline (multi-arch GHCR image + GitHub release).
   student-loan Plan 2 £29,385) and `scotland` (raised 19/20/21% band
   limits) — 2026-27 payroll now computes with exact rules instead of
   the 2025-26 fallback. Golden-suite coverage including a
-  fire-warden/first-aider allowance-line case.
+  duty-allowance allowance-line case.
 - **`tools/release_gate.py` + `tools/perf_check.py`** (#372): ported
   from the closed PR #261 — 7 machine-checkable release gates and a
   standalone ~50k-row hot-path budget fixture.

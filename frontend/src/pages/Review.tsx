@@ -63,7 +63,7 @@ const DETAIL_LABELS: Record<string, string> = {
 
 /**
  * Migration flags carry a JSON detail blob — decode it into something
- * readable ("Family Loan Ledger · cell C16" + labelled figures). Workbook
+ * readable ("Family Loan · cell C16" + labelled figures). Workbook
  * amounts are stored in pounds, so they render via formatGBP.
  */
 function flagSummary(f: Flag): { title: string; description: string } {
