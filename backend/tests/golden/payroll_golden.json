@@ -151,6 +151,34 @@
       "ni_category": "A", "plan": "none",
       "pension_mode": "salary_sacrifice", "pension_pence": 12500,
       "expect": {"tax": 26550, "ni": 10620, "sl": 0, "net": 200330}
+    },
+    {
+      "desc": "2026-27 rUK: £3k + Plan 2 (new £29,385 threshold)",
+      "year": "2026-27", "jurisdiction": "england_wales",
+      "gross_pence": 300000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "plan2",
+      "expect": {"tax": 39050, "ni": 15620, "sl": 4961, "net": 240369}
+    },
+    {
+      "desc": "2026-27 rUK: higher-rate band crossover",
+      "year": "2026-27", "jurisdiction": "england_wales",
+      "gross_pence": 500000, "code": "1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 95266, "ni": 26754, "sl": 0, "net": 377980}
+    },
+    {
+      "desc": "2026-27 Scotland: starter+basic+intermediate crossover",
+      "year": "2026-27", "jurisdiction": "scotland",
+      "gross_pence": 300000, "code": "S1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 39258, "ni": 15620, "sl": 0, "net": 245122}
+    },
+    {
+      "desc": "2026-27 Scotland: higher-rate band crossover",
+      "year": "2026-27", "jurisdiction": "scotland",
+      "gross_pence": 500000, "code": "S1257L", "period": 1,
+      "ni_category": "A", "plan": "none",
+      "expect": {"tax": 109850, "ni": 26754, "sl": 0, "net": 363396}
     }
   ]
 }
