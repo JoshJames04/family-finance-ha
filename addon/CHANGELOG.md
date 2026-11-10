@@ -1,5 +1,18 @@
 # Changelog — Family Finance add-on
 
+## 1.2.0
+
+- Bank balances, account renames and closures now sync automatically
+  on the scheduled cadence — previously only transactions updated
+  until a manual sync.
+- Opt-in Starling webhook option (`starling_webhook_public_key`) for
+  near-real-time refresh — polling remains the default.
+- Bills page: overdue items get their own tile, Next due only shows
+  upcoming dates, and summary tiles no longer overflow on mobile.
+- Dashboard widgets no longer vanish after navigating away.
+- Budget page gains a "Bills remaining" tile and clearer
+  planned/spent/remaining semantics.
+
 ## 1.1.2
 
 - 2026-27 UK payroll rule sets — current-tax-year payroll uses exact

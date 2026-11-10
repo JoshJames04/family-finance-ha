@@ -9,6 +9,56 @@ versioning follows [Semantic Versioning](https://semver.org/).
 frontend, HA manifest and the add-on config. Tags `v*` trigger the
 release pipeline (multi-arch GHCR image + GitHub release).
 
+## [1.2.0] — 2026-11-10
+
+### Added
+
+- **Native Home Assistant automation triggers** (#424): the
+  integration device now offers all eight `family_finance_*` events
+  in the automation editor's device trigger list via a
+  `device_trigger` platform — no hand-written event YAML needed.
+  Two new transitions: `family_finance_bill_overdue` (past-due
+  unmatched-commitment count rising) and `family_finance_payday`
+  (`next_payday` rolling forward). Full trigger table, payload
+  schemas and UI/YAML examples documented in `docs/HA-DEPLOYMENT.md`.
+- **Opt-in Starling V2 webhook receiver** (#422):
+  `POST /api/v1/integrations/starling/webhook` — registered only
+  when `FF_STARLING_WEBHOOK_PUBLIC_KEY` is configured. Verifies
+  `X-Hook-Signature` (SHA512withRSA over the raw body) against the
+  configured public key, then flags `refresh_requested` on the
+  affected account's cursor; the scheduler drains it through the
+  normal pipeline within one tick. Polling stays the default and
+  remains the fallback; new `starling_webhook_public_key` add-on
+  option + setup guide in `docs/OPERATIONS.md` §10.
+- **Scheduled balance and discovery sync** (#416): `sync_tick`
+  previously only pulled transaction feeds, so balances, account
+  renames and closures never updated automatically. Due connections
+  now run the same pipeline as manual sync (discovery → balances →
+  feed); diagnostics expose the configured cadence.
+- **"Bills remaining" budget KPI** (#415): new `bills_remaining`
+  field on `/budgets/{id}/actuals` — unpaid commitment/subscription
+  expected movements in the window (overdue included, owner-scoped).
+  Fifth KPI tile distinguishing planned / spent / budget remaining /
+  bills remaining, with explicit overspend rendering; semantics
+  documented in `docs/DATA-MODEL.md`.
+- **Starling webhook feasibility spike** (#417):
+  `docs/spikes/0417-starling-webhooks.md` — PAT V2 webhooks exist
+  (feed-item + standing-order events, public-key signatures) but
+  require a public HTTPS callback; polling remains the default.
+
+### Fixed
+
+- **Bills "Next due" showing a past date** (#412): past `next_date`
+  values now count on a separate Overdue tile (count + oldest);
+  Next due shows the earliest date ≥ today or "—".
+- **Bills summary tiles on mobile** (#413): summary grid reflows
+  1→2→3→5 columns with safe minimum widths — no horizontal scroll
+  down to 320px.
+- **Dashboard widgets disappearing on return** (#414): a failed or
+  hung households probe left the layout permanently unhydrated —
+  blank grid until Reset. Hydration now falls back to the local
+  layout on probe failure and renders skeletons while pending.
+
 ## [Unreleased]
 
 ## [1.1.2] — 2026-11-09
