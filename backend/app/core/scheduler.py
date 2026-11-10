@@ -29,6 +29,7 @@ from app.domain import banks as bankdom
 from app.domain import deliver as deliverdom
 from app.domain import discovery as discdom
 from app.domain import notifications as notifydom
+from app.domain import settle
 from app.domain import sync as syncdom
 from app.persistence.models import (
     Account,
@@ -89,6 +90,7 @@ def sync_tick(session: Session, *,
         BankConnection.status.in_(
             [ConnStatus.connected, ConnStatus.degraded])))}
     refreshed_conns: set[int] = set()
+    synced_households: set[int] = set()
     for m in mappings:
         conn = conns.get(m.connection_id)
         if conn is None or m.account_id is None \
@@ -124,7 +126,19 @@ def sync_tick(session: Session, *,
         syncdom.sync_account(
             session, account, TransactionSource.starling,
             _starling_fetch(client, token, m))
+        synced_households.add(account.household_id)
         ran += 1
+    # Post-ingest settlement (issue #429): every sync trigger drains
+    # through here — scheduled, queued manual refresh and webhook-
+    # drained alike. Settlement failure never fails the sync itself.
+    for hid in synced_households:
+        try:
+            stats = settle.post_sync(session, hid)
+            if stats.matched or stats.queued:
+                log.info("post-sync household %d: %s", hid, stats)
+        except Exception:
+            log.exception(
+                "post-sync settlement failed for household %d", hid)
     session.flush()
     return ran
 

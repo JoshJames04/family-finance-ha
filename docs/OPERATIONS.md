@@ -123,6 +123,19 @@ Two ticks run from the app lifespan (`sync_tick`, `notify_tick`):
   notification deliveries. A rule's exception is logged and the tick
   continues.
 
+After any successful ingest (scheduled, manual Sync, or a
+webhook-drained refresh — issue #429) a post-sync settlement pass
+runs per household: transfer legs pair, refunds link, transfer-rule
+movements match, then scored reconciliation settles expected
+occurrences. A reliable match writes an `ExpectedMatch` and advances
+the originating schedule (`next_date` on commitments, renewal +
+price history on subscriptions) so paid items leave the Bills
+overdue tile and `bills_remaining` — genuinely unpaid past-due
+occurrences stay overdue. Ambiguous matches queue in Review; the
+pass is idempotent across replays and a settlement fault never
+fails the sync itself. The Sync response reports `auto_matched`
+and `review_queued` counts.
+
 ## 10. Starling webhooks (optional, #422)
 
 Polling stays the default. A webhook only makes a refresh arrive
