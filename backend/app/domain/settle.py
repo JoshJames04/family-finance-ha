@@ -26,7 +26,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import contributions
+from app.domain import contributions, outbox
 from app.persistence.models import (
     Account,
     ExpectedMatch,
@@ -58,6 +58,19 @@ def settle_occurrence(
     match = contributions._link(
         session, movement, txn,
         min(abs(txn.amount_pence), outstanding), manual=manual)
+    outbox.emit(
+        session, movement.household_id, "movement.settled",
+        entity_kind=movement.source_type.value,
+        entity_id=movement.source_id,
+        payload={
+            "label": movement.label,
+            "expected_date": movement.expected_date.isoformat(),
+            "amount_pence": movement.amount_pence,
+            "matched_pence_outstanding": outstanding - match
+            .matched_pence,
+            "manual": manual,
+            "date": txn.date.isoformat()},
+        dedup_key=f"movement.settled:{movement.id}:{txn.id}")
     if movement.source_type == ExpectedSource.commitment:
         from app.domain import recurring, schedule
         c = session.get(RecurringCommitment, movement.source_id)
@@ -118,6 +131,22 @@ def post_sync(session: Session, household_id: int, *,
         scanned += st.scanned
         matched += st.matched
         queued += st.queued
+    # First-transition overdue events — dedup_key fires once per
+    # movement no matter how often the pass re-runs (issue #437).
+    for item in contributions.outstanding(
+            session, household_id, today=today):
+        mv = session.get(ExpectedMovement, item.movement_id)
+        if mv is not None:
+            outbox.emit(
+                session, household_id, "movement.overdue",
+                entity_kind=mv.source_type.value,
+                entity_id=mv.source_id,
+                payload={
+                    "label": mv.label,
+                    "expected_date": mv.expected_date.isoformat(),
+                    "amount_pence": mv.amount_pence,
+                    "count": item.age_days},
+                dedup_key=f"movement.overdue:{item.movement_id}")
     session.flush()
     return PostSyncStats(
         transfer_pairs=pairs, refund_links=refunds,
