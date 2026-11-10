@@ -3978,6 +3978,16 @@ export interface components {
                     [key: string]: unknown;
                 };
             };
+            /**
+             * Bills Remaining Pence
+             * @default 0
+             */
+            bills_remaining_pence: number;
+            /**
+             * Bills Remaining Count
+             * @default 0
+             */
+            bills_remaining_count: number;
         };
         /** BudgetDetail */
         BudgetDetail: {

@@ -371,6 +371,10 @@ class BudgetActuals(BaseModel):
     budget_id: int
     totals: dict[int, int]  # line_id → actual pence
     lines: dict[int, dict[str, object]] = {}  # variance/accuracy per line
+    # issue #415: unpaid scheduled outgoings left in the period —
+    # distinct from `totals` (real spend) and from planned amounts
+    bills_remaining_pence: int = 0
+    bills_remaining_count: int = 0
 
 
 class BudgetTemplateIn(BaseModel):

@@ -295,13 +295,29 @@ export function Budget() {
                     </span>
                   </div>
 
-                  <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                    {[
-                      { label: "Planned spending", value: <Money pence={plannedOut} /> },
-                      { label: "Spent so far", value: <Money pence={actualOut} />, hint: plannedOut > 0 ? `${formatPercent(actualOut / plannedOut)} of plan used` : undefined },
-                      { label: "Left to spend", value: <Money pence={plannedOut - actualOut} className={plannedOut - actualOut < 0 ? "text-negative" : ""} /> },
-                      { label: "Income received", value: <Money pence={actualIn} />, hint: plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : undefined },
-                    ].map((s) => (
+                  {/* #415: five distinct measures — planned (fixed
+                      for the period), spent (real transactions),
+                      left = planned − spent (negative ⇒ overspent),
+                      bills remaining (unmatched scheduled occurrences),
+                      income received. */}
+                  <div className="mb-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+                    {(() => {
+                      const left = plannedOut - actualOut;
+                      const billsPence = actuals.data?.bills_remaining_pence;
+                      const billsCount = actuals.data?.bills_remaining_count;
+                      return [
+                        { label: "Planned spending", value: <Money pence={plannedOut} />,
+                          hint: "approved for this period" },
+                        { label: "Spent so far", value: <Money pence={actualOut} />, hint: plannedOut > 0 ? `${formatPercent(actualOut / plannedOut)} of plan used` : undefined },
+                        { label: "Left to spend", value: <Money pence={Math.abs(left)} className={left < 0 ? "text-negative" : ""} />,
+                          hint: left < 0 ? "overspent" : "of plan left" },
+                        ...(billsPence !== undefined ? [{
+                          label: "Bills remaining", value: <Money pence={billsPence} />,
+                          hint: billsCount === 1 ? "1 scheduled bill unpaid" : `${billsCount ?? 0} scheduled bills unpaid`,
+                        }] : []),
+                        { label: "Income received", value: <Money pence={actualIn} />, hint: plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : undefined },
+                      ];
+                    })().map((s) => (
                       <Stat key={s.label} label={s.label} value={s.value} hint={s.hint}
                         className="rounded-xl border border-border bg-surface p-4 shadow-card" />
                     ))}

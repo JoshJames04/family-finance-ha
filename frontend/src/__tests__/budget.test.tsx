@@ -35,7 +35,8 @@ const FLAT_CATS = { items: [
 
 function stubFetch(
   calls: { url: string; method: string; body: string }[],
-  opts: { locked?: boolean; categories?: object; detail?: object } = {},
+  opts: { locked?: boolean; categories?: object; detail?: object;
+          actuals?: object } = {},
 ) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -51,7 +52,7 @@ function stubFetch(
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
         : url.includes("/actuals")
-          ? ACTUALS
+          ? (opts.actuals ?? ACTUALS)
           : url.includes("/api/v1/budgets/1")
             ? detail
             : url.includes("/api/v1/budgets")
@@ -77,6 +78,33 @@ describe("Budget", () => {
     }
     // Usage is £120 spent of the £300 plan → 40%.
     expect(screen.getByText("40%")).toBeTruthy();
+  });
+  it("#415: planned, left and bills-remaining are distinct KPIs", async () => {
+    stubFetch([], { actuals: {
+      ...ACTUALS,
+      bills_remaining_pence: 5000, bills_remaining_count: 2 } });
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    await screen.findByText("Food");
+    // £300 plan − £120 spent = £180 left; 2 unpaid scheduled bills
+    // worth £50 — three different numbers, three different tiles.
+    expect(screen.getByText("Bills remaining")).toBeTruthy();
+    expect(screen.getByText("£50.00")).toBeTruthy();
+    expect(screen.getByText("2 scheduled bills unpaid")).toBeTruthy();
+    expect(screen.getByText("£180.00")).toBeTruthy();
+    expect(screen.getByText("of plan left")).toBeTruthy();
+    expect(screen.getAllByText("£300.00").length).toBeGreaterThan(0);
+  });
+  it("#415: overspend reads as overspent, not a bare negative", async () => {
+    stubFetch([], { actuals: {
+      ...ACTUALS,
+      totals: { "11": 35000 },
+      lines: { "11": { ...ACTUALS.lines["11"], actual_pence: 35000,
+                       variance_pence: -5000 } } } });
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    await screen.findByText("Food");
+    // £350 spent vs £300 plan → the magnitude + an explicit label.
+    expect(screen.getByText("£50.00")).toBeTruthy();
+    expect(screen.getByText("overspent")).toBeTruthy();
   });
   it("revision demands a reason and PATCHes with it", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
