@@ -113,3 +113,15 @@ Parent: [Epic #352](https://github.com/JoshJames04/family-finance-ha/issues/352)
 These checks harden CI/CD, ingress/RBAC, ledger and Starling invariants, backup/restore, migrations/releases, observability and operator documentation. Work is to be delivered via focused PRs with evidence; no production deployment or real-data migration without Josh's explicit approval.
 
 **Project status:** Backlog / Not started. Update issue and project-board status as work begins and PRs merge; do not mark complete based on implementation presence alone.
+
+
+## 6. User-reported UI and budgeting defects (10/11/2026)
+
+The following issues were raised during hands-on PoC testing. They remain open until verified with regression tests and UI evidence:
+
+- [ ] [#412 — Bills: next due summary shows a date that has already passed](https://github.com/JoshJames04/family-finance-ha/issues/412) — related to Epic #266.
+- [ ] [#413 — Bills: make summary tiles responsive on mobile without horizontal scrolling](https://github.com/JoshJames04/family-finance-ha/issues/413) — related to Epics #266 and #16.
+- [ ] [#414 — Dashboard: widgets disappear after navigating away and returning](https://github.com/JoshJames04/family-finance-ha/issues/414) — related to Epic #16.
+- [ ] [#415 — Budget: distinguish planned spending from remaining-to-spend correctly](https://github.com/JoshJames04/family-finance-ha/issues/415) — related to Epic #5.
+
+These are user-observed defects, not confirmed root causes. Resolve by reproducing the behaviour, documenting intended semantics, adding automated regression coverage and verifying the UI under Home Assistant ingress.
