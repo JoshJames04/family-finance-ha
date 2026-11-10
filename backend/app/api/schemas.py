@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.domain import appconfig
 from app.domain.money import Money
 from app.persistence.models import (
     AccountType,
@@ -1639,6 +1640,41 @@ class MergeCandidateOut(BaseModel):
     status: str
     created_at: datetime
     resolved_at: datetime | None
+
+
+class ConnectionSyncStatusOut(BaseModel):
+    """Per-linked-mapping bank sync state for the Settings panel
+    (issue #431). Timestamps only — names, refs and amounts never
+    cross this boundary."""
+    connection_id: int
+    provider: str
+    status: str
+    last_error: str | None
+    account_id: int | None
+    last_attempted_at: datetime | None
+    last_success_at: datetime | None
+    refresh_queued: bool
+    retry_at: datetime | None
+    next_due_at: datetime | None
+
+
+class BankingSyncSettingsOut(BaseModel):
+    """Effective bank-sync cadence + where it comes from
+    (``environment`` | ``app`` | ``default``) and per-connection
+    status (issue #431)."""
+    interval_minutes: float
+    source: str
+    editable: bool
+    min_minutes: float
+    max_minutes: float
+    tick_seconds: float
+    connections: list[ConnectionSyncStatusOut]
+
+
+class BankingSyncSettingsPatch(BaseModel):
+    sync_interval_minutes: float = Field(
+        ge=appconfig.SYNC_INTERVAL_MIN_MINUTES,
+        le=appconfig.SYNC_INTERVAL_MAX_MINUTES)
 
 
 class MergeResolveIn(BaseModel):

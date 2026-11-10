@@ -31,6 +31,7 @@ from app.api.v1 import (
     reports,
     scenarios,
     seasonal,
+    settings,
     subscriptions,
     sync,
     transactions,
@@ -61,6 +62,7 @@ v1_router.include_router(seasonal.router)
 v1_router.include_router(transfer_rules.router)
 v1_router.include_router(subscriptions.router)
 v1_router.include_router(scenarios.router)
+v1_router.include_router(settings.router)
 v1_router.include_router(notifications.router)
 v1_router.include_router(payees.router)
 v1_router.include_router(payslips.router)

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.api.deps import ProfileDep, SessionDep
+from app.domain import appconfig
 from app.persistence.base import Base
 from app.persistence.migrate import current_revision
 from app.persistence.models import (
@@ -57,11 +58,14 @@ def diagnostics(request: Request, session: SessionDep,
     """Sanitised support bundle — admin or any active member can
     pull it; the content itself is the privacy boundary."""
     settings = request.app.state.settings
+    interval, interval_source = appconfig.effective_sync_interval_minutes(
+        session, settings)
     settings_bundle = {
         "app": {"version": __version__},
         "scheduler": {
             "tick_seconds": settings.scheduler_tick_seconds,
-            "sync_interval_minutes": settings.sync_interval_minutes,
+            "sync_interval_minutes": interval,
+            "sync_interval_source": interval_source,
         },
         "database": {
             "alembic_revision": current_revision(
