@@ -31,7 +31,8 @@ const CATEGORIES = {
   total: 3, page: 1, size: 200,
 };
 
-function stubFetch(calls: { url: string; method: string; body: string }[]) {
+function stubFetch(calls: { url: string; method: string; body: string }[],
+                   commitments = COMMITMENTS) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
       const url = String(input);
@@ -42,7 +43,7 @@ function stubFetch(calls: { url: string; method: string; body: string }[]) {
         : url.includes("/api/v1/households")
           ? { items: [{ id: 1, name: "Home" }], total: 1 }
           : url.includes("/api/v1/commitments")
-            ? COMMITMENTS
+            ? commitments
             : url.includes("/api/v1/categories")
               ? CATEGORIES
               : url.includes("/api/v1/accounts")
@@ -57,8 +58,62 @@ function stubFetch(calls: { url: string; method: string; body: string }[]) {
     });
 }
 
+/** Dates relative to today so fixtures never age into the past. */
+function relativeCommitments(dates: Record<string, number>) {
+  const iso = (days: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  const items = Object.entries(dates).map(([name, days], i) => ({
+    id: i + 1, name, account_id: 1, category_id: 2,
+    amount_pence: -1000, formula: null, frequency: "monthly",
+    day_of_month: 1, next_date: iso(days), last_generated: null,
+    end_date: null, occurrence_count: null, generated_count: 0,
+    active: true, notes: null,
+  }));
+  return { items, total: items.length, page: 1, size: 200 };
+}
+
 describe("Bills", () => {
   afterEach(cleanup);
+
+  it("#412: a past next_date is overdue, never 'Next due'", async () => {
+    stubFetch([], relativeCommitments({ Council: -3, Water: -1 }));
+    const { container } = render(<MemoryRouter><Bills /></MemoryRouter>);
+    await screen.findAllByText("Council");
+    const stats = container.querySelectorAll(".grid > div");
+    // Next due tile shows the empty state — no past date presented
+    // as upcoming; the two overdue bills are counted separately.
+    const tiles = [...stats].map((el) => el.textContent ?? "");
+    expect(tiles.find((t) => t.startsWith("Next due"))).toContain("—");
+    const overdueTile = tiles.find((t) => t.startsWith("Overdue"));
+    expect(overdueTile).toContain("2");
+    expect(overdueTile).toContain("Oldest");
+  });
+
+  it("#412: earliest upcoming wins; due today says 'Due today'", async () => {
+    stubFetch([], relativeCommitments(
+      { Gas: 0, Electric: 7, Old: -2 }));
+    const { container } = render(<MemoryRouter><Bills /></MemoryRouter>);
+    await screen.findAllByText("Gas");
+    const tiles = [...container.querySelectorAll(".grid > div")]
+      .map((el) => el.textContent ?? "");
+    const nextTile = tiles.find((t) => t.startsWith("Next due"));
+    expect(nextTile).toContain("Gas");
+    expect(nextTile).toContain("Due today");
+    expect(tiles.find((t) => t.startsWith("Overdue"))).toContain("1");
+  });
+
+  it("#413: summary grid collapses to one column on narrow phones", async () => {
+    stubFetch([]);
+    const { container } = render(<MemoryRouter><Bills /></MemoryRouter>);
+    await screen.findAllByText("Broadband");
+    const grid = container.querySelector(".grid.min-\\[380px\\]\\:grid-cols-2");
+    expect(grid).toBeTruthy();
+    expect(grid?.className).toContain("grid-cols-1");
+    expect(grid?.className).toContain("xl:grid-cols-5");
+  });
 
   it("lists commitments grouped by budget section", async () => {
     stubFetch([]);
