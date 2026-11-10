@@ -79,13 +79,23 @@ export function Banking() {
     setBusyId(c.id);
     api.post("/api/v1/banking/connections/{cid}/sync", { path: { cid: c.id } })
       .then((r) => {
-        const results = (r as { results?: Array<{ status: string; inserted: number; error?: string }> }).results ?? [];
+        const out = r as {
+          runs?: Array<{ status: string; inserted: number; error?: string }>;
+          auto_matched?: number; review_queued?: number;
+        };
+        const results = out.runs ?? [];
         const inserted = results.reduce((s, x) => s + (x.inserted ?? 0), 0);
         const failed = results.filter((x) => x.status === "error" || x.error);
+        const matched = out.auto_matched ?? 0;
+        const queued = out.review_queued ?? 0;
+        const settled = matched > 0
+          ? `, ${matched} expected payment${matched === 1 ? "" : "s"} matched`
+          : "";
+        const review = queued > 0 ? `, ${queued} to review` : "";
         if (failed.length) {
           toast.warning(`Sync finished with ${failed.length} error${failed.length === 1 ? "" : "s"} — ${failed[0]!.error ?? "see history"}`);
         } else {
-          toast.success(`Sync complete — ${inserted} new transaction${inserted === 1 ? "" : "s"}`);
+          toast.success(`Sync complete — ${inserted} new transaction${inserted === 1 ? "" : "s"}${settled}${review}`);
         }
         refresh();
       })

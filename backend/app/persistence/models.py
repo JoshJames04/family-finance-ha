@@ -2166,3 +2166,31 @@ class EnergyConfig(TimestampMixin, Base):
         ForeignKey("category.id"), nullable=True)
 
     budget_category: Mapped[Category | None] = relationship()
+
+
+class IntegrationEvent(Base):
+    """Durable integration-outbox row (issue #437 / ADR-0009).
+
+    Appended in the same transaction as the state change that caused
+    it; ``id`` is the monotonic cursor the HA integration drains.
+    ``dedup_key`` makes once-per-entity transitions idempotent —
+    replays no-op against the unique constraint."""
+
+    __tablename__ = "integration_event"
+    __table_args__ = (
+        UniqueConstraint("dedup_key", name="uq_integration_event_dedup"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_kind: Mapped[str | None] = mapped_column(
+        String(32), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict,
+                                          nullable=False)
+    dedup_key: Mapped[str | None] = mapped_column(
+        String(128), nullable=True)

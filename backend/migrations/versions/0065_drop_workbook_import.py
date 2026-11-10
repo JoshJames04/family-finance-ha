@@ -6,7 +6,7 @@ batch/record/flag provenance tables and the transaction's
 recreates the schema empty — dropped rows are not recoverable.
 
 Revision ID: 0065_drop_workbook_import
-Revises: 0064_statement_imports
+Revises: 0065_integration_events
 """
 
 from collections.abc import Sequence
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0065_drop_workbook_import"
-down_revision: str | None = "0064_statement_imports"
+down_revision: str | None = "0065_integration_events"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 

@@ -4,8 +4,9 @@ pending matches, confirm or dismiss them."""
 from __future__ import annotations
 
 from datetime import date
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -42,12 +43,19 @@ def _row(session: Session, household_id: int,
 @router.post("/accounts/{account_id}/run",
              response_model=schemas.ReconStatsOut)
 def run(account_id: int, household: HouseholdDep,
-        session: SessionDep, actor: ActorDep) -> schemas.ReconStatsOut:
-    """Re-score pending transactions against expected movements."""
+        session: SessionDep, actor: ActorDep,
+        dry_run: Annotated[bool, Query()] = False,
+        ) -> schemas.ReconStatsOut:
+    """Re-score pending/cleared transactions against expected
+    movements. Reliable matches settle the occurrence (issue #429);
+    ``dry_run`` reports the same counts with nothing persisted —
+    the report-first path for historical backfill."""
     a = _account(session, household.id, account_id)
     stats = recon_domain.reconcile_account(session, a, date.today())
+    if dry_run:
+        session.rollback()
     emit(session, household.id, actor, "reconcile_run",
-         "account", a.id)
+         "account", a.id, {"dry_run": dry_run})
     return schemas.ReconStatsOut(**stats.__dict__)
 
 
