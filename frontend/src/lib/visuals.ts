@@ -48,7 +48,7 @@ const RULES: Array<[RegExp, LucideIcon]> = [
   [/cloth|fashion/i, Shirt],
   [/repair|maintenance|diy/i, Wrench],
   [/transfer/i, ArrowLeftRight],
-  [/piecework co|delivery|boat/i, Ship],
+  [/piecework|delivery|boat/i, Ship],
   [/other|misc|general/i, CircleDashed],
 ];
 

@@ -54,15 +54,15 @@ def seed(session) -> None:
     hh = Household(name="Verify Household")
     session.add(hh)
     session.flush()
-    sam = UserProfile(household_id=hh.id, display_name="Alice",
+    alice = UserProfile(household_id=hh.id, display_name="Alice",
                        role=Role.admin)
     bob = UserProfile(household_id=hh.id, display_name="Bob",
                        role=Role.member)
-    session.add_all([sam, bob])
+    session.add_all([alice, bob])
     session.flush()
 
     current = Account(household_id=hh.id, name="Joint Current",
-                      type=AccountType.joint, owner_profile_id=sam.id,
+                      type=AccountType.joint, owner_profile_id=alice.id,
                       opening_date=T0)
     savings = Account(household_id=hh.id, name="Savings",
                       type=AccountType.savings, owner_profile_id=bob.id,

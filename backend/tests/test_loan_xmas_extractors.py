@@ -28,7 +28,7 @@ from app.persistence.models import (
 )
 
 XMAS_TABLES = {"xmas2025": "B5:E8", "xmas2026": "H5:K7"}
-SB_CACHE = {("Piecework Co", 7, 4): 21.40, ("Piecework Co", 8, 4): 15.00}
+PW_CACHE = {("Piecework Co", 7, 4): 21.40, ("Piecework Co", 8, 4): 15.00}
 
 
 def _wb() -> Workbook:
@@ -128,10 +128,18 @@ def test_piecework_archived_income(
     batch, _ = create_batch(session, household.id, wb_path, "t")
     commit_batch(session, batch, [
         PieceworkExtractor("Piecework Co", household.id, account.id,
-                          SB_CACHE)])
+                          PW_CACHE)])
     session.commit()
     txns = list(session.execute(select(Transaction)).scalars())
     assert len(txns) == 2
     assert txns[0].amount_pence == 3340   # 21.40 + 12.00 tips
     assert txns[0].external_ref is not None
     assert all(t.import_record_id is not None for t in txns)
+
+
+def test_piecework_labels_derive_from_sheet_name() -> None:
+    """Category/payee labels come from the imported sheet's own name —
+    nothing household-specific is hardcoded."""
+    ext = PieceworkExtractor("Acme Couriers", 1, 2, {})
+    assert ext.category_name == "Acme Couriers (archived)"
+    assert ext.payee == "Acme Couriers delivery"
