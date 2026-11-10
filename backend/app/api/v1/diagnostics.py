@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any, cast
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -52,12 +52,17 @@ def _table_counts(session: Session) -> dict[str, int]:
 
 
 @router.get("")
-def diagnostics(session: SessionDep, profile: ProfileDep
-                ) -> dict[str, Any]:
+def diagnostics(request: Request, session: SessionDep,
+                profile: ProfileDep) -> dict[str, Any]:
     """Sanitised support bundle — admin or any active member can
     pull it; the content itself is the privacy boundary."""
+    settings = request.app.state.settings
     settings_bundle = {
         "app": {"version": __version__},
+        "scheduler": {
+            "tick_seconds": settings.scheduler_tick_seconds,
+            "sync_interval_minutes": settings.sync_interval_minutes,
+        },
         "database": {
             "alembic_revision": current_revision(
                 cast(Engine, session.get_bind())),
