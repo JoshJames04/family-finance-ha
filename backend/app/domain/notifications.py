@@ -26,6 +26,7 @@ from app.persistence.models import (
     Account,
     AnomalyFlag,
     AnomalyStatus,
+    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     NotificationDelivery,
@@ -275,7 +276,11 @@ def _eval_weekly_digest(session: Session, rule: NotificationRule,
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= today + timedelta(days=6),
             ExpectedMovement.amount_pence < 0,
-            ExpectedMovement.dismissed_at.is_(None))
+            ExpectedMovement.dismissed_at.is_(None),
+            # settled movements are no longer a liability (issue #429)
+            ~select(ExpectedMatch.id).where(
+                ExpectedMatch.movement_id ==
+                ExpectedMovement.id).exists())
         .order_by(ExpectedMovement.amount_pence)).all()
     anomalies = session.scalar(
         select(func.count()).select_from(AnomalyFlag).where(
@@ -343,7 +348,11 @@ def _eval_bill_reminder(session: Session, rule: NotificationRule,
             ExpectedMovement.amount_pence < 0,
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= end,
-            ExpectedMovement.dismissed_at.is_(None))
+            ExpectedMovement.dismissed_at.is_(None),
+            # already paid — do not remind (issue #429)
+            ~select(ExpectedMatch.id).where(
+                ExpectedMatch.movement_id ==
+                ExpectedMovement.id).exists())
         .order_by(ExpectedMovement.expected_date)).all()
     raised = 0
     for m in bills:
@@ -536,7 +545,11 @@ def _eval_missed_transfer(session: Session, rule: NotificationRule,
             ExpectedMovement.household_id == rule.household_id,
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,
             ExpectedMovement.expected_date <= overdue,
-            ExpectedMovement.dismissed_at.is_(None))).all()
+            ExpectedMovement.dismissed_at.is_(None),
+            # already fulfilled — not missed (issue #429)
+            ~select(ExpectedMatch.id).where(
+                ExpectedMatch.movement_id ==
+                ExpectedMovement.id).exists())).all()
     raised = 0
     for m in missed:
         if raise_event(session, rule, f"missed:{m.id}", {

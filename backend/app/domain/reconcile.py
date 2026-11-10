@@ -18,12 +18,15 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain import settle
 from app.persistence.models import (
     Account,
     ExpectedMovement,
+    ExpectedSource,
     Reconciliation,
     ReconStatus,
     Transaction,
+    TransactionSource,
     TransactionStatus,
 )
 
@@ -119,7 +122,13 @@ def reconcile_account(session: Session, account: Account,
     txns = session.scalars(
         select(Transaction).where(
             Transaction.account_id == account.id,
-            Transaction.status == TransactionStatus.pending,
+            # pending = user-posted; cleared = settled bank feed rows
+            # (issue #429 — Starling items arrive cleared, not pending)
+            Transaction.status.in_(
+                [TransactionStatus.pending, TransactionStatus.cleared]),
+            # system rows are the plan itself (rec: materialisations),
+            # never payment evidence — self-matching them fakes payment
+            Transaction.source != TransactionSource.system,
             Transaction.transfer_id.is_(None),
             ~select(Reconciliation.id).where(
                 Reconciliation.transaction_id == Transaction.id,
@@ -170,6 +179,9 @@ def reconcile_account(session: Session, account: Account,
             txn.status = TransactionStatus.reconciled
             matched_keys.add((top.source_type.value, top.source_id,
                               top.expected_date))
+            # canonical settlement: ExpectedMatch + schedule advance
+            # (issue #429 — a matched row alone left bills overdue)
+            settle.settle_occurrence(session, top, txn, manual=False)
             matched += 1
         else:
             queued += 1
@@ -188,6 +200,21 @@ def confirm(session: Session, r: Reconciliation) -> None:
     r.status = ReconStatus.matched
     r.resolved_at = datetime.now()
     txn.status = TransactionStatus.reconciled
+    # settle the live movement the snapshot proposed (issue #429) —
+    # it may have been rematerialised since the proposal queued, so
+    # resolve by identity rather than holding a stale row
+    if r.expected_source_type is not None:
+        movement = session.scalars(
+            select(ExpectedMovement).where(
+                ExpectedMovement.source_type ==
+                ExpectedSource(r.expected_source_type),
+                ExpectedMovement.source_id == r.expected_source_id,
+                ExpectedMovement.expected_date == r.expected_date,
+                ExpectedMovement.account_id == r.account_id,
+                ExpectedMovement.dismissed_at.is_(None))).first()
+        if movement is not None:
+            settle.settle_occurrence(session, movement, txn,
+                                     manual=True)
     session.flush()
 
 
