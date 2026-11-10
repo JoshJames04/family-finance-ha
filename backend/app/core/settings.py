@@ -120,6 +120,10 @@ class Settings(BaseSettings):
         merged = {**options, **env_kwargs}
         if environ is None:
             return cls(**merged)
+        # Dict-mode is the test path — the job runner must never tick
+        # inside a test (it would race assertions and hit the real
+        # notifier). Tests opt back in with FF_SCHEDULER_TICK_SECONDS.
+        merged.setdefault("scheduler_tick_seconds", "0")
         prev = cls._isolated
         cls._isolated = True
         try:
