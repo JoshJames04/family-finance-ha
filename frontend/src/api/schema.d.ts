@@ -1813,6 +1813,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integration/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Events
+         * @description Ordered event drain — HA polls from its persisted cursor.
+         */
+        get: operations["events_api_v1_integration_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integration/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["get_settings_api_v1_integration_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Settings
+         * @description Financial detail on the HA event bus is explicit opt-in:
+         *     names and amounts may persist in bus events, recorder, traces
+         *     and notification providers. Admin-only; the change is audited
+         *     and takes effect on the next poll.
+         */
+        patch: operations["patch_settings_api_v1_integration_settings_patch"];
+        trace?: never;
+    };
     "/api/v1/reports/monthly": {
         parameters: {
             query?: never;
@@ -2968,7 +3012,10 @@ export interface paths {
         put?: never;
         /**
          * Run
-         * @description Re-score pending transactions against expected movements.
+         * @description Re-score pending/cleared transactions against expected
+         *     movements. Reliable matches settle the occurrence (issue #429);
+         *     ``dry_run`` reports the same counts with nothing persisted —
+         *     the report-first path for historical backfill.
          */
         post: operations["run_api_v1_reconcile_accounts__account_id__run_post"];
         delete?: never;
@@ -5243,6 +5290,43 @@ export interface components {
             kind: "income_pct";
             /** Bps */
             bps: number;
+        };
+        /** IntegrationEventOut */
+        IntegrationEventOut: {
+            /** Seq */
+            seq: number;
+            /** Event Type */
+            event_type: string;
+            /** Entity Kind */
+            entity_kind: string | null;
+            /** Entity Id */
+            entity_id: number | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+        };
+        /** IntegrationFeedOut */
+        IntegrationFeedOut: {
+            /** Events */
+            events: components["schemas"]["IntegrationEventOut"][];
+            /** Next Cursor */
+            next_cursor: number;
+        };
+        /** IntegrationSettingsOut */
+        IntegrationSettingsOut: {
+            /** Detail */
+            detail: string;
+        };
+        /** IntegrationSettingsPatch */
+        IntegrationSettingsPatch: {
+            /** Detail */
+            detail: string;
         };
         /**
          * LoanDirection
@@ -11685,6 +11769,107 @@ export interface operations {
             };
         };
     };
+    events_api_v1_integration_events_get: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationFeedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_settings_api_v1_integration_settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_settings_api_v1_integration_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     monthly_report_api_v1_reports_monthly_get: {
         parameters: {
             query: {
@@ -14363,7 +14548,9 @@ export interface operations {
     };
     run_api_v1_reconcile_accounts__account_id__run_post: {
         parameters: {
-            query?: never;
+            query?: {
+                dry_run?: boolean;
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
