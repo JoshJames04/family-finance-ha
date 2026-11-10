@@ -9,6 +9,66 @@ versioning follows [Semantic Versioning](https://semver.org/).
 frontend, HA manifest and the add-on config. Tags `v*` trigger the
 release pipeline (multi-arch GHCR image + GitHub release).
 
+## [Unreleased]
+
+## [1.3.0] — 2026-11-10
+
+### Added
+
+- **In-app Starling sync interval** (#431): Settings now exposes a
+  persistent, admin-gated sync interval (15–1440 minutes, default
+  240) applied to the live scheduler without a restart. An env or
+  add-on options override still wins and renders the control
+  read-only; the effective source is surfaced in the response.
+- **Automatic reconciliation of bank payments** (#429, #412): after
+  each Starling sync, identifiable incoming payments auto-settle the
+  matching expected occurrences — bills mark paid, budgets and
+  expected movements reconcile without manual ticking, and already
+  paid bills no longer display as overdue.
+- **Durable integration event outbox** (#437): domain events now
+  persist to an outbox and are exposed through a cursor feed API,
+  so the Home Assistant integration can replay events it missed
+  across restarts instead of relying on live delivery —
+  foundation work for the automation v2 rollout.
+
+### Fixed
+
+- **Dashboard widgets stuck empty after a transient failure**
+  (#430, #414): a one-shot `useHouseholds` failure no longer blocks
+  widget readiness forever — widgets retry, recover and populate
+  once data loads.
+- **Horizontal overflow on narrow screens** (#413): unbounded card
+  grids no longer push the whole page sideways; a system-wide audit
+  added `min-w-0` constraints, horizontal scroll wrappers on exposed
+  tables and a wrapping Settings theme row, covered by a new e2e
+  sweep across 24 routes at 320px.
+- **CI scheduler-tick race** (#444, #447): the test-mode scheduler
+  no longer ticks inside tests (it was delivering notifications via
+  the real notifier, failing on DNS in CI). Dict-mode
+  `Settings.load` defaults the tick to 0; tests opt back in with
+  `FF_SCHEDULER_TICK_SECONDS`.
+
+### Changed
+
+- **License** — replaced MIT with the Family Finance Personal Use
+  License: free for personal, non-commercial use and modification;
+  commercial use, AI/ML training and republication as instructional
+  content are not permitted. Container image license label updated
+  to `LicenseRef-FamilyFinance-PersonalUse`, and GitHub Sponsors
+  funding is enabled for the repository.
+- **Generic naming** — internal code, fixtures and docs were
+  generalised (#443): no household-specific identifiers remain in
+  the codebase or tooling.
+
+### Removed
+
+- **Retired workbook migration machinery** (#445): the one-shot
+  Excel workbook import pipeline — API endpoints, `ImportBatch`/
+  `ImportRecord` models and tables, migration flag UI, piecework
+  import flow and synthetic fixtures — is deleted. Alembic
+  migration `0065_drop_workbook_import` drops the retired tables.
+  Live statement import (CSV/OFX/QIF) is unaffected.
+
 ## [1.2.0] — 2026-11-10
 
 ### Added
@@ -58,8 +118,6 @@ release pipeline (multi-arch GHCR image + GitHub release).
   hung households probe left the layout permanently unhydrated —
   blank grid until Reset. Hydration now falls back to the local
   layout on probe failure and renders skeletons while pending.
-
-## [Unreleased]
 
 ## [1.1.2] — 2026-11-09
 

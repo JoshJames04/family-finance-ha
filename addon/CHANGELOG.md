@@ -1,5 +1,20 @@
 # Changelog — Family Finance add-on
 
+## 1.3.0
+
+- Settings gains an in-app Starling sync interval (15 min – 24 h) —
+  no add-on restart needed; the add-on/env override still wins.
+- Incoming bank payments now reconcile automatically after sync:
+  matching bills mark paid and budgets/expected movements settle.
+- Dashboard widgets recover from a failed data fetch instead of
+  staying empty until reload.
+- Pages can no longer scroll sideways on narrow screens — a
+  system-wide overflow fix covering all routes at 320px.
+- License changed to Personal Use (free for personal use; no
+  commercial use, AI training or content republication).
+- The retired Excel workbook import machinery is removed; CSV/OFX/
+  QIF statement import is unaffected.
+
 ## 1.2.0
 
 - Bank balances, account renames and closures now sync automatically
