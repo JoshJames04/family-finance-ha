@@ -125,3 +125,11 @@ The following issues were raised during hands-on PoC testing. They remain open u
 - [ ] [#415 — Budget: distinguish planned spending from remaining-to-spend correctly](https://github.com/JoshJames04/family-finance-ha/issues/415) — related to Epic #5.
 
 These are user-observed defects, not confirmed root causes. Resolve by reproducing the behaviour, documenting intended semantics, adding automated regression coverage and verifying the UI under Home Assistant ingress.
+
+
+## 7. Banking synchronisation improvements (10/11/2026)
+
+- [ ] [#416 — Bug: Starling bank transactions and balances are not synchronising automatically](https://github.com/JoshJames04/family-finance-ha/issues/416) — investigate the existing scheduled-sync pipeline; related to Epic #6, #22 and #70.
+- [ ] [#417 — Spike: assess Starling webhook/event support for near-real-time account updates](https://github.com/JoshJames04/family-finance-ha/issues/417) — verify official personal-account API support and recommend a secure push or polling design; related to Epic #6.
+
+Do not assume Starling personal access supports webhooks. The spike must establish this from current official documentation before any public callback endpoint is designed or implemented.
