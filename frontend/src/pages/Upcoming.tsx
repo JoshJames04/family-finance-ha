@@ -99,6 +99,7 @@ export function Upcoming() {
               {groups.map(([month, items]) => (
                 <Panel key={month} title={formatMonthOf(`${month}-01`)} flush
                   actions={<Money pence={items.reduce((s, m) => s + m.amount_pence, 0)} signed tone="auto" className="text-[13px] font-medium" />}>
+                  <div className="overflow-x-auto">
                   <table className="ff-table w-full text-[13.5px]">
                     <tbody>
                       {items.map((m) => (
@@ -120,6 +121,7 @@ export function Upcoming() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </Panel>
               ))}
             </div>
@@ -132,6 +134,7 @@ export function Upcoming() {
           <DataView state={{ ...commitments, data: commitments.data?.items ?? null }} empty="No recurring bills yet" emptyIcon={Receipt}
             emptyAction={<Button variant="primary" onClick={() => setAdding(true)}><Plus /> Add a bill</Button>}>
             {(items) => (
+              <div className="overflow-x-auto">
               <table className="ff-table w-full text-[13.5px]">
                 <thead className="text-left text-[12px] text-fg-subtle">
                   <tr className="h-9 border-b border-border">
@@ -160,6 +163,7 @@ export function Upcoming() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </DataView>
         </Panel>

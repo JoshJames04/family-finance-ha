@@ -136,6 +136,17 @@ def record_price(
         subscription_id=sub.id, date=d, amount_pence=amount_pence,
         transaction_id=transaction_id)
     session.add(p)
+    session.flush()
+    from app.domain import outbox
+    outbox.emit(
+        session, sub.household_id, "subscription.price_observed",
+        entity_kind="subscription", entity_id=sub.id,
+        payload={
+            "payee": sub.payee,
+            "date": d.isoformat(),
+            "amount_pence": amount_pence,
+            "old_pence": baseline},
+        dedup_key=f"sub.price:{sub.id}:{d.isoformat()}:{amount_pence}")
     if d >= sub.next_renewal_date:
         advance_renewal(sub, d)
     session.flush()

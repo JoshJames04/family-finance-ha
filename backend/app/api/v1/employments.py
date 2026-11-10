@@ -10,8 +10,9 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.selectable import ScalarSelect
 
 from app.api import schemas
 from app.api.audit import emit
@@ -23,6 +24,7 @@ from app.domain import payroll as dom
 from app.persistence.models import (
     Account,
     Budget,
+    Category,
     DayType,
     DeliveryCharge,
     DeliveryEntry,
@@ -656,6 +658,18 @@ def delete_delivery(
                     "work_date": str(d.work_date)})
 
 
+def _piecework_sheet_names(household_id: int) -> ScalarSelect[str]:
+    """Sheet names whose rows the piecework extractor archived.
+
+    The extractor names its archived category ``"{sheet} (archived)"``
+    at import time — so the set of piecework import sheets is derived
+    from the household's own data, not hardcoded."""
+    return select(
+        func.replace(Category.name, " (archived)", "")).where(
+        Category.household_id == household_id,
+        Category.name.like("%(archived)")).scalar_subquery()
+
+
 @router.get("/{emp_id}/piecework-import/preview",
             response_model=list[schemas.HistoricalPieceworkImportOut])
 def preview_piecework_import(
@@ -670,7 +684,7 @@ def preview_piecework_import(
             Transaction.source == TransactionSource.excel_import,
             Transaction.status == TransactionStatus.cleared,
             Transaction.amount_pence > 0,
-            ImportRecord.sheet.ilike("%piecework%"))
+            ImportRecord.sheet.in_(_piecework_sheet_names(household.id)))
         .order_by(Transaction.date, Transaction.id)).all()
     linked = set(session.scalars(select(
         DeliveryEntry.source_transaction_id).where(
@@ -702,7 +716,8 @@ def confirm_piecework_import(
             Transaction.source == TransactionSource.excel_import,
             Transaction.status == TransactionStatus.cleared,
             Transaction.amount_pence > 0,
-            ImportRecord.sheet.ilike("%piecework%"))).all()
+            ImportRecord.sheet.in_(
+                _piecework_sheet_names(household.id)))).all()
     found = {row.id: row for row in rows}
     if len(found) != len(set(body.transaction_ids)):
         raise HTTPException(404, "one or more source transactions not found")

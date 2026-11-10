@@ -85,9 +85,9 @@ class TestApplyOverride:
             self, session: Session, run: PayrollRun) -> None:
         ov = payrun.apply_override(
             session, run, kind=PayrollComponentKind.tax,
-            delta_pence=1_000, reason="Rounding", actor="sam")
+            delta_pence=1_000, reason="Rounding", actor="alice")
         assert ov.reason == "Rounding"
-        assert ov.actor == "sam"
+        assert ov.actor == "alice"
 
     def test_zero_delta_rejected(self, session: Session,
                                  run: PayrollRun) -> None:

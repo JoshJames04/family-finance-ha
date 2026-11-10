@@ -127,9 +127,9 @@ class TestSequences:
 
     def test_multi_member_rules_independent(self) -> None:
         """Two members' rules resolve independently on the same table."""
-        sam = PaydayRule(RuleKind.last_working_day)
+        alice = PaydayRule(RuleKind.last_working_day)
         partner = PaydayRule(RuleKind.nth_weekday, weekday=4, nth=-1)
-        assert pay_date(sam, 2026, 4) == date(2026, 4, 30)
+        assert pay_date(alice, 2026, 4) == date(2026, 4, 30)
         assert pay_date(partner, 2026, 4) == date(2026, 4, 24)
 
     def test_custom_holiday_table(self) -> None:

@@ -623,7 +623,7 @@ class PayrollExtractor:
         return "payroll_run", run.id
 
 
-# --- issue #48: loan ledger / christmas / piecework co ------------------------
+# --- issue #48: loan ledger / christmas / piecework ------------------------
 
 class LoanLedgerExtractor:
     """Family loan sheet → Loan + Repayment rows. The workbook's
@@ -776,16 +776,21 @@ class XmasExtractor:
 
 
 class PieceworkExtractor:
-    """pieceworkIncomeTbl rows → historical income Transactions under an
+    """Piecework income rows → historical Transactions under an
     archived category — reporting only, no active workflow. Amounts are
     literal tips + cached delivery charges; the 'Daily Total' formula
-    column is never trusted (defect A)."""
+    column is never trusted (defect A).
 
-    CATEGORY = "Piecework Co (archived)"
+    Naming is data-driven: the archived category and payee labels are
+    derived from the imported sheet's own name, so any household's
+    piecework ledger imports under its real name — nothing
+    household-specific is hardcoded."""
 
     def __init__(self, sheet: str, household_id: int, account_id: int,
                  cache: dict[tuple[str, int, int], Any]) -> None:
         self.sheet = sheet
+        self.category_name = f"{sheet} (archived)"
+        self.payee = f"{sheet} delivery"
         self.household_id = household_id
         self.account_id = account_id
         self.cache = cache
@@ -809,9 +814,9 @@ class PieceworkExtractor:
             self._cat = session.execute(
                 select(Category).where(
                     Category.household_id == self.household_id,
-                    Category.name == self.CATEGORY)
+                    Category.name == self.category_name)
             ).scalar_one_or_none() or Category(
-                household_id=self.household_id, name=self.CATEGORY)
+                household_id=self.household_id, name=self.category_name)
             if self._cat.id is None:
                 session.add(self._cat)
                 session.flush()
@@ -826,7 +831,8 @@ class PieceworkExtractor:
             return "transaction", t.id
         t = Transaction(
             account_id=self.account_id, date=work,
-            amount_pence=amount, payee="Piecework Co delivery",
+            amount_pence=amount, payee=self.payee,
+            category_id=self._cat.id,
             status=TransactionStatus.cleared,
             source=TransactionSource.excel_import,
             external_ref=ref,

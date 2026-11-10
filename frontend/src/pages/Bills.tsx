@@ -209,9 +209,9 @@ export function Bills() {
                 className="rounded-xl border border-border bg-surface p-4 shadow-card" />
             </div>
 
-            <div className="grid gap-4">
+            <div className="grid grid-cols-1 gap-4">
               {sections.map(([secName, rows]) => (
-                <div key={secName || "ungrouped"}>
+                <div key={secName || "ungrouped"} className="min-w-0">
                   {sectioned && (
                     <div className="mb-2 flex items-center gap-2.5 px-1">
                       {secName ? <IconTile label={secName} size="sm" /> : null}
@@ -225,13 +225,13 @@ export function Bills() {
                       </span>
                     </div>
                   )}
-                  <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     {rows.map((c) => {
                       const cat = c.category_id != null ? categories.byId.get(c.category_id) : undefined;
                       const acct = accountsById.get(c.account_id);
                       return (
                         <li key={c.id}
-                          className="group flex flex-col rounded-[var(--radius-card)] border border-border bg-surface p-4 shadow-card">
+                          className="group flex min-w-0 flex-col rounded-[var(--radius-card)] border border-border bg-surface p-4 shadow-card">
                           <div className="mb-3 flex items-start gap-3">
                             <IconTile label={c.name} />
                             <div className="min-w-0 flex-1">
@@ -289,10 +289,10 @@ export function Bills() {
                 <h2 className="mb-2 px-1 text-[13px] font-semibold uppercase tracking-wide text-fg-subtle">
                   Paused ({paused.length})
                 </h2>
-                <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {paused.map((c) => (
                     <li key={c.id}
-                      className="flex items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-border bg-surface/60 p-4">
+                      className="flex min-w-0 items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-border bg-surface/60 p-4">
                       <IconTile label={c.name} className="opacity-60" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[14px] font-medium text-fg-muted">{c.name}</p>

@@ -115,6 +115,20 @@ describe("Bills", () => {
     expect(grid?.className).toContain("xl:grid-cols-5");
   });
 
+  it("#413: card list grids are bounded and cards can shrink", async () => {
+    stubFetch([]);
+    const { container } = render(<MemoryRouter><Bills /></MemoryRouter>);
+    await screen.findAllByText("Broadband");
+    // Without a base grid-cols-1 the implicit auto column sizes to the
+    // longest unbreakable card name — blowing out the whole page.
+    for (const ul of container.querySelectorAll("ul.grid")) {
+      expect(ul.className).toContain("grid-cols-1");
+    }
+    for (const li of container.querySelectorAll("ul.grid > li")) {
+      expect(li.className).toContain("min-w-0");
+    }
+  });
+
   it("lists commitments grouped by budget section", async () => {
     stubFetch([]);
     render(<MemoryRouter><Bills /></MemoryRouter>);
