@@ -1,5 +1,7 @@
 # Family Finance
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=github)](https://github.com/sponsors/JoshJames04)
+
 A self-hosted household finance application for Home Assistant. Family Finance is
 designed to become the single source of truth for a household's financial life:
 budgeting, forecasting, payroll, savings, debts, subscriptions and day-to-day
@@ -105,4 +107,10 @@ synthetic fixtures only — see [SECURITY.md](SECURITY.md) and
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Personal Use License — see [LICENSE](LICENSE). Free for personal,
+non-commercial use and modification. Commercial use, AI/machine-learning
+training, and republication as instructional or editorial content are not
+permitted.
+
+If this project is useful to you, you can support its development via
+[GitHub Sponsors](https://github.com/sponsors/JoshJames04) — thank you.

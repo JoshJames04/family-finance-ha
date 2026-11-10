@@ -9,7 +9,7 @@ ARG VERSION=0.0.0-dev
 LABEL org.opencontainers.image.title="Family Finance" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/JoshJames04/family-finance-ha" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="LicenseRef-FamilyFinance-PersonalUse"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -1,21 +1,65 @@
-MIT License
+Family Finance Personal Use License
 
 Copyright (c) 2026 JoshJames04
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Grant of rights
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   "Software"), to use, copy and modify the Software for personal,
+   non-commercial purposes, subject to the conditions and restrictions
+   below.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Conditions
+
+   a. Every copy or substantial portion of the Software, and every
+      modified version of it, must retain this license text and the
+      copyright notice above.
+
+   b. Modified versions must be clearly marked as such and must not be
+      represented as the original Software.
+
+3. Restrictions
+
+   a. Commercial use. The Software may not be used, copied, modified,
+      merged, published, distributed, sublicensed or sold, in whole or
+      in part, for commercial purposes. Commercial purposes include use
+      in or for a product, service or activity that is offered for a
+      fee, monetised, or operated by or for a business or other
+      revenue-generating entity.
+
+   b. AI and machine learning. The Software, in whole or in part, may
+      not be used to train, fine-tune, evaluate, benchmark or improve
+      any artificial intelligence or machine-learning model or system,
+      nor included, in whole or in part, in any dataset, corpus,
+      retrieval index or other collection of material assembled for
+      such purposes.
+
+   c. Republished content. The Software may not be republished, in
+      whole or in part, as instructional or editorial content —
+      including documentation, tutorials, courses, books, articles or
+      videos — without the copyright holder's prior written permission.
+      This does not restrict linking to, or quoting brief excerpts of,
+      the public repository with attribution.
+
+   d. Circumvention. You may not use the Software through an
+      intermediary, wrapper or derivative service in a way designed to
+      circumvent these restrictions.
+
+4. Termination
+
+   Any breach of these conditions or restrictions terminates the
+   permissions granted by this license automatically. On termination,
+   all rights to use, copy and modify the Software cease, and all
+   copies of the Software must be deleted or returned.
+
+5. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+   BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
