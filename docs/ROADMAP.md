@@ -133,3 +133,8 @@ These are user-observed defects, not confirmed root causes. Resolve by reproduci
 - [ ] [#417 — Spike: assess Starling webhook/event support for near-real-time account updates](https://github.com/JoshJames04/family-finance-ha/issues/417) — verify official personal-account API support and recommend a secure push or polling design; related to Epic #6.
 
 Do not assume Starling personal access supports webhooks. The spike must establish this from current official documentation before any public callback endpoint is designed or implemented.
+
+
+## 8. Home Assistant automation triggers (10/11/2026)
+
+- [ ] [#424 — Home Assistant integration: expose native automation triggers for Family Finance events](https://github.com/JoshJames04/family-finance-ha/issues/424) — related to Epic #12 and existing event hooks in #102. Make triggers discoverable in the HA automation editor and document event/YAML usage; keep payloads privacy-safe.
