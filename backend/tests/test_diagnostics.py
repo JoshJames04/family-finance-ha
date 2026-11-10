@@ -44,7 +44,9 @@ def pair(tmp_path: Path) -> Iterator[tuple[TestClient, Session]]:
     url = f"sqlite:///{(tmp_path / 'shared.db').as_posix()}"
     with TestClient(create_app(Settings.load(
             {"FF_DATA_DIR": str(tmp_path), "FF_ENV": "ci",
-             "FF_DATABASE_URL": url}))) as c:
+             "FF_DATABASE_URL": url,
+             # opt back into the runner — the bundle reports its cadence
+             "FF_SCHEDULER_TICK_SECONDS": "60"}))) as c:
         factory = sessionmaker(bind=create_app_engine(url))
         with factory() as s:
             yield c, s
