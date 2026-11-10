@@ -11,6 +11,102 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-11-09
+
+### Added
+
+- **2026-27 UK payroll rule sets** (#399): published statutory
+  parameters for `england_wales` (frozen PA/bands, NI cat A 8%/2%,
+  student-loan Plan 2 £29,385) and `scotland` (raised 19/20/21% band
+  limits) — 2026-27 payroll now computes with exact rules instead of
+  the 2025-26 fallback. Golden-suite coverage including a
+  fire-warden/first-aider allowance-line case.
+- **`tools/release_gate.py` + `tools/perf_check.py`** (#372): ported
+  from the closed PR #261 — 7 machine-checkable release gates and a
+  standalone ~50k-row hot-path budget fixture.
+- **`docs/OPERATIONS.md`** (#368): clean-operator runbook — install,
+  probes, backup/restore, Starling re-auth, upgrade rollback,
+  diagnostics, logs and scheduler ticks.
+- **Ingress trust audit matrix** (#364): `TestIngressTrustMatrix`
+  pins the supervisor boundary — XFF cannot launder the peer IP,
+  partial header sets denied, remote headers rejected in standalone
+  mode, spoof beats a valid session, headerless requests fail closed.
+  Findings documented in `docs/SECURITY.md` §2.1.
+
+### Fixed
+
+- **Member-switcher identity spoof residual** (#341): under ingress,
+  `X-Profile-Id` is no longer sent on any request, `useIdentity` no
+  longer writes a fallback to localStorage, and "Mine" scoping
+  resolves from `/api/v1/auth/me` via a new `useMeProfileId` hook.
+
+### Changed
+
+- **README status** now reflects shipped reality — released to GHCR,
+  workbook retired 2026-11-09.
+- **Changelog reconciled** — 1.1.0/1.1.1 entries and
+  `addon/CHANGELOG.md` back-merged from `main` (they had only existed
+  on release branches).
+
+## [1.1.1] — 2026-11-09
+
+### Changed
+
+- **Integration renamed to "Family Finance (Entities)"** — the add-on
+  and the HACS integration showed identical update cards; they now
+  read as two distinct components.
+
+### Added
+
+- **`addon/CHANGELOG.md`** — the Supervisor update card shows release
+  notes instead of "No changelog found".
+
+## [1.1.0] — 2026-11-09
+
+### Added
+
+- **Link HA identity to an existing profile** (#340): admin action
+  that attaches a Home Assistant user to a pre-existing household
+  member instead of always creating a new profile.
+- **Backup list UX** (#371): newest-first ordering by parsed
+  timestamp, a `Latest` badge, and human-readable labels via the
+  shared formatter.
+- **Add-on icon + logo** (#401): `icon.png`/`logo.png` rendered from
+  the brand SVG — the add-on no longer shows "No app icon".
+- **Migration parity tooling** (#387, #389): `tools/reconcile_parity.py`
+  recomputes workbook totals against the imported database at
+  row/month level; `docs/PARITY-MATRIX.md` maps every worksheet to
+  its domain, UI surface and tests.
+- **Cross-install restore e2e** (#375): snapshot → new install →
+  token re-rotation covered end-to-end.
+- **Performance budget guardrails** (#132): measured budgets with
+  CI enforcement.
+- **Bank-ledger integrity fixes** (#350): duplicate bills and
+  subscriptions, Starling account discovery/ownership, member-scoped
+  loans, permanent deletion/archive behaviour, Christmas gift
+  reconciliation, account editing, and migration export/import.
+
+### Fixed
+
+- **Budget parity drift** (#388): `BudgetYearExtractor` only
+  imported literal month cells — mid-year edits stored as formulas
+  were silently dropped. Formula cells now resolve through the
+  workbook cached-values map; all 169 imported budget rows
+  reconcile at month-cell level.
+- **Backup button double-fire** (#371): Back up now disables for
+  the request plus a 1.5 s cooldown, so same-second snapshot
+  collisions can't be created from the UI.
+
+### Changed
+
+- **Lint gates are blocking** (#373): ruff and mypy failures now
+  fail CI instead of reporting.
+- **Same-PR doc updates required** (#376, #385): behaviour,
+  security and ops changes must update their docs in the same PR.
+- **Workbook retirement sign-off recorded** (#391, #56): owner
+  approval + 2026-11-09 retirement date in `docs/MIGRATION.md`
+  §7.1; defect-B flag disposition documented.
+
 ## [1.0.5] — 2026-11-09
 
 ### Fixed
@@ -27,8 +123,6 @@ release pipeline (multi-arch GHCR image + GitHub release).
   `start-period=120s` covers the boot window.
 - (v1.0.4 was tagged but its release build failed on a strict-TS
   error in `ingress.ts` — skipped; 1.0.5 contains it and the fix.)
-
-## [1.0.3] — 2026-11-09
 
 ## [1.0.3] — 2026-11-09
 
