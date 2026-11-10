@@ -13,6 +13,7 @@ import type { components } from "../api/schema";
 import { Button } from "../components/Button";
 import { Sheet } from "../components/Dialog";
 import { PageHeader } from "../components/Display";
+import { Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import { formatLongDate } from "../lib/format";
 import { useShell } from "../shell/ShellContext";
@@ -99,15 +100,24 @@ export function Dashboard() {
 
   // Remote wins when a profile exists; standalone falls back to
   // localStorage (issue #123: per-member persistence, clean degrade).
+  // #414: a failed households probe leaves `ready` false forever —
+  // that's a standalone/no-profile signal, so hydrate from
+  // localStorage instead of leaving the dashboard permanently blank.
   useEffect(() => {
-    if (layout !== null || remote.loading || !ready) return;
+    if (layout !== null) return;
+    if (households.error !== null) {
+      setLayout(loadLocal());
+      return;
+    }
+    if (remote.loading || !ready) return;
     if (remote.data === null && remote.error === null) return;
     setRole(remote.data?.role ?? null);
     const remoteLayout = remote.data?.layout;
     setLayout(normalise(remoteLayout
       ? { order: remoteLayout.order ?? [], hidden: remoteLayout.hidden ?? [] }
       : loadLocal()));
-  }, [ready, remote.loading, remote.data, remote.error, layout]);
+  }, [ready, remote.loading, remote.data, remote.error, layout,
+      households.error]);
 
   const save = (next: Layout) => {
     setLayout(next);
@@ -167,6 +177,13 @@ export function Dashboard() {
       />
       <ReviewCallout />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {layout === null && (
+          <>
+            <Skeleton className="h-40 rounded-[var(--radius-card)]" />
+            <Skeleton className="h-40 rounded-[var(--radius-card)]" />
+            <Skeleton className="h-40 rounded-[var(--radius-card)]" />
+          </>
+        )}
         {visible.map((w) => (
           <div key={w.id} data-widget={w.id} className={cn("min-w-0", SPAN[w.span])}>
             <WidgetBoundary title={w.title}>
