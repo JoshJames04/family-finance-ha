@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.domain import banks as bankdom
 from app.domain import deliver as deliverdom
+from app.domain import discovery as discdom
 from app.domain import notifications as notifydom
 from app.domain import sync as syncdom
 from app.persistence.models import (
@@ -87,6 +88,7 @@ def sync_tick(session: Session, *,
     conns = {c.id: c for c in session.scalars(select(BankConnection).where(
         BankConnection.status.in_(
             [ConnStatus.connected, ConnStatus.degraded])))}
+    refreshed_conns: set[int] = set()
     for m in mappings:
         conn = conns.get(m.connection_id)
         if conn is None or m.account_id is None \
@@ -102,6 +104,19 @@ def sync_tick(session: Session, *,
         except Exception as e:
             conn.last_error = str(e)[:500]
             continue
+        if conn.id not in refreshed_conns:
+            # Scheduled parity with the manual /sync route (#416):
+            # provider discovery + balance refresh — account
+            # renames/closures and live balances used to propagate
+            # only when a human pressed Sync.
+            try:
+                discdom.discover(session, conn, client, token)
+                discdom.sync_balances(session, conn, client, token)
+            except Exception as e:
+                conn.last_error = str(e)[:500]
+            refreshed_conns.add(conn.id)
+        if m.status is not MappingStatus.linked:
+            continue   # discovery just closed/unlinked it provider-side
         account = session.get(Account, m.account_id)
         if account is None:
             continue

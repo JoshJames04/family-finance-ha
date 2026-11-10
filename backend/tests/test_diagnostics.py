@@ -124,6 +124,8 @@ def test_bundle_shape(member) -> None:
     assert d["app"]["version"]
     assert d["database"]["alembic_revision"]
     assert d["database"]["table_rows"]["transaction"] >= 0
+    assert d["scheduler"]["sync_interval_minutes"] > 0
+    assert d["scheduler"]["tick_seconds"] > 0
     for k in ("sync", "bank_connections", "recent_failures"):
         assert k in d
 
