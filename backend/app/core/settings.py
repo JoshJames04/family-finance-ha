@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # period the runner wakes on. 0 disables each.
     sync_interval_minutes: float = 240.0
     scheduler_tick_seconds: float = 60.0
+    # issue #422: opt-in Starling V2 webhook receiver. Setting the
+    # webhook's public key registers POST
+    # /api/v1/integrations/starling/webhook; unset = no route.
+    starling_webhook_public_key: str | None = None
     # issue #23: SPA root. FF_WEB_DIR overrides; container ships the
     # bundle at /app/web; dev falls back to repo frontend/dist.
     web_dir: Path | None = None
