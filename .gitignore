@@ -13,6 +13,11 @@ data/
 *.sqlite
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+
+# Local credential material — never commit
+.vault_key
 
 # Python
 __pycache__/

@@ -694,18 +694,6 @@ class DeliveryOut(BaseModel):
     pay_pence: int
 
 
-class HistoricalPieceworkImportOut(BaseModel):
-    transaction_id: int
-    work_date: date
-    imported_total_pence: int
-    needs_review: bool = True
-    mapped_delivery_id: int | None = None
-
-
-class HistoricalPieceworkImportConfirmIn(BaseModel):
-    transaction_ids: list[int] = Field(min_length=1, max_length=500)
-
-
 class PrepareYearIn(BaseModel):
     year: int = Field(ge=2000, le=2200)
 

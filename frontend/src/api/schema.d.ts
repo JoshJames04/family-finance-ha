@@ -1166,46 +1166,6 @@ export interface paths {
         patch: operations["patch_delivery_api_v1_employments__emp_id__deliveries__entry_id__patch"];
         trace?: never;
     };
-    "/api/v1/employments/{emp_id}/piecework-import/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Preview Piecework Import
-         * @description Preview imported income without changing source transactions.
-         */
-        get: operations["preview_piecework_import_api_v1_employments__emp_id__piecework_import_preview_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/employments/{emp_id}/piecework-import/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Confirm Piecework Import
-         * @description Map imported amounts to immutable, review-flagged piecework shifts.
-         */
-        post: operations["confirm_piecework_import_api_v1_employments__emp_id__piecework_import_confirm_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/employments/{emp_id}/overtime-entries": {
         parameters: {
             query?: never;
@@ -1847,81 +1807,6 @@ export interface paths {
         get: operations["list_imports_api_v1_imports_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/migration/batches/{batch_id}/report": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Report
-         * @description Structural reconciliation report — counts/residuals only.
-         */
-        get: operations["get_report_api_v1_migration_batches__batch_id__report_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/migration/batches/{batch_id}/retirement-gate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Retirement Gate
-         * @description Workbook-retirement gate: ready only when committed and every
-         *     flag resolved (#56 reads this).
-         */
-        get: operations["get_retirement_gate_api_v1_migration_batches__batch_id__retirement_gate_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/migration/flags": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Flags */
-        get: operations["list_flags_api_v1_migration_flags_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/migration/flags/{flag_id}/resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Resolve Flag */
-        post: operations["resolve_flag_api_v1_migration_flags__flag_id__resolve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5130,21 +5015,6 @@ export interface components {
             /** Pence */
             pence: number;
         };
-        /** FlagOut */
-        FlagOut: {
-            /** Id */
-            id: number;
-            /** Batch Id */
-            batch_id: number;
-            /** Defect Id */
-            defect_id: string;
-            /** Status */
-            status: string;
-            /** Detail */
-            detail: string | null;
-            /** Reviewer Note */
-            reviewer_note: string | null;
-        };
         /** ForecastRowOut */
         ForecastRowOut: {
             /** Category Id */
@@ -5278,30 +5148,6 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /** HistoricalPieceworkImportConfirmIn */
-        HistoricalPieceworkImportConfirmIn: {
-            /** Transaction Ids */
-            transaction_ids: number[];
-        };
-        /** HistoricalPieceworkImportOut */
-        HistoricalPieceworkImportOut: {
-            /** Transaction Id */
-            transaction_id: number;
-            /**
-             * Work Date
-             * Format: date
-             */
-            work_date: string;
-            /** Imported Total Pence */
-            imported_total_pence: number;
-            /**
-             * Needs Review
-             * @default true
-             */
-            needs_review: boolean;
-            /** Mapped Delivery Id */
-            mapped_delivery_id?: number | null;
         };
         /** HouseholdIn */
         HouseholdIn: {
@@ -6442,13 +6288,6 @@ export interface components {
              * Format: date
              */
             due_date: string;
-        };
-        /** ResolveIn */
-        ResolveIn: {
-            /** Status */
-            status: string;
-            /** Note */
-            note: string;
         };
         /** RestoreAccepted */
         RestoreAccepted: {
@@ -10264,77 +10103,6 @@ export interface operations {
             };
         };
     };
-    preview_piecework_import_api_v1_employments__emp_id__piecework_import_preview_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-            };
-            path: {
-                emp_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HistoricalPieceworkImportOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_piecework_import_api_v1_employments__emp_id__piecework_import_confirm_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-                "x-actor-id"?: string | null;
-            };
-            path: {
-                emp_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HistoricalPieceworkImportConfirmIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeliveryOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_overtime_api_v1_employments__emp_id__overtime_entries_get: {
         parameters: {
             query?: {
@@ -11831,148 +11599,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_StatementImportOut_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_report_api_v1_migration_batches__batch_id__report_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-            };
-            path: {
-                batch_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_retirement_gate_api_v1_migration_batches__batch_id__retirement_gate_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-            };
-            path: {
-                batch_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_flags_api_v1_migration_flags_get: {
-        parameters: {
-            query?: {
-                batch_id?: number | null;
-                unresolved_only?: boolean;
-            };
-            header?: {
-                "x-household-id"?: number | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FlagOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    resolve_flag_api_v1_migration_flags__flag_id__resolve_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-household-id"?: number | null;
-                "x-actor-id"?: string | null;
-            };
-            path: {
-                flag_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResolveIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FlagOut"];
                 };
             };
             /** @description Validation Error */

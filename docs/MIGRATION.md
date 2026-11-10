@@ -1,7 +1,10 @@
 # Excel Migration Strategy — `Family Budget.xlsx`
 
-**Status:** Strategy — workbook inspection spike will produce the authoritative
-structural inventory before import implementation.
+**Status:** Historical record — the workbook was retired 2026-11-09 and
+the one-shot migration machinery (extractors, `import_*`/`migration_flag`
+tables, `/api/v1/migration/*` routes) has since been removed. This
+document remains as evidence of the migration strategy and retirement
+gate; the commands and endpoints below no longer exist.
 
 ## 1. Source inventory (assessed)
 

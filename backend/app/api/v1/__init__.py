@@ -22,7 +22,6 @@ from app.api.v1 import (
     households,
     imports,
     loans,
-    migration,
     notifications,
     payees,
     payslips,
@@ -54,7 +53,6 @@ v1_router.include_router(forecast.router)
 v1_router.include_router(goals.router)
 v1_router.include_router(loans.router)
 v1_router.include_router(imports.router)
-v1_router.include_router(migration.router)
 v1_router.include_router(reports.router)
 v1_router.include_router(analytics.router)
 v1_router.include_router(seasonal.router)
