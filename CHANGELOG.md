@@ -11,6 +11,43 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-11-09
+
+### Added
+
+- **2026-27 UK payroll rule sets** (#399): published statutory
+  parameters for `england_wales` (frozen PA/bands, NI cat A 8%/2%,
+  student-loan Plan 2 £29,385) and `scotland` (raised 19/20/21% band
+  limits) — 2026-27 payroll now computes with exact rules instead of
+  the 2025-26 fallback. Golden-suite coverage including a
+  fire-warden/first-aider allowance-line case.
+- **`tools/release_gate.py` + `tools/perf_check.py`** (#372): ported
+  from the closed PR #261 — 7 machine-checkable release gates and a
+  standalone ~50k-row hot-path budget fixture.
+- **`docs/OPERATIONS.md`** (#368): clean-operator runbook — install,
+  probes, backup/restore, Starling re-auth, upgrade rollback,
+  diagnostics, logs and scheduler ticks.
+- **Ingress trust audit matrix** (#364): `TestIngressTrustMatrix`
+  pins the supervisor boundary — XFF cannot launder the peer IP,
+  partial header sets denied, remote headers rejected in standalone
+  mode, spoof beats a valid session, headerless requests fail closed.
+  Findings documented in `docs/SECURITY.md` §2.1.
+
+### Fixed
+
+- **Member-switcher identity spoof residual** (#341): under ingress,
+  `X-Profile-Id` is no longer sent on any request, `useIdentity` no
+  longer writes a fallback to localStorage, and "Mine" scoping
+  resolves from `/api/v1/auth/me` via a new `useMeProfileId` hook.
+
+### Changed
+
+- **README status** now reflects shipped reality — released to GHCR,
+  workbook retired 2026-11-09.
+- **Changelog reconciled** — 1.1.0/1.1.1 entries and
+  `addon/CHANGELOG.md` back-merged from `main` (they had only existed
+  on release branches).
+
 ## [1.1.1] — 2026-11-09
 
 ### Changed

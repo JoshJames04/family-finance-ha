@@ -4,8 +4,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowDownLeft, ArrowUpRight, Handshake, Plus } from "lucide-react";
-import { api, getProfileId } from "../api/client";
-import { useApi, useIdentity } from "../api/useApi";
+import { api } from "../api/client";
+import { useApi, useMeProfileId } from "../api/useApi";
 import { useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
@@ -38,8 +38,7 @@ export function Loans() {
     () => api.get("/api/v1/loans", { query: { include_inactive: true } }),
     ready, [rev]);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
-  const identity = useIdentity();
-  const me = identity.data ? getProfileId() : null;
+  const me = useMeProfileId();
   const memberCount = (profiles.data?.items ?? []).filter((p) => p.is_active).length;
   const items = (loans.data?.items ?? [])
     .filter((l) => dir === "all" || l.direction === dir)

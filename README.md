@@ -5,7 +5,7 @@ designed to become the single source of truth for a household's financial life:
 budgeting, forecasting, payroll, savings, debts, subscriptions and day-to-day
 spending — all in one place, under your control.
 
-> **Status:** Active development. A working Home Assistant app, React frontend and FastAPI backend are in the repository. `develop` is the integration branch; `main` is the release branch. This is not yet approved for production household financial use. The development backlog lives in
+> **Status:** Released and in live household use. `develop` is the integration branch; `main` is the release branch with tagged `v1.x` releases published to GHCR. The Excel workbook was retired as the system of record on 2026-11-09 after full parity verification ([docs/MIGRATION.md](docs/MIGRATION.md)). The backlog lives in
 > GitHub Issues; delivery is tracked on the
 > [Family Finance project board](https://github.com/users/JoshJames04/projects/1)
 > (Backlog / Board / Current Sprint / Roadmap / By Epic views) with phases in
