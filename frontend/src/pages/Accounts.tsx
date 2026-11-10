@@ -303,7 +303,7 @@ function VerifyDialog({ account, onOpenChange, onSaved }: {
       )}
     >
       {result ? (
-        <div className="grid gap-3">
+        <div className="grid grid-cols-1 gap-3">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg bg-surface-2 p-3">
               <p className="text-[11.5px] text-fg-subtle">Ledger</p>

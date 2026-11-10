@@ -838,6 +838,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
             {runs.loading ? "Loading runs…" : "No payroll runs yet — add one to forecast payday."}
           </p>
         ) : (
+          <div className="overflow-x-auto">
           <table className="ff-table w-full text-[13.5px]">
             <thead className="text-left text-[12px] text-fg-subtle">
               <tr className="h-9 border-b border-border">
@@ -858,6 +859,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

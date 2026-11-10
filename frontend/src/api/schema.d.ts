@@ -2473,6 +2473,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/banking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Banking Settings */
+        get: operations["banking_settings_api_v1_settings_banking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Banking Settings */
+        patch: operations["update_banking_settings_api_v1_settings_banking_patch"];
+        trace?: never;
+    };
     "/api/v1/notifications/rules": {
         parameters: {
             query?: never;
@@ -3819,6 +3837,33 @@ export interface components {
             /** Balance At */
             balance_at: string | null;
         };
+        /**
+         * BankingSyncSettingsOut
+         * @description Effective bank-sync cadence + where it comes from
+         *     (``environment`` | ``app`` | ``default``) and per-connection
+         *     status (issue #431).
+         */
+        BankingSyncSettingsOut: {
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Source */
+            source: string;
+            /** Editable */
+            editable: boolean;
+            /** Min Minutes */
+            min_minutes: number;
+            /** Max Minutes */
+            max_minutes: number;
+            /** Tick Seconds */
+            tick_seconds: number;
+            /** Connections */
+            connections: components["schemas"]["ConnectionSyncStatusOut"][];
+        };
+        /** BankingSyncSettingsPatch */
+        BankingSyncSettingsPatch: {
+            /** Sync Interval Minutes */
+            sync_interval_minutes: number;
+        };
         /** Body_preview_api_v1_imports_preview_post */
         Body_preview_api_v1_imports_preview_post: {
             /** File */
@@ -4339,6 +4384,34 @@ export interface components {
          * @enum {string}
          */
         Confidence: "scheduled" | "estimated";
+        /**
+         * ConnectionSyncStatusOut
+         * @description Per-linked-mapping bank sync state for the Settings panel
+         *     (issue #431). Timestamps only — names, refs and amounts never
+         *     cross this boundary.
+         */
+        ConnectionSyncStatusOut: {
+            /** Connection Id */
+            connection_id: number;
+            /** Provider */
+            provider: string;
+            /** Status */
+            status: string;
+            /** Last Error */
+            last_error: string | null;
+            /** Account Id */
+            account_id: number | null;
+            /** Last Attempted At */
+            last_attempted_at: string | null;
+            /** Last Success At */
+            last_success_at: string | null;
+            /** Refresh Queued */
+            refresh_queued: boolean;
+            /** Retry At */
+            retry_at: string | null;
+            /** Next Due At */
+            next_due_at: string | null;
+        };
         /** ContributionMatchIn */
         ContributionMatchIn: {
             /** Transaction Id */
@@ -13157,6 +13230,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScenarioRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    banking_settings_api_v1_settings_banking_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankingSyncSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_banking_settings_api_v1_settings_banking_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankingSyncSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankingSyncSettingsOut"];
                 };
             };
             /** @description Validation Error */

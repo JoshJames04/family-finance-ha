@@ -153,6 +153,7 @@ function EntryList({ employment, onEdit, onChanged }: {
           No overtime logged yet — add an entry for the extra hours worked.
         </p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="ff-table w-full text-[13.5px]">
           <thead className="text-left text-[12px] text-fg-subtle">
             <tr className="h-9 border-b border-border">
@@ -227,6 +228,7 @@ function EntryList({ employment, onEdit, onChanged }: {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </Panel>
   );

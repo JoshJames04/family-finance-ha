@@ -45,7 +45,11 @@ function stubFetch(calls: { url: string; method: string; body: string }[]) {
               : url.includes("/api/v1/profiles")
                 ? { items: [{ id: 1, display_name: "Alice", role: "admin",
                     is_active: true, color: null }], total: 1 }
-                  : { items: [], total: 0 };
+                  : url.includes("/settings/banking")
+                    ? { interval_minutes: 240, source: "default",
+                        editable: true, min_minutes: 15, max_minutes: 1440,
+                        tick_seconds: 60, connections: [] }
+                    : { items: [], total: 0 };
       return Promise.resolve(new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json" } }));
     });

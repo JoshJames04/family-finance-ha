@@ -24,8 +24,8 @@ from app.core.health import (
 )
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
+from app.domain import appconfig, vault
 from app.domain import banks as bankdom
-from app.domain import vault
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
 from app.persistence.migrate import migrations_current, upgrade_head
@@ -136,10 +136,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                  c: BankConnection,
                                  r: vault.Keyring = ring) -> str:
                             return bankdom.token(sess, c, r)
+                        # Cadence resolves per wake (issue #431): an
+                        # admin-changed persisted interval applies to
+                        # the running scheduler without a restart.
+                        interval = appconfig.effective_sync_interval_minutes(
+                            s, settings)[0]
                         scheduler.sync_tick(
                             s, client=client, token_for=_tok,
-                            interval_seconds=
-                                settings.sync_interval_minutes * 60)
+                            interval_seconds=interval * 60)
                         scheduler.notify_tick(s, notifier=notifier)
                         s.commit()
                 except Exception:
