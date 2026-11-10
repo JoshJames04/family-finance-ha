@@ -7,6 +7,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+import voluptuous as vol
 from custom_components.family_finance import device_trigger
 from custom_components.family_finance.const import CONF_HOUSEHOLD_ID, CONF_URL, DOMAIN
 from custom_components.family_finance.events import EVENT_BILL_OVERDUE, EVENT_PAYDAY
@@ -47,9 +48,11 @@ async def test_get_triggers_offers_all_events(
 async def test_foreign_device_gets_nothing(
         hass: HomeAssistant, mock_api: AsyncMock) -> None:
     await _setup_device(hass)
+    other = MockConfigEntry(domain="other_domain", title="Other")
+    other.add_to_hass(hass)
     registry = dr.async_get(hass)
     foreign = registry.async_get_or_create(
-        config_entry_id="other-entry",
+        config_entry_id=other.entry_id,
         identifiers={("other_domain", "x")})
     assert await device_trigger.async_get_triggers(
         hass, foreign.id) == []
@@ -92,7 +95,6 @@ async def test_attach_payday_fires(
 
 
 async def test_schema_rejects_unknown_type() -> None:
-    import voluptuous as vol
     with pytest.raises(vol.Invalid):
         device_trigger.TRIGGER_SCHEMA({
             "platform": "device", "domain": DOMAIN,
