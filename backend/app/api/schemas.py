@@ -1869,3 +1869,25 @@ class StatementImportOut(BaseModel):
 class StatementImportPreviewOut(BaseModel):
     import_row: StatementImportOut
     rows: list[StatementImportRowOut]
+
+
+class IntegrationEventOut(BaseModel):
+    seq: int
+    event_type: str
+    entity_kind: str | None
+    entity_id: int | None
+    occurred_at: datetime
+    data: dict[str, object]
+
+
+class IntegrationFeedOut(BaseModel):
+    events: list[IntegrationEventOut]
+    next_cursor: int
+
+
+class IntegrationSettingsOut(BaseModel):
+    detail: str  # "safe" | "detailed"
+
+
+class IntegrationSettingsPatch(BaseModel):
+    detail: str

@@ -25,6 +25,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain import outbox
 from app.persistence.models import (
     Account,
     MergeCandidate,
@@ -130,12 +131,23 @@ def _ingest_item(session: Session, account: Account,
                       "payee": item.payee}))
         run.merge_candidates += 1
         return
-    session.add(Transaction(
+    txn = Transaction(
         account_id=account.id, date=item.date,
         amount_pence=item.amount_pence, payee=item.payee,
         status=item.status or TransactionStatus.cleared,
-        source=source, external_ref=item.external_ref))
+        source=source, external_ref=item.external_ref)
+    session.add(txn)
     session.flush()
+    outbox.emit(
+        session, account.household_id, "transaction.imported",
+        entity_kind="transaction", entity_id=txn.id,
+        payload={
+            "account_id": account.id,
+            "date": item.date.isoformat(),
+            "payee": item.payee,
+            "amount_pence": item.amount_pence,
+            "source": source.value},
+        dedup_key=f"txn.imported:{txn.id}")
     run.inserted += 1
 
 
@@ -183,6 +195,15 @@ def sync_account(
         cursor.status = SyncStatus.failed
         cursor.error = str(e)[:500]
     run.finished_at = datetime.now()
+    outbox.emit(
+        session, account.household_id,
+        f"sync.{run.status.value}",
+        entity_kind="account", entity_id=account.id,
+        payload={
+            "source": source.value, "status": run.status.value,
+            "inserted": run.inserted, "deduped": run.deduped,
+            "error": (run.error or "")[:200]},
+        dedup_key=f"sync.run:{run.id}")
     session.flush()
     return run
 
