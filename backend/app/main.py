@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.api.errors import install_error_handlers
-from app.api.v1 import v1_router
+from app.api.v1 import v1_router, webhooks
 from app.core import scheduler
 from app.core.health import (
     ComponentStatus,
@@ -169,6 +169,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # route table into every app created afterwards.
     app.include_router(v1_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
+    # issue #422: opt-in Starling V2 webhook receiver — no route
+    # exists at all without a configured public key.
+    if settings.starling_webhook_public_key:
+        app.include_router(webhooks.router, prefix="/api/v1")
     app.include_router(api)
 
     # Per-app registry: a module-level registry is shared across every

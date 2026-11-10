@@ -26,6 +26,8 @@ ports_description:
 options:
   admin_token: ""
   backup_dir: ""
+  starling_webhook_public_key: ""
 schema:
   admin_token: "str?"
   backup_dir: "str?"
+  starling_webhook_public_key: "str?"

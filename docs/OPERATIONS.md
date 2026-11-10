@@ -118,7 +118,42 @@ Two ticks run from the app lifespan (`sync_tick`, `notify_tick`):
   notification deliveries. A rule's exception is logged and the tick
   continues.
 
-## 10. Data safety reminders
+## 10. Starling webhooks (optional, #422)
+
+Polling stays the default. A webhook only makes a refresh arrive
+sooner — it never writes the ledger itself; a verified delivery
+flags the account's sync cursor and the scheduler drains it
+through the normal pipeline (discovery → balances → feed) within
+one tick (~60 s). If the webhook is deleted or Starling stops
+delivering, behaviour degrades back to `sync_interval_minutes`
+polling automatically.
+
+Requirements: a public HTTPS URL that reaches
+`POST /api/v1/integrations/starling/webhook` (a reverse proxy or
+tunnel in front of the app port — ingress port 8099 must be
+published for add-on installs). Do not expose more of the app
+than this path requires.
+
+Setup:
+
+1. Create a V2 webhook on developer.starlingbank.com (feed item +
+   standing order events) pointing at that URL, and copy the
+   public key Starling shows for it.
+2. Configure the key:
+   - standalone/container: `FF_STARLING_WEBHOOK_PUBLIC_KEY`
+   - add-on: `starling_webhook_public_key` in options.json /
+     the add-on configuration page.
+3. Restart the app. The route registers only when the key is
+   present — unconfigured deployments expose no endpoint at all.
+
+Security: `X-Hook-Signature` is verified SHA512withRSA over the
+raw body against the configured public key; missing or invalid
+signatures get a `401` and never queue a refresh. An unmapped
+account uid is not an error — the endpoint always answers `200`
+to a correctly signed delivery (non-2xx triggers Starling
+retries).
+
+## 11. Data safety reminders
 
 - `Family Budget.xlsx` and real financial data must never be
   committed or posted — the repo is public.
