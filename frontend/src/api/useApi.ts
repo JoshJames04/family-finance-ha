@@ -4,6 +4,7 @@
  * exposes loading/error/data states.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isIngress } from "../ingress";
 import { api, getHouseholdId, getProfileId, setHouseholdId, setProfileId }
   from "./client";
 import type { components } from "./schema";
@@ -65,7 +66,10 @@ export function useIdentity(): ApiState<Profile[]> {
           const stored = getProfileId();
           const stillValid = items.some(
             (p) => p.id === stored && p.is_active);
-          if (!stillValid) {
+          // Under ingress the stored id is meaningless — the Supervisor
+          // supplies identity — so never write a fallback into
+          // localStorage that other surfaces could mistake for "me".
+          if (!stillValid && !isIngress()) {
             const fallback = items.find((p) => p.is_active && p.role === "admin")
               ?? items.find((p) => p.is_active);
             setProfileId(fallback?.id ?? null);
@@ -79,6 +83,31 @@ export function useIdentity(): ApiState<Profile[]> {
     [households.data?.length],
   );
   return state;
+}
+
+/** Resolved identity shape returned by `/api/v1/auth/me`. */
+interface MeIdentity {
+  id: number;
+  display_name: string;
+  role: string;
+}
+
+/**
+ * Active member id for "Mine" scoping. Standalone reads the persisted
+ * X-Profile-Id choice; under ingress it comes solely from the
+ * supervisor-injected identity via `/api/v1/auth/me` — stored client
+ * state is never trusted (#341).
+ */
+export function useMeProfileId(): number | null {
+  const ingress = isIngress();
+  const identity = useIdentity();
+  const me = useApi(
+    () => api.get("/api/v1/auth/me").then((d) => d as unknown as MeIdentity),
+    ingress,
+    [],
+  );
+  if (ingress) return me.data?.id ?? null;
+  return identity.data ? getProfileId() : null;
 }
 
 /**

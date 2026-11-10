@@ -1,5 +1,14 @@
 # Changelog — Family Finance add-on
 
+## 1.1.2
+
+- 2026-27 UK payroll rule sets — current-tax-year payroll uses exact
+  published parameters.
+- Ingress identity hardening: no `X-Profile-Id` or localStorage
+  identity trusted under ingress.
+- Observability: operations runbook (`docs/OPERATIONS.md`), release
+  gate + perf tooling, ingress trust audit matrix.
+
 ## 1.1.1
 
 - Add-on card keeps the name **Family Finance**; the HACS integration
