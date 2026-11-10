@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import scheduler
+from app.domain import discovery as discdom
 from app.domain import sync as syncdom
 from app.persistence.models import (
     Account,
@@ -65,12 +66,26 @@ def _link(session: Session, household: Household,
 
 
 class _FakeClient:
-    """feed_items returning one item — the rest of the BankClient
-    protocol is irrelevant to the tick."""
+    """feed_items + the discovery/balance surface the tick calls —
+    scheduled sync refreshes provider state per due connection
+    (#416). ``accounts`` must echo the linked mapping back or
+    discovery legitimately marks it closed."""
 
-    def __init__(self, items=None):
+    def __init__(self, items=None, *, accounts=None, balance=0):
         self._items = items or []
+        self._accounts = accounts if accounts is not None else [
+            discdom.DiscoveredAccount(
+                "ext-1", "Current", category_uid="cat-1")]
+        self._balance = balance
         self.calls = 0
+        self.balance_calls = 0
+
+    def accounts(self, token):
+        return list(self._accounts)
+
+    def balance(self, token, uid, cat=None):
+        self.balance_calls += 1
+        return self._balance
 
     def feed_items(self, token, uid, cat, since):
         self.calls += 1
@@ -186,6 +201,95 @@ def test_sync_tick_skips_revoked(session: Session,
         session, client=_FakeClient(),
         token_for=lambda s, c: "tok", now=NOW)
     assert n == 0
+
+
+def test_sync_tick_refreshes_balances_and_names(
+        session: Session, household: Household,
+        account: Account) -> None:
+    """#416: a due connection gets provider discovery + balance
+    refresh on the scheduled tick — previously manual /sync only.
+    Rename propagates to an account still carrying the provider
+    label; the balance lands on the mapping."""
+    m = _link(session, household, account)
+    client = _FakeClient(
+        accounts=[discdom.DiscoveredAccount(
+            "ext-1", "Renamed", category_uid="cat-1")],
+        balance=12_345)
+    n = scheduler.sync_tick(
+        session, client=client, token_for=lambda s, conn: "tok",
+        now=NOW)
+    assert n == 1
+    assert client.balance_calls == 1
+    assert m.balance_pence == 12_345 and m.balance_at is not None
+    assert account.name == "Renamed"
+
+
+def test_sync_tick_discovers_once_per_connection(
+        session: Session, household: Household,
+        account: Account) -> None:
+    """Two due mappings on one connection → one balance/discovery
+    round, not one per mapping."""
+    a2 = Account(household_id=household.id, name="Space",
+                 type="personal", opening_balance_pence=0,
+                 opening_date=date(2025, 1, 1))
+    session.add(a2)
+    session.flush()
+    m = _link(session, household, account)
+    m2 = BankAccountMapping(
+        household_id=household.id, connection_id=m.connection_id,
+        external_uid="ext-1", external_label="Space",
+        external_kind="space", status=MappingStatus.linked,
+        account_id=a2.id, external_category_uid="cat-2")
+    session.add(m2)
+    session.flush()
+    client = _FakeClient(accounts=[
+        discdom.DiscoveredAccount(
+            "ext-1", "Current", category_uid="cat-1"),
+        discdom.DiscoveredAccount(
+            "ext-1", "Space", kind="space", category_uid="cat-2")])
+    n = scheduler.sync_tick(
+        session, client=client, token_for=lambda s, conn: "tok",
+        now=NOW)
+    assert n == 2
+    assert client.balance_calls == 2      # one per linked mapping
+    assert client.calls == 2              # one feed per mapping
+
+
+def test_sync_tick_balance_failure_still_syncs_feed(
+        session: Session, household: Household,
+        account: Account) -> None:
+    """A provider error on the refresh marks the connection but the
+    transaction pull still runs — a flaky balance endpoint must not
+    starve transaction sync."""
+    m = _link(session, household, account)
+
+    class FlakyClient(_FakeClient):
+        def balance(self, token, uid, cat=None):
+            raise RuntimeError("provider 500")
+
+    client = FlakyClient([syncdom.FeedItem(
+        "s1", date(2025, 5, 30), -100, "T")])
+    n = scheduler.sync_tick(
+        session, client=client, token_for=lambda s, conn: "tok",
+        now=NOW)
+    assert n == 1
+    conn = session.get(BankConnection, m.connection_id)
+    assert conn is not None and conn.last_error is not None
+
+
+def test_sync_tick_discovery_closed_skips_feed(
+        session: Session, household: Household,
+        account: Account) -> None:
+    """Provider no longer lists the account → mapping closes and the
+    feed pull is skipped in the same tick."""
+    _link(session, household, account)
+    client = _FakeClient(
+        [syncdom.FeedItem("s1", date(2025, 5, 30), -100, "T")],
+        accounts=[])                        # gone provider-side
+    n = scheduler.sync_tick(
+        session, client=client, token_for=lambda s, conn: "tok",
+        now=NOW)
+    assert n == 0 and client.calls == 0
 
 
 def test_notify_tick_end_to_end(session: Session,
