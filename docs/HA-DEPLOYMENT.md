@@ -46,7 +46,7 @@ Same image runs standalone for HA Container users:
   progress, sync status, estimated electricity cost.
 - **Services:** e.g. `record_overtime`, `refresh_bank_sync`,
   `add_transaction` — validated, authenticated, audited.
-- **Events/triggers** for automations (bill due, sync failure, milestone).
+- **Events/triggers** for automations — see the trigger table below.
 - **Privacy:** sensors opt-in; sensitive values (balances) can be configured
   off; nothing personal in entity names.
 - **Sensor privacy model (implemented):** every monetary-value entity
@@ -74,6 +74,60 @@ Same image runs standalone for HA Container users:
   Exclusion is a hardening choice, not a requirement — the entities
   exist only because the household enabled them.
 - Compatibility pinned to a supported HA version range, tested in CI matrix.
+
+### Automation triggers (issue #424)
+
+Family Finance appears in the automation editor under its device —
+*Settings → Devices & Services → Family Finance → ⋯ → Add automation*
+(or *Automations → New → Device → Family Finance*). Each trigger maps
+1:1 to a `family_finance_*` bus event; events fire only on the
+documented transition — coordinator restarts and unchanged polls
+never re-fire.
+
+| Automation-editor trigger | Bus event | Fires when | Payload |
+|---|---|---|---|
+| A bill is coming due | `family_finance_bill_due` | upcoming-bill count **rose** | `bills_due`, `window_days` |
+| A bill became overdue | `family_finance_bill_overdue` | overdue-commitment count **rose** | `overdue_count` |
+| Bank sync failed | `family_finance_sync_failed` | a poll failed — **once per failure streak** | `sync_status` |
+| A savings goal milestone was reached | `family_finance_goal_milestone` | goals-on-track count **rose** | `goals_on_track`, `goals_total` |
+| Total balance dropped below zero | `family_finance_low_balance` | total balance **crossed below** zero | `account_count`, `threshold_pence` |
+| A notification is pending | `family_finance_notification_pending` | unacknowledged-event count **rose** | `pending_count` |
+| Payday was reached | `family_finance_payday` | `next_payday` **rolled forward** | `reached`, `next_payday` |
+| A payslip needs review | `family_finance_payslip_review` | pending-review count **rose** | `pending_count` |
+
+Payloads are counts, dates and enum strings only — never payees,
+notes, account identifiers or per-transaction amounts.
+
+**UI-built automation** (what the editor produces for "A bill became
+overdue" on the Family Finance device):
+
+```yaml
+trigger:
+  - platform: device
+    device_id: <family-finance-device-id>
+    domain: family_finance
+    type: bill_overdue
+```
+
+**YAML alternative** — raw event triggers accept the same payloads:
+
+```yaml
+trigger:
+  - platform: event
+    event_type: family_finance_bill_overdue
+action:
+  - service: notify.notify
+    data:
+      title: "Bills overdue"
+      message: "{{ trigger.event.data.overdue_count }} bill(s) overdue"
+```
+
+**Not exposed as triggers** (assessed and rejected): raw
+"transaction imported" events (a count would spam and payloads would
+risk identifiers — use `notification_pending`, which already covers
+review work), "bill paid" (a count *drop* also fires on dismissal —
+ambiguous), "goal achieved" (the summary exposes on-track only —
+`goal_milestone` is the reliable signal).
 
 ## 5. Backup, upgrade, rollback
 

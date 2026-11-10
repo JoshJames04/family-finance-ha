@@ -18,5 +18,17 @@
     "abort": {
       "already_configured": "This household connection is already configured"
     }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "bill_due": "A bill is coming due",
+      "bill_overdue": "A bill became overdue",
+      "sync_failed": "Bank sync failed",
+      "goal_milestone": "A savings goal milestone was reached",
+      "low_balance": "Total balance dropped below zero",
+      "notification_pending": "A notification is pending",
+      "payday": "Payday was reached",
+      "payslip_review": "A payslip needs review"
+    }
   }
 }

@@ -6,10 +6,12 @@ never payees, notes, or individual amounts (same privacy contract as
 the opt-in sensors).
 
 - ``family_finance_bill_due``              — upcoming-bill count rose
+- ``family_finance_bill_overdue``          — overdue-commitment count rose
 - ``family_finance_sync_failed``           — a poll failed (once per streak)
 - ``family_finance_goal_milestone``        — goals-on-track count rose
 - ``family_finance_low_balance``           — total balance crossed below zero
 - ``family_finance_notification_pending``  — unacknowledged events rose
+- ``family_finance_payday``                — next-payday rolled forward (payday reached)
 - ``family_finance_payslip_review``        — payslips awaiting review rose
 """
 
@@ -21,10 +23,12 @@ from homeassistant.core import HomeAssistant
 
 DOMAIN_PREFIX = "family_finance_"
 EVENT_BILL_DUE = f"{DOMAIN_PREFIX}bill_due"
+EVENT_BILL_OVERDUE = f"{DOMAIN_PREFIX}bill_overdue"
 EVENT_SYNC_FAILED = f"{DOMAIN_PREFIX}sync_failed"
 EVENT_GOAL_MILESTONE = f"{DOMAIN_PREFIX}goal_milestone"
 EVENT_LOW_BALANCE = f"{DOMAIN_PREFIX}low_balance"
 EVENT_NOTIFICATION_PENDING = f"{DOMAIN_PREFIX}notification_pending"
+EVENT_PAYDAY = f"{DOMAIN_PREFIX}payday"
 EVENT_PAYSLIP_REVIEW = f"{DOMAIN_PREFIX}payslip_review"
 
 
@@ -62,6 +66,23 @@ def process_summary(
     if pending_new > int(prev.get("notifications_pending") or 0):
         hass.bus.async_fire(EVENT_NOTIFICATION_PENDING, {
             "pending_count": pending_new,
+        })
+
+    overdue_new = int(new.get("outstanding_commitments") or 0)
+    if overdue_new > int(prev.get("outstanding_commitments") or 0):
+        hass.bus.async_fire(EVENT_BILL_OVERDUE, {
+            "overdue_count": overdue_new,
+        })
+
+    payday_new = new.get("next_payday")
+    payday_prev = prev.get("next_payday")
+    if payday_new is not None and payday_prev is not None \
+            and payday_new > payday_prev:
+        # The previously reported payday rolled to a later date —
+        # that date was reached. Dates only; never amounts.
+        hass.bus.async_fire(EVENT_PAYDAY, {
+            "reached": payday_prev,
+            "next_payday": payday_new,
         })
 
     review_new = int(new.get("payslips_pending_review") or 0)
