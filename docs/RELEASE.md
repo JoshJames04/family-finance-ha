@@ -46,6 +46,7 @@ jobs; the last three are manual evidence.
 
 | Gate | How to run | Pass condition |
 |---|---|---|
+| Machine gate bundle | `python tools/release_gate.py` | all 7 machine checks PASS (alembic head, roundtrip, restore, version, openapi↔schema, docs, restore suite) |
 | Full CI on `develop` | `gh run list -b develop` | every job green |
 | Version consistency | `python scripts/version.py check` | no drift |
 | Migration dry-run | `cd backend && alembic upgrade head && alembic downgrade -1 && alembic upgrade head` on a **copy** of the production DB | clean both directions |
