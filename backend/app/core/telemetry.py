@@ -27,7 +27,7 @@ class RuntimeTelemetry:
         self.ticks_total += 1
         self.last_tick_at = datetime.now()
         self.last_tick_ms = round(ms, 1)
-        self.last_tick_error = error
+        self.last_tick_error = "scheduler_tick_failed" if error is not None else None
         if error is not None:
             self.tick_errors += 1
 

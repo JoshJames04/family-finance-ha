@@ -127,3 +127,22 @@ Security is verified continuously, not once:
 - Source financial files (workbooks, exports) are forbidden in the
   repository (`.gitignore` + CI gate); only synthetic fixtures are used
   in tests.
+
+### Forecast and budget scope
+
+Expected movement lists, contribution status, outstanding obligations and
+per-account requirements enforce the viewer's account visibility. Accountless
+household plans remain visible; legacy salary rows without a destination are
+withheld because their account permission boundary is unknown. Selecting a
+personal budget also restricts forecast rows and actuals (including splits) to
+that budget owner's accounts. Shared budget actuals and bill totals retain their
+household accounting meaning; individual forecast rows additionally respect
+viewer permissions and can therefore omit another member's private account.
+Runtime diagnostics record a fixed scheduler error code rather than exception
+messages, which can contain financial or personal details.
+
+Household-wide forecast rematerialisation requires an administrator when a
+profile is resolved. Member auto-matching is limited to writable visible
+accounts; viewers cannot create even accountless plans or run matching. Legacy
+standalone anonymous write compatibility follows the application's existing
+RBAC contract.

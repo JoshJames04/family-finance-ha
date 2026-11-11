@@ -118,6 +118,7 @@ def confirm(session: Session, movement: ExpectedMovement,
 
 def auto_match(session: Session, household_id: int, *,
                window_days: int = DEFAULT_WINDOW_DAYS,
+               account_ids: set[int] | None = None,
                today: date | None = None) -> int:
     """Greedy auto-match: each transfer_rule movement takes the nearest
     unused same-account, same-sign leg within ±window_days of its due
@@ -134,6 +135,8 @@ def auto_match(session: Session, household_id: int, *,
     used = _used_legs(session)
     written = 0
     for mv in movements:
+        if account_ids is not None and mv.account_id not in account_ids:
+            continue
         need = status(session, mv, today).outstanding_pence
         if need <= 0:
             continue

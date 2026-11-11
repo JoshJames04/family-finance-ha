@@ -146,3 +146,29 @@ encrypted vault; never in the frontend, logs or exports.
 | Excel data quality worse than expected | Reconciliation report + flagged-review workflow rather than silent fixes |
 | HA upgrades breaking integration | Compatibility test matrix; pin HA version range; semver'd API |
 | Scope creep | Roadmap phases; P3 features never gate v1.0 core |
+
+### Historical provider category refresh
+
+Incremental Starling sync only enriches old transactions when their references
+are returned by the provider. An administrator can explicitly replay an older
+window with `POST /api/v1/banking/connections/{id}/sync?historical_since=YYYY-MM-DD`.
+The date cannot be in the future. Existing backoff still applies. Exact feed
+references deduplicate replayed rows, update provider metadata when supplied and
+retain the normal fresh watermark for subsequent incremental syncs. A provider
+that does not return historical category metadata leaves it missing; the app does
+not guess a category or claim that a map alone repaired history. This operation
+is explicit and is not run automatically against existing installations.
+
+Discovery commits pending changes before provider requests. Balance refresh
+fetches every linked balance before applying reconciliation writes, so scheduled
+and manual refreshes do not hold the SQLite writer during provider HTTP calls.
+Partial occurrence payments retain their current bill/renewal head until the
+remaining amount is paid. Active bill/subscription clashes are checked on create,
+rename and bill reactivation as well as initial setup.
+
+An explicit historical refresh during provider backoff returns HTTP 409 before
+provider work starts. It is not queued because the incremental queue does not
+persist a historical boundary; retry with the same `historical_since` after the
+reported retry time. Feed sync persists its running cursor state before releasing
+the writer so ORM refreshes of expired cursor fields cannot autoflush writes
+immediately before the real provider adapter makes HTTP requests.
