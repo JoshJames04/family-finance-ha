@@ -7,7 +7,7 @@ fixed token, returns fixed synthetic users.
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException
 
 app = FastAPI(title="HA stub")
 
@@ -41,3 +41,15 @@ def config(authorization: str | None = Header(default=None)) -> dict:
     _auth(authorization)
     return {"location_name": "Test Home", "version": "2026.11.0",
             "users": list(USERS.values())}
+
+
+@app.post("/api/services/{domain}/{service}")
+def call_service(domain: str, service: str,
+                 payload: dict | None = Body(default=None),
+                 authorization: str | None = Header(default=None)
+                 ) -> list[dict]:
+    """Accept service calls the way real HA does — 200 with the list
+    of changed states. Lets notification deliveries succeed in the
+    dev stack instead of 404ing."""
+    _auth(authorization)
+    return []

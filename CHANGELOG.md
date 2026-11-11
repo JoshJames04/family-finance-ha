@@ -34,6 +34,13 @@ release pipeline (multi-arch GHCR image + GitHub release).
   or subscription inherit its category, every inherit teaches the rules
   engine the payee association, and rules/provider map run as part of
   every post-sync settlement (issues #452, #453).
+- **Payroll audit metadata** — migration backfills `rule_set_year` on
+  payroll runs created before the column existed, resolving each via
+  its recorded rule-set version and jurisdiction; stale-rules and
+  gross-only runs are left NULL rather than mislabelled.
+- **Dev HA stub** — the local stub now accepts `POST
+  /api/services/{domain}/{service}` service calls, so notification
+  deliveries succeed in the dev stack instead of failing with 404.
 
 ## [1.3.0] — 2026-11-10
 

@@ -146,3 +146,60 @@ class TestSeededUpgrade:
         command.stamp(cfg, "0004_transfers")
         command.upgrade(cfg, "head")
         assert current_revision(_eng(cfg)) == REVISIONS[-1]
+
+
+class TestRuleSetYearBackfill:
+    """0067 fills payroll_run.rule_set_year on pre-column rows —
+    only where the (tax_year, version, jurisdiction) rule set it
+    resolved to provably exists."""
+
+    def _seed(self, conn: Connection) -> None:
+        _seed_core(conn)
+        conn.execute(text(
+            "INSERT INTO user_profile (household_id, display_name,"
+            " role, is_active) VALUES (1, 'A', 'admin', 1)"))
+        conn.execute(text(
+            "INSERT INTO employment (household_id, profile_id,"
+            " employer, jurisdiction, contracted_hours)"
+            " VALUES (1, 1, 'Acme', 'england_wales', '37.5')"))
+        conn.execute(text(
+            "INSERT INTO tax_rule_set (tax_year, jurisdiction,"
+            " version, params)"
+            " VALUES ('2026/27', 'england_wales', 1, '{}')"))
+        # resolvable: rules exist for this (year, version, juris.)
+        conn.execute(text(
+            "INSERT INTO payroll_run (employment_id, period_start,"
+            " period_end, pay_date, status, tax_year,"
+            " rule_set_version, gross_pence, net_pence)"
+            " VALUES (1, '2026-05-01', '2026-05-31', '2026-05-28',"
+            " 'forecast', '2026/27', 1, 300000, 240000)"))
+        # unresolvable: stale-rules forecast — no 2030/31 set exists
+        conn.execute(text(
+            "INSERT INTO payroll_run (employment_id, period_start,"
+            " period_end, pay_date, status, tax_year,"
+            " rule_set_version, gross_pence, net_pence)"
+            " VALUES (1, '2030-05-01', '2030-05-31', '2030-05-28',"
+            " 'forecast', '2030/31', 1, 300000, 240000)"))
+        # gross_only: version 0, no rules applied — stays NULL
+        conn.execute(text(
+            "INSERT INTO payroll_run (employment_id, period_start,"
+            " period_end, pay_date, status, tax_year,"
+            " rule_set_version, gross_pence, net_pence)"
+            " VALUES (1, '2026-06-01', '2026-06-30', '2026-06-28',"
+            " 'forecast', '2026/27', 0, 300000, 300000)"))
+
+    def test_backfill_resolves_only_provable_rows(
+            self, cfg: Config) -> None:
+        command.upgrade(cfg, "0066_provider_and_income")
+        with _eng(cfg).begin() as conn:
+            self._seed(conn)
+        command.upgrade(cfg, "head")
+        with _eng(cfg).connect() as conn:
+            rows = conn.execute(text(
+                "SELECT tax_year, rule_set_version, rule_set_year"
+                " FROM payroll_run ORDER BY period_start")).all()
+        assert rows == [
+            ("2026/27", 1, "2026/27"),   # backfilled
+            ("2026/27", 0, None),        # gross_only — left NULL
+            ("2030/31", 1, None),        # ambiguous — left NULL
+        ]
