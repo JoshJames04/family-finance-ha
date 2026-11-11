@@ -174,7 +174,8 @@ def _payday_dates(session: Session, account_id: int, start: date,
     return list(session.scalars(
         select(ExpectedMovement.expected_date)
         .where(ExpectedMovement.account_id == account_id,
-               ExpectedMovement.source_type == ExpectedSource.payroll_run,
+               ExpectedMovement.source_type.in_(
+                [ExpectedSource.payroll_run, ExpectedSource.employment]),
                ExpectedMovement.amount_pence > 0,
                ExpectedMovement.expected_date > start,
                ExpectedMovement.expected_date <= end,

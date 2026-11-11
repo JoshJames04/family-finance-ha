@@ -127,6 +127,7 @@ def create_employment(
     if prior is not None and replacement_end is not None:
         prior.end_date = replacement_end
         session.flush()
+        schedule.rematerialize_employment(session, prior)
     schedule.rematerialize_employment(session, e)
     emit(session, household.id, actor, "create", "employment", e.id,
          {"profile_id": p.id, "employer": e.employer})
@@ -155,6 +156,10 @@ def delete_employment(
         raise HTTPException(
             409, "employment has payroll runs, overtime or work history — "
                  "set an end_date instead of deleting")
+    e.is_active = False
+    schedule.rematerialize_employment(session, e)
+    for tax_rev in list(e.tax_code_revisions):
+        session.delete(tax_rev)
     for rev in list(e.salary_revisions):
         session.delete(rev)
     session.delete(e)
@@ -424,6 +429,7 @@ def add_salary_revision(
     e = _get(session, household.id, emp_id)
     rev = dom.add_salary_revision(session, e, body.effective_date,
                                   body.annual_salary.pence, body.notes)
+    schedule.rematerialize_employment(session, e)
     emit(session, household.id, actor, "create", "salary_revision",
          rev.id, {"employment_id": e.id,
                   "effective_date": str(rev.effective_date)})
@@ -452,6 +458,7 @@ def patch_salary_revision(
         effective_date=changed.get("effective_date"),
         annual_pence=changed.get("annual_salary"),
         notes=changed.get("notes", ...))
+    schedule.rematerialize_employment(session, _get(session, household.id, emp_id))
     emit(session, household.id, actor, "update", "salary_revision",
          rev.id, {k: str(v) for k, v in changed.items()})
     return schemas.SalaryRevisionOut.model_validate(rev)
@@ -465,6 +472,7 @@ def delete_salary_revision(
 ) -> None:
     rev = _get_revision(session, household.id, emp_id, rev_id)
     dom.delete_salary_revision(session, rev)
+    schedule.rematerialize_employment(session, _get(session, household.id, emp_id))
     emit(session, household.id, actor, "delete", "salary_revision",
          rev_id, {"employment_id": emp_id,
                   "effective_date": str(rev.effective_date)})
@@ -489,6 +497,7 @@ def add_tax_code_revision(
     e = _get(session, household.id, emp_id)
     rev = dom.add_tax_code_revision(session, e, body.effective_date,
                                     body.tax_code, body.notes)
+    schedule.rematerialize_employment(session, e)
     emit(session, household.id, actor, "create", "tax_code_revision",
          rev.id, {"employment_id": e.id,
                   "effective_date": str(rev.effective_date)})
@@ -855,6 +864,7 @@ def reopen_payroll_run(
     _get(session, household.id, emp_id)
     r = _run(session, emp_id, run_id)
     payrun.reopen(session, r)
+    schedule.rematerialize_payroll_run(session, r)
     emit(session, household.id, actor, "reopen", "payroll_run", r.id,
          {"employment_id": emp_id, "status": r.status.value})
     return schemas.PayrollRunOut.model_validate(r)

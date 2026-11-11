@@ -7,6 +7,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -24,7 +25,7 @@ from app.core.health import (
 )
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
-from app.domain import appconfig, vault
+from app.domain import appconfig, schedule, vault
 from app.domain import banks as bankdom
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
@@ -96,6 +97,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not integrity_check(engine):
             log.error("database integrity_check failed on boot")
 
+        last_projection_day: date | None = None
+        if not getattr(app.state, "boot_error", None):
+            # Existing installs repair forecasts on upgrade, even with the
+            # periodic scheduler disabled. No provider I/O in this transaction.
+            with Session(engine) as projection_session:
+                schedule.rematerialize_employments(projection_session)
+                projection_session.commit()
+            last_projection_day = date.today()
+
         async def _snapshot_loop() -> None:
             while True:
                 await asyncio.sleep(
@@ -120,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             event loop keeps serving requests during a tick (#451):
             a full sync can block for seconds, and through HA ingress
             a stalled request surfaces as 503."""
+            nonlocal last_projection_day
             from app.api.v1.notifications import _UrllibNotifier
             from app.integrations.starling import StarlingClient
             from app.persistence.session import get_session
@@ -142,6 +153,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # the running scheduler without a restart.
                 interval = appconfig.effective_sync_interval_minutes(
                     s, settings)[0]
+                if last_projection_day != date.today():
+                    schedule.rematerialize_employments(s)
+                    s.commit()  # Release the writer before provider I/O.
+                    last_projection_day = date.today()
                 scheduler.sync_tick(
                     s, client=client, token_for=_tok,
                     interval_seconds=interval * 60)

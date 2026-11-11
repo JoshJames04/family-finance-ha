@@ -172,3 +172,24 @@ persist a historical boundary; retry with the same `historical_since` after the
 reported retry time. Feed sync persists its running cursor state before releasing
 the writer so ORM refreshes of expired cursor fields cannot autoflush writes
 immediately before the real provider adapter makes HTTP requests.
+
+### Employment forecast lifecycle
+
+Employment paydays use salary and tax-code revisions effective on each payday,
+clipped to the employment start/end dates. Estimates apply one period of tax
+allowance, current NI/student-loan/pension settings and monthly (or weekly)
+regular salary. They do not reuse a prior run's cumulative tax, overtime,
+bonuses, leave or manual adjustments. Missing salary/tax/rule prerequisites
+leave dates unestimated; gross-only employment does not need a tax code.
+Piecework income requires logged work and generated runs.
+
+Generated payroll runs own their exact dates and supersede unmatched employment
+estimates. Recorded actual net takes precedence, including zero actuals and
+reopened runs; correction runs retain zero actual totals. Salary revision
+create/edit/delete, tax-code creation, employment edits/replacement/deletion
+refresh future estimates. Matched history and explicit salary dismissals survive
+refreshes. Employment forecasts are repaired on startup and once per calendar
+day by the scheduler to keep the year-long horizon rolling; this transaction
+commits before any provider network request. No tax codes or future tax rules
+are guessed for existing installations. Payday reminders and scenario payday
+comparisons include employment projections as well as generated runs.

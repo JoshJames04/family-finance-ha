@@ -318,7 +318,8 @@ def _eval_payday_reminder(session: Session, rule: NotificationRule,
     paydays = session.scalars(
         select(ExpectedMovement).where(
             ExpectedMovement.household_id == rule.household_id,
-            ExpectedMovement.source_type == ExpectedSource.payroll_run,
+            ExpectedMovement.source_type.in_(
+                [ExpectedSource.payroll_run, ExpectedSource.employment]),
             ExpectedMovement.amount_pence > 0,
             ExpectedMovement.expected_date == target,
             ExpectedMovement.dismissed_at.is_(None))).all()
