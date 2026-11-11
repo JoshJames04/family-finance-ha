@@ -1,5 +1,23 @@
 # Changelog — Family Finance add-on
 
+## 1.4.0
+
+- Bank categories now feed your categories automatically — map each
+  provider label once on the Rules page and every synced transaction
+  files itself (issue #453).
+- Salary appears in forecasts: set each employment's paid-into account
+  and projected paydays carry estimated income until a real payroll
+  run takes the date over (issue #454).
+- Transactions that reconcile to a bill or subscription inherit its
+  category, and every match teaches the categoriser the payee —
+  manual categorising shrinks toward zero (issue #452).
+- Fixed intermittent 503s on dashboards and widgets while a sync or
+  backup ran — background work no longer blocks the interface
+  (issue #451).
+- Payroll runs created before rule-set tracking now record which
+  year's rules computed them; dev-stack notification delivery works
+  end-to-end.
+
 ## 1.3.0
 
 - Settings gains an in-app Starling sync interval (15 min – 24 h) —

@@ -11,6 +11,8 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-11-11
+
 ### Added
 
 - **Bank-category mapping** — a household-owned map from each provider
