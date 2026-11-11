@@ -17,7 +17,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Stat } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import {
   formatDayMonth, formatPence, formatSmartDate, toISODate,
@@ -893,7 +893,8 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
       </div>
 
       <div className="border-t border-border">
-        {(runs.data ?? []).length === 0 ? (
+        {runs.error && <ErrorState message={runs.error} onRetry={runs.refetch} />}
+        {runs.error && !(runs.data?.length) ? null : (runs.data ?? []).length === 0 ? (
           <p className="px-4 py-6 text-center text-[13px] text-fg-subtle">
             {runs.loading ? "Loading runs…" : "No payroll runs yet. Payday estimates use the employer’s salary, tax code and payday settings."}
           </p>

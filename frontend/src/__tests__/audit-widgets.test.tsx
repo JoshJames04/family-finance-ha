@@ -171,3 +171,26 @@ it("owner switch hides prior budget detail and actuals until each new resource s
   await screen.findByText("Food");
   expect(screen.getAllByText("£50.00").length).toBeGreaterThan(0);
 });
+
+it("failed transaction page cannot be skipped by Load more", async () => {
+  const pages: number[]=[];
+  stub(url => { if (!url.includes("/transactions")) return undefined; const page=Number(new URL(url,"http://local").searchParams.get("page"));pages.push(page);return page===2 ? response({detail:"Page unavailable"},400) : response({items:[{id:page,account_id:1,date:"2026-04-01",amount_pence:-100,payee:"Shop",status:"cleared",splits:[]}],total:3,page,size:200}); });
+  render(<MemoryRouter><Transactions /></MemoryRouter>);
+  await screen.findByText("Showing 1 of 3");
+  fireEvent.click(screen.getByRole("button",{name:"Load more"}));
+  await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button",{name:"Load more"}));
+  await waitFor(()=>expect(pages).toContain(2));
+  expect(pages).not.toContain(3);
+});
+it("payroll-run read failure offers Retry instead of claiming no runs", async () => {
+  const emp={id:1,employer:"Acme",profile_id:1,contracted_hours:37.5,jurisdiction:"england_wales",deduction_mode:"gross_only"};
+  let failed=true;
+  stub(url => url.includes("payroll-runs") ? failed ? response({detail:"Runs unavailable"},400) : response([]) : url.includes("salary-revisions") ? response([]) : /\/employments(?:\?|$)/.test(url) ? response({items:[emp]}) : undefined);
+  render(<MemoryRouter><Salary /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("button",{name:"Breakdown"}));
+  expect((await screen.findByRole("alert")).textContent).toContain("Runs unavailable");
+  expect(screen.queryByText(/No payroll runs yet/)).toBeNull();
+  failed=false;fireEvent.click(screen.getByRole("button",{name:"Retry"}));
+  expect(await screen.findByText(/No payroll runs yet/)).toBeTruthy();
+});

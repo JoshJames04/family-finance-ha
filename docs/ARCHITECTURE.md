@@ -226,3 +226,7 @@ codes can be added from the employer card; salary and account/payday repair reus
 the existing editors. Gross-only employment does not require PAYE tax setup.
 Piecework explains that recorded shifts/runs supply income rather than invented
 future shifts. Failed prerequisite reads offer Retry instead of missing-setup claims.
+
+A failed transaction page must be retried before pagination can advance. Retained
+safe-to-spend and account balances display their refresh errors beside the last
+known values, and payroll-run failures expose Retry instead of claiming no runs.

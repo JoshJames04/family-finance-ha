@@ -67,14 +67,7 @@ function SafeToSpendWidget({ title }: { title: string }) {
         </Select>
       )}
       {projection.accountName && <p className="relative mt-1 text-[13px] text-white/85">{projection.accountName}</p>}
-      {projection.loading ? (
-        <div className="relative mt-3 space-y-3" role="status" aria-label="Loading">
-          <div className="h-12 w-56 animate-pulse rounded-lg bg-white/20" />
-          <div className="h-4 w-64 animate-pulse rounded bg-white/15" />
-        </div>
-      ) : projection.error && !p ? (
-        // Failed with nothing to show — never fall through to the
-        // "add an account" CTA or a fabricated £0 (#460).
+      {projection.error && (
         <div className="relative mt-3" role="alert">
           <p className="text-[15px] text-white/90">Couldn't load this — {projection.error}</p>
           <button type="button" onClick={projection.refetch}
@@ -82,7 +75,13 @@ function SafeToSpendWidget({ title }: { title: string }) {
             Retry
           </button>
         </div>
-      ) : !p ? (
+      )}
+      {projection.loading ? (
+        <div className="relative mt-3 space-y-3" role="status" aria-label="Loading">
+          <div className="h-12 w-56 animate-pulse rounded-lg bg-white/20" />
+          <div className="h-4 w-64 animate-pulse rounded bg-white/15" />
+        </div>
+      ) : !p && projection.error ? null : !p ? (
         <div className="relative mt-3">
           <p className="text-[15px] text-white/90">Add an account to see what's safe to spend.</p>
           <Link to="/accounts" className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-[13.5px] font-semibold text-zinc-900">
@@ -326,13 +325,10 @@ function AccountBalance({ id }: { id: number }) {
   const bal = useApi(() => api.get("/api/v1/accounts/{account_id}/balance", { path: { account_id: id } }), true, [id]);
   const pence = (bal.data as { balance_pence?: number } | null)?.balance_pence;
   if (bal.loading) return <Skeleton className="h-4 w-16" />;
-  // A failed balance read must not mimic "no data" (#460) — offer
-  // a retry affordance rather than a silent em-dash.
-  if (bal.error && pence == null)
-    return <button type="button" onClick={bal.refetch}
-      className="text-[11.5px] font-medium text-negative underline underline-offset-2"
-      title={bal.error}>Retry</button>;
-  return pence == null ? <span className="text-fg-subtle">—</span> : <Money pence={pence} className="font-medium" />;
+  return <>
+    {bal.error && <ErrorState message={bal.error} onRetry={bal.refetch} />}
+    {pence == null ? !bal.error && <span className="text-fg-subtle">—</span> : <Money pence={pence} className="font-medium" />}
+  </>;
 }
 
 function AccountsWidget({ title }: { title: string }) {

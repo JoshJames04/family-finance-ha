@@ -480,7 +480,7 @@ export function Transactions() {
               {hasMore && (
                 <div className="flex items-center justify-center gap-3 border-t border-border p-3 text-[12.5px] text-fg-subtle">
                   Showing {items.length} of {total}
-                  <Button size="sm" variant="secondary" disabled={state.loading || state.retrying} onClick={() => setPage((p) => p + 1)}>
+                  <Button size="sm" variant="secondary" disabled={state.loading || state.retrying || !!state.error} onClick={() => setPage((p) => p + 1)}>
                     {state.loading || state.retrying ? "Loading…" : "Load more"}
                   </Button>
                 </div>
