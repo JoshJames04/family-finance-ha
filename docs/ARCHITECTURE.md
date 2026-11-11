@@ -181,7 +181,8 @@ allowance, current NI/student-loan/pension settings and monthly (or weekly)
 regular salary. They do not reuse a prior run's cumulative tax, overtime,
 bonuses, leave or manual adjustments. Missing salary/tax/rule prerequisites
 leave dates unestimated; gross-only employment does not need a tax code.
-Piecework income requires logged work and generated runs.
+Piecework income requires logged work and generated runs. Salaried nightly rules do
+not produce estimates: annual salary has no supported nightly calculation basis.
 
 Generated payroll runs own their exact dates and supersede unmatched employment
 estimates. Recorded actual net takes precedence, including zero actuals and
@@ -193,3 +194,10 @@ day by the scheduler to keep the year-long horizon rolling; this transaction
 commits before any provider network request. No tax codes or future tax rules
 are guessed for existing installations. Payday reminders and scenario payday
 comparisons include employment projections as well as generated runs.
+
+Employment rebuilds preserve the movement ID for the same employment, payday
+and destination account, so saved scenario remove/shift operations survive
+startup and daily horizon repair. Only obsolete unmatched, undismissed rows
+are deleted. A changed date or destination clears scenario references to the
+removed estimate; the saved operation becomes a no-op and cannot silently act
+on an unrelated row if SQLite later reuses its ID.

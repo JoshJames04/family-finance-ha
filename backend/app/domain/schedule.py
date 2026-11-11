@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
-from sqlalchemy import delete, select, true
+from sqlalchemy import delete, select, true, update
 from sqlalchemy.orm import Session
 
 from app.domain import goals, pay_calendar, paydays, payroll_totals, payrun, transfer_rules
@@ -30,6 +30,7 @@ from app.persistence.models import (
     PayrollRunStatus,
     RecurringCommitment,
     SavingsGoal,
+    ScenarioOp,
     Subscription,
     SubscriptionStatus,
     TransferRule,
@@ -192,6 +193,8 @@ def _employment_net_estimate(session: Session,
         if employment.employment_type == "piecework" or employment.payday_rule is None:
             return None  # Logged shifts feed runs; unknown shifts are not income.
         rule = pay_calendar.parse_rule(employment.payday_rule)
+        if rule.kind is paydays.RuleKind.nightly:
+            return None  # Annual salary has no supported nightly projection basis.
         periods = 52 if rule.kind.value == "weekly" else 12
         annual = dom.salary_at(session, employment.id, pay)
         gross = annual // periods
@@ -214,6 +217,26 @@ def _employment_net_estimate(session: Session,
         return None
 
 
+def _prune_employment_rows(
+    session: Session,
+    remaining: dict[tuple[date, int | None], ExpectedMovement],
+) -> None:
+    """Remove obsolete estimates without recycling saved scenario references."""
+    matched = set(session.scalars(select(ExpectedMatch.movement_id).where(
+        ExpectedMatch.movement_id.in_([row.id for row in remaining.values()]))))
+    obsolete = [row for row in remaining.values()
+                if row.id not in matched and row.dismissed_at is None]
+    if obsolete:
+        # Scenario references intentionally degrade to no-op when a date or
+        # destination changes, rather than targeting a later reused SQLite ID.
+        session.execute(update(ScenarioOp).where(
+            ScenarioOp.expected_movement_id.in_([row.id for row in obsolete]))
+            .values(expected_movement_id=None))
+        for row in obsolete:
+            session.delete(row)
+    session.flush()
+
+
 def rematerialize_employment(
     session: Session, employment: Employment, *,
     today: date | None = None, horizon_days: int = DEFAULT_HORIZON_DAYS,
@@ -225,17 +248,25 @@ def rematerialize_employment(
     estimate seamlessly. Requires ``paid_into_account_id``; without it
     income has no account to land in and nothing is emitted."""
     today = today or date.today()
-    survivors = _drop_future(
-        session, ExpectedSource.employment, employment.id, today)
+    # Stable identities keep saved scenario remove/shift operations attached
+    # across daily/startup repairs. Only obsolete unmatched rows are pruned.
+    survivors = {(row.expected_date, row.account_id): row for row in session.scalars(
+        select(ExpectedMovement).where(
+            ExpectedMovement.source_type == ExpectedSource.employment,
+            ExpectedMovement.source_id == employment.id,
+            ExpectedMovement.expected_date >= today))}
     if not employment.is_active \
             or employment.paid_into_account_id is None \
             or employment.payday_rule is None:
-        session.flush()
+        _prune_employment_rows(session, survivors)
         return 0
     try:
         rule = pay_calendar.parse_rule(employment.payday_rule)
     except (ValueError, KeyError, TypeError):
-        session.flush()
+        _prune_employment_rows(session, survivors)
+        return 0
+    if rule.kind is paydays.RuleKind.nightly:
+        _prune_employment_rows(session, survivors)
         return 0
     horizon = today + timedelta(days=horizon_days)
     covered = {r.pay_date for r in session.scalars(
@@ -264,7 +295,7 @@ def rematerialize_employment(
                 source=ExpectedSource.employment,
                 source_id=employment.id)
         n += 1
-    session.flush()
+    _prune_employment_rows(session, survivors)
     return n
 
 

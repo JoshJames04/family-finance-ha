@@ -258,9 +258,11 @@ def test_startup_repairs_existing_install_without_scheduler(session, household, 
     from fastapi.testclient import TestClient
 
     from app.core.settings import Settings
+    from app.domain import scenario
     from app.main import create_app
+    from app.persistence.models import ScenarioOpKind
 
-    e, _, _ = employment(session, household)
+    e, account, _ = employment(session, household)
     e.deduction_mode = "gross_only"
     session.commit()
     settings = Settings.load(
@@ -273,6 +275,18 @@ def test_startup_repairs_existing_install_without_scheduler(session, household, 
     with TestClient(create_app(settings)):
         session.expire_all()
         assert projected(session)
+    saved = scenario.create_scenario(session, household.id, "Saved salary plan")
+    scenario.add_op(
+        session, saved, kind=ScenarioOpKind.remove, expected_movement_id=projected(session)[0].id
+    )
+    original_ids = {m.expected_date: m.id for m in projected(session)}
+    before = scenario.run(session, saved, account, days=365)
+    session.commit()
+    for _ in range(2):
+        with TestClient(create_app(settings)):
+            session.expire_all()
+            assert {m.expected_date: m.id for m in projected(session)} == original_ids
+            assert scenario.run(session, saved, account, days=365).projection == before.projection
 
 
 def test_employment_replacement_removes_old_future_rows(session, household):
@@ -468,3 +482,69 @@ def test_dismissal_survives_real_run_supersession(session, household):
     rows = list(session.scalars(select(ExpectedMovement)))
     assert len(rows) == 1
     assert rows[0].dismissed_at == datetime(2025, 4, 10)
+
+
+def test_salary_scenario_references_survive_rebuild_and_do_not_retarget_accounts(
+    session, household
+):
+    from datetime import timedelta
+
+    from app.domain import scenario
+    from app.persistence.models import ScenarioOpKind
+
+    e, account, _ = employment(session, household)
+    e.deduction_mode = "gross_only"
+    schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=60)
+    original = {m.expected_date: m.id for m in projected(session)}
+    rows = projected(session)
+    saved = scenario.create_scenario(session, household.id, "Salary changes")
+    removal = scenario.add_op(
+        session, saved, kind=ScenarioOpKind.remove, expected_movement_id=rows[0].id
+    )
+    shift = scenario.add_op(
+        session,
+        saved,
+        kind=ScenarioOpKind.shift,
+        expected_movement_id=rows[1].id,
+        expected_date=date(2025, 6, 5),
+    )
+    # Prevent SQLite's incidental reuse of the most recently deleted ID from
+    # hiding identity churn in a tiny synthetic database.
+    schedule.add_manual(
+        session,
+        household.id,
+        account_id=None,
+        expected_date=TODAY,
+        amount_pence=1,
+        label="Other plan",
+    )
+    before = scenario.run(session, saved, account, days=60, from_date=TODAY)
+    for day in (TODAY, TODAY + timedelta(days=1), TODAY + timedelta(days=2)):
+        schedule.rematerialize_employments(session, today=day, horizon_days=60)
+        assert {m.expected_date: m.id for m in projected(session)} == original
+        after = scenario.run(session, saved, account, days=60, from_date=TODAY)
+        assert after.projection == before.projection
+        assert after.baseline == before.baseline
+    destination = Account(
+        household_id=household.id, name="Replacement account", type="personal", opening_date=TODAY
+    )
+    session.add(destination)
+    session.flush()
+    e.paid_into_account_id = destination.id
+    schedule.rematerialize_employments(session, today=TODAY, horizon_days=60)
+    assert removal.expected_movement_id is None
+    assert shift.expected_movement_id is None
+    changed = scenario.run(session, saved, destination, days=60, from_date=TODAY)
+    assert changed.projection == changed.baseline
+    assert {m.account_id for m in projected(session)} == {destination.id}
+    changed_ids = {m.expected_date: m.id for m in projected(session)}
+    schedule.rematerialize_employments(session, today=TODAY, horizon_days=60)
+    assert {m.expected_date: m.id for m in projected(session)} == changed_ids
+
+
+def test_salaried_nightly_rule_does_not_repeat_monthly_pay_daily(session, household):
+    e, _, _ = employment(session, household)
+    e.deduction_mode = "gross_only"
+    e.payday_rule = json.dumps({"kind": "nightly", "adjust": "none"})
+    schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
+    assert projected(session) == []
