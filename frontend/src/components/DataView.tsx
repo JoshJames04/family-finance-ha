@@ -36,7 +36,7 @@ export function DataView<T>({
       </div>
     );
   // Terminal failure with nothing usable to show → honest error.
-  if (state.error && state.data == null)
+  if (state.error && (state.data == null || (Array.isArray(state.data) && state.data.length === 0)))
     return <ErrorState message={state.error} onRetry={state.refetch} />;
   if (
     state.data == null ||

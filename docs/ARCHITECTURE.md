@@ -201,3 +201,32 @@ startup and daily horizon repair. Only obsolete unmatched, undismissed rows
 are deleted. A changed date or destination clears scenario references to the
 removed estimate; the saved operation becomes a no-op and cannot silently act
 on an unrelated row if SQLite later reuses its ID.
+### Dashboard data recovery
+
+Monthly report figures and subscription totals have independent loading and error
+boundaries. Budget spending is rendered only after actuals succeed; retrying a
+budget widget retries its metadata and actuals together. An empty budget list
+settles without waiting for a detail request that cannot run. Failed refreshes,
+including previously empty lists, retain a visible error and Retry action.
+
+Transaction pagination appends only a newly completed response for its requested
+page and disables Load more during refresh. A recovered dashboard profile
+replaces the temporary local layout and restores member save permissions.
+
+Safe to spend has an explicit account selector; its balance and payday belong to
+that account. A missing payday prompts review of salary settings for that account,
+including salary and tax-code prerequisites, rather than implying all household
+employment is unconfigured. The forecast widget also names its account. Budget
+expected movements request the selected budget ID so the server applies its
+owner scope even when two budgets cover the same dates.
+
+Active and future salaried employer details identify missing effective salary and
+PAYE tax-code revisions, payday rules and active paid-into accounts. Dated tax
+codes can be added from the employer card; salary and account/payday repair reuse
+the existing editors. Gross-only employment does not require PAYE tax setup.
+Piecework explains that recorded shifts/runs supply income rather than invented
+future shifts. Failed prerequisite reads offer Retry instead of missing-setup claims.
+
+A failed transaction page must be retried before pagination can advance. Retained
+safe-to-spend and account balances display their refresh errors beside the last
+known values, and payroll-run failures expose Retry instead of claiming no runs.

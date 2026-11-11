@@ -44,6 +44,8 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
         body = { items: [{ id: 1, name: "Home" }], total: 1 };
       } else if (url.includes("/api/v1/profiles")) {
         body = { items: PROFILES, total: PROFILES.length };
+      } else if (url.includes("/tax-code-revisions")) {
+        body = [];
       } else if (url.includes("/salary-revisions")) {
         body = REVISIONS;
       } else if (url.includes("/payroll-runs")) {
