@@ -4,6 +4,7 @@ import json
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 
 from app.domain import payroll, payrun, schedule, tax
@@ -548,3 +549,50 @@ def test_salaried_nightly_rule_does_not_repeat_monthly_pay_daily(session, househ
     e.payday_rule = json.dumps({"kind": "nightly", "adjust": "none"})
     schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
     assert projected(session) == []
+
+
+@pytest.mark.parametrize("saved_state", ["matched", "dismissed"])
+def test_run_supersession_preserves_previous_account_ownership(session, household, saved_state):
+    from datetime import datetime
+
+    from app.domain import contributions, scenario
+    from app.persistence.models import ExpectedMatch, ScenarioOpKind, Transaction
+
+    e, original_account, _ = employment(session, household)
+    schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
+    original = projected(session)[0]
+    if saved_state == "matched":
+        txn = Transaction(
+            account_id=original_account.id, date=original.expected_date,
+            amount_pence=original.amount_pence, payee="Acme")
+        session.add(txn)
+        session.flush()
+        session.add(ExpectedMatch(
+            movement_id=original.id, transaction_id=txn.id,
+            matched_pence=original.amount_pence, manual=True))
+    else:
+        original.dismissed_at = datetime(2025, 4, 10)
+    saved = scenario.create_scenario(session, household.id, "Original destination")
+    removal = scenario.add_op(
+        session, saved, kind=ScenarioOpKind.remove, expected_movement_id=original.id)
+    replacement = Account(
+        household_id=household.id, name="Replacement", type="personal", opening_date=TODAY)
+    session.add(replacement)
+    session.flush()
+    e.paid_into_account_id = replacement.id
+    schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
+    run = payrun.generate(
+        session, e, start=date(2025, 4, 1), end=date(2025, 4, 30), pay_date=date(2025, 4, 28))
+    schedule.rematerialize_payroll_run(session, run, today=TODAY)
+    schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
+
+    assert original.account_id == original_account.id
+    assert original.source_type == ExpectedSource.employment
+    assert removal.expected_movement_id == original.id
+    current = session.scalar(select(ExpectedMovement).where(
+        ExpectedMovement.source_type == ExpectedSource.payroll_run,
+        ExpectedMovement.source_id == run.id))
+    assert current is not None
+    assert current.account_id == replacement.id
+    assert current.dismissed_at is None
+    assert contributions.status(session, current, TODAY).matched_pence == 0

@@ -173,6 +173,12 @@ reported retry time. Feed sync persists its running cursor state before releasin
 the writer so ORM refreshes of expired cursor fields cannot autoflush writes
 immediately before the real provider adapter makes HTTP requests.
 
+Unexpected provider parsing or ingest errors roll back the incomplete page,
+preserve committed checkpoints, and persist a failed run/cursor and completion
+event before propagating the error. Subscription settlement records the sum of
+matched amounts; an oversized final transaction contributes only its linked
+portion to the observed price.
+
 ### Employment forecast lifecycle
 
 Employment paydays use salary and tax-code revisions effective on each payday,
@@ -201,6 +207,11 @@ startup and daily horizon repair. Only obsolete unmatched, undismissed rows
 are deleted. A changed date or destination clears scenario references to the
 removed estimate; the saved operation becomes a no-op and cannot silently act
 on an unrelated row if SQLite later reuses its ID.
+
+Run supersession only adopts estimates and prior runs on the same destination
+account; matched and dismissed rows on a previous destination retain their
+ownership and scenario references.
+
 ### Dashboard data recovery
 
 Monthly report figures and subscription totals have independent loading and error
