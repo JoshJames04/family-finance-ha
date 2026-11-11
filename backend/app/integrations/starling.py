@@ -193,12 +193,15 @@ class StarlingClient:
         direction = str(i.get("direction", "OUT"))
         signed = minor if direction == "IN" else -minor
         ts = str(i.get("transactionTime", ""))[:10]
+        provider_cat = i.get("spendingCategory")
         return FeedItem(
             external_ref=uid,
             date=date.fromisoformat(ts) if ts else date.today(),
             amount_pence=signed,
             payee=str(i.get("counterPartyName", "")),
-            status=_STATUS_MAP.get(str(i.get("status", ""))))
+            status=_STATUS_MAP.get(str(i.get("status", ""))),
+            provider_category=str(provider_cat)
+            if isinstance(provider_cat, str) and provider_cat else None)
 
 
 _STATUS_MAP = {

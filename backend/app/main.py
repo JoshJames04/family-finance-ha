@@ -101,8 +101,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await asyncio.sleep(
                     settings.backup_interval_hours * 3600)
                 try:
-                    backup.create_snapshot(engine, backup_dir)
-                    n = backup.rotate(backup_dir, settings.backup_keep)
+                    # Snapshot work is blocking file+SQLite I/O — off
+                    # the event loop so requests stay served (#451).
+                    await asyncio.to_thread(
+                        backup.create_snapshot, engine, backup_dir)
+                    n = await asyncio.to_thread(
+                        backup.rotate, backup_dir, settings.backup_keep)
                     log.info("scheduled snapshot taken (%d rotated)", n)
                 except Exception:
                     log.exception("scheduled backup failed")
@@ -110,42 +114,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         task = (asyncio.create_task(_snapshot_loop())
                 if settings.backup_interval_hours > 0 else None)
 
+        def _run_tick() -> None:
+            """One scheduler wake — synchronous DB + provider +
+            notifier I/O. Always invoked via asyncio.to_thread so the
+            event loop keeps serving requests during a tick (#451):
+            a full sync can block for seconds, and through HA ingress
+            a stalled request surfaces as 503."""
+            from app.api.v1.notifications import _UrllibNotifier
+            from app.integrations.starling import StarlingClient
+            from app.persistence.session import get_session
+            client = getattr(app.state, "bank_client",
+                             StarlingClient())
+            notifier = getattr(
+                app.state, "ha_notifier", None) or (
+                _UrllibNotifier(
+                    settings.ha_url,
+                    settings.supervisor_token.get_secret_value()
+                    if settings.supervisor_token else None))
+            ring = vault.keyring(settings)
+            with contextlib.closing(next(get_session())) as s:
+                def _tok(sess: Session,
+                         c: BankConnection,
+                         r: vault.Keyring = ring) -> str:
+                    return bankdom.token(sess, c, r)
+                # Cadence resolves per wake (issue #431): an
+                # admin-changed persisted interval applies to
+                # the running scheduler without a restart.
+                interval = appconfig.effective_sync_interval_minutes(
+                    s, settings)[0]
+                scheduler.sync_tick(
+                    s, client=client, token_for=_tok,
+                    interval_seconds=interval * 60)
+                scheduler.notify_tick(s, notifier=notifier)
+                s.commit()
+
         async def _scheduler_loop() -> None:
             """Job runner (issue #70): periodic sync drain +
             notification evaluate/dispatch/deliver. Deps resolve from
             app.state so tests inject fakes; a failing tick logs and
             sleeps, never kills the loop."""
-            from app.api.v1.notifications import _UrllibNotifier
-            from app.integrations.starling import StarlingClient
-            from app.persistence.session import get_session
             while True:
                 await asyncio.sleep(settings.scheduler_tick_seconds)
                 try:
-                    client = getattr(app.state, "bank_client",
-                                     StarlingClient())
-                    notifier = getattr(
-                        app.state, "ha_notifier", None) or (
-                        _UrllibNotifier(
-                            settings.ha_url,
-                            settings.supervisor_token.get_secret_value()
-                            if settings.supervisor_token else None))
-                    ring = vault.keyring(settings)
-                    with contextlib.closing(
-                            next(get_session())) as s:
-                        def _tok(sess: Session,
-                                 c: BankConnection,
-                                 r: vault.Keyring = ring) -> str:
-                            return bankdom.token(sess, c, r)
-                        # Cadence resolves per wake (issue #431): an
-                        # admin-changed persisted interval applies to
-                        # the running scheduler without a restart.
-                        interval = appconfig.effective_sync_interval_minutes(
-                            s, settings)[0]
-                        scheduler.sync_tick(
-                            s, client=client, token_for=_tok,
-                            interval_seconds=interval * 60)
-                        scheduler.notify_tick(s, notifier=notifier)
-                        s.commit()
+                    await asyncio.to_thread(_run_tick)
                 except Exception:
                     log.exception("scheduler tick failed")
 

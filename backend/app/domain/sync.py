@@ -62,6 +62,7 @@ class FeedItem:
     amount_pence: int
     payee: str
     status: TransactionStatus | None = None
+    provider_category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,9 @@ def _ingest_item(session: Session, account: Account,
             # PENDING -> SETTLED arrives as the same ref again)
             if item.status is not None and dup.status != item.status:
                 dup.status = item.status
+            if item.provider_category is not None \
+                    and dup.provider_category != item.provider_category:
+                dup.provider_category = item.provider_category
             run.deduped += 1
             return
     existing = _fuzzy_match(session, account.id, item)
@@ -135,7 +139,8 @@ def _ingest_item(session: Session, account: Account,
         account_id=account.id, date=item.date,
         amount_pence=item.amount_pence, payee=item.payee,
         status=item.status or TransactionStatus.cleared,
-        source=source, external_ref=item.external_ref)
+        source=source, external_ref=item.external_ref,
+        provider_category=item.provider_category)
     session.add(txn)
     session.flush()
     outbox.emit(

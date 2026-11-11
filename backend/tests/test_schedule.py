@@ -14,8 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
+from app.domain import pay_calendar, paydays, payrun, schedule
 from app.domain import payroll as dom
-from app.domain import payrun, schedule
 from app.main import create_app
 from app.persistence.models import (
     Account,
@@ -160,6 +160,110 @@ class TestPayrollSource:
         payrun.correct(session, run)
         schedule.rematerialize_payroll_run(session, run, today=TODAY)
         assert _rows(session) == []
+
+
+class TestEmploymentProjection:
+    """Issue #454 — projected paydays from the payday rule so salary
+    reaches the forecast before a payroll run exists."""
+
+    RULE = pay_calendar.serialize_rule(paydays.PaydayRule(
+        kind=paydays.RuleKind.fixed_day, day=28,
+        adjust=paydays.ShiftPolicy.previous))
+
+    def _employment(self, session: Session, household: Household,
+                    account: Account | None) -> Employment:
+        p = UserProfile(household_id=household.id, display_name="J")
+        session.add(p)
+        session.flush()
+        e = Employment(
+            household_id=household.id, profile_id=p.id,
+            employer="Acme", jurisdiction="england_wales",
+            contracted_hours=Decimal("37.5"),
+            payday_rule=self.RULE,
+            paid_into_account_id=account.id if account else None)
+        session.add(e)
+        session.flush()
+        dom.add_salary_revision(session, e, date(2025, 1, 1), 3_600_000)
+        dom.add_tax_code_revision(session, e, date(2025, 1, 1), "1257L")
+        return e
+
+    def _account(self, session: Session, household: Household) -> Account:
+        a = Account(household_id=household.id, name="Joint",
+                    type="joint", opening_date=date(2025, 1, 1))
+        session.add(a)
+        session.flush()
+        return a
+
+    def _employment_rows(self, session: Session) -> list[ExpectedMovement]:
+        return list(session.scalars(
+            select(ExpectedMovement).where(
+                ExpectedMovement.source_type
+                == ExpectedSource.employment)).all())
+
+    def test_projects_future_paydays(
+            self, session: Session, household: Household) -> None:
+        a = self._account(session, household)
+        e = self._employment(session, household, a)
+        run = payrun.generate(
+            session, e, start=date(2025, 3, 1), end=date(2025, 3, 31),
+            pay_date=date(2025, 3, 28))   # past run → estimate source
+        n = schedule.rematerialize_employment(
+            session, e, today=TODAY, horizon_days=60)
+        rows = self._employment_rows(session)
+        assert n == len(rows) and n >= 2
+        assert all(m.account_id == a.id for m in rows)
+        assert all(m.amount_pence == run.net_pence for m in rows)
+        assert all(m.confidence is Confidence.estimated for m in rows)
+        # First projected payday after 2025-04-10 on day-28 rule.
+        assert rows[0].expected_date == date(2025, 4, 28)
+
+    def test_no_account_emits_nothing(
+            self, session: Session, household: Household) -> None:
+        e = self._employment(session, household, None)
+        n = schedule.rematerialize_employment(session, e, today=TODAY)
+        assert n == 0 and self._employment_rows(session) == []
+
+    def test_run_covered_payday_skipped(
+            self, session: Session, household: Household) -> None:
+        a = self._account(session, household)
+        e = self._employment(session, household, a)
+        run = payrun.generate(
+            session, e, start=date(2025, 3, 1), end=date(2025, 3, 31),
+            pay_date=date(2025, 3, 28))
+        schedule.rematerialize_payroll_run(session, run, today=TODAY)
+        future = payrun.generate(
+            session, e, start=date(2025, 4, 1), end=date(2025, 4, 30),
+            pay_date=date(2025, 4, 28))
+        schedule.rematerialize_payroll_run(
+            session, future, today=TODAY)
+        schedule.rematerialize_employment(
+            session, e, today=TODAY, horizon_days=60)
+        dates = {m.expected_date for m in self._employment_rows(session)}
+        assert date(2025, 4, 28) not in dates   # the real run owns it
+        assert date(2025, 5, 28) in dates
+
+    def test_inactive_emits_nothing(
+            self, session: Session, household: Household) -> None:
+        a = self._account(session, household)
+        e = self._employment(session, household, a)
+        payrun.generate(
+            session, e, start=date(2025, 3, 1), end=date(2025, 3, 31),
+            pay_date=date(2025, 3, 28))
+        e.is_active = False
+        session.flush()
+        n = schedule.rematerialize_employment(session, e, today=TODAY)
+        assert n == 0 and self._employment_rows(session) == []
+
+    def test_estimate_without_runs_uses_tax_engine(
+            self, session: Session, household: Household) -> None:
+        a = self._account(session, household)
+        e = self._employment(session, household, a)
+        n = schedule.rematerialize_employment(
+            session, e, today=TODAY, horizon_days=35)
+        rows = self._employment_rows(session)
+        assert n == len(rows) == 1
+        # £36,000 gross → sensible net band, never the gross figure.
+        assert 150_000 < rows[0].amount_pence < 300_000
 
 
 class TestApi:

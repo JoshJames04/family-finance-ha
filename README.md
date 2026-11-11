@@ -27,12 +27,16 @@ one-time migration source only — it is never a runtime dependency.
 - **Budgeting** — monthly, annual and custom-period budgets with original
   budget, revised forecast, actuals, variance and forecast-accuracy tracking.
 - **Cash-flow forecasting** — date-aware projected balances, safe-to-spend,
-  payday intelligence and overdraft risk warnings.
+  payday intelligence and overdraft risk warnings. Salary is projected from
+  the employment's payday rule — no run needed — into the account it is
+  paid into.
 - **UK payroll** — salary history, overtime (configurable multipliers), PAYE,
   National Insurance, student loans, pension and payslip reconciliation.
 - **Banking** — secure, read-only Starling Bank synchronisation with duplicate
-  detection, automatic categorisation and reconciliation. The app is fully
-  functional without it.
+  detection, automatic categorisation and reconciliation. Categories resolve
+  automatically: matched bills inherit their commitment's category, the
+  household-owned bank-category map auto-applies, and payee rules learn from
+  every confirmed correction. The app is fully functional without it.
 - **Household contributions** — configurable transfer rules between personal,
   joint and bills accounts, with outstanding-transfer detection.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and

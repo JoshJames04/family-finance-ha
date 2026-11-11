@@ -330,3 +330,41 @@ class TestApi:
                   "period_end": "2026-03-31",
                   "pay_date": "2026-03-28"},
             headers=h).status_code == 409
+
+    def test_paid_into_patch_rematerialises_runs(
+            self, client: TestClient) -> None:
+        """Issue #454 live regression: setting paid_into on an
+        employment that already has forecast runs must re-materialise
+        those runs into the account — found on real data where runs
+        emitted no movements because the link was added later."""
+        h, pid = self._setup(client)
+        eid = client.post("/api/v1/employments", json={
+            "profile_id": pid, "employer": "Acme",
+            "contracted_hours": 37.5}, headers=h).json()["id"]
+        client.post(f"/api/v1/employments/{eid}/salary-revisions",
+                    json={"effective_date": "2026-01-01",
+                          "annual_salary": 3600000}, headers=h)
+        client.post(f"/api/v1/employments/{eid}/tax-code-revisions",
+                    json={"effective_date": "2026-01-01",
+                          "tax_code": "1257L"}, headers=h)
+        run = client.post(f"/api/v1/employments/{eid}/payroll-runs",
+                          json={"period_start": "2026-12-01",
+                                "period_end": "2026-12-31",
+                                "pay_date": "2026-12-28"},
+                          headers=h)
+        assert run.status_code == 201
+        moves = client.get("/api/v1/expected-movements"
+                           "?start=2026-12-01&end=2026-12-31",
+                           headers=h).json()
+        assert [m["account_id"] for m in moves] == [None]
+
+        aid = client.post("/api/v1/accounts", json={
+            "name": "Main", "type": "personal", "opening_balance": 0,
+            "opening_date": "2026-01-01"}, headers=h).json()["id"]
+        p = client.patch(f"/api/v1/employments/{eid}",
+                         json={"paid_into_account_id": aid}, headers=h)
+        assert p.status_code == 200
+        moves = client.get("/api/v1/expected-movements"
+                           "?start=2026-12-01&end=2026-12-31",
+                           headers=h).json()
+        assert [m["account_id"] for m in moves] == [aid]
