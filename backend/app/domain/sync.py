@@ -176,9 +176,10 @@ def sync_account(
     # middleware's profile commit path, could freeze the event
     # loop outright (#460). Each page commits as its own unit so
     # the writer window stays milliseconds, not a sync's duration.
-    session.commit()
+    # A fetch may refresh expired cursor fields; leave nothing to autoflush.
     cursor.status = SyncStatus.running
     cursor.error = None
+    session.commit()
     try:
         for page in fetch(cursor):
             for item in page.items:

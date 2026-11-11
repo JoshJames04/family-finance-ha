@@ -18,6 +18,7 @@ from app.persistence.models import (
     Account,
     ExpectedMovement,
     ExpectedSource,
+    Role,
     Transaction,
     UserProfile,
 )
@@ -73,6 +74,8 @@ def create_manual(
     body: schemas.ExpectedMovementIn, household: HouseholdDep,
     session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.ExpectedMovementOut:
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     if body.account_id is not None:
         account = session.get(Account, body.account_id)
         if account is None or account.household_id != household.id:
@@ -107,8 +110,12 @@ def delete_manual(
 @router.post("/materialise", status_code=202)
 def rematerialise(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
 ) -> dict[str, int]:
     """Bulk regenerate future rows from all sources (idempotent)."""
+    if not rbac.write_allowed(None, profile) or (
+            profile is not None and profile.role != Role.admin):
+        raise HTTPException(403, "household rematerialisation requires admin")
     n = schedule.materialize_all(session, household)
     emit(session, household.id, actor, "materialise",
          "expected_movement", household.id, {"count": n})
@@ -136,12 +143,17 @@ def contribution_status(
 @router.post("/match", response_model=schemas.MatchResult)
 def auto_match_contributions(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
     window_days: Annotated[int, Query(ge=0, le=62)] =
     contributions.DEFAULT_WINDOW_DAYS,
 ) -> schemas.MatchResult:
     """Auto-match real transfer legs to expected movements (#87)."""
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     n = contributions.auto_match(session, household.id,
-                                 window_days=window_days)
+                                 window_days=window_days,
+                                 account_ids=(_visible_accounts(session, household.id, profile)
+                                              if profile is not None else None))
     emit(session, household.id, actor, "match", "expected_movement",
          household.id, {"matched": n, "window_days": window_days})
     return schemas.MatchResult(matched=n)

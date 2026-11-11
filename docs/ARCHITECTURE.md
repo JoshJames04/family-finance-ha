@@ -165,3 +165,10 @@ and manual refreshes do not hold the SQLite writer during provider HTTP calls.
 Partial occurrence payments retain their current bill/renewal head until the
 remaining amount is paid. Active bill/subscription clashes are checked on create,
 rename and bill reactivation as well as initial setup.
+
+An explicit historical refresh during provider backoff returns HTTP 409 before
+provider work starts. It is not queued because the incremental queue does not
+persist a historical boundary; retry with the same `historical_since` after the
+reported retry time. Feed sync persists its running cursor state before releasing
+the writer so ORM refreshes of expired cursor fields cannot autoflush writes
+immediately before the real provider adapter makes HTTP requests.

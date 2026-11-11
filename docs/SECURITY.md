@@ -140,3 +140,9 @@ household accounting meaning; individual forecast rows additionally respect
 viewer permissions and can therefore omit another member's private account.
 Runtime diagnostics record a fixed scheduler error code rather than exception
 messages, which can contain financial or personal details.
+
+Household-wide forecast rematerialisation requires an administrator when a
+profile is resolved. Member auto-matching is limited to writable visible
+accounts; viewers cannot create even accountless plans or run matching. Legacy
+standalone anonymous write compatibility follows the application's existing
+RBAC contract.

@@ -7,7 +7,7 @@ can replace the stdlib default transparently."""
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -35,6 +35,7 @@ from app.persistence.models import (
     BankProvider,
     ConnStatus,
     MappingStatus,
+    SyncCursor,
     TransactionSource,
 )
 
@@ -291,6 +292,18 @@ def sync_transactions(
     if not banks.syncable(c):
         raise HTTPException(
             422, "connection is revoked — re-authenticate first")
+    if historical_since is not None:
+        blocked = session.scalar(select(SyncCursor).join(
+            BankAccountMapping, BankAccountMapping.account_id == SyncCursor.account_id
+        ).where(
+            BankAccountMapping.connection_id == c.id,
+            BankAccountMapping.status == MappingStatus.linked,
+            SyncCursor.source == TransactionSource.starling,
+            SyncCursor.retry_at > datetime.now()).limit(1))
+        if blocked is not None:
+            raise HTTPException(
+                409, f"historical refresh was not queued; retry with historical_since "
+                f"after {blocked.retry_at}")
     try:
         token = banks.token(session, c, ring)
     except ConnError as e:

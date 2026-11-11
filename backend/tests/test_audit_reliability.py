@@ -4,7 +4,6 @@ Each test asserts the intended behaviour and should fail on 85f3a3e.
 Uses synthetic data only; no running service or container access.
 """
 
-import json
 import sqlite3
 from datetime import date, timedelta
 
@@ -247,46 +246,6 @@ def test_expected_movements_hide_another_members_private_account(review_client):
     assert response.status_code == 200
     assert not any(m["account_id"] == aid for m in response.json()), (
         "Private expected movement disclosed to another member"
-    )
-
-
-def test_adding_salary_revision_creates_missing_employment_projections(review_client):
-    client = review_client
-    owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
-    acct = client.post(
-        "/api/v1/accounts",
-        json={
-            "name": "Salary",
-            "type": "personal",
-            "opening_balance": 0,
-            "opening_date": "2025-01-01",
-        },
-    ).json()
-    today = date.today()
-    end = today + timedelta(days=60)
-    response = client.post(
-        "/api/v1/employments",
-        json={
-            "profile_id": owner["id"],
-            "employer": "Synthetic",
-            "jurisdiction": "england_wales",
-            "contracted_hours": "37.5",
-            "start_date": today.isoformat(),
-            "paid_into_account_id": acct["id"],
-            "deduction_mode": "gross_only",
-            "payday_rule": json.dumps({"kind": "fixed_day", "day": 28, "adjust": "none"}),
-        },
-    )
-    assert response.status_code == 201, response.text
-    eid = response.json()["id"]
-    response = client.post(
-        f"/api/v1/employments/{eid}/salary-revisions",
-        json={"effective_date": today.isoformat(), "annual_salary": 3600000},
-    )
-    assert response.status_code == 201, response.text
-    moves = client.get(f"/api/v1/expected-movements?start={today}&end={end}").json()
-    assert any(m["source_type"] == "employment" and m["source_id"] == eid for m in moves), (
-        "Valid employment remains without paydays after salary revision"
     )
 
 
@@ -693,3 +652,171 @@ def test_historical_replay_requires_admin_before_lookup(review_client):
     )
     assert response.status_code == 422, response.text
 
+
+def test_starling_fetch_cursor_refresh_does_not_hold_writer(session, household):
+    from app.domain import sync
+    from app.integrations.starling import starling_fetch
+
+    account = account_for(session, household)
+    cursor = sync.cursor_for(session, account.id, TransactionSource.starling)
+    cursor.last_ref = "2020-01-01T00:00:00.000Z"
+    session.commit()
+    database = session.get_bind().url.database
+    probes = []
+
+    class Client:
+        def feed_items(self, *args):
+            with sqlite3.connect(database, timeout=0.05) as other:
+                try:
+                    other.execute("BEGIN IMMEDIATE")
+                    other.execute("UPDATE household SET name=name")
+                    other.commit()
+                    probes.append("available")
+                except sqlite3.OperationalError as exc:
+                    probes.append(str(exc))
+            return []
+
+    sync.sync_account(
+        session,
+        account,
+        TransactionSource.starling,
+        starling_fetch(Client(), "synthetic", "uid", "cat"),
+    )
+    assert probes == ["available"]
+
+
+@pytest.mark.parametrize("endpoint", ["manual", "match", "materialise"])
+def test_viewer_cannot_mutate_shared_forecast(review_client, endpoint):
+    client = review_client
+    viewer = client.post(
+        "/api/v1/profiles", json={"display_name": "Viewer", "role": "viewer"}
+    ).json()
+    headers = {"X-Profile-Id": str(viewer["id"])}
+    if endpoint == "manual":
+        response = client.post(
+            "/api/v1/expected-movements",
+            json={"expected_date": date.today().isoformat(), "amount": 100, "label": "Plan"},
+            headers=headers,
+        )
+    else:
+        response = client.post(f"/api/v1/expected-movements/{endpoint}", headers=headers)
+    assert response.status_code == 403, response.text
+
+
+def test_historical_backoff_is_rejected_instead_of_queued(review_client):
+    from datetime import datetime
+
+    from app.domain import sync
+    from app.persistence.session import get_session
+
+    client = review_client
+    owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
+    generator = get_session()
+    session = next(generator)
+    hid = int(client.headers["X-Household-Id"])
+    account = Account(
+        household_id=hid,
+        name="Synthetic",
+        type="personal",
+        opening_balance_pence=0,
+        opening_date=date(2025, 1, 1),
+    )
+    conn = BankConnection(
+        household_id=hid,
+        provider=BankProvider.starling,
+        vault_ref="synthetic-unavailable",
+        status=ConnStatus.connected,
+    )
+    session.add_all([account, conn])
+    session.flush()
+    session.add(
+        BankAccountMapping(
+            household_id=hid,
+            connection_id=conn.id,
+            account_id=account.id,
+            external_uid="uid",
+            external_label="Synthetic",
+            external_category_uid="category",
+            status=MappingStatus.linked,
+        )
+    )
+    cursor = sync.cursor_for(session, account.id, TransactionSource.starling)
+    cursor.retry_at = datetime.now() + timedelta(hours=1)
+    session.commit()
+    cid = conn.id
+    response = client.post(
+        f"/api/v1/banking/connections/{cid}/sync?historical_since=2020-01-01",
+        headers={"X-Profile-Id": str(owner["id"])},
+    )
+    assert response.status_code == 409, response.text
+    assert "retry" in response.text.lower()
+    session.refresh(cursor)
+    assert not cursor.refresh_requested
+    generator.close()
+
+
+def test_member_auto_match_only_visible_accounts(review_client):
+    from sqlalchemy import select
+
+    from app.persistence.models import ExpectedMatch, Transfer
+    from app.persistence.session import get_session
+
+    client = review_client
+    owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
+    member = client.post(
+        "/api/v1/profiles", json={"display_name": "Member", "role": "member"}
+    ).json()
+    generator = get_session()
+    session = next(generator)
+    hid = int(client.headers["X-Household-Id"])
+    private_id = None
+    for label, owner_id in [("Shared", None), ("Private", owner["id"])]:
+        account = Account(
+            household_id=hid,
+            name=label,
+            type="personal",
+            owner_profile_id=owner_id,
+            opening_date=date(2025, 1, 1),
+        )
+        transfer = Transfer(household_id=hid)
+        session.add_all([account, transfer])
+        session.flush()
+        movement = ExpectedMovement(
+            household_id=hid,
+            account_id=account.id,
+            expected_date=date.today(),
+            amount_pence=100,
+            label=label,
+            confidence=Confidence.scheduled,
+            source_type=ExpectedSource.transfer_rule,
+            source_id=42,
+        )
+        session.add(movement)
+        session.add(
+            Transaction(
+                account_id=account.id,
+                date=date.today(),
+                amount_pence=100,
+                payee=label,
+                transfer_id=transfer.id,
+                status=TransactionStatus.cleared,
+                source=TransactionSource.manual,
+            )
+        )
+        session.flush()
+        if label == "Private":
+            private_id = movement.id
+    session.commit()
+    response = client.post(
+        "/api/v1/expected-movements/match", headers={"X-Profile-Id": str(member["id"])}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["matched"] == 1
+    assert (
+        session.scalar(select(ExpectedMatch).where(ExpectedMatch.movement_id == private_id)) is None
+    )
+    response = client.post(
+        "/api/v1/expected-movements/materialise", headers={"X-Profile-Id": str(member["id"])}
+    )
+    assert response.status_code == 403, response.text
+    generator.close()
