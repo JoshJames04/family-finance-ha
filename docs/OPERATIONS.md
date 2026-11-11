@@ -82,6 +82,12 @@ If an upgrade boots badly:
 - `app.version`, `database.alembic_revision`, per-table row counts
 - `scheduler` — `tick_seconds`, effective `sync_interval_minutes`
   and its `sync_interval_source` (`environment` | `app` | `default`)
+- `runtime` — in-process counters (issue #460): `ticks_total`,
+  `tick_errors`, `last_tick_at`/`last_tick_ms`/`last_tick_error`,
+  `requests_total`, `errors_5xx`, and `db_locked_total` — SQLite
+  lock/busy timeouts observed by the error handler. A rising
+  `db_locked_total` or a stale `last_tick_at` is the first place to
+  look when the dashboard feels intermittently unresponsive.
 - `sync[]` — per-account cursor status, `retry_at`, last success
 - `bank_connections[]` — provider status + sanitised last error
 - `recent_failures` — last 10 failed sync runs + notification

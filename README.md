@@ -102,6 +102,13 @@ Layout: `backend/` (FastAPI), `frontend/` (Vite + React + TS), `addon/` (HA
 app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
 `tests/` (shared synthetic fixtures).
 
+An ingress-faithful stack for regression work lives in
+`docker-compose.ingress.yml`: the production image behind a
+Supervisor-emulating proxy at the trusted ingress IP with chaos
+fault injection (`dev/ingress-proxy/`), plus the issue #460
+acceptance harness `dev/ff460_acceptance.py` (Tests A–G against a
+dedicated synthetic-data volume).
+
 ## Privacy
 
 This repository is public. No real financial data, workbook files, account

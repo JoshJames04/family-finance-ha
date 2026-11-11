@@ -10,7 +10,10 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
   retries: process.env["CI"] ? 1 : 0,
-  use: { baseURL: "http://localhost:5173" },
+  // FF_E2E_BASE lets a spec run against a different serving layer —
+  // e.g. the ff460 ingress stack at
+  // http://localhost:8400/api/hassio_ingress/e2e (issue #460).
+  use: { baseURL: process.env["FF_E2E_BASE"] ?? "http://localhost:5173" },
   webServer: [
     {
       command: "python -m uvicorn app.main:app --port 8099",

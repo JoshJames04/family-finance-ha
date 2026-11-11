@@ -20,7 +20,7 @@ import { HeroMoney, Money } from "../components/Money";
 import { Panel } from "../components/Panel";
 import { Badge } from "../components/Badge";
 import { IconTile, Progress, Ring, Stat } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { ProjectionChart } from "../components/ProjectionChart";
 import { useShell } from "../shell/ShellContext";
 import {
@@ -61,6 +61,16 @@ function SafeToSpendWidget({ title }: { title: string }) {
         <div className="relative mt-3 space-y-3" role="status" aria-label="Loading">
           <div className="h-12 w-56 animate-pulse rounded-lg bg-white/20" />
           <div className="h-4 w-64 animate-pulse rounded bg-white/15" />
+        </div>
+      ) : projection.error && !p ? (
+        // Failed with nothing to show — never fall through to the
+        // "add an account" CTA or a fabricated £0 (#460).
+        <div className="relative mt-3" role="alert">
+          <p className="text-[15px] text-white/90">Couldn't load this — {projection.error}</p>
+          <button type="button" onClick={projection.refetch}
+            className="mt-4 inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-[13.5px] font-semibold text-zinc-900">
+            Retry
+          </button>
         </div>
       ) : !p ? (
         <div className="relative mt-3">
@@ -119,11 +129,16 @@ function useCurrentBudget() {
 function BudgetRingWidget({ title }: { title: string }) {
   const { budgets, current, detail, planned, spent } = useCurrentBudget();
   const loading = budgets.loading || detail.loading;
+  const failed = budgets.error ?? detail.error;
   const ratio = planned > 0 ? spent / planned : 0;
   return (
     <Panel title={title} description={current ? formatMonthOf(current.start_date) : undefined} actions={viewAll("/budget", "Open")} className="h-full">
       {loading ? (
         <div className="grid place-items-center py-4"><Skeleton className="size-[132px] rounded-full" /></div>
+      ) : failed ? (
+        // API failure must not render "No budget covers this
+        // month" — a real budget may exist (#460).
+        <ErrorState message={failed} onRetry={() => { budgets.refetch(); detail.refetch(); }} />
       ) : !current ? (
         <div className="py-6 text-center text-[13px] text-fg-subtle">No budget covers this month yet.</div>
       ) : (
@@ -157,6 +172,7 @@ function MonthKpisWidget({ title }: { title: string }) {
   const delta = (cur?: number | null, prior?: number | null) =>
     cur != null && prior ? (cur - prior) / Math.abs(prior) : null;
   const loading = report.loading;
+  const failed = report.error ?? subs.error;
   const cell = "rounded-xl border border-border bg-surface p-4 shadow-card";
   return (
     <section aria-label={title} className="h-full">
@@ -164,6 +180,12 @@ function MonthKpisWidget({ title }: { title: string }) {
       <div className="grid h-full grid-cols-2 gap-3 lg:grid-cols-4">
         {loading ? (
           [0, 1, 2, 3].map((i) => <div key={i} className={cell}><Skeleton className="h-4 w-20" /><Skeleton className="mt-3 h-7 w-28" /></div>)
+        ) : failed && !r && subs.data == null ? (
+          // A failed report must never render as £0.00 income/spend —
+          // four honest error cells, each offering a retry (#460).
+          <div className={`${cell} col-span-2 lg:col-span-4`}>
+            <ErrorState message={failed} onRetry={() => { report.refetch(); subs.refetch(); }} />
+          </div>
         ) : (
           <>
             <Stat className={cell} label="Income this month" icon={ArrowDownLeft} iconClassName="bg-positive-soft text-positive"
@@ -301,7 +323,14 @@ function RecentWidget({ title }: { title: string }) {
 function AccountBalance({ id }: { id: number }) {
   const bal = useApi(() => api.get("/api/v1/accounts/{account_id}/balance", { path: { account_id: id } }), true, [id]);
   const pence = (bal.data as { balance_pence?: number } | null)?.balance_pence;
-  return bal.loading ? <Skeleton className="h-4 w-16" /> : pence == null ? <span className="text-fg-subtle">—</span> : <Money pence={pence} className="font-medium" />;
+  if (bal.loading) return <Skeleton className="h-4 w-16" />;
+  // A failed balance read must not mimic "no data" (#460) — offer
+  // a retry affordance rather than a silent em-dash.
+  if (bal.error && pence == null)
+    return <button type="button" onClick={bal.refetch}
+      className="text-[11.5px] font-medium text-negative underline underline-offset-2"
+      title={bal.error}>Retry</button>;
+  return pence == null ? <span className="text-fg-subtle">—</span> : <Money pence={pence} className="font-medium" />;
 }
 
 function AccountsWidget({ title }: { title: string }) {

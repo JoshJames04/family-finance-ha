@@ -187,16 +187,16 @@ export function Catalogue() {
       </Panel>
 
       <Card title="DataView states">
-        <DataView state={{ loading: true, error: null, data: null }} empty="unused">
+        <DataView state={{ loading: true, retrying: false, error: null, data: null, refetch: () => {} }} empty="unused">
           {() => null}
         </DataView>
-        <DataView state={{ loading: false, error: "Sync failed", data: null }} empty="unused">
+        <DataView state={{ loading: false, retrying: false, error: "Sync failed", data: null, refetch: () => {} }} empty="unused">
           {() => null}
         </DataView>
-        <DataView state={{ loading: false, error: null, data: [] }} empty="Nothing here yet">
+        <DataView state={{ loading: false, retrying: false, error: null, data: [], refetch: () => {} }} empty="Nothing here yet">
           {() => null}
         </DataView>
-        <DataView state={{ loading: false, error: null, data: ["row"] }} empty="unused">
+        <DataView state={{ loading: false, retrying: false, error: null, data: ["row"], refetch: () => {} }} empty="unused">
           {(d) => <p>data: {d.join(",")}</p>}
         </DataView>
       </Card>

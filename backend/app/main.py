@@ -153,12 +153,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             notification evaluate/dispatch/deliver. Deps resolve from
             app.state so tests inject fakes; a failing tick logs and
             sleeps, never kills the loop."""
+            import time
+            tele = app.state.telemetry
             while True:
                 await asyncio.sleep(settings.scheduler_tick_seconds)
+                started = time.monotonic()
                 try:
                     await asyncio.to_thread(_run_tick)
-                except Exception:
+                except Exception as exc:
                     log.exception("scheduler tick failed")
+                    tele.record_tick(
+                        (time.monotonic() - started) * 1000,
+                        str(exc)[:300])
+                else:
+                    tele.record_tick(
+                        (time.monotonic() - started) * 1000, None)
 
         sched = (asyncio.create_task(_scheduler_loop())
                  if settings.scheduler_tick_seconds > 0 else None)
@@ -173,6 +182,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Family Finance", version=__version__, lifespan=lifespan)
     app.state.settings = settings
+    from app.core.telemetry import RuntimeTelemetry
+    app.state.telemetry = RuntimeTelemetry()
     app.add_middleware(RequestIdMiddleware)
     from app.api.auth import auth_middleware
     from app.api.auth import router as auth_router

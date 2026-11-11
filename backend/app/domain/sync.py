@@ -169,7 +169,14 @@ def sync_account(
     cursor = cursor_for(session, account.id, source)
     run = SyncRun(account_id=account.id, source=source)
     session.add(run)
-    session.flush()
+    # Commit, not flush: WAL permits one writer at a time, and the
+    # page loop below holds network I/O inside the transaction —
+    # an uncommitted writer held across provider fetches stalls
+    # every other write request (busy_timeout) and, via the auth
+    # middleware's profile commit path, could freeze the event
+    # loop outright (#460). Each page commits as its own unit so
+    # the writer window stays milliseconds, not a sync's duration.
+    session.commit()
     cursor.status = SyncStatus.running
     cursor.error = None
     try:
@@ -182,7 +189,7 @@ def sync_account(
                 cursor.last_ref = page.items[-1].external_ref
             if page.items:
                 cursor.last_date = page.items[-1].date
-            session.flush()          # page checkpoint
+            session.commit()         # page checkpoint — writer released
         run.status = SyncStatus.completed
         cursor.status = SyncStatus.completed
         cursor.last_success_at = datetime.now()
@@ -209,7 +216,7 @@ def sync_account(
             "inserted": run.inserted, "deduped": run.deduped,
             "error": (run.error or "")[:200]},
         dedup_key=f"sync.run:{run.id}")
-    session.flush()
+    session.commit()
     return run
 
 

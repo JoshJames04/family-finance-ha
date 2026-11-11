@@ -82,6 +82,10 @@ def sync_tick(session: Session, *,
     ran = 0
     queued = {(c.account_id, c.source): c
               for c in syncdom.drain_due(session, now)}
+    # Release the writer before any provider I/O (#460): drain_due
+    # flipped cursor flags — holding that write open across Starling
+    # calls stalls every other writer to busy_timeout.
+    session.commit()
     mappings = session.scalars(select(BankAccountMapping).where(
         BankAccountMapping.status == MappingStatus.linked,
         BankAccountMapping.account_id.is_not(None),
@@ -116,6 +120,7 @@ def sync_tick(session: Session, *,
                 discdom.sync_balances(session, conn, client, token)
             except Exception as e:
                 conn.last_error = str(e)[:500]
+            session.commit()   # writer window ends before next I/O
             refreshed_conns.add(conn.id)
         if m.status is not MappingStatus.linked:
             continue   # discovery just closed/unlinked it provider-side
@@ -139,7 +144,7 @@ def sync_tick(session: Session, *,
         except Exception:
             log.exception(
                 "post-sync settlement failed for household %d", hid)
-    session.flush()
+        session.commit()   # keep each household's settle self-contained
     return ran
 
 
@@ -159,11 +164,15 @@ def notify_tick(session: Session, *,
             raised += notifydom.evaluate(session, r, at=now)
         except Exception:
             log.exception("notification rule %d evaluation failed", r.id)
+    # Evaluate/dispatch are pure compute — persist them before the
+    # delivery phase, which makes HA notify HTTP calls; each delivery
+    # commits as it lands so no writer spans the network (#460).
+    session.commit()
     delivered = 0
     for hid in household_ids:
         notifydom.dispatch(session, hid, now=now)
+        session.commit()
         if notifier is not None:
             delivered += deliverdom.deliver_pending(
                 session, hid, notifier, now=now).sent
-    session.flush()
     return raised, delivered

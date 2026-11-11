@@ -306,8 +306,10 @@ export function Transactions() {
         <DataView
           state={{
             loading: state.loading && page === 1,
+            retrying: state.retrying,
             error: state.error,
             data: state.data || items.length ? items : null,
+            refetch: state.refetch,
           }}
           empty={active ? "No transactions match these filters" : "No transactions recorded"}
           emptyDescription={active ? "Try a different search or clear the filters." : "Add one manually or connect a bank feed."}

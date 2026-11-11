@@ -89,6 +89,15 @@ def install_error_handlers(app: FastAPI) -> None:
         return problem(409, "Conflict with existing data")
 
     @app.exception_handler(Exception)
-    async def unhandled(_: Request, exc: Exception) -> JSONResponse:
+    async def unhandled(request: Request, exc: Exception) -> JSONResponse:
         log.exception("unhandled error")
+        tele = getattr(request.app.state, "telemetry", None)
+        if tele is not None:
+            tele.errors_5xx += 1
+            # SQLite busy/lock timeouts are the contention signal the
+            # diagnostics surface tracks — count them separately.
+            from sqlalchemy.exc import OperationalError
+            if isinstance(exc, OperationalError) and "locked" in str(
+                    exc).lower():
+                tele.db_locked_total += 1
         return problem(500, "Internal server error")

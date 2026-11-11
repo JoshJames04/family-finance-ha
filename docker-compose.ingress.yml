@@ -1,0 +1,67 @@
+# Ingress-faithful test stack (issue #460): the PRODUCTION image
+# behind a Supervisor-emulating proxy at the trusted ingress IP.
+#
+#   docker compose -f docker-compose.ingress.yml up --build
+#
+# The proxy serves the app under /api/hassio_ingress/e2e/ exactly as
+# HA ingress does, injects x-remote-user-* identity, and exposes
+# /__chaos fault-injection endpoints. The backend runs FF_INGRESS on
+# a dedicated network where the proxy holds 172.30.32.2 — the only
+# source the app's spoof check trusts, so this exercises the real
+# ingress auth path, not a bypass.
+#
+# Uses a dedicated volume — never touches the dev stack's real data.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      FF_ENV: prod
+      FF_DATA_DIR: /data
+      FF_HA_URL: http://ha-stub:8123
+      FF_SUPERVISOR_TOKEN: dev-supervisor-token
+      FF_ADMIN_TOKEN: dev-admin-token
+      FF_INGRESS: "true"
+      # Tight tick so sync/notify work overlaps test traffic.
+      FF_SCHEDULER_TICK_SECONDS: "2"
+      FF_BACKUP_INTERVAL_HOURS: "0"
+    volumes:
+      - ff460-data:/data
+      # Mount only the python package — mounting ./backend over /app
+      # would hide the production image's baked frontend at /app/web.
+      - ./backend/app:/app/app
+      - ./backend/migrations:/app/migrations
+    networks:
+      ingress-net:
+        ipv4_address: 172.30.32.3
+    depends_on:
+      - ha-stub
+
+  ha-stub:
+    build: dev/ha-stub
+    networks:
+      ingress-net:
+        ipv4_address: 172.30.32.4
+
+  ingress-proxy:
+    build: dev/ingress-proxy
+    environment:
+      UPSTREAM: http://backend:8099
+    ports:
+      - "8400:8400"
+    networks:
+      ingress-net:
+        ipv4_address: 172.30.32.2
+    depends_on:
+      - backend
+
+networks:
+  ingress-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.32.0/24
+
+volumes:
+  ff460-data:
