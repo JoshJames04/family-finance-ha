@@ -2,7 +2,7 @@
  * reading the read-model APIs — no bespoke data paths. New widgets
  * are added here only; the dashboard framework (order/hidden/layout
  * persistence) needs no change. `span` sets the desktop column width. */
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, CalendarDays, Lock,
@@ -15,6 +15,7 @@ import {
   pickBudgetFor, reportFigure, reportSectionTotal, useAccounts, useBudgetDetail,
   useBudgets, useCategories, useMonthlyReport, useProjection, useReady, useUpcoming,
 } from "../api/hooks";
+import { Select } from "../components/Field";
 import { DataView } from "../components/DataView";
 import { HeroMoney, Money } from "../components/Money";
 import { Panel } from "../components/Panel";
@@ -49,7 +50,9 @@ const viewAll = (to: string, label = "View all") => (
 /* ---------------- hero ---------------- */
 
 function SafeToSpendWidget({ title }: { title: string }) {
-  const projection = useProjection();
+  const accounts = useAccounts();
+  const [accountId, setAccountId] = useState<number | null>(null);
+  const projection = useProjection(accountId);
   const p = projection.data as Projection | null;
   const days = p?.next_payday ? Math.max(1, daysUntil(p.next_payday)) : null;
   return (
@@ -57,6 +60,13 @@ function SafeToSpendWidget({ title }: { title: string }) {
       <div aria-hidden className="pointer-events-none absolute -top-16 -right-16 size-64 rounded-full bg-white/10" />
       <div aria-hidden className="pointer-events-none absolute -right-4 -bottom-24 size-48 rounded-full bg-white/[0.06]" />
       <h2 className="relative text-[14px] font-medium text-white/85">{title}</h2>
+      {(accounts.data?.items.filter((a) => !a.archived).length ?? 0) > 1 && (
+        <Select aria-label="Safe to spend account" value={accountId ?? accounts.data?.items.find((a) => !a.archived)?.id ?? ""}
+          onChange={(e) => setAccountId(Number(e.target.value))} wrapperClassName="relative mt-2 max-w-64">
+          {accounts.data?.items.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </Select>
+      )}
+      {projection.accountName && <p className="relative mt-1 text-[13px] text-white/85">{projection.accountName}</p>}
       {projection.loading ? (
         <div className="relative mt-3 space-y-3" role="status" aria-label="Loading">
           <div className="h-12 w-56 animate-pulse rounded-lg bg-white/20" />
@@ -87,7 +97,7 @@ function SafeToSpendWidget({ title }: { title: string }) {
           <p className="relative mt-2.5 text-[14px] text-white/90">
             {days
               ? <>About <b className="tnum font-semibold">{formatPenceWhole(Math.floor(p.safe_to_spend_pence / days))} a day</b> for the next {days} day{days === 1 ? "" : "s"}</>
-              : <>Balance {formatPence(p.start_balance_pence)} · no payday scheduled yet</>}
+              : <>Balance {formatPence(p.start_balance_pence)} · No payday scheduled for {projection.accountName ?? "this account"}</>}
           </p>
           <div className="relative mt-auto flex flex-wrap gap-2 pt-5">
             {p.next_payday ? (
@@ -96,7 +106,7 @@ function SafeToSpendWidget({ title }: { title: string }) {
               </span>
             ) : (
               <Link to="/salary" className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white/95 px-3 text-[12.5px] font-semibold text-zinc-900">
-                <CalendarDays className="size-3.5" /> Set up payday
+                <CalendarDays className="size-3.5" /> Review salary settings
               </Link>
             )}
             <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-black/20 px-3 text-[12.5px] font-medium">
@@ -119,17 +129,18 @@ function SafeToSpendWidget({ title }: { title: string }) {
 function useCurrentBudget() {
   const budgets = useBudgets();
   const current = pickBudgetFor(budgets.data?.items ?? []);
-  const { detail, analyses } = useBudgetDetail(current?.id ?? null);
+  const { detail, actuals, analyses } = useBudgetDetail(current?.id ?? null);
   const expenseLines = (detail.data?.lines ?? []).filter((l) => l.side === "expense");
   const planned = expenseLines.reduce((s, l) => s + (analyses[String(l.id)]?.effective_pence ?? l.revised_pence ?? l.original_pence), 0);
   const spent = expenseLines.reduce((s, l) => s + Math.abs(analyses[String(l.id)]?.actual_pence ?? 0), 0);
-  return { budgets, current, detail, analyses, expenseLines, planned, spent };
+  const loading = budgets.loading || !!current && (detail.loading || actuals.loading);
+  const error = budgets.error ?? (current ? detail.error ?? actuals.error : null);
+  const refetch = () => { budgets.refetch(); if (current) { detail.refetch(); actuals.refetch(); } };
+  return { budgets, current, detail, actuals, analyses, expenseLines, planned, spent, loading, error, refetch };
 }
 
 function BudgetRingWidget({ title }: { title: string }) {
-  const { budgets, current, detail, planned, spent } = useCurrentBudget();
-  const loading = budgets.loading || detail.loading;
-  const failed = budgets.error ?? detail.error;
+  const { current, planned, spent, loading, error: failed, refetch } = useCurrentBudget();
   const ratio = planned > 0 ? spent / planned : 0;
   return (
     <Panel title={title} description={current ? formatMonthOf(current.start_date) : undefined} actions={viewAll("/budget", "Open")} className="h-full">
@@ -138,7 +149,7 @@ function BudgetRingWidget({ title }: { title: string }) {
       ) : failed ? (
         // API failure must not render "No budget covers this
         // month" — a real budget may exist (#460).
-        <ErrorState message={failed} onRetry={() => { budgets.refetch(); detail.refetch(); }} />
+        <ErrorState message={failed} onRetry={refetch} />
       ) : !current ? (
         <div className="py-6 text-center text-[13px] text-fg-subtle">No budget covers this month yet.</div>
       ) : (
@@ -171,23 +182,13 @@ function MonthKpisWidget({ title }: { title: string }) {
   const saved = reportFigure(r, "savings", "savings_pence");
   const delta = (cur?: number | null, prior?: number | null) =>
     cur != null && prior ? (cur - prior) / Math.abs(prior) : null;
-  const loading = report.loading;
-  const failed = report.error ?? subs.error;
   const cell = "rounded-xl border border-border bg-surface p-4 shadow-card";
   return (
     <section aria-label={title} className="h-full">
       <h2 className="sr-only">{title}</h2>
       <div className="grid h-full grid-cols-2 gap-3 lg:grid-cols-4">
-        {loading ? (
-          [0, 1, 2, 3].map((i) => <div key={i} className={cell}><Skeleton className="h-4 w-20" /><Skeleton className="mt-3 h-7 w-28" /></div>)
-        ) : failed && !r && subs.data == null ? (
-          // A failed report must never render as £0.00 income/spend —
-          // four honest error cells, each offering a retry (#460).
-          <div className={`${cell} col-span-2 lg:col-span-4`}>
-            <ErrorState message={failed} onRetry={() => { report.refetch(); subs.refetch(); }} />
-          </div>
-        ) : (
-          <>
+        <DataView state={report} empty="No monthly report" loading={<div className={cell}><Skeleton className="h-20" /></div>}>
+          {() => <>
             <Stat className={cell} label="Income this month" icon={ArrowDownLeft} iconClassName="bg-positive-soft text-positive"
               value={<Money pence={income?.amount_pence ?? 0} />}
               delta={delta(income?.amount_pence, income?.prior_amount_pence)} hint="vs last month" />
@@ -196,11 +197,12 @@ function MonthKpisWidget({ title }: { title: string }) {
             <Stat className={cell} label="Net saved" icon={PiggyBank} iconClassName="bg-accent-soft text-accent"
               value={<Money pence={saved?.amount_pence ?? 0} />}
               delta={delta(saved?.amount_pence, saved?.prior_amount_pence)} hint="vs last month" />
-            <Stat className={cell} label="Subscriptions" icon={Repeat} iconClassName="bg-warning-soft text-warning"
-              value={<Money pence={Math.round((subs.data?.total_annualised_pence ?? 0) / 12)} />}
-              hint="per month" />
-          </>
-        )}
+          </>}
+        </DataView>
+        <DataView state={subs} empty="No subscription report" loading={<div className={cell}><Skeleton className="h-20" /></div>}>
+          {() => <Stat className={cell} label="Subscriptions" icon={Repeat} iconClassName="bg-warning-soft text-warning"
+            value={<Money pence={Math.round((subs.data?.total_annualised_pence ?? 0) / 12)} />} hint="per month" />}
+        </DataView>
       </div>
     </section>
   );
@@ -213,7 +215,7 @@ function ForecastWidget({ title }: { title: string }) {
   return (
     <Panel
       title={title}
-      description={projection.data ? <>Lowest <Money pence={projection.data.min_balance_pence} className="font-medium text-fg" />{projection.data.min_balance_date ? ` on ${formatDayMonth(projection.data.min_balance_date)}` : ""}</> : undefined}
+      description={projection.data ? <>{projection.accountName} · Lowest <Money pence={projection.data.min_balance_pence} className="font-medium text-fg" />{projection.data.min_balance_date ? ` on ${formatDayMonth(projection.data.min_balance_date)}` : ""}</> : undefined}
       actions={viewAll("/forecast", "Details")}
       className="h-full"
     >
@@ -256,7 +258,7 @@ function UpcomingWidget({ title }: { title: string }) {
 /* ---------------- budget categories ---------------- */
 
 function BudgetCategoriesWidget({ title }: { title: string }) {
-  const { current, detail, analyses, expenseLines } = useCurrentBudget();
+  const { current, detail, actuals, analyses, expenseLines, loading, error, refetch } = useCurrentBudget();
   const cats = useCategories();
   const rows = expenseLines
     .map((l) => {
@@ -269,7 +271,7 @@ function BudgetCategoriesWidget({ title }: { title: string }) {
     .slice(0, 7);
   return (
     <Panel title={title} description={current ? formatMonthOf(current.start_date) : undefined} actions={viewAll("/budget")} flush className="h-full">
-      <DataView state={{ ...detail, data: current ? detail.data : null, loading: detail.loading || cats.loading }} empty="No budget for this month">
+      <DataView state={{ ...detail, data: current && actuals.data ? detail.data : null, loading: loading || !!current && cats.loading, error: error ?? cats.error, refetch: () => { refetch(); cats.refetch(); } }} empty="No budget for this month">
         {() => (
           <ul className="divide-y divide-border">
             {rows.map((r) => (

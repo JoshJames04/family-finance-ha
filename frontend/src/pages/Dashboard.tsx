@@ -2,7 +2,7 @@
  * Widget order/hidden persist per member via /profiles/me/dashboard;
  * standalone mode (no profile) falls back to localStorage. Widgets
  * come from the registry — unavailable ones degrade cleanly. */
-import { Component, useEffect, useState } from "react";
+import { Component, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowRight, ArrowUp, Eye, EyeOff, Inbox, Plus, SlidersHorizontal } from "lucide-react";
@@ -98,26 +98,24 @@ export function Dashboard() {
   const [customising, setCustomising] = useState(false);
   const [role, setRole] = useState<Role | null>(null);
 
+  const hydratedRemote = useRef(false);
+
   // Remote wins when a profile exists; standalone falls back to
   // localStorage (issue #123: per-member persistence, clean degrade).
-  // #414: a failed households probe leaves `ready` false forever —
-  // that's a standalone/no-profile signal, so hydrate from
-  // localStorage instead of leaving the dashboard permanently blank.
+  // Local layout is temporary during startup failure; the first recovered
+  // profile response restores both member layout and save permissions.
   useEffect(() => {
-    if (layout !== null) return;
-    if (households.error !== null) {
-      setLayout(loadLocal());
-      return;
+    if (remote.data !== null && !hydratedRemote.current) {
+      hydratedRemote.current = true;
+      setRole(remote.data.role ?? null);
+      const saved = remote.data.layout;
+      setLayout(normalise(saved
+        ? { order: saved.order ?? [], hidden: saved.hidden ?? [] }
+        : loadLocal()));
+    } else if (layout === null && (households.error || remote.error)) {
+      setLayout(normalise(loadLocal()));
     }
-    if (remote.loading || !ready) return;
-    if (remote.data === null && remote.error === null) return;
-    setRole(remote.data?.role ?? null);
-    const remoteLayout = remote.data?.layout;
-    setLayout(normalise(remoteLayout
-      ? { order: remoteLayout.order ?? [], hidden: remoteLayout.hidden ?? [] }
-      : loadLocal()));
-  }, [ready, remote.loading, remote.data, remote.error, layout,
-      households.error]);
+  }, [remote.data, remote.error, layout, households.error]);
 
   const save = (next: Layout) => {
     setLayout(next);

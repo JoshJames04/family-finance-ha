@@ -98,15 +98,15 @@ export function Transactions() {
         page,
         size: PAGE_SIZE,
       },
-    }),
+    }).then((response) => ({ ...response, requestedPage: page })),
     ready,
     [filters, rev, dataVersion, page],
   );
   useEffect(() => {
-    if (!state.data) return;
+    if (!state.data || state.data.requestedPage !== page) return;
     const next = state.data.items;
     setLoaded((prev) => (page === 1 ? next : [...prev, ...next]));
-  }, [state.data, page]);
+  }, [state.data]);
   useEffect(() => { setPage(1); }, [dataVersion]);
   const queue = useApi(
     () => api.get("/api/v1/reconcile/queue"), ready, [rev]);
@@ -480,8 +480,8 @@ export function Transactions() {
               {hasMore && (
                 <div className="flex items-center justify-center gap-3 border-t border-border p-3 text-[12.5px] text-fg-subtle">
                   Showing {items.length} of {total}
-                  <Button size="sm" variant="secondary" disabled={state.loading} onClick={() => setPage((p) => p + 1)}>
-                    {state.loading ? "Loading…" : "Load more"}
+                  <Button size="sm" variant="secondary" disabled={state.loading || state.retrying} onClick={() => setPage((p) => p + 1)}>
+                    {state.loading || state.retrying ? "Loading…" : "Load more"}
                   </Button>
                 </div>
               )}
