@@ -204,9 +204,9 @@ class TestEmploymentProjection:
             self, session: Session, household: Household) -> None:
         a = self._account(session, household)
         e = self._employment(session, household, a)
-        run = payrun.generate(
+        payrun.generate(
             session, e, start=date(2025, 3, 1), end=date(2025, 3, 31),
-            pay_date=date(2025, 3, 28))   # past run → estimate source
+            pay_date=date(2025, 3, 28))   # historical pay must not set future net
         n = schedule.rematerialize_employment(
             session, e, today=TODAY, horizon_days=60)
         rows = self._employment_rows(session)
