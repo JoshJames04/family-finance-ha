@@ -64,7 +64,7 @@ def _drop_future(session: Session, source: ExpectedSource,
             ExpectedMovement.expected_date >= today,
             # An explicit dismissal is a member decision, not stale salary.
             (ExpectedMovement.dismissed_at.is_(None)
-             if source is ExpectedSource.employment else true()),
+             if source in (ExpectedSource.employment, ExpectedSource.payroll_run) else true()),
             ExpectedMovement.id.not_in(
                 select(ExpectedMatch.movement_id))))
     return {(m.expected_date, m.account_id): m

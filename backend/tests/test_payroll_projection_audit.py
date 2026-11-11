@@ -450,3 +450,21 @@ def test_real_run_reuses_matched_employment_projection(session, household):
     assert rows[0].id == movement_id
     assert rows[0].source_id == correction.id
     assert match.movement_id == movement_id
+
+
+def test_dismissal_survives_real_run_supersession(session, household):
+    from datetime import datetime
+
+    e, _, _ = employment(session, household)
+    schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
+    movement = projected(session)[0]
+    movement.dismissed_at = datetime(2025, 4, 10)
+    session.flush()
+    run = payrun.generate(
+        session, e, start=date(2025, 4, 1), end=date(2025, 4, 30), pay_date=date(2025, 4, 28)
+    )
+    schedule.rematerialize_payroll_run(session, run, today=TODAY)
+    schedule.rematerialize_payroll_run(session, run, today=TODAY)
+    rows = list(session.scalars(select(ExpectedMovement)))
+    assert len(rows) == 1
+    assert rows[0].dismissed_at == datetime(2025, 4, 10)
