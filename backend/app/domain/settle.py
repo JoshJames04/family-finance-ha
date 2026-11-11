@@ -104,6 +104,10 @@ class PostSyncStats:
     scanned: int
     matched: int
     queued: int
+    categories_inherited: int
+    provider_mapped: int
+    rules_applied: int
+    rules_suggested: int
 
 
 def post_sync(session: Session, household_id: int, *,
@@ -131,6 +135,16 @@ def post_sync(session: Session, household_id: int, *,
         scanned += st.scanned
         matched += st.matched
         queued += st.queued
+    # Categorisation (issue #452): matches created above assert the
+    # transaction IS that commitment/subscription — inherit its
+    # category; then run enabled rules so learned/existing patterns
+    # apply or suggest on fresh ingest. Both only touch uncategorised
+    # rows, so the pass backfills history without churning user edits.
+    inherited = categorise.inherit_match_categories(
+        session, household_id)
+    provider_mapped = categorise.apply_provider_map(
+        session, household_id)
+    rules = categorise.apply_rules(session, household_id)
     # First-transition overdue events — dedup_key fires once per
     # movement no matter how often the pass re-runs (issue #437).
     for item in contributions.outstanding(
@@ -151,4 +165,8 @@ def post_sync(session: Session, household_id: int, *,
     return PostSyncStats(
         transfer_pairs=pairs, refund_links=refunds,
         transfer_matches=transfer_matches, scanned=scanned,
-        matched=matched, queued=queued)
+        matched=matched, queued=queued,
+        categories_inherited=inherited,
+        provider_mapped=provider_mapped,
+        rules_applied=rules.auto_applied,
+        rules_suggested=rules.suggested)

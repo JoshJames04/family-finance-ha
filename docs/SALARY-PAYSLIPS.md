@@ -7,6 +7,12 @@ the previous Friday when they fall at a weekend. Named weekdays are exact
 named weekdays, weekly rules run on the configured weekday, and nightly
 piecework requires logged work dates.
 
+Each employment names the account net pay lands in (`Paid into`). Paydays are
+projected from the rule to the forecast horizon as estimated income — real
+payroll runs own their dates, so a generated or reconciled run replaces the
+projection seamlessly. Without a paid-into account the projection is silent:
+income has nowhere to land.
+
 Year preparation is available from Settings. It is confirmation-gated and
 idempotent. A nightly PAYE employment is rejected until it is configured for
 weekly aggregation; gross-only is an explicit cash-in-hand mode and is not a

@@ -52,7 +52,7 @@ extractable later if ever needed.
 | `domain.subscriptions` | Recurring detection, renewals, price changes |
 | `integrations.starling` | Token vault, sync, matching (isolated adapter) |
 | `integrations.ha_energy` | Tariffs, consumption → cost estimation |
-| `import.excel` | Workbook reader → staging → validated import → reconciliation |
+| `import.statement` | Statement file → staging → validated import → reconciliation |
 | `jobs` | Scheduler, sync jobs, notification jobs, maintenance |
 | `notifications` | Rules engine → HA notify targets |
 | `persistence` | SQLAlchemy/SQLModel models, Alembic migrations |

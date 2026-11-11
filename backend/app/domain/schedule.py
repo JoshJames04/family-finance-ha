@@ -10,16 +10,18 @@ and never rewrites history.
 
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.domain import goals, payroll_totals, transfer_rules
+from app.domain import goals, pay_calendar, paydays, payroll_totals, payrun, transfer_rules
 from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
     AmountKind,
     Confidence,
+    Employment,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
@@ -139,13 +141,109 @@ def rematerialize_payroll_run(
     if amount is None:   # unreachable: reconciled ⇒ actual is set
         amount = run.net_pence
     _upsert(
-        session, survivors, run.employment.household_id, account_id=None,
+        session, survivors, run.employment.household_id,
+        account_id=run.employment.paid_into_account_id,
         expected_date=run.pay_date, amount_pence=amount,
         label=f"Salary — {run.employment.employer}",
         confidence=confidence, source=ExpectedSource.payroll_run,
         source_id=run.id)
     session.flush()
     return 1
+
+
+def _employment_net_estimate(session: Session,
+                             employment: Employment,
+                             pay: date) -> int | None:
+    """Net-pay estimate for a projected payday (issue #454).
+
+    Latest non-corrected run's net is the best estimate — it already
+    carries the member's real deduction profile. With no runs at all,
+    compute a standalone month through the tax engine (mid-year
+    cumulative-averaging proxy); ``None`` when neither is possible —
+    an absent estimate is honest, a wrong one isn't."""
+    last = session.scalar(
+        select(PayrollRun).where(
+            PayrollRun.employment_id == employment.id,
+            PayrollRun.status != PayrollRunStatus.corrected)
+        .order_by(PayrollRun.pay_date.desc(),
+                  PayrollRun.id.desc()).limit(1))
+    if last is not None:
+        return last.net_pence
+    try:
+        from app.domain import payroll as dom
+        from app.domain import tax
+        annual = dom.salary_at(session, employment.id, pay)
+        if employment.deduction_mode == "gross_only":
+            return annual // 12
+        rules = tax.rule_set(
+            session, tax.tax_year_for(pay), employment.jurisdiction)
+        ded = tax.compute_period(
+            gross_pence=annual // 12,
+            tax_code=dom.tax_code_at(session, employment.id, pay),
+            params=json.loads(rules.params), period=6,
+            periods_per_year=12, ytd_taxable_gross_pence=0,
+            ytd_tax_pence=0, ni_category=employment.ni_category,
+            student_loan_plan=employment.student_loan_plan.value,
+            pension_mode=employment.pension_mode,
+            pension_pence=payrun.pension_pence_for(
+                employment, annual // 12))
+        return ded.net_pence
+    except Exception:
+        return None
+
+
+def rematerialize_employment(
+    session: Session, employment: Employment, *,
+    today: date | None = None, horizon_days: int = DEFAULT_HORIZON_DAYS,
+) -> int:
+    """Projected paydays from the employment's payday rule (issue #454).
+
+    Real runs own their dates — projected rows only fill paydays no
+    generated/reconciled run covers, so generating a run replaces the
+    estimate seamlessly. Requires ``paid_into_account_id``; without it
+    income has no account to land in and nothing is emitted."""
+    today = today or date.today()
+    survivors = _drop_future(
+        session, ExpectedSource.employment, employment.id, today)
+    if not employment.is_active \
+            or employment.paid_into_account_id is None \
+            or employment.payday_rule is None:
+        session.flush()
+        return 0
+    try:
+        rule = pay_calendar.parse_rule(employment.payday_rule)
+    except (ValueError, KeyError, TypeError):
+        session.flush()
+        return 0
+    horizon = today + timedelta(days=horizon_days)
+    covered = {r.pay_date for r in session.scalars(
+        select(PayrollRun).where(
+            PayrollRun.employment_id == employment.id,
+            PayrollRun.pay_date >= today,
+            PayrollRun.status != PayrollRunStatus.corrected))}
+    end = employment.end_date or horizon
+    estimate = _employment_net_estimate(session, employment, today)
+    if estimate is None:
+        session.flush()
+        return 0
+    n = 0
+    d = today - timedelta(days=1)
+    while True:
+        d = paydays.next_payday(rule, d)
+        if d > min(horizon, end):
+            break
+        if d in covered:
+            continue
+        _upsert(session, survivors, employment.household_id,
+                account_id=employment.paid_into_account_id,
+                expected_date=d, amount_pence=estimate,
+                label=f"Salary — {employment.employer}",
+                confidence=Confidence.estimated,
+                source=ExpectedSource.employment,
+                source_id=employment.id)
+        n += 1
+    session.flush()
+    return n
 
 
 def rematerialize_transfer_rule(
@@ -278,6 +376,13 @@ def materialize_all(
                 PayrollRun.employment.has(household_id=household.id))
     ).scalars().all():
         n += rematerialize_payroll_run(session, r, today=today)
+    for e in session.execute(
+            select(Employment).where(
+                Employment.household_id == household.id,
+                Employment.is_active.is_(True))
+    ).scalars().all():
+        n += rematerialize_employment(session, e, today=today,
+                                      horizon_days=horizon_days)
     for rule in session.execute(
             select(TransferRule).where(
                 TransferRule.household_id == household.id,

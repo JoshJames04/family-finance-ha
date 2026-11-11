@@ -130,7 +130,9 @@ def _next_payday(session: Session, account_id: int, today: date,
     return session.execute(
         select(func.min(ExpectedMovement.expected_date))
         .where(ExpectedMovement.account_id == account_id,
-               ExpectedMovement.source_type == ExpectedSource.payroll_run,
+               ExpectedMovement.source_type.in_(
+                   [ExpectedSource.payroll_run,
+                    ExpectedSource.employment]),
                ExpectedMovement.amount_pence > 0,
                ExpectedMovement.expected_date > today,
                ExpectedMovement.expected_date <= horizon_end,

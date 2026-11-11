@@ -62,6 +62,7 @@ class FeedItem:
     amount_pence: int
     payee: str
     status: TransactionStatus | None = None
+    provider_category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,7 +136,8 @@ def _ingest_item(session: Session, account: Account,
         account_id=account.id, date=item.date,
         amount_pence=item.amount_pence, payee=item.payee,
         status=item.status or TransactionStatus.cleared,
-        source=source, external_ref=item.external_ref)
+        source=source, external_ref=item.external_ref,
+        provider_category=item.provider_category)
     session.add(txn)
     session.flush()
     outbox.emit(

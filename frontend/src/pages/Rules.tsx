@@ -23,6 +23,7 @@ import { cn } from "../lib/cn";
 
 type Rule = components["schemas"]["CategorisationRuleOut"];
 type Category = components["schemas"]["CategoryOut"];
+type ObservedProvider = components["schemas"]["ObservedProviderCategoryOut"];
 
 const MATCH_LABEL: Record<string, string> = {
   contains: "contains", exact: "exact", regex: "regex",
@@ -168,6 +169,10 @@ export function Rules() {
         )}
       </DataView>
 
+      <ProviderCategories
+        categories={[...categories.byId.values()].sort((a, b) => a.name.localeCompare(b.name))}
+        onChanged={refresh} />
+
       {adding && (
         <RuleDialog
           categories={[...categories.byId.values()].sort((a, b) => a.name.localeCompare(b.name))}
@@ -176,6 +181,91 @@ export function Rules() {
         />
       )}
     </div>
+  );
+}
+
+/** Bank-supplied categories (e.g. Starling spendingCategory) mapped
+ * to household categories — each observed enum gets one dropdown;
+ * the mapping auto-applies to every future ingest (issue #453). */
+function ProviderCategories({ categories, onChanged }: {
+  categories: Category[];
+  onChanged: () => void;
+}) {
+  const ready = useReady();
+  const [rev, setRev] = useState(0);
+  const observed = useApi(
+    () => api.get("/api/v1/categorisation/provider-categories"),
+    ready, [rev]);
+  const [draft, setDraft] = useState<Record<string, number | null>>({});
+  const [busy, setBusy] = useState(false);
+  const rows = Array.isArray(observed.data) ? observed.data : [];
+  const effective = (r: ObservedProvider) =>
+    draft[`${r.provider}|${r.provider_category}`] !== undefined
+      ? draft[`${r.provider}|${r.provider_category}`]
+      : r.mapped_category_id;
+  const save = () => {
+    setBusy(true);
+    api.put("/api/v1/categorisation/provider-categories", {
+      body: rows
+        .map((r) => ({
+          provider: r.provider, provider_category: r.provider_category,
+          category_id: effective(r) ?? 0,
+        }))
+        .filter((e) => e.category_id !== 0),
+    }).then((saved) => {
+      toast.success(`Saved ${saved.length} mappings`);
+      setDraft({});
+      setRev((r) => r + 1);
+      onChanged();
+    }).catch((e: Error) => toast.error(e.message))
+      .finally(() => setBusy(false));
+  };
+  if (!observed.loading && rows.length === 0) return null;
+  return (
+    <section className="mt-6 rounded-xl border border-border bg-surface">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold">Bank categories</p>
+          <p className="text-[12.5px] text-fg-subtle">
+            Map each category your bank sends to one of yours — applied to every transaction as it syncs.
+          </p>
+        </div>
+        <Button variant="primary" size="sm" onClick={save}
+          disabled={busy || Object.keys(draft).length === 0}>
+          {busy ? "Saving…" : "Save mappings"}
+        </Button>
+      </div>
+      <ul className="divide-y divide-border">
+        {rows.map((r) => {
+          const key = `${r.provider}|${r.provider_category}`;
+          const val = effective(r);
+          return (
+            <li key={key} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13.5px] font-medium">
+                  {r.provider_category.replace(/_/g, " ").toLowerCase()}
+                </p>
+                <p className="text-[12px] text-fg-subtle">
+                  {r.provider} · {r.transaction_count} transaction{r.transaction_count === 1 ? "" : "s"}
+                </p>
+              </div>
+              <Select aria-label={`Category for ${r.provider_category}`}
+                className="w-56"
+                value={val != null ? String(val) : ""}
+                onChange={(e) => setDraft((d) => ({
+                  ...d,
+                  [key]: e.target.value ? Number(e.target.value) : null,
+                }))}>
+                <option value="">Unmapped</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </Select>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

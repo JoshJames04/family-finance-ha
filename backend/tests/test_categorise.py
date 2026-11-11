@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
@@ -21,10 +22,18 @@ from app.persistence.models import (
     Account,
     CategorisationRule,
     Category,
+    Confidence,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
+    Frequency,
     Household,
     MatchType,
+    ProviderCategoryMap,
+    RecurringCommitment,
     RuleSource,
     Transaction,
+    TransactionSource,
     TransactionStatus,
 )
 
@@ -238,3 +247,194 @@ class TestApi:
                            headers=h).json()
         learned = [r for r in rules if r["source"] == "learned"]
         assert learned and learned[0]["times_confirmed"] >= 1
+
+
+def _movement(session: Session, household: Household, a: Account, *,
+              on: date, pence: int = -1599,
+              source: ExpectedSource = ExpectedSource.commitment,
+              source_id: int = 1) -> ExpectedMovement:
+    m = ExpectedMovement(
+        household_id=household.id, account_id=a.id,
+        expected_date=on, amount_pence=pence, label="mv",
+        confidence=Confidence.scheduled,
+        source_type=source, source_id=source_id)
+    session.add(m)
+    session.flush()
+    return m
+
+
+class TestMatchInherit:
+    """Issue #452 — a matched tx inherits its source's category
+    (issue #453: and teaches the rules engine the association)."""
+
+    def _commitment(self, session: Session, household: Household,
+                    a: Account, category_id: int | None
+                    ) -> RecurringCommitment:
+        c = RecurringCommitment(
+            household_id=household.id, name="Welsh Water",
+            account_id=a.id, amount_pence=-4_500,
+            frequency=Frequency.monthly,
+            next_date=date(2025, 4, 11), category_id=category_id)
+        session.add(c)
+        session.flush()
+        return c
+
+    def _match(self, session: Session, mv: ExpectedMovement,
+               tx: Transaction) -> None:
+        session.add(ExpectedMatch(
+            movement_id=mv.id, transaction_id=tx.id,
+            matched_pence=abs(mv.amount_pence), manual=False))
+        session.flush()
+
+    def test_match_inherits_and_learns(
+            self, session: Session, household: Household,
+            account: Account, cats: dict[str, int]) -> None:
+        c = self._commitment(session, household, account,
+                             cats["Groceries"])
+        mv = _movement(session, household, account,
+                       on=date(2025, 4, 11), source_id=c.id)
+        tx = _txn(session, account, "DWR CYMRU", -4_500)
+        self._match(session, mv, tx)
+        n = categorise.inherit_match_categories(session, household.id)
+        assert n == 1
+        assert tx.category_id == cats["Groceries"]
+        rule = session.scalar(
+            select(CategorisationRule).where(
+                CategorisationRule.pattern == "DWR CYMRU"))
+        assert rule is not None
+        assert rule.source is RuleSource.learned
+        assert rule.category_id == cats["Groceries"]
+
+    def test_user_category_preserved(
+            self, session: Session, household: Household,
+            account: Account, cats: dict[str, int]) -> None:
+        c = self._commitment(session, household, account,
+                             cats["Groceries"])
+        mv = _movement(session, household, account,
+                       on=date(2025, 4, 11), source_id=c.id)
+        tx = _txn(session, account, "DWR CYMRU", -4_500,
+                  category_id=cats["Fuel"])
+        self._match(session, mv, tx)
+        n = categorise.inherit_match_categories(session, household.id)
+        assert n == 0
+        assert tx.category_id == cats["Fuel"]
+
+    def test_source_without_category_skips(
+            self, session: Session, household: Household,
+            account: Account, cats: dict[str, int]) -> None:
+        c = self._commitment(session, household, account, None)
+        mv = _movement(session, household, account,
+                       on=date(2025, 4, 11), source_id=c.id)
+        tx = _txn(session, account, "DWR CYMRU", -4_500)
+        self._match(session, mv, tx)
+        n = categorise.inherit_match_categories(session, household.id)
+        assert n == 0 and tx.category_id is None
+
+    def test_idempotent(self, session: Session, household: Household,
+                        account: Account, cats: dict[str, int]) -> None:
+        c = self._commitment(session, household, account,
+                             cats["Groceries"])
+        mv = _movement(session, household, account,
+                       on=date(2025, 4, 11), source_id=c.id)
+        tx = _txn(session, account, "DWR CYMRU", -4_500)
+        self._match(session, mv, tx)
+        categorise.inherit_match_categories(session, household.id)
+        assert categorise.inherit_match_categories(
+            session, household.id) == 0
+
+
+class TestProviderMap:
+    """Issue #453 — provider-enum → household category map."""
+
+    def _feed_txn(self, session: Session, a: Account, *,
+                  provider_cat: str | None = "GROCERIES"
+                  ) -> Transaction:
+        t = Transaction(
+            account_id=a.id, date=date(2025, 4, 10),
+            amount_pence=-3_000, payee="TESCO",
+            status=TransactionStatus.cleared,
+            source=TransactionSource.starling,
+            provider_category=provider_cat)
+        session.add(t)
+        session.flush()
+        return t
+
+    def test_map_applies(self, session: Session,
+                         household: Household, account: Account,
+                         cats: dict[str, int]) -> None:
+        session.add(ProviderCategoryMap(
+            household_id=household.id, provider="starling",
+            provider_category="GROCERIES",
+            category_id=cats["Groceries"]))
+        session.flush()
+        tx = self._feed_txn(session, account)
+        n = categorise.apply_provider_map(session, household.id)
+        assert n == 1 and tx.category_id == cats["Groceries"]
+
+    def test_unmapped_name_match_suggests(
+            self, session: Session, household: Household,
+            account: Account, cats: dict[str, int]) -> None:
+        tx = self._feed_txn(session, account, provider_cat="GROCERIES")
+        n = categorise.apply_provider_map(session, household.id)
+        assert n == 0
+        assert tx.category_id is None
+        assert tx.suggested_category_id == cats["Groceries"]
+
+    def test_unmapped_no_name_match_leaves(
+            self, session: Session, household: Household,
+            account: Account, cats: dict[str, int]) -> None:
+        tx = self._feed_txn(session, account, provider_cat="SPACE")
+        n = categorise.apply_provider_map(session, household.id)
+        assert n == 0
+        assert tx.category_id is None
+        assert tx.suggested_category_id is None
+
+    def test_no_provider_category_noop(
+            self, session: Session, household: Household,
+            account: Account, cats: dict[str, int]) -> None:
+        tx = self._feed_txn(session, account, provider_cat=None)
+        n = categorise.apply_provider_map(session, household.id)
+        assert n == 0 and tx.category_id is None
+
+
+class TestProviderCategoriesApi:
+    @pytest.fixture()
+    def client(self, tmp_path: Path) -> Iterator[TestClient]:
+        with TestClient(create_app(
+                Settings.load({"FF_DATA_DIR": str(tmp_path)}))) as c:
+            yield c
+
+    def test_observed_and_put(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        client.post("/api/v1/accounts", json={
+            "name": "Current", "type": "personal",
+            "opening_balance": 100_000,
+            "opening_date": "2025-01-01"}, headers=h)
+        cid = client.post("/api/v1/categories",
+                          json={"name": "Groceries"},
+                          headers=h).json()["id"]
+        r = client.put(
+            "/api/v1/categorisation/provider-categories",
+            json=[{"provider": "starling",
+                   "provider_category": "GROCERIES",
+                   "category_id": cid}], headers=h)
+        assert r.status_code == 200
+        assert r.json()[0]["provider_category"] == "GROCERIES"
+        rows = client.get(
+            "/api/v1/categorisation/provider-categories",
+            headers=h).json()
+        assert rows == []
+
+    def test_put_validates_category(self, client: TestClient) -> None:
+        hid = client.post("/api/v1/households",
+                          json={"name": "H"}).json()["id"]
+        h = {"X-Household-Id": str(hid)}
+        r = client.put(
+            "/api/v1/categorisation/provider-categories",
+            json=[{"provider": "starling",
+                   "provider_category": "GROCERIES",
+                   "category_id": 9999}], headers=h)
+        assert r.status_code == 422
+
