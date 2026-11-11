@@ -536,8 +536,9 @@ def test_expected_selected_budget_filters_other_owner(review_client):
     assert [row["label"] for row in rows] == ["Owner"]
 
 
+@pytest.mark.parametrize("payments", [(5000, 5000), (4000, 20000)])
 def test_subscription_partial_payment_keeps_head_and_records_total_on_completion(
-    session, household
+    session, household, payments
 ):
     from app.persistence.models import Subscription
 
@@ -567,11 +568,11 @@ def test_subscription_partial_payment_keeps_head_and_records_total_on_completion
     )
     session.add(movement)
     session.flush()
-    for index in range(2):
+    for index, payment in enumerate(payments):
         txn = Transaction(
             account_id=account.id,
             date=due,
-            amount_pence=-5000,
+            amount_pence=-payment,
             payee="Synthetic",
             source=TransactionSource.manual,
             status=TransactionStatus.cleared,

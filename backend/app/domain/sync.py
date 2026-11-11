@@ -180,6 +180,7 @@ def sync_account(
     cursor.status = SyncStatus.running
     cursor.error = None
     session.commit()
+    unexpected_error: Exception | None = None
     try:
         for page in fetch(cursor):
             for item in page.items:
@@ -207,6 +208,14 @@ def sync_account(
         run.error = str(e)[:500]
         cursor.status = SyncStatus.failed
         cursor.error = str(e)[:500]
+    except Exception as e:
+        # Discard an incomplete page, including flushed rows and counters.
+        # The run and previous page checkpoints were already committed.
+        session.rollback()
+        run.status = SyncStatus.failed
+        cursor.status = SyncStatus.failed
+        run.error = cursor.error = "unexpected sync failure"
+        unexpected_error = e
     run.finished_at = datetime.now()
     outbox.emit(
         session, account.household_id,
@@ -218,6 +227,8 @@ def sync_account(
             "error": (run.error or "")[:200]},
         dedup_key=f"sync.run:{run.id}")
     session.commit()
+    if unexpected_error is not None:
+        raise unexpected_error
     return run
 
 

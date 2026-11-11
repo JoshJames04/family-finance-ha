@@ -145,6 +145,9 @@ def rematerialize_payroll_run(
     # The same applies to a correction replacing a matched prior run.
     superseded = list(session.scalars(select(ExpectedMovement).where(
         ExpectedMovement.expected_date == run.pay_date,
+        # A destination change must not move settled/dismissed history or
+        # saved scenario references from the previous account.
+        ExpectedMovement.account_id == run.employment.paid_into_account_id,
         ((ExpectedMovement.source_type == ExpectedSource.employment)
          & (ExpectedMovement.source_id == run.employment_id))
         | ((ExpectedMovement.source_type == ExpectedSource.payroll_run)

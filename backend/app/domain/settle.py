@@ -94,7 +94,7 @@ def settle_occurrence(
                 and sub.next_renewal_date == movement.expected_date):
             subscriptions.record_price(
                 session, sub, txn.date,
-                abs(movement.amount_pence) - outstanding + abs(txn.amount_pence),
+                abs(movement.amount_pence) - outstanding + match.matched_pence,
                 transaction_id=txn.id)
             schedule.rematerialize_subscription(session, sub)
     return match
