@@ -77,6 +77,35 @@ class TestExactDedup:
         assert r2.deduped == 3
         assert _count(session, account) == 3
 
+    def test_dedup_backfills_provider_category(
+            self, session: Session, household: Household,
+            account: Account) -> None:
+        """Issue #453 — rows ingested before provider categories were
+        captured backfill on feed redelivery; a later enum change is
+        provider-owned and refreshes too."""
+        bare = sync_domain.FeedItem("r1", date(2025, 4, 10), -1_000, "Shop")
+        sync_domain.sync_account(
+            session, account, SRC, lambda c: _feed(bare))
+        txn = session.scalar(select(Transaction))
+        assert txn is not None and txn.provider_category is None
+
+        tagged = sync_domain.FeedItem(
+            "r1", date(2025, 4, 10), -1_000, "Shop",
+            provider_category="GROCERIES")
+        r2 = sync_domain.sync_account(
+            session, account, SRC, lambda c: _feed(tagged))
+        assert r2.deduped == 1
+        session.refresh(txn)
+        assert txn.provider_category == "GROCERIES"
+
+        retagged = sync_domain.FeedItem(
+            "r1", date(2025, 4, 10), -1_000, "Shop",
+            provider_category="EATING_OUT")
+        sync_domain.sync_account(
+            session, account, SRC, lambda c: _feed(retagged))
+        session.refresh(txn)
+        assert txn.provider_category == "EATING_OUT"
+
 
 class TestFuzzyOverlap:
     def test_imported_history_becomes_candidate(

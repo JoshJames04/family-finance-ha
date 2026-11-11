@@ -28,8 +28,15 @@ from app.domain.refunds import link_refund, refundable_balance
 from app.persistence.models import (
     Account,
     CategorisationRule,
+    Category,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
     MatchType,
+    ProviderCategoryMap,
+    RecurringCommitment,
     RuleSource,
+    Subscription,
     Transaction,
     TransactionStatus,
     Transfer,
@@ -94,6 +101,95 @@ def apply_rules(session: Session, household_id: int,
             suggested += 1
     session.flush()
     return ApplyResult(applied, suggested, unmatched)
+
+
+_MATCH_CATEGORY_SOURCES = {
+    ExpectedSource.commitment: RecurringCommitment,
+    ExpectedSource.subscription: Subscription,
+}
+
+
+def inherit_match_categories(session: Session, household_id: int
+                             ) -> int:
+    """Copy the matched source's category onto uncategorised
+    transactions (issue #452).
+
+    An ExpectedMatch already asserts the transaction *is* that
+    commitment/subscription occurrence — inheriting its category is a
+    consequence of the match, not a silent guess (which is why this
+    sets ``category_id`` where rules may only suggest). Covers both
+    manual and scored-auto matches: the reconcile scorer never
+    auto-accepts an ambiguous match. Idempotent — it only touches
+    ``category_id IS NULL`` rows, so it backfills history on every
+    post-sync pass without churning user-set categories."""
+    n = 0
+    rows = session.execute(
+        select(ExpectedMatch, ExpectedMovement, Transaction)
+        .join(ExpectedMovement,
+              ExpectedMatch.movement_id == ExpectedMovement.id)
+        .join(Transaction,
+              ExpectedMatch.transaction_id == Transaction.id)
+        .join(Account, Transaction.account_id == Account.id)
+        .where(Account.household_id == household_id,
+               Transaction.category_id.is_(None))).all()
+    for _match, mv, tx in rows:
+        model = _MATCH_CATEGORY_SOURCES.get(mv.source_type)
+        if model is None:
+            continue
+        src = session.get(model, mv.source_id)
+        cid = getattr(src, "category_id", None) if src else None
+        if cid is not None:
+            tx.category_id = cid
+            n += 1
+            # Teach the association (issue #453): a tx that IS a known
+            # bill occurrence earns a payee→category rule so future
+            # payments from the same payee at least arrive suggested,
+            # even if amount/date drift breaks the reconcile match.
+            learn(session, household_id, tx.payee, cid)
+    session.flush()
+    return n
+
+
+def apply_provider_map(session: Session, household_id: int) -> int:
+    """Provider-enum → household category, user-authored at Settings
+    (issue #453). Auto-applies to uncategorised transactions carrying
+    ``provider_category`` — an explicit mapping is user intent, not a
+    silent guess. Unmapped enums fall back to a name-match suggestion
+    ("BILLS_AND_SERVICES" → a category named "Bills and services")
+    rather than a real categorisation."""
+    cat_by_norm: dict[str, int] = {}
+    for cid, name in session.execute(
+            select(Category.id, Category.name)
+            .where(Category.household_id == household_id)):
+        cat_by_norm.setdefault(re.sub(r"[^a-z0-9]+", " ",
+                               name.casefold()).strip(), cid)
+    mapping = {(m.provider, m.provider_category): m.category_id
+               for m in session.scalars(
+                   select(ProviderCategoryMap).where(
+                       ProviderCategoryMap.household_id == household_id))}
+    applied = 0
+    rows = session.scalars(
+        select(Transaction)
+        .join(Account, Transaction.account_id == Account.id)
+        .where(Account.household_id == household_id,
+               Transaction.category_id.is_(None),
+               Transaction.provider_category.isnot(None),
+               Transaction.status != TransactionStatus.void))
+    for tx in rows:
+        pc = tx.provider_category
+        if pc is None:
+            continue
+        mapped = mapping.get((tx.source.value, pc))
+        if mapped is not None:
+            tx.category_id = mapped
+            applied += 1
+        elif tx.suggested_category_id is None:
+            guess = cat_by_norm.get(re.sub(
+                r"[^a-z0-9]+", " ", pc.casefold()).strip())
+            if guess is not None:
+                tx.suggested_category_id = guess
+    session.flush()
+    return applied
 
 
 def learn(session: Session, household_id: int, payee: str,

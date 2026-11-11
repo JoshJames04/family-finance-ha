@@ -2910,6 +2910,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/categorisation/provider-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Provider Categories
+         * @description Every provider enum the feed has delivered + its mapping —
+         *     the Settings screen renders one row per observed value so the
+         *     user maps each enum to one of THEIR categories once (issue #453).
+         */
+        get: operations["list_provider_categories_api_v1_categorisation_provider_categories_get"];
+        /**
+         * Replace Provider Categories
+         * @description Replace the household's provider-category map (issue #453), then
+         *     re-apply it so uncategorised transactions pick up the new mapping
+         *     immediately. Rows already categorised keep their value — the map
+         *     only ever fills ``category_id IS NULL``.
+         */
+        put: operations["replace_provider_categories_api_v1_categorisation_provider_categories_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/categorisation/auto-refund": {
         parameters: {
             query?: never;
@@ -4734,6 +4763,8 @@ export interface components {
             contracted_hours: number | string;
             /** Payday Rule */
             payday_rule?: string | null;
+            /** Paid Into Account Id */
+            paid_into_account_id?: number | null;
             /** Overtime Multipliers */
             overtime_multipliers?: {
                 [key: string]: number;
@@ -4807,6 +4838,8 @@ export interface components {
             contracted_hours: string;
             /** Payday Rule */
             payday_rule: string | null;
+            /** Paid Into Account Id */
+            paid_into_account_id: number | null;
             pension_mode: components["schemas"]["PensionMode"];
             /** Pension Employee Bps */
             pension_employee_bps: number;
@@ -4839,6 +4872,8 @@ export interface components {
             contracted_hours?: number | string | null;
             /** Payday Rule */
             payday_rule?: string | null;
+            /** Paid Into Account Id */
+            paid_into_account_id?: number | null;
             /** Overtime Multipliers */
             overtime_multipliers?: {
                 [key: string]: number;
@@ -5124,7 +5159,7 @@ export interface components {
          * ExpectedSource
          * @enum {string}
          */
-        ExpectedSource: "commitment" | "payroll_run" | "transfer_rule" | "savings_goal" | "subscription" | "manual";
+        ExpectedSource: "commitment" | "payroll_run" | "transfer_rule" | "savings_goal" | "subscription" | "employment" | "manual";
         /** FixedSpecIn */
         FixedSpecIn: {
             /**
@@ -5631,6 +5666,17 @@ export interface components {
             service: string | null;
             /** Privacy Safe */
             privacy_safe: boolean;
+        };
+        /** ObservedProviderCategoryOut */
+        ObservedProviderCategoryOut: {
+            /** Provider */
+            provider: string;
+            /** Provider Category */
+            provider_category: string;
+            /** Transaction Count */
+            transaction_count: number;
+            /** Mapped Category Id */
+            mapped_category_id: number | null;
         };
         /** OutstandingItemOut */
         OutstandingItemOut: {
@@ -6259,6 +6305,29 @@ export interface components {
             below_threshold: boolean;
             /** Days */
             days: components["schemas"]["ProjectionDayOut"][];
+        };
+        /** ProviderCategoryMapIn */
+        ProviderCategoryMapIn: {
+            /**
+             * Provider
+             * @default starling
+             */
+            provider: string;
+            /** Provider Category */
+            provider_category: string;
+            /** Category Id */
+            category_id: number;
+        };
+        /** ProviderCategoryMapOut */
+        ProviderCategoryMapOut: {
+            /** Id */
+            id: number;
+            /** Provider */
+            provider: string;
+            /** Provider Category */
+            provider_category: string;
+            /** Category Id */
+            category_id: number;
         };
         /**
          * PurchaseStatus
@@ -14364,6 +14433,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PairRefundOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_provider_categories_api_v1_categorisation_provider_categories_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedProviderCategoryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_provider_categories_api_v1_categorisation_provider_categories_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderCategoryMapIn"][];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderCategoryMapOut"][];
                 };
             };
             /** @description Validation Error */

@@ -11,6 +11,30 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+### Added
+
+- **Bank-category mapping** — a household-owned map from each provider
+  category (e.g. Starling `spendingCategory`) to a household category,
+  edited on the Rules page and auto-applied to every synced transaction
+  (issue #453). Provider labels are retained on transactions for
+  remapping; unmapped enums fall back to a name-match suggestion.
+- **Projected paydays** — employments with a payday rule and a
+  paid-into account now project estimated income to the forecast
+  horizon; generating a run takes the date over seamlessly (issue #454).
+
+### Fixed
+
+- **Scheduler responsiveness** — sync/notify ticks and snapshot backups
+  run on worker threads instead of the request event loop, removing the
+  intermittent 503s widgets could hit during a sync (issue #451).
+- **Forecast income** — payroll expected movements now carry the
+  paid-into account, so salary appears in account projections and the
+  next-payday calculation (issue #454).
+- **Matched categorisation** — transactions reconciled to a commitment
+  or subscription inherit its category, every inherit teaches the rules
+  engine the payee association, and rules/provider map run as part of
+  every post-sync settlement (issues #452, #453).
+
 ## [1.3.0] — 2026-11-10
 
 ### Added

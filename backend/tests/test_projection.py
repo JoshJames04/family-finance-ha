@@ -77,6 +77,24 @@ class TestSafeToSpend:
         assert p.committed_until_payday_pence == 65_000
         assert p.safe_to_spend_pence == 35_000
 
+    def test_projected_employment_payday_counts(
+            self, session: Session, household: Household,
+            account: Account) -> None:
+        """Issue #454 — a rule-projected payday (employment source) is
+        a real payday for safe-to-spend and the income forecast."""
+        payday = date(2025, 4, 25)
+        _expect(session, household, account, date(2025, 4, 15),
+                -40_000, label="rent")
+        _expect(session, household, account, payday, 200_000,
+                source=ExpectedSource.employment, label="wages")
+
+        p = projection.project(session, account, 30, from_date=TODAY)
+        assert p.next_payday == payday
+        assert p.committed_until_payday_pence == 40_000
+        # The income row itself lands in the daily series.
+        payday_pt = next(d for d in p.days if d.date == payday)
+        assert payday_pt.movements_pence > 0
+
     def test_obligation_on_payday_counts(
             self, session: Session, household: Household,
             account: Account) -> None:

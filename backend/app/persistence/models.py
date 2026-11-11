@@ -239,6 +239,11 @@ class Transaction(TimestampMixin, Base):
         ForeignKey("transaction.id"), nullable=True, index=True)
     suggested_category_id: Mapped[int | None] = mapped_column(
         ForeignKey("category.id"), nullable=True)
+    # Provider-supplied classification verbatim (e.g. Starling's
+    # spendingCategory) — retained for audit/remapping; category_id
+    # carries the household-resolved result.
+    provider_category: Mapped[str | None] = mapped_column(
+        String(64), nullable=True)
     corrects_id: Mapped[int | None] = mapped_column(
         ForeignKey("transaction.id"), nullable=True, index=True)
 
@@ -629,6 +634,10 @@ class Employment(TimestampMixin, Base):
         Numeric(5, 2), nullable=False)
     payday_rule: Mapped[str | None] = mapped_column(
         String(400), nullable=True)  # serialised domain.paydays.PaydayRule
+    # The account net pay lands in — required before payroll income
+    # can join that account's projection (issue #454).
+    paid_into_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True,
                                             nullable=False)
     # Last day of employment; after this it generates no payroll or
@@ -974,6 +983,7 @@ class ExpectedSource(enum.StrEnum):
     transfer_rule = "transfer_rule"
     savings_goal = "savings_goal"
     subscription = "subscription"
+    employment = "employment"
     manual = "manual"
 
 
@@ -1763,6 +1773,30 @@ class CategorisationRule(TimestampMixin, Base):
                                           nullable=False)
     source: Mapped[RuleSource] = mapped_column(
         Enum(RuleSource), default=RuleSource.manual, nullable=False)
+
+
+class ProviderCategoryMap(TimestampMixin, Base):
+    """household-owned mapping: provider category enum → household
+    category (issue #453). Auto-applies at ingest — user-authored
+    automation, not a silent guess."""
+
+    __tablename__ = "provider_category_map"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        ForeignKey("household.id"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False,
+                                          default="starling")
+    provider_category: Mapped[str] = mapped_column(String(64),
+                                                   nullable=False)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("category.id"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("household_id", "provider",
+                         "provider_category",
+                         name="uq_provider_cat_map"),
+    )
 
 
 class SyncStatus(enum.StrEnum):

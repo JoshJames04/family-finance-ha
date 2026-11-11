@@ -566,6 +566,7 @@ class EmploymentIn(BaseModel):
     pension_scheme_ref: str | None = Field(default=None, max_length=128)
     contracted_hours: Decimal = Field(gt=0, le=168)
     payday_rule: str | None = Field(default=None, max_length=400)
+    paid_into_account_id: int | None = None
     overtime_multipliers: dict[DayType, int] | None = None
     pension_mode: PensionMode = PensionMode.none
     pension_employee_bps: int = Field(default=0, ge=0, le=10_000)
@@ -595,6 +596,7 @@ class EmploymentPatch(BaseModel):
     contracted_hours: Decimal | None = Field(default=None, gt=0,
                                              le=168)
     payday_rule: str | None = Field(default=None, max_length=400)
+    paid_into_account_id: int | None = None
     overtime_multipliers: dict[DayType, int] | None = None
     pension_mode: PensionMode | None = None
     pension_employee_bps: int | None = Field(default=None, ge=0,
@@ -628,6 +630,7 @@ class EmploymentOut(BaseModel):
     pension_scheme_ref: str | None
     contracted_hours: Decimal
     payday_rule: str | None
+    paid_into_account_id: int | None
     pension_mode: PensionMode
     pension_employee_bps: int
     pension_fixed_pence: int
@@ -1572,6 +1575,28 @@ class CategoriseApplyOut(BaseModel):
 
 class PairRefundOut(BaseModel):
     linked: int
+
+
+class ProviderCategoryMapIn(BaseModel):
+    provider: str = Field(default="starling", min_length=1,
+                          max_length=20)
+    provider_category: str = Field(min_length=1, max_length=64)
+    category_id: int
+
+
+class ProviderCategoryMapOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    provider: str
+    provider_category: str
+    category_id: int
+
+
+class ObservedProviderCategoryOut(BaseModel):
+    provider: str
+    provider_category: str
+    transaction_count: int
+    mapped_category_id: int | None
 
 
 class PayeeOut(BaseModel):

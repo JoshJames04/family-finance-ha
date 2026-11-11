@@ -21,6 +21,7 @@ from app.domain import overtime as ot
 from app.domain import pay_calendar, paydays, payrun, schedule
 from app.domain import payroll as dom
 from app.persistence.models import (
+    Account,
     Budget,
     DayType,
     DeliveryCharge,
@@ -89,6 +90,10 @@ def create_employment(
     if body.start_date and body.initial_salary_effective_date \
             and body.initial_salary_effective_date < body.start_date:
         raise HTTPException(422, "salary effective date cannot precede employment start")
+    if body.paid_into_account_id is not None:
+        acct = session.get(Account, body.paid_into_account_id)
+        if acct is None or acct.household_id != household.id:
+            raise HTTPException(404, "paid-into account not found")
     e = Employment(household_id=household.id,
                    profile_id=p.id, employer=body.employer,
                    employment_type=body.employment_type,
@@ -98,6 +103,7 @@ def create_employment(
                    pension_scheme_ref=body.pension_scheme_ref,
                    contracted_hours=body.contracted_hours,
                    payday_rule=body.payday_rule,
+                   paid_into_account_id=body.paid_into_account_id,
                    pension_mode=body.pension_mode,
                    pension_employee_bps=body.pension_employee_bps,
                    pension_fixed_pence=body.pension_fixed_pence,
@@ -121,6 +127,7 @@ def create_employment(
     if prior is not None and replacement_end is not None:
         prior.end_date = replacement_end
         session.flush()
+    schedule.rematerialize_employment(session, e)
     emit(session, household.id, actor, "create", "employment", e.id,
          {"profile_id": p.id, "employer": e.employer})
     return schemas.EmploymentOut.model_validate(e)
@@ -326,6 +333,8 @@ def prepare_year(
                 continue
             schedule.rematerialize_payroll_run(session, r)
             runs_created += 1
+        # Real runs now cover their paydays — drop the projected rows.
+        schedule.rematerialize_employment(session, e)
     for b in session.scalars(
             select(Budget).where(
                 Budget.household_id == household.id)).all():
@@ -376,9 +385,21 @@ def patch_employment(
         changed["overtime_multipliers"] = json.dumps(
             {DayType(k).value: int(v) for k, v in
              (changed["overtime_multipliers"] or {}).items()})
+    if "paid_into_account_id" in changed \
+            and changed["paid_into_account_id"] is not None:
+        acct = session.get(Account, changed["paid_into_account_id"])
+        if acct is None or acct.household_id != household.id:
+            raise HTTPException(404, "paid-into account not found")
     for k, v in changed.items():
         setattr(e, k, v)
     session.flush()
+    # Rule/account/activity changes all reshape the projection.
+    schedule.rematerialize_employment(session, e)
+    if "paid_into_account_id" in changed:
+        for r in session.scalars(
+                select(PayrollRun).where(
+                    PayrollRun.employment_id == e.id)).all():
+            schedule.rematerialize_payroll_run(session, r)
     emit(session, household.id, actor, "update", "employment", e.id,
          {k: str(v) for k, v in changed.items()})
     return schemas.EmploymentOut.model_validate(e)
@@ -772,6 +793,7 @@ def create_payroll_run(
         if body.unpaid_leave else 0,
         unpaid_leave_days=body.unpaid_leave_days)
     schedule.rematerialize_payroll_run(session, r)
+    schedule.rematerialize_employment(session, e)
     emit(session, household.id, actor, "create", "payroll_run", r.id,
          {"employment_id": e.id, "period_end": str(r.period_end),
           "status": r.status.value})

@@ -7,7 +7,7 @@ import { undoToast } from "../lib/toast";
 import { Briefcase, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
-import { useReady } from "../api/hooks";
+import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
 import { Panel } from "../components/Panel";
@@ -711,11 +711,14 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
   const [hours, setHours] = useState(String(e.contracted_hours));
   const [endDate, setEndDate] = useState(e.end_date ?? "");
   const [paydayRule, setPaydayRule] = useState(e.payday_rule ?? "");
+  const [paidInto, setPaidInto] = useState(
+    e.paid_into_account_id != null ? String(e.paid_into_account_id) : "");
   const [employmentType, setEmploymentType] = useState<"salaried" | "piecework">(
     e.employment_type === "piecework" ? "piecework" : "salaried");
   const [deductionMode, setDeductionMode] = useState<"paye" | "gross_only">(
     e.deduction_mode === "gross_only" ? "gross_only" : "paye");
   const [busy, setBusy] = useState(false);
+  const accounts = useAccounts();
   const valid = employer.trim() && Number(hours) > 0;
   const submit = (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -728,6 +731,7 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
         contracted_hours: hours,
         end_date: endDate || null,
         payday_rule: paydayRule || null,
+        paid_into_account_id: paidInto ? Number(paidInto) : null,
         employment_type: employmentType,
         deduction_mode: deductionMode,
       },
@@ -776,6 +780,16 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
           )}</Field>
         </div>
         <PaydayPicker value={paydayRule} onChange={setPaydayRule} />
+        <Field label="Paid into"
+          hint="The account salary lands in — required for paydays to appear in that account's forecast.">{(id) => (
+          <Select id={id} value={paidInto}
+            onChange={(ev) => setPaidInto(ev.target.value)}>
+            <option value="">Not set</option>
+            {(accounts.data?.items ?? []).map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </Select>
+        )}</Field>
       </form>
     </Dialog>
   );
@@ -1316,6 +1330,8 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
   const [deductionMode, setDeductionMode] = useState<"paye" | "gross_only">("paye");
   const [effDate, setEffDate] = useState(toISODate(new Date()));
   const [paydayRule, setPaydayRule] = useState("");
+  const [paidInto, setPaidInto] = useState("");
+  const accounts = useAccounts();
   const [rel, setRel] = useState<"additional" | "replacement" | null>(null);
   const [priorId, setPriorId] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -1352,6 +1368,7 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
         pension_fixed_pence: 0,
         work_days_per_week: "5",
         payday_rule: paydayRule || null,
+        paid_into_account_id: paidInto ? Number(paidInto) : null,
         start_date: effDate,
         employment_type: employmentType,
         deduction_mode: deductionMode,
@@ -1425,6 +1442,16 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
             onChange={(e) => setEffDate(e.target.value)} />
         )}</Field>
         <PaydayPicker value={paydayRule} onChange={setPaydayRule} />
+        <Field label="Paid into"
+          hint="The account salary lands in — required for paydays to appear in that account's forecast.">{(id) => (
+          <Select id={id} value={paidInto}
+            onChange={(ev) => setPaidInto(ev.target.value)}>
+            <option value="">Not set</option>
+            {(accounts.data?.items ?? []).map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </Select>
+        )}</Field>
         {activeEmps.length > 0 && (
           <fieldset className="grid gap-2">
             <legend className="text-[13px] font-medium">Employment relationship</legend>
