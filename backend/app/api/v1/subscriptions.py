@@ -18,6 +18,7 @@ from app.persistence.models import (
     DetectionCandidate,
     PriceChangeEvent,
     Subscription,
+    SubscriptionStatus,
 )
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
@@ -191,6 +192,8 @@ def patch_subscription(
 ) -> schemas.SubscriptionOut:
     s = _get(session, household.id, sid)
     changed = body.model_dump(exclude_unset=True)
+    if s.status == SubscriptionStatus.active:
+        subs.check_active_bill(session, household.id, changed.get("payee", s.payee))
     if "expected" in changed:
         changed["expected_pence"] = changed.pop("expected").pence
     if "payee" in changed:

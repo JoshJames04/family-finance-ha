@@ -34,6 +34,15 @@ def _get(
     return c
 
 
+def _check_subscription(session: Session, household_id: int, name: str) -> None:
+    clash = session.scalar(select(Subscription.id).where(
+        Subscription.household_id == household_id,
+        Subscription.status == SubscriptionStatus.active,
+        Subscription.payee_normalised == normalise_payee(name)))
+    if clash is not None:
+        raise HTTPException(409, f"{name} is already tracked as a subscription")
+
+
 @router.get("", response_model=schemas.Page[schemas.CommitmentOut])
 def list_commitments(
     household: HouseholdDep, session: SessionDep,
@@ -63,14 +72,7 @@ def create_commitment(
     # issue #313 — a payee already tracked as an active subscription
     # cannot also register as a bill; the same obligation would
     # otherwise forecast twice.
-    clash = session.scalar(select(Subscription.id).where(
-        Subscription.household_id == household.id,
-        Subscription.status == SubscriptionStatus.active,
-        Subscription.payee_normalised == normalise_payee(body.name)))
-    if clash is not None:
-        raise HTTPException(
-            409, f"{body.name} is already tracked as a subscription — "
-            "cancel it first or keep it as the single record")
+    _check_subscription(session, household.id, body.name)
     c = RecurringCommitment(
         household_id=household.id, name=body.name, account_id=a.id,
         category_id=body.category_id,
@@ -98,6 +100,8 @@ def update_commitment(
     expected rows; past generated occurrences are untouched."""
     c = _get(session, household.id, cid)
     fields = body.model_dump(exclude_unset=True)
+    if c.active:
+        _check_subscription(session, household.id, fields.get("name", c.name))
     if "amount" in fields:
         c.amount_pence = body.amount.pence if body.amount else None
         if body.amount is not None:
@@ -176,6 +180,7 @@ def activate_commitment(
     """Resume a paused commitment. Rolls next_date forward past today so
     a paused bill doesn't emit a burst of backdated occurrences."""
     c = _get(session, household.id, cid)
+    _check_subscription(session, household.id, c.name)
     c.active = True
     today = date.today()
     anchor_dom = c.day_of_month if c.day_of_month is not None \

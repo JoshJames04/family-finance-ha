@@ -165,6 +165,9 @@ def actuals_for_budget(session: Session, budget: Budget) -> dict[int, int]:
     so nothing is double-counted inside a single budget."""
     out: dict[int, int] = {}
     ea = splits.effective_category_amounts(
+        Account.household_id == budget.household_id,
+        *([Account.owner_profile_id == budget.owner_profile_id]
+          if budget.owner_profile_id is not None else []),
         Transaction.date >= budget.start_date,
         Transaction.date <= budget.end_date,
         Transaction.status != TransactionStatus.void,

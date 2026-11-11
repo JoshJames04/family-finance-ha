@@ -65,6 +65,7 @@ def discover(session: Session, conn: BankConnection,
     a no-op beyond label refresh. Identity is (external_uid,
     category_uid): a space shares its parent account's uid but owns
     its feed category."""
+    session.commit()  # release any caller's writer before provider I/O
     seen = {(d.external_uid, d.category_uid or ""): d
             for d in client.accounts(token)}
     rows = list(session.scalars(select(BankAccountMapping).where(
@@ -137,13 +138,17 @@ def sync_balances(session: Session, conn: BankConnection,
                   client: BankClient, token: str) -> int:
     """Refresh provider balances on linked mappings. Point-in-time
     read only — never fabricates ledger transactions."""
+    session.commit()  # discovery/caller changes cannot span HTTP
     rows = session.scalars(select(BankAccountMapping).where(
         BankAccountMapping.connection_id == conn.id,
         BankAccountMapping.status == MappingStatus.linked)).all()
+    balances = []
     for m in rows:
         cat = (m.external_category_uid or None
                if m.external_kind == "space" else None)
-        m.balance_pence = client.balance(token, m.external_uid, cat)
+        balances.append((m, client.balance(token, m.external_uid, cat)))
+    for m, balance in balances:
+        m.balance_pence = balance
         m.balance_at = datetime.now()
         if m.account_id is not None:
             _reconcile_opening(session, m.account_id, m.balance_pence)
