@@ -10769,9 +10769,11 @@ export interface operations {
                 start: string;
                 end: string;
                 account_id?: number | null;
+                budget_id?: number | null;
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -10804,6 +10806,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -10840,6 +10843,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 mid: number;
@@ -10872,6 +10876,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -10908,6 +10913,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -10942,6 +10948,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -10974,6 +10981,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 mid: number;
@@ -11011,6 +11019,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11079,6 +11088,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11111,6 +11121,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 mid: number;
@@ -11147,6 +11158,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 mid: number;
@@ -15264,7 +15276,9 @@ export interface operations {
     };
     sync_transactions_api_v1_banking_connections__cid__sync_post: {
         parameters: {
-            query?: never;
+            query?: {
+                historical_since?: string | null;
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
