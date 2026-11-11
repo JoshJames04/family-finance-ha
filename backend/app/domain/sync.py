@@ -119,6 +119,9 @@ def _ingest_item(session: Session, account: Account,
             # PENDING -> SETTLED arrives as the same ref again)
             if item.status is not None and dup.status != item.status:
                 dup.status = item.status
+            if item.provider_category is not None \
+                    and dup.provider_category != item.provider_category:
+                dup.provider_category = item.provider_category
             run.deduped += 1
             return
     existing = _fuzzy_match(session, account.id, item)

@@ -395,6 +395,11 @@ def patch_employment(
     session.flush()
     # Rule/account/activity changes all reshape the projection.
     schedule.rematerialize_employment(session, e)
+    if "paid_into_account_id" in changed:
+        for r in session.scalars(
+                select(PayrollRun).where(
+                    PayrollRun.employment_id == e.id)).all():
+            schedule.rematerialize_payroll_run(session, r)
     emit(session, household.id, actor, "update", "employment", e.id,
          {k: str(v) for k, v in changed.items()})
     return schemas.EmploymentOut.model_validate(e)
