@@ -204,15 +204,15 @@ class TestEmploymentProjection:
             self, session: Session, household: Household) -> None:
         a = self._account(session, household)
         e = self._employment(session, household, a)
-        run = payrun.generate(
+        payrun.generate(
             session, e, start=date(2025, 3, 1), end=date(2025, 3, 31),
-            pay_date=date(2025, 3, 28))   # past run → estimate source
+            pay_date=date(2025, 3, 28))   # historical pay must not set future net
         n = schedule.rematerialize_employment(
             session, e, today=TODAY, horizon_days=60)
         rows = self._employment_rows(session)
         assert n == len(rows) and n >= 2
         assert all(m.account_id == a.id for m in rows)
-        assert all(m.amount_pence == run.net_pence for m in rows)
+        assert all(m.amount_pence == 245330 for m in rows)
         assert all(m.confidence is Confidence.estimated for m in rows)
         # First projected payday after 2025-04-10 on day-28 rule.
         assert rows[0].expected_date == date(2025, 4, 28)
