@@ -356,7 +356,8 @@ class TestApi:
         moves = client.get("/api/v1/expected-movements"
                            "?start=2026-12-01&end=2026-12-31",
                            headers=h).json()
-        assert [m["account_id"] for m in moves] == [None]
+        # Unlinked salary is private: an anonymous household probe must not expose it.
+        assert moves == []
 
         aid = client.post("/api/v1/accounts", json={
             "name": "Main", "type": "personal", "opening_balance": 0,
@@ -368,3 +369,4 @@ class TestApi:
                            "?start=2026-12-01&end=2026-12-31",
                            headers=h).json()
         assert [m["account_id"] for m in moves] == [aid]
+
