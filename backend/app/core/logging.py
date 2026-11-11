@@ -78,8 +78,13 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
         token = request_id_ctx.set(rid)
+        tele = getattr(request.app.state, "telemetry", None)
+        if tele is not None:
+            tele.requests_total += 1
         try:
             response = await call_next(request)
+            if response.status_code >= 500 and tele is not None:
+                tele.errors_5xx += 1
             response.headers["x-request-id"] = rid
             return response
         finally:

@@ -39,10 +39,13 @@ export function useProjection(accountId?: number | null) {
     id !== null, [id]);
   // No account at all → behave as an empty (not loading) state.
   if (accounts.data && id === null) {
-    return { data: null, loading: false, error: null };
+    return { data: null, loading: false, retrying: false,
+             error: null, refetch: projection.refetch };
   }
   if (accounts.loading || accounts.error) {
-    return { data: null, loading: accounts.loading, error: accounts.error };
+    return { data: null, loading: accounts.loading,
+             retrying: accounts.retrying, error: accounts.error,
+             refetch: accounts.refetch };
   }
   return projection;
 }

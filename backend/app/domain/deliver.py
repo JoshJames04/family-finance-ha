@@ -103,5 +103,8 @@ def deliver_pending(session: Session, household_id: int,
         else:
             d.status, d.error, d.sent_at = "sent", None, now
             sent += 1
-        session.flush()
+        # Commit per delivery — the notify call above is network I/O
+        # and an uncommitted writer held across it stalls concurrent
+        # write requests for the whole round-trip (#460).
+        session.commit()
     return DeliverResult(sent=sent, failed=failed)

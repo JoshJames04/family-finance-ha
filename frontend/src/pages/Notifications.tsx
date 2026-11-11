@@ -189,7 +189,7 @@ export function Notifications() {
         }
       >
         <DataView
-          state={{ loading: events.loading, error: events.error, data: items }}
+          state={{ loading: events.loading, retrying: events.retrying, error: events.error, data: items, refetch: events.refetch }}
           empty={scope === "open" ? "Inbox zero" : "No events yet"}
           emptyIcon={AlarmClockCheck}
           emptyDescription={scope === "open" ? "Nothing needs your attention right now." : "Rules raise events here when their conditions hit."}

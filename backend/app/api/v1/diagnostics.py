@@ -43,6 +43,11 @@ def _sanitise(text: str | None) -> str | None:
     return _DIGITS.sub("#", text).strip() or None
 
 
+def _runtime(request: Request) -> dict[str, Any]:
+    tele = getattr(request.app.state, "telemetry", None)
+    return tele.snapshot() if tele is not None else {}
+
+
 def _table_counts(session: Session) -> dict[str, int]:
     """Row counts per table — counts carry no financial meaning."""
     counts: dict[str, int] = {}
@@ -67,6 +72,10 @@ def diagnostics(request: Request, session: SessionDep,
             "sync_interval_minutes": interval,
             "sync_interval_source": interval_source,
         },
+        # Runtime counters (#460): tick health, request volume, 5xx
+        # and DB-lock contention — the signals that explain an
+        # intermittent-unresponsive report without a repro session.
+        "runtime": _runtime(request),
         "database": {
             "alembic_revision": current_revision(
                 cast(Engine, session.get_bind())),

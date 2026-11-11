@@ -13,6 +13,7 @@ Every request resolves an identity into ``request.state.profile_id``:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated
@@ -121,22 +122,38 @@ def resolve_identity(request: Request,
     return _session_profile(session, request)
 
 
+def _resolve_profile_id(request: Request) -> int | None:
+    """Blocking identity resolution — session open, provision/
+    refresh profile, commit. Runs on a worker thread (see below);
+    the request object is only read here."""
+    engine = request.app.state.engine
+    assert engine is not None
+    with Session(engine) as s:
+        p = resolve_identity(request, s)
+        s.commit()
+        return p.id if p is not None else None
+
+
 async def auth_middleware(
         request: Request,
         call_next: RequestResponseEndpoint) -> Response:
     """Resolve identity for every request; spoofed remote-user
     headers → 401 before routing. Only the profile *id* is stored —
-    the ORM object would detach when this session closes."""
+    the ORM object would detach when this session closes.
+
+    #460: identity resolution is synchronous SQLite I/O that can
+    write (profile provision/display-name refresh + commit). On the
+    event loop a writer-blocked resolve froze every in-flight
+    request — behind ingress that surfaced as 503s during sync.
+    Run it on a worker thread like the scheduler tick."""
     if is_spoof(request):
         return Response(status_code=401)
     engine = getattr(request.app.state, "engine", None)
     if engine is not None and (has_remote_headers(request)
                                or security.SESSION_COOKIE
                                in request.cookies):
-        with Session(engine) as s:
-            p = resolve_identity(request, s)
-            request.state.profile_id = p.id if p is not None else None
-            s.commit()
+        request.state.profile_id = await asyncio.to_thread(
+            _resolve_profile_id, request)
     return await call_next(request)
 
 

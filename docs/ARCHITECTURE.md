@@ -85,7 +85,16 @@ system.
 SQLite is sufficient **provided**:
 
 - WAL mode + `busy_timeout` for concurrent reads during writes.
-- Single-writer discipline via the backend (no direct DB access).
+- Single-writer discipline via the backend (no direct DB access) —
+  enforced *temporally* too: WAL still serialises writers, so unit
+  boundaries commit promptly. Sync ingests commit per page and no
+  write transaction may span provider or HA network I/O (issue #460
+  — a flush-held-across-HTTP writer stalled every other writer).
+- All blocking work stays off the uvicorn event loop: the scheduler
+  tick runs in a worker thread, and per-request identity resolution
+  (which can write — profile provisioning/display-name refresh)
+  runs via `asyncio.to_thread` (#460 — an event-loop write blocked
+  by a held writer froze every in-flight request → ingress 503s).
 - Scheduled online backups (`VACUUM INTO` / `.backup`) — never file copies of
   a live DB.
 - Alembic migrations tested upgrade **and** downgrade paths in CI.
