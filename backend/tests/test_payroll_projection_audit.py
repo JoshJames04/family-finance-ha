@@ -357,6 +357,7 @@ def test_tax_code_and_deduction_changes_refresh_estimates(session, household, mo
         household,
         session,
         "test",
+        p,
     )
     assert projected(session)[0].amount_pence == baseline - 10000
 

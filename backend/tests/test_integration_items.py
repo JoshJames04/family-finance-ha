@@ -24,6 +24,7 @@ def test_item_bill_identity_survives_new_occurrence(session, household):
     response = TestClient(app).get("/api/v1/integration/items")
     assert response.status_code == 200
     items = response.json()["items"]
+    assert next(item for item in items if item["family"] == "accounts")["value"] == "0.00"
     bills = [item for item in items if item["family"] == "bills"]
     assert len(bills) == 1
     assert bills[0]["id"] == "commitment:7"

@@ -18,6 +18,7 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, AdminDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import accounts, contributions, goals, outbox, rbac
+from app.domain.money import Money
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -39,7 +40,8 @@ def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
         if rbac.visible(a.owner_profile_id, profile)]
     allowed = {a.id for a in visible}
     result = [schemas.IntegrationItemOut(family="accounts", id=f"account:{a.id}", name=a.name,
-              value=accounts.current_balance(session, a.id) / 100, unit=a.currency)
+              value=Money.of_pence(accounts.current_balance(session, a.id)).pounds_decimal(),
+              unit=a.currency)
               for a in visible]
     for goal in session.scalars(select(SavingsGoal).where(
             SavingsGoal.household_id == household.id, SavingsGoal.active.is_(True),
@@ -83,15 +85,16 @@ def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = N
            latest: Annotated[bool, Query()] = False,
            ) -> schemas.IntegrationFeedOut:
     """Ordered event drain — HA polls from its persisted cursor."""
+    profile_id = profile.id if profile and profile.role != Role.viewer else None
     if latest:
         return schemas.IntegrationFeedOut(events=[], next_cursor=outbox.latest_visible_cursor(
-            session, household.id, profile.id if profile and profile.role != Role.viewer else None))
+            session, household.id, profile_id))
     detailed = outbox.detail_enabled(session)
     rows, cursor = outbox.feed(session, household.id,
                                after=after, limit=limit)
     return schemas.IntegrationFeedOut(
         events=[_out(e, detailed) for e in rows
-                if outbox.event_visible(session, e, profile.id if profile and profile.role != Role.viewer else None)],
+                if outbox.event_visible(session, e, profile_id)],
         next_cursor=cursor)
 
 

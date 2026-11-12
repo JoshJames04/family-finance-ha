@@ -28,7 +28,10 @@ MARKER_RE = re.compile(
 
 
 def next_name(now: datetime | None = None, seq: int = 0) -> str:
-    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S")
+    instant = now or datetime.now(UTC)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
+    stamp = instant.astimezone(UTC).strftime("%Y%m%dT%H%M%S")
     suffix = f"-{seq}" if seq else ""
     return f"ff-{stamp}{suffix}.db"
 
@@ -80,8 +83,12 @@ def snapshot_taken_at(path: Path) -> datetime | None:
 def list_snapshots(backup_dir: Path) -> list[Path]:
     if not backup_dir.is_dir():
         return []
-    return sorted(p for p in backup_dir.iterdir()
-                  if SNAPSHOT_RE.fullmatch(p.name))
+    def key(path: Path) -> tuple[datetime, int, str]:
+        suffix = re.fullmatch(r"ff-\d{8}T\d{6}(?:-(\d+))?\.db", path.name)
+        seq = int(suffix[1] or 0) if suffix else 0
+        return (snapshot_taken_at(path) or datetime.min.replace(tzinfo=UTC), seq, path.name)
+
+    return sorted((p for p in backup_dir.iterdir() if SNAPSHOT_RE.fullmatch(p.name)), key=key)
 
 
 def latest_snapshot(backup_dir: Path) -> Path | None:

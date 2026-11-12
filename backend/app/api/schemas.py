@@ -1966,7 +1966,7 @@ class IntegrationItemOut(BaseModel):
     family: Literal["bills", "accounts", "goals"]
     id: str
     name: str
-    value: float
+    value: int | Decimal
     unit: str
 
 

@@ -69,6 +69,9 @@ class FamilyFinanceEvent(CoordinatorEntity[FamilyFinanceCoordinator], EventEntit
                 "household_id": self._entry.data[CONF_HOUSEHOLD_ID],
             }
             self._trigger_event(row["event_type"], payload)
+            # EventEntity keeps only its latest event fields. Publish each
+            # row now so a multi-row drain produces every native trigger.
+            self.async_write_ha_state()
             self.hass.bus.async_fire(
                 f"{DOMAIN}_{self._family}_event",
                 {**payload, "event_type": row["event_type"]},

@@ -219,10 +219,19 @@ class FamilyFinanceItemSensor(
         }
 
     @property
+    def name(self):
+        for item in (self.coordinator.data or {}).get("items", []):
+            if (item["family"], str(item["id"])) == self._key:
+                return item["name"]
+        return self._attr_name
+
+    @property
     def native_value(self):
         for item in (self.coordinator.data or {}).get("items", []):
             if (item["family"], str(item["id"])) == self._key:
-                return item["value"]
+                # The API serialises money as exact decimal strings. Only
+                # HA's presentation boundary converts them to numeric states.
+                return float(item["value"]) if item["unit"] == "GBP" else item["value"]
         return None
 
     @property

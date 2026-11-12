@@ -75,10 +75,10 @@ class TestResolveOffLoop:
             assert in_resolve.wait(timeout=10), (
                 "identity resolve never entered")
             start = time.monotonic()
-            # A request carrying no auth material skips resolution
+            # A public request carrying no auth material skips resolution
             # entirely — it must still be answered while the
             # headered request's resolve is blocked.
-            r = client.get("/api/v1/households")
+            r = client.get("/api/v1/version")
             elapsed = time.monotonic() - start
             release.set()
             t.join(timeout=10)
