@@ -8953,8 +8953,8 @@ export interface operations {
                 date_from?: string | null;
                 date_to?: string | null;
                 q?: string | null;
-                direction?: string | null;
-                internal?: string | null;
+                direction?: ("expense" | "income") | null;
+                internal?: ("only" | "exclude") | null;
                 page?: number;
                 size?: number;
             };

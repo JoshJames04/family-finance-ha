@@ -209,3 +209,31 @@ server, set `FF_E2E_EXTERNAL=true`, `FF_E2E_BASE` and `FF_E2E_API`; the optional
 The shell and Dashboard describe the selected household, matching the API scope.
 
 ![Synthetic real-API combined Budget and reconciliation](images/live142-budget-real-api.png)
+
+Issue #477 populated Shared/Budget probes reproduced intrinsic-width pot
+selectors, non-wrapping action groups and member/owner labels, plus clipped
+large monetary figures in narrow summary columns. Headers and standing rows
+now wrap within their containers, summaries choose columns that fit, and
+complete amounts remain visible. Only detail tables scroll horizontally.
+Shared pot actions and dialog controls have 44px touch targets; payment matching
+uses the accepted income filter, and closing a dialog restores its connected
+opener without replacing the default opening focus behaviour.
+The API's existing direction/internal query values are now literal enums in
+the generated client contract; a negative compile check rejects the invalid
+`direction: "in"` spelling that previously broke Record payment.
+
+`frontend/e2e/mobile-finance-layout.spec.ts` covers populated, empty, loading and
+error states at 320, 360, 375, 390, 414, 430, 768 and 1024 CSS pixels, including
+long labels, standing payments, large amounts, tap hit-testing, keyboard focus,
+375px dark/reduced-motion and 768×375 landscape. All 74 cases pass in Edge and
+all 74 pass in Playwright WebKit. `FF_E2E_BROWSER=webkit` selects the optional
+WebKit runtime; the default browser remains Chromium. These synthetic checks
+do not establish physical Home Assistant iOS or safe-area acceptance; that
+operator check remains pending after release, so #477 remains referenced.
+Full-page captures below retain the tested 320px width and expand only the
+capture height after the viewport assertions, to put fixed navigation at the
+image edge without hiding any controls.
+
+![Synthetic populated Shared at 320px](images/live142-mobile-shared.png)
+
+![Synthetic populated Budget at 320px](images/live142-mobile-budget.png)

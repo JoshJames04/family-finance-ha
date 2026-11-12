@@ -14,6 +14,7 @@ export default defineConfig({
   // e.g. the ff460 ingress stack at
   // http://localhost:8400/api/hassio_ingress/e2e (issue #460).
   use: { baseURL: process.env["FF_E2E_BASE"] ?? "http://localhost:5173",
+    browserName: (process.env["FF_E2E_BROWSER"] ?? "chromium") as "chromium" | "webkit" | "firefox",
     channel: process.env["FF_E2E_CHANNEL"] },
   // An externally started disposable API/bundle can coexist with the dev stack.
   webServer: process.env["FF_E2E_EXTERNAL"] === "true" ? [] : [

@@ -239,6 +239,7 @@ export function Budget() {
           owners.length > 0 ? (
             <Segmented
               label="Budget owner"
+              className="max-w-full flex-wrap [&_button]:h-auto [&_button]:min-h-11 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:wrap-anywhere [&_button]:whitespace-normal"
               value={owner}
               onChange={switchOwner}
               options={["all", ...owners].map((k) => ({ value: k, label: ownerLabel(k) }))}
@@ -291,7 +292,7 @@ export function Budget() {
               >
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </Select>
-              <div className="scrollbar-thin hidden flex-1 gap-1 overflow-x-auto sm:flex" role="group" aria-label="Month">
+              <div className="hidden min-w-0 flex-1 grid-cols-6 gap-1 sm:grid xl:grid-cols-12" role="group" aria-label="Month">
                 {Array.from({ length: 12 }, (_, m) => {
                   const b = byMonth.get(m);
                   const isSel = selectedBudget && parseISODate(selectedBudget.start_date).getMonth() === m;
@@ -343,7 +344,7 @@ export function Budget() {
                       bills remaining (unmatched scheduled occurrences),
                       income received. */}
                   <DataView state={actuals} empty="">
-                    {() => <div className="mb-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+                    {() => <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
                     {(() => {
                       const left = plannedOut - actualOut;
                       const billsPence = actuals.data?.bills_remaining_pence;

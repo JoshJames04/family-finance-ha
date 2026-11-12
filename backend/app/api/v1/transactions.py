@@ -81,10 +81,8 @@ def list_transactions(
     date_from: Annotated[date | None, Query()] = None,
     date_to: Annotated[date | None, Query()] = None,
     q: Annotated[str | None, Query(max_length=200)] = None,
-    direction: Annotated[str | None, Query(
-        pattern="^(income|expense)$")] = None,
-    internal: Annotated[str | None, Query(
-        pattern="^(only|exclude)$")] = None,
+    direction: Literal["income", "expense"] | None = None,
+    internal: Literal["only", "exclude"] | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> schemas.Page[schemas.TransactionOut]:
