@@ -493,6 +493,7 @@ def _eval_budget_overspend(session: Session, rule: NotificationRule,
                BudgetLine.side == BudgetLineSide.expense)).all()
     raised = 0
     active_keys: set[str] = set()
+    allowed_accounts = list(session.scalars(_account_ids(rule)))
     for line, budget in lines:
         from app.domain import budgets
         # Read the same owner/split/transfer-aware actuals as budget reports.
@@ -500,7 +501,8 @@ def _eval_budget_overspend(session: Session, rule: NotificationRule,
                 and budget.owner_profile_id != rule.target_profile_id):
             continue
         effective = budgets.effective_pence(line)
-        spent = budgets.actuals_for_budget(session, budget).get(line.id, 0)
+        spent = budgets.actuals_for_budget(
+            session, budget, account_ids=allowed_accounts).get(line.id, 0)
         if spent > effective:
             key = f"overspend:{line.id}:{budget.start_date.isoformat()}"
             active_keys.add(key)

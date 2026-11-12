@@ -286,3 +286,16 @@ explicit reciprocal owned-account aliases, equal opposite amounts, the same date
 and currency, and different accounts. Ambiguous or unrelated equal amounts stay
 unpaired. Existing authored categories are retained. Historical links are not
 silently rewritten by this migration.
+
+Rules that include an account or owned destination are visible only when both
+accounts are visible to the caller. Member-triggered apply, provider-map reapply,
+transfer pairing and refund linking operate on that caller's authorized accounts.
+Learned associations retain their originating account; old unscoped learned
+payees with only inaccessible transaction history are withheld from other users.
+Trusted scheduler passes continue to process the household internally.
+
+Linked provider account labels are additional owned aliases only when the source
+and destination mappings share both the connection and provider account UID, and
+the label resolves uniquely. Proposed mappings, other connections, other account
+UIDs and ambiguous labels confer no alias. Human names are never inferred from
+UIDs; absent aliases require an explicit account-scoped rule before deployment.

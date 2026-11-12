@@ -243,3 +243,63 @@ def test_viewer_latest_and_feed_both_hide_owned_private_events(session, househol
     feed = integration.events(household, session, viewer)
     assert initial.next_cursor == visible.id
     assert [event.seq for event in feed.events] == [visible.id]
+
+
+def test_shared_budget_alert_excludes_private_spending(session, household):
+    from app.domain import notifications
+    from app.persistence.models import (
+        BudgetLine,
+        BudgetLineSide,
+        Category,
+        NotificationKind,
+        Transaction,
+        UserProfile,
+    )
+
+    owner = UserProfile(household_id=household.id, display_name="Private owner")
+    session.add(owner)
+    session.flush()
+    account = Account(
+        household_id=household.id,
+        name="Private budget spending",
+        type="personal",
+        owner_profile_id=owner.id,
+        opening_balance_pence=0,
+        opening_date=date(2025, 1, 1),
+    )
+    category = Category(household_id=household.id, name="Synthetic category")
+    budget = Budget(
+        household_id=household.id,
+        name="Shared budget",
+        period_type=BudgetPeriodType.monthly,
+        start_date=date(2025, 4, 1),
+        end_date=date(2025, 4, 30),
+    )
+    session.add_all([account, category, budget])
+    session.flush()
+    session.add_all(
+        [
+            BudgetLine(
+                budget_id=budget.id,
+                category_id=category.id,
+                side=BudgetLineSide.expense,
+                original_pence=100,
+            ),
+            Transaction(
+                account_id=account.id,
+                date=date(2025, 4, 10),
+                amount_pence=-500,
+                payee="Private merchant",
+                category_id=category.id,
+            ),
+        ]
+    )
+    session.flush()
+    rule = notifications.create_rule(
+        session,
+        household.id,
+        name="Shared overspend",
+        kind=NotificationKind.budget_overspend,
+        params={},
+    )
+    assert notifications.evaluate(session, rule, today=date(2025, 4, 10)) == 0
