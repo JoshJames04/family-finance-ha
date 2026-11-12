@@ -171,6 +171,17 @@ describe("Budget", () => {
 
 describe("Budget acceptance", () => {
   afterEach(cleanup);
+  it("keeps the selected current shared period represented in the All picker", async () => {
+    const now = new Date();
+    const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-31`;
+    const shared = { ...BUDGETS.items[0]!, start_date: start, end_date: end };
+    stubFetch([], { budgets: { items: [{ ...shared, id: 2, owner_profile_id: 7 }, shared], total: 2 },
+      combined: { detail: { ...DETAIL, id: 0, name: "All", read_only: true }, actuals: ACTUALS } });
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    const picker = await screen.findByRole("combobox", { name: "Budget", hidden: true });
+    await waitFor(() => expect((picker as HTMLSelectElement).value).toBe("1"));
+  });
   it("uses the complete signed as-of ledger summary and shows its bridge", async () => {
     stubFetch([], { actuals: { ...ACTUALS, spent_pence: 9000,
       budget_covered_pence: 12000, unallocated_pence: -3000,

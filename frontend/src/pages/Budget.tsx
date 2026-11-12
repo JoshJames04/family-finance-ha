@@ -175,6 +175,8 @@ export function Budget() {
   const owner = scope === "all" ? "all" : selectedBudget ? ownerKey(selectedBudget) : scope;
   const ownerItems = owner === "all"
     ? [...new Map([...items].reverse().map(b => [`${b.start_date}:${b.end_date}`, b])).values()]
+      .map(b => selectedBudget && b.start_date === selectedBudget.start_date
+        && b.end_date === selectedBudget.end_date ? selectedBudget : b)
     : items.filter((b) => ownerKey(b) === owner);
   const years = [...new Set(ownerItems.map((b) => parseISODate(b.start_date).getFullYear()))].sort();
   const year = selectedBudget ? parseISODate(selectedBudget.start_date).getFullYear() : years[0];
