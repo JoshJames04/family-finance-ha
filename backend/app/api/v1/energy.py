@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import energy, rbac
+from app.domain import energy, outbox, rbac
 from app.persistence.models import (
     EnergyConfig,
     EnergyReading,
@@ -81,6 +81,7 @@ def upsert_reading(body: schemas.EnergyReadingIn,
         select(EnergyReading).where(
             EnergyReading.household_id == household.id,
             EnergyReading.date == body.date)).scalar_one_or_none()
+    changed = r is None or r.wh != body.wh or r.source != body.source
     if r is None:
         r = EnergyReading(household_id=household.id, date=body.date,
                           wh=body.wh, source=body.source)
@@ -91,6 +92,9 @@ def upsert_reading(body: schemas.EnergyReadingIn,
     session.flush()
     emit(session, household.id, actor, "upsert", "energy_reading", r.id,
          {"date": str(r.date), "source": r.source})
+    if changed:
+        outbox.emit(session, household.id, "energy.reading_updated", entity_kind="energy_reading",
+                    entity_id=r.id, payload={"date": str(r.date), "source": r.source})
     return r
 
 

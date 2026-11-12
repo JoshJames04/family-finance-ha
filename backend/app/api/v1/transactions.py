@@ -2,6 +2,7 @@
 
 import csv
 import io
+import re
 from datetime import date
 from typing import Annotated
 
@@ -15,6 +16,7 @@ from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import rbac, splits
 from app.domain import transactions as txn_domain
+from app.domain.money import Money
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
 from app.domain.splits import SplitError
@@ -24,6 +26,7 @@ from app.persistence.models import (
     Category,
     Role,
     Transaction,
+    TransactionSplit,
     TransactionStatus,
     UserProfile,
 )
@@ -109,7 +112,19 @@ def list_transactions(
     if date_to is not None:
         stmt = stmt.where(Transaction.date <= date_to)
     if q:
-        stmt = stmt.where(Transaction.payee.ilike(f"%{q}%"))
+        text = q.strip()
+        categories = select(Category.id).where(Category.name.icontains(text, autoescape=True))
+        matches = [Transaction.payee.icontains(text, autoescape=True),
+                   Transaction.notes.icontains(text, autoescape=True),
+                   Transaction.category_id.in_(categories),
+                   Transaction.id.in_(select(TransactionSplit.transaction_id).where(
+                       TransactionSplit.category_id.in_(categories)))]
+        numeric = text.replace("£", "").replace(",", "")
+        if re.fullmatch(r"[+-]?\d{1,12}(?:\.\d{1,2})?", numeric):
+            pence = Money.of_pounds(numeric).pence
+            matches.append(Transaction.amount_pence == pence if numeric.startswith(("-", "+"))
+                           else func.abs(Transaction.amount_pence) == pence)
+        stmt = stmt.where(or_(*matches))
     if direction == "income":
         stmt = stmt.where(Transaction.amount_pence > 0)
     elif direction == "expense":

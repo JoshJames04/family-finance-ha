@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.domain import contributions, splits
+from app.domain import contributions, outbox, splits
 from app.persistence.models import (
     Account,
     Budget,
@@ -98,6 +98,9 @@ def approve(session: Session, budget: Budget) -> Budget:
         raise BudgetError("cannot approve a budget with no lines")
     budget.status = BudgetStatus.approved
     session.flush()
+    outbox.emit(session, budget.household_id, "budget.approved", entity_kind="budget",
+                entity_id=budget.id, payload={"status": budget.status.value},
+                dedup_key=f"budget:{budget.id}:approved")
     return budget
 
 
@@ -149,6 +152,9 @@ def lock(session: Session, budget: Budget) -> Budget:
         raise BudgetError("only approved budgets can be locked")
     budget.status = BudgetStatus.locked
     session.flush()
+    outbox.emit(session, budget.household_id, "budget.locked", entity_kind="budget",
+                entity_id=budget.id, payload={"status": budget.status.value},
+                dedup_key=f"budget:{budget.id}:locked")
     return budget
 
 

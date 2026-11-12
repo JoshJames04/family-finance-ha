@@ -32,6 +32,24 @@ cannot be read. A saved application theme overrides either source.
 PR CI regenerates the TypeScript API schema and rejects drift from the
 backend, alongside the endpoint contract tests.
 
+## Financial navigation and Home Assistant
+
+The command menu searches authorised transactions by literal payee, notes,
+category (including split categories), and a signed or unsigned GBP amount.
+It carries the search into the transaction page. Forecast links carry the
+source record identity and focus the corresponding bill, employer, pay run,
+goal, subscription or transfer rule after its data loads.
+
+Home Assistant per-item discovery is capped at 100 items and applies account
+visibility before exposing names or numeric values. Bills use a stable source
+identity and the earliest outstanding occurrence; fully settled occurrences
+are skipped. Account balances and goal progress use the canonical ledger
+functions. Detailed event payloads require an administrator to acknowledge
+the event-bus, recorder, trace and notification privacy implications in Settings.
+Budget approval/locking, changed energy readings and successful manual or
+scheduled backups emit canonical outbox transitions. Reposting an unchanged
+energy reading emits no duplicate transition.
+
 ## Verification boundaries
 
 Passing synthetic tests, a successful container startup and a published

@@ -26,12 +26,12 @@ from app.core.health import (
 )
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
-from app.domain import appconfig, schedule, vault
+from app.domain import appconfig, outbox, schedule, vault
 from app.domain import banks as bankdom
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
 from app.persistence.migrate import migrations_current, upgrade_head
-from app.persistence.models import BankConnection
+from app.persistence.models import BankConnection, Household
 from app.persistence.session import init_session_factory
 
 log = logging.getLogger(__name__)
@@ -114,13 +114,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 try:
                     # Snapshot work is blocking file+SQLite I/O — off
                     # the event loop so requests stay served (#451).
-                    await asyncio.to_thread(
+                    snap = await asyncio.to_thread(
                         backup.create_snapshot, engine, backup_dir)
                     n = await asyncio.to_thread(
                         backup.rotate, backup_dir, settings.backup_keep)
+                    await asyncio.to_thread(_record_backup, snap.name)
                     log.info("scheduled snapshot taken (%d rotated)", n)
                 except Exception:
                     log.exception("scheduled backup failed")
+
+        def _record_backup(name: str) -> None:
+            from sqlalchemy import select
+            with Session(engine) as session:
+                for household in session.scalars(select(Household)):
+                    outbox.emit(session, household.id, "backup.created", entity_kind="backup",
+                                payload={"status": "completed"},
+                                dedup_key=f"backup:{household.id}:{name}")
+                session.commit()
 
         task = (asyncio.create_task(_snapshot_loop())
                 if settings.backup_interval_hours > 0 else None)

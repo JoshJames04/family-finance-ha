@@ -1962,6 +1962,18 @@ class IntegrationFeedOut(BaseModel):
     next_cursor: int
 
 
+class IntegrationItemOut(BaseModel):
+    family: Literal["bills", "accounts", "goals"]
+    id: str
+    name: str
+    value: float
+    unit: str
+
+
+class IntegrationItemsOut(BaseModel):
+    items: list[IntegrationItemOut]
+
+
 class IntegrationSettingsOut(BaseModel):
     detail: str  # "safe" | "detailed"
 

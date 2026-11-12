@@ -2,6 +2,7 @@
  * with per-component forecast-vs-actual breakdown, payslip reconcile
  * for forecast runs, and add-run / add-employment flows. */
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import { Briefcase, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
@@ -223,8 +224,9 @@ function activeRuns(runs: Run[]) {
 
 export function Salary() {
   const ready = useReady();
+  const [params] = useSearchParams();
   const [rev, setRev] = useState(0);
-  const [tab, setTab] = useState<"employers" | "breakdown" | "worklog">("employers");
+  const [tab, setTab] = useState<"employers" | "breakdown" | "worklog">(params.has("run_id") ? "breakdown" : "employers");
   const [addingEmp, setAddingEmp] = useState(false);
   const [addingRun, setAddingRun] = useState<Employment | null>(null);
   const employments = useApi(() => api.get("/api/v1/employments"), ready, [rev]);
@@ -525,8 +527,9 @@ function EmployersView({ employments, rev, onChanged }: {
   rev: number;
   onChanged: () => void;
 }) {
+  const [params] = useSearchParams();
   const [selId, setSelId] = useState<number | null>(null);
-  const sel = employments.find((e) => e.id === selId)
+  const sel = employments.find((e) => e.id === (selId ?? Number(params.get("employment_id"))))
     ?? employments.find((e) => !e.end_date) ?? employments[0];
   const [ending, setEnding] = useState(false);
   const [endDate, setEndDate] = useState("");
@@ -546,7 +549,7 @@ function EmployersView({ employments, rev, onChanged }: {
       <Panel flush>
         <ul className="divide-y divide-border">
           {employments.map((e) => (
-            <li key={e.id}>
+            <li key={e.id} id={`employment-${e.id}`}>
               <button type="button" onClick={() => setSelId(e.id)}
                 className={cn(
                   "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
@@ -1039,7 +1042,8 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
 function RunRow({ run: r, empId, onReconcile, onPayslip }: {
   run: Run; empId: number; onReconcile: () => void; onPayslip: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [params] = useSearchParams();
+  const [open, setOpen] = useState(params.get("run_id") === String(r.id));
   const detail = useApi(
     () => api.get("/api/v1/employments/{emp_id}/payroll-runs/{run_id}",
       { path: { emp_id: empId, run_id: r.id } }),
@@ -1048,7 +1052,7 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
   const amounts = runAmounts(r);
   return (
     <>
-      <tr
+      <tr id={`payroll_run-${r.id}`}
         className="cursor-pointer border-b border-border hover:bg-surface-2/60"
         onClick={() => setOpen((o) => !o)}
       >

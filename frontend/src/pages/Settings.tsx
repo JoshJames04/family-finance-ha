@@ -36,6 +36,36 @@ const ROLE_TONE: Record<Role, BadgeTone> = {
   admin: "accent", member: "info", viewer: "neutral",
 };
 
+export function IntegrationPrivacy({ admin }: { admin: boolean }) {
+  const state = useApi(() => api.get("/api/v1/integration/settings"), useReady());
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const save = (detail: "safe" | "detailed") => {
+    setSaving(true);
+    api.patch("/api/v1/integration/settings", { body: { detail } })
+      .then(() => { setConfirming(false); state.refetch(); })
+      .catch((error: Error) => toast.error(error.message))
+      .finally(() => setSaving(false));
+  };
+  return <Panel title="Home Assistant events" description="Choose what automations can read from the event bus.">
+    <DataView state={state} empty="Event settings unavailable">
+      {(settings) => <Field label="Home Assistant event detail">
+        {(id) => <Select id={id} value={settings.detail} disabled={!admin || saving}
+          onChange={(e) => { if (e.target.value === "detailed") setConfirming(true); else save("safe"); }}>
+          <option value="safe">Safe — status and dates</option>
+          <option value="detailed">Detailed — names and amounts</option>
+        </Select>}
+      </Field>}
+    </DataView>
+    {!admin && <p className="mt-2 text-[13px] text-fg-subtle">An administrator can change this setting.</p>}
+    <Dialog open={confirming} onOpenChange={setConfirming} title="Enable detailed Home Assistant events?"
+      footer={<><Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+        <Button variant="primary" disabled={saving} onClick={() => save("detailed")}>Enable detailed events</Button></>}>
+      <p>Names and financial amounts can be stored in the Home Assistant event bus, recorder, automation traces and notification recipients. Choose Safe to keep future events limited to status and dates.</p>
+    </Dialog>
+  </Panel>;
+}
+
 export function Settings() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
@@ -44,6 +74,7 @@ export function Settings() {
   const [addingCategory, setAddingCategory] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready, [rev]);
+  const me = useMeProfileId();
   const categories = useApi(() => api.get("/api/v1/categories"), ready, [rev]);
   const version = useApi(() => api.get("/api/v1/version"), ready);
   const backups = useApi(() => api.get("/api/v1/admin/backups"), ready, [rev]);
@@ -119,6 +150,7 @@ export function Settings() {
       <PageHeader title="Settings" description="Household, categories, appearance and your data." />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
+        <IntegrationPrivacy admin={profiles.data?.items.find((p) => p.id === me)?.role === "admin"} />
         <Panel
           flush
           title="Household members"

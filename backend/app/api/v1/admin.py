@@ -22,6 +22,7 @@ from app.api.deps import (
     require_admin,
 )
 from app.core.settings import Settings
+from app.domain import outbox
 from app.persistence import backup
 
 router = APIRouter(prefix="/admin", tags=["admin"],
@@ -86,6 +87,8 @@ def create_backup(request: Request, household: HouseholdDep,
                             settings.backup_keep)
     emit(session, household.id, actor, "backup", "database", 0,
          {"snapshot": snap.name, "rotated": deleted})
+    outbox.emit(session, household.id, "backup.created", entity_kind="backup",
+                payload={"status": "completed"}, dedup_key=f"backup:{snap.name}")
     return schemas.BackupOut(name=snap.name, bytes=snap.stat().st_size,
                              ok=backup.verify_snapshot(snap),
                              taken_at=backup.snapshot_taken_at(snap))

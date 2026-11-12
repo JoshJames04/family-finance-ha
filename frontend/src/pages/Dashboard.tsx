@@ -13,7 +13,7 @@ import type { components } from "../api/schema";
 import { Button } from "../components/Button";
 import { Sheet } from "../components/Dialog";
 import { PageHeader } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import { formatLongDate } from "../lib/format";
 import { useShell } from "../shell/ShellContext";
@@ -173,6 +173,9 @@ export function Dashboard() {
           </>
         }
       />
+      {households.error && !households.loading && (
+        <ErrorState message={households.error} onRetry={households.refetch} />
+      )}
       <ReviewCallout />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {layout === null && (
