@@ -63,8 +63,10 @@ def settle_occurrence(
     if txn.category_id is None:
         categorise.apply_provider_map(session, movement.household_id, transaction_ids=[txn.id])
         categorise.apply_rules(session, movement.household_id, transaction_ids=[txn.id])
+    event_type = ("movement.partial" if match.matched_pence < outstanding
+                  else "movement.settled")
     outbox.emit(
-        session, movement.household_id, "movement.settled",
+        session, movement.household_id, event_type,
         entity_kind=movement.source_type.value,
         entity_id=movement.source_id,
         payload={
@@ -76,7 +78,7 @@ def settle_occurrence(
             .matched_pence,
             "manual": manual,
             "date": txn.date.isoformat()},
-        dedup_key=f"movement.settled:{movement.id}:{txn.id}")
+        dedup_key=f"{event_type}:{movement.id}:{txn.id}")
     if match.matched_pence < outstanding:
         return match
     if movement.source_type == ExpectedSource.commitment:

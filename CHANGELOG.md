@@ -11,6 +11,48 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-11-12
+
+### Added
+
+- Combined All Budget view as the default landing view.
+- Opt-in per-item HA numeric entities, scoped family event streams and energy
+  statistics, with explicit privacy controls and bounded discovery.
+
+### Fixed
+
+- Recover prolonged dashboard/API outages and block financial writes after a
+  failed migration while preserving administrator recovery access.
+- Reconcile Budget MTD spending to the authorised ledger and preserve the selected
+  period and unpaid bill balances.
+- Apply durable scoped categorisation and owned-transfer rules while protecting
+  reconciled history; sort category choices alphabetically with readable colours.
+- Repair historical payroll, tax/refund, goal, loan and seasonal accounting and
+  privacy findings, including cutoff months when adjusted payday crosses months.
+- Restore administrator notification/event monitoring and private-account sync
+  history, and open the exact transaction selected from command search.
+- Publish every HA event before acknowledging its durable cursor; add scoped
+  entity discovery, energy statistics and canonical financial transitions.
+- Emit partial-payment events while an obligation has a remaining balance;
+  settled-payment events now wait for the final payment (#476).
+
+### Release checks and upgrade notes
+
+- API contract generation and both release architectures are smoke-test gates.
+- Startup applies migrations `0068_finance_integrity` and `0069_scoped_categories`;
+  take a verified backup before upgrading. Migration round-trips and backup
+  restoration were tested locally.
+- Account-specific categorisation aliases are private configuration. The two
+  household-confirmed space rules were verified locally and must be configured
+  on live after upgrade; this release does not import that private configuration.
+- Sixteen recovered workbook comments still need mapping into app records (#360).
+  Physical HAOS installation and actual HA editor/live delivery acceptance remain
+  operator checks (#432, #441). These are not claimed complete by this release.
+- Dashboard/layout, payday and automatic bank-sync issues retain their required
+  live-installation acceptance checks (#460, #414, #461, #416).
+- [Remaining work after this release](docs/RELEASE-1.4.2-REMAINING.md) records the
+  eight tracked follow-ups and the blocked personal-project board update.
+
 ## [1.4.1] — 2026-11-11
 
 ### Fixed

@@ -23,6 +23,7 @@ from app.persistence.models import (
     ExpectedSource,
     Frequency,
     Household,
+    IntegrationEvent,
     Reconciliation,
     ReconStatus,
     RecurringCommitment,
@@ -87,6 +88,30 @@ def _txn(session: Session, a: Account, on: date, pence: int = -1599,
 
 def _matches(session: Session) -> list[ExpectedMatch]:
     return list(session.scalars(select(ExpectedMatch)).all())
+
+
+@pytest.mark.parametrize("final_pence", [-6000, -9000])
+def test_partial_event_precedes_final_settlement_without_duplicate_replay(
+        session, household, account, final_pence):
+    commitment = _commitment(session, household, account, next_date=TODAY, pence=-10000)
+    movement = _movement(session, household, account, on=TODAY, pence=-10000,
+                         source_id=commitment.id)
+    first = _txn(session, account, TODAY, -4000)
+    settle.settle_occurrence(session, movement, first, manual=True)
+    assert commitment.next_date == TODAY
+    assert settle.settle_occurrence(session, movement, first, manual=True) is None
+    events = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type.in_(["movement.partial", "movement.settled"]))))
+    assert [event.event_type for event in events] == ["movement.partial"]
+    assert events[0].payload["matched_pence_outstanding"] == 6000
+    final = _txn(session, account, TODAY, final_pence)
+    settle.settle_occurrence(session, movement, final, manual=True)
+    events = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type.in_(["movement.partial", "movement.settled"]))
+        .order_by(IntegrationEvent.id)))
+    assert [event.event_type for event in events] == ["movement.partial", "movement.settled"]
+    assert events[1].payload["matched_pence_outstanding"] == 0
+    assert commitment.next_date > TODAY
 
 
 class TestAutoSettlement:
