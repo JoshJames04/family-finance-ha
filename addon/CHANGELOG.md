@@ -1,5 +1,20 @@
 # Changelog — Family Finance add-on
 
+## 1.4.2
+
+- Fix dashboard outage recovery, Budget MTD totals and default All navigation.
+- Repair scoped categorisation, transfer matching and readable category choices
+  while preserving reconciled history.
+- Fix payroll/tax, goal, loan and seasonal accounting and privacy regressions.
+- Restore private monitoring permissions and exact transaction search links.
+- Acknowledge HA outbox cursors after event publication; improve HA events,
+  optional entities and energy statistics.
+- Back up before upgrading: startup applies migrations 0068 and 0069. Private
+  space-transfer aliases require configuration after deployment; no live rules
+  were changed during verification.
+- Workbook-comment mapping and physical HA/operator acceptance remain open;
+  see the full repository changelog and regression review for limitations.
+
 ## 1.4.1
 
 - Financial widgets show request failures explicitly and preserve old figures

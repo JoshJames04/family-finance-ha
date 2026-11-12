@@ -11,6 +11,36 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-11-12
+
+### Fixed
+
+- Recover prolonged dashboard/API outages and block financial writes after a
+  failed migration while preserving administrator recovery access.
+- Reconcile Budget MTD spending to the authorised ledger; open the combined All
+  view by default and preserve the selected period and unpaid bill balances.
+- Apply durable scoped categorisation and owned-transfer rules while protecting
+  reconciled history; sort category choices alphabetically with readable colours.
+- Repair historical payroll, tax/refund, goal, loan and seasonal accounting and
+  privacy findings, including cutoff months when adjusted payday crosses months.
+- Restore administrator notification/event monitoring and private-account sync
+  history, and open the exact transaction selected from command search.
+- Publish every HA event before acknowledging its durable cursor; add scoped
+  entity discovery, energy statistics and canonical financial transitions.
+
+### Release checks and upgrade notes
+
+- API contract generation and both release architectures are smoke-test gates.
+- Startup applies migrations `0068_finance_integrity` and `0069_scoped_categories`;
+  take a verified backup before upgrading. Migration round-trips and backup
+  restoration were tested locally.
+- Account-specific categorisation aliases are private configuration. The two
+  household-confirmed space rules were verified locally and must be configured
+  on live after upgrade; this release does not import that private configuration.
+- Sixteen recovered workbook comments still need mapping into app records (#360).
+  Physical HAOS installation and actual HA editor/live delivery acceptance remain
+  operator checks (#432, #441). These are not claimed complete by this release.
+
 ## [1.4.1] — 2026-11-11
 
 ### Fixed
