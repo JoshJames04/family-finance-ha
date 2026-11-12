@@ -22,9 +22,10 @@ class PayrollTotals:
     actual_net_pence: int | None
 
 
-def signed_component(kind: PayrollComponentKind, value: int) -> int:
+def signed_component(kind: PayrollComponentKind, value: int, *,
+                     native: bool = False) -> int:
     """Older imports contain positive deductions; native runs use negatives."""
-    return value if kind in EARNINGS else -abs(value)
+    return value if native or kind in EARNINGS else -abs(value)
 
 
 def totals_for_run(run: PayrollRun) -> PayrollTotals:
@@ -34,12 +35,13 @@ def totals_for_run(run: PayrollRun) -> PayrollTotals:
             component.actual_pence is not None for component in run.components):
         actual_gross = run.gross_pence
         actual_net = run.net_pence
+        native = (run.rule_set_version or 0) > 0
         for component in run.components:
             if component.actual_pence is None:
                 continue
             delta = (
-                signed_component(component.kind, component.actual_pence)
-                - signed_component(component.kind, component.forecast_pence)
+                signed_component(component.kind, component.actual_pence, native=native)
+                - signed_component(component.kind, component.forecast_pence, native=native)
             )
             actual_net += delta
             if component.kind in EARNINGS:

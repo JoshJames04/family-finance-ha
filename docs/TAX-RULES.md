@@ -90,3 +90,17 @@ parameters' `flat_code_band_indices` and `bands` rates. K-code deductions obey
 the HMRC overriding limit of half the period's gross pay. See the
 [historical finance disposition](FINANCE-HISTORICAL-AUDIT.md) for sources,
 regression evidence and the limits of this audit.
+
+Cumulative PAYE now preserves negative tax as a refund when tax already paid
+exceeds the recalculated year-to-date liability. W1/M1 ignores earlier pay and
+tax; the K-code half-pay limit constrains withholding, never refunds. Native
+versioned payroll components retain signed refund values through reconciliation
+and subsequent YTD calculations. Unversioned legacy imports retain their
+existing positive-deduction normalization.
+
+The regression goldens are independently hand-calculated examples, supported by
+[HMRC PAYE11090](https://www.gov.uk/hmrc-internal-manuals/paye-manual/paye11090),
+[PAYE regulation 23(6)](https://www.legislation.gov.uk/uksi/2003/2682/regulation/23),
+and the [HMRC tax-table routines, section 3.7](https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/386401/payenominal.pdf)
+(including the rule that K-code refund amounts are unaffected by the withholding
+limit). This remains bounded test evidence, rather than full HMRC certification.

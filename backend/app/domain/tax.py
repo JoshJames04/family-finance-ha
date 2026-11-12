@@ -240,9 +240,10 @@ def compute_period(
         allow = _allowance(code, params, cum_income, periods,
                            periods_per_year)
         taxable = max(0, cum_income - allow)
-        tax = max(0, _banded(taxable, params["bands"], periods,
-                             periods_per_year)
-                  - prior_tax)
+        # Cumulative PAYE repays excess tax already paid (regulation 23(6)).
+        # W1/M1 has prior_tax=0 and therefore cannot refund earlier periods.
+        tax = (_banded(taxable, params["bands"], periods,
+                       periods_per_year) - prior_tax)
 
     if code.allowance_pence < 0:
         tax = min(tax, max(0, gross_pence // 2))
