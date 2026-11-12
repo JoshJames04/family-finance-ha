@@ -239,3 +239,12 @@ image edge without hiding any controls.
 ![Synthetic populated Shared at 320px](images/live142-mobile-shared.png)
 
 ![Synthetic populated Budget at 320px](images/live142-mobile-budget.png)
+
+CI's Bills bootstrap exposed a separate request-commit race (#481). A fresh
+database session could not see a created household when HTTP 201 headers were
+sent, and an injected commit failure still returned 201 before rollback.
+`test_response_commit.py` reproduces both cases without sleeps or retries.
+All central request-session dependencies now use function scope, committing
+before headers are sent. FastAPI's minimum is 0.121.1 to support that scope.
+CSV exports are materialized and file downloads resolve their paths before
+returning; neither uses the request session while streaming response bytes.
