@@ -316,6 +316,7 @@ def test_employment_replacement_removes_old_future_rows(session, household):
         household,
         session,
         "test",
+        p,
     )
     old_rows = [m for m in projected(session) if m.source_id == e.id]
     assert all(m.expected_date < new_start for m in old_rows)
