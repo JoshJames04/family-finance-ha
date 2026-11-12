@@ -24,6 +24,7 @@ from app.persistence.models import (
     Category,
     Role,
     Transaction,
+    TransactionStatus,
     UserProfile,
 )
 
@@ -62,6 +63,9 @@ def list_transactions(
     profile: ProfileDep,
     account_id: Annotated[int | None, Query()] = None,
     category_id: Annotated[int | None, Query()] = None,
+    owner_profile_id: Annotated[int | None, Query()] = None,
+    exclude_void: bool = False,
+    exclude_opening: bool = False,
     status: Annotated[str | None, Query()] = None,
     date_from: Annotated[date | None, Query()] = None,
     date_to: Annotated[date | None, Query()] = None,
@@ -86,6 +90,14 @@ def list_transactions(
         stmt = stmt.where(
             Account.owner_profile_id.is_(None)
             | (Account.owner_profile_id == profile.id))
+    if owner_profile_id is not None:
+        stmt = stmt.where(Account.owner_profile_id == owner_profile_id)
+    if exclude_void:
+        stmt = stmt.where(Transaction.status != TransactionStatus.void)
+    if exclude_opening:
+        stmt = stmt.where(
+            ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+            | Transaction.external_ref.is_(None))
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
     if category_id is not None:

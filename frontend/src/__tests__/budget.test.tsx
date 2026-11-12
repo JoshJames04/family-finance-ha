@@ -36,7 +36,7 @@ const FLAT_CATS = { items: [
 function stubFetch(
   calls: { url: string; method: string; body: string }[],
   opts: { locked?: boolean; categories?: object; detail?: object;
-          actuals?: object } = {},
+          actuals?: object; budgets?: {items: Array<Omit<typeof BUDGETS.items[number], "owner_profile_id"> & {owner_profile_id: number | null}>; total: number}; combined?: object } = {},
 ) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -51,12 +51,14 @@ function stubFetch(
         ? { ...DETAIL, status: "locked" } : (opts.detail ?? DETAIL);
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
+        : url.includes("/reports/combined")
+          ? opts.combined
         : url.includes("/actuals")
           ? (opts.actuals ?? ACTUALS)
           : url.includes("/api/v1/budgets/1")
             ? detail
             : url.includes("/api/v1/budgets")
-              ? BUDGETS
+              ? (opts.budgets ?? BUDGETS)
               : url.includes("/api/v1/categories")
                 ? (opts.categories ?? FLAT_CATS)
                 : url.includes("expected-movements")
@@ -163,5 +165,40 @@ describe("Budget", () => {
     await waitFor(() => expect(screen.queryByText("Food")).toBeNull());
     await user.click(await screen.findByRole("button", { name: /Household Bills/ }));
     await screen.findByText("Food");
+  });
+});
+
+
+describe("Budget acceptance", () => {
+  afterEach(cleanup);
+  it("uses the complete signed as-of ledger summary and shows its bridge", async () => {
+    stubFetch([], { actuals: { ...ACTUALS, spent_pence: 9000,
+      budget_covered_pence: 12000, unallocated_pence: -3000,
+      uncategorised_pence: 0, as_of: "2026-04-15", spend_items: [
+        { transaction_id: 44, date: "2026-04-14", category_id: null, amount_pence: -3000 },
+      ] } });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    await screen.findByText("Spent so far", { selector: "span" });
+    const stat = screen.getByText("Spent so far", { selector: "span" }).closest("dl") ?? screen.getByText("Spent so far", { selector: "span" }).parentElement!.parentElement!;
+    expect(stat.textContent).toContain("£90.00");
+    await user.click(screen.getByText("Reconcile spending"));
+    expect(screen.getByText("#44")).toBeTruthy();
+    expect(screen.getAllByText("Uncategorised").length).toBeGreaterThan(0);
+  });
+  it("defaults to All before owner scopes and fetches a combined period", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls, { budgets: { ...BUDGETS, items: [...BUDGETS.items,
+      { ...BUDGETS.items[0]!, id: 2, owner_profile_id: 7 }], total: 2 },
+      combined: { detail: { ...DETAIL, id: 0, name: "All", read_only: true },
+        actuals: { ...ACTUALS, budget_id: 0, spent_pence: 5000 } } });
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    const all = await screen.findByRole("radio", { name: "All" });
+    expect(all.getAttribute("aria-checked")).toBe("true");
+    await waitFor(() => expect(calls.some(c => c.url.includes("/reports/combined"))).toBe(true));
+    expect(screen.queryByLabelText("Adjust Food")).toBeNull();
+    await userEvent.click(screen.getByRole("radio", { name: "Shared" }));
+    expect(await screen.findByLabelText("Adjust Food")).toBeTruthy();
+    await waitFor(() => expect(calls.some(c => c.url.includes("expected-movements") && c.url.includes("budget_id=1"))).toBe(true));
   });
 });

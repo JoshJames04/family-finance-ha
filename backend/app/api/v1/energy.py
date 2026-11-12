@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from datetime import date as date_t
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy import select
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import energy
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import energy, rbac
 from app.persistence.models import (
     EnergyConfig,
     EnergyReading,
@@ -167,3 +167,21 @@ def get_report(
         projected_total_pence=r.projected_total_pence,
         projected_variance_pence=r.projected_variance_pence,
         avg_daily_wh=r.avg_daily_wh)
+
+
+@router.delete("/tariffs/{tariff_id}", status_code=204)
+def delete_tariff(
+    tariff_id: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, profile: ProfileDep,
+) -> Response:
+    tariff = session.scalar(select(EnergyTariff).where(
+        EnergyTariff.id == tariff_id, EnergyTariff.household_id == household.id))
+    if tariff is None:
+        raise HTTPException(404, "tariff not found")
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
+    emit(session, household.id, actor, "delete", "energy_tariff", tariff.id,
+         {"effective_from": str(tariff.effective_from)})
+    session.delete(tariff)
+    session.flush()
+    return Response(status_code=204)

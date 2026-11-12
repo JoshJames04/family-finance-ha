@@ -57,7 +57,7 @@ export const Select = forwardRef<
       ref={ref}
       className={cn(
         control,
-        "appearance-none truncate pr-8",
+        "native-select appearance-none truncate pr-8",
         sizeVariant === "sm" ? "h-8 pl-2.5 text-[13px]" : "h-9 pl-3 text-sm",
         className,
       )}

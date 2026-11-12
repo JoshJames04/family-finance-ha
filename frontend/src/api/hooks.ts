@@ -26,7 +26,11 @@ export function useCategories() {
     for (const c of state.data?.items ?? []) m.set(c.id, c);
     return m;
   }, [state.data]);
-  return { ...state, byId };
+  const data = useMemo(() => state.data ? { ...state.data,
+    items: [...state.data.items].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id - b.id),
+  } : null, [state.data]);
+  return { ...state, data, byId };
 }
 
 /** Projection for the first (primary) account unless one is given. */

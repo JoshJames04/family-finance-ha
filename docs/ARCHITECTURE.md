@@ -241,3 +241,32 @@ future shifts. Failed prerequisite reads offer Retry instead of missing-setup cl
 A failed transaction page must be retried before pagination can advance. Retained
 safe-to-spend and account balances display their refresh errors beside the last
 known values, and payroll-run failures expose Retry instead of claiming no runs.
+
+
+### Budget and reporting acceptance boundaries
+
+`BudgetActuals` separates full-period per-line analysis from as-of expense flow.
+The headline includes non-void external outflows through the earlier of today and
+the period end. Positive entries in an expense category, and explicitly linked
+refunds, offset expense flow; remaining positive entries are income. An unlinked,
+uncategorised inflow remains income rather than being guessed to be a refund.
+Opening transactions (`system`, `open:<account-id>`) remain balance stock and are
+excluded from period flow. The returned itemised bridge uses effective split
+amounts and preserves uncategorised status without writing classifications.
+
+The read-only combined Budget endpoint selects one latest visible plan per owner
+for the exact period, adds their plan lines, and computes actuals and unpaid bill
+residuals over a union of authorised accounts. Shared and personal overlap cannot
+multiply a transaction or expected obligation. Alternative plan versions for the
+same owner/period do not multiply the plan. An owner view retains normal editing.
+
+Monthly, annual and comparative reports apply the caller's account and budget
+visibility to both current and prior sections. Personal budget variances reuse the
+Budget actuals calculation, including the owner scope and signed category refunds.
+Transaction drills carry owner and non-void/opening/transfer exclusions. Account
+balances and net worth continue to include opening stock.
+
+Deleting a budget template removes its copied-line source and clears optional
+provenance pointers; previously applied budget lines are retained. Tariff deletion
+removes the selected effective-dated rate and leaves readings intact. Both DELETE
+routes are household scoped, audited, and reject viewer mutations.

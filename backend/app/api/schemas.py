@@ -368,14 +368,33 @@ class BudgetDetail(BudgetOut):
     read_only: bool
 
 
+class BudgetSpendItem(BaseModel):
+    transaction_id: int
+    date: date
+    category_id: int | None
+    amount_pence: int  # signed spend: refunds are negative
+
+
 class BudgetActuals(BaseModel):
     budget_id: int
+    as_of: date | None = None
+    spent_pence: int = 0
+    budget_covered_pence: int = 0
+    unallocated_pence: int = 0
+    uncategorised_pence: int = 0
+    income_received_pence: int = 0
+    spend_items: list[BudgetSpendItem] = []
     totals: dict[int, int]  # line_id → actual pence
     lines: dict[int, dict[str, object]] = {}  # variance/accuracy per line
     # issue #415: unpaid scheduled outgoings left in the period —
     # distinct from `totals` (real spend) and from planned amounts
     bills_remaining_pence: int = 0
     bills_remaining_count: int = 0
+
+
+class BudgetCombined(BaseModel):
+    detail: BudgetDetail
+    actuals: BudgetActuals
 
 
 class BudgetTemplateIn(BaseModel):

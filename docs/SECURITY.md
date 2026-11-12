@@ -146,3 +146,10 @@ profile is resolved. Member auto-matching is limited to writable visible
 accounts; viewers cannot create even accountless plans or run matching. Legacy
 standalone anonymous write compatibility follows the application's existing
 RBAC contract.
+
+
+Report documents (monthly, annual and year-on-year), including prior figures and
+budget names/variances, use the same authorised account and budget sets as direct
+reads. Budget headlines and the All view apply account visibility before financial
+aggregation; the itemised reconciliation bridge cannot expose another member's
+private ledger. Shared plans do not grant access to private account rows.

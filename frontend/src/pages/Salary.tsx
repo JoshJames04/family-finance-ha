@@ -39,6 +39,7 @@ type PaydayValue = {
   nth: number | null;
   adjust: "previous" | "next" | "none";
   raw?: string;
+  cutoff_day?: number;
 };
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -55,13 +56,15 @@ function parsePayday(raw: string | null | undefined): PaydayValue | null {
     return { kind: "nth_weekday", day: null, weekday: 4, nth: -1, adjust: "previous", raw };
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<PaydayValue>;
+    const config = JSON.parse(raw) as Partial<PaydayValue> & { pay_rule?: Partial<PaydayValue> };
+    const parsed = config.pay_rule ?? config;
     if (typeof parsed.kind !== "string"
       || !PAYDAY_KINDS.some((item) => item.value === parsed.kind)) {
       return { kind: "legacy", day: null, weekday: null, nth: null, adjust: "previous", raw };
     }
     return {
       kind: parsed.kind as PaydayKind,
+      cutoff_day: config.cutoff_day,
       day: parsed.day ?? null,
       weekday: parsed.weekday ?? null,
       nth: parsed.nth ?? null,
@@ -77,6 +80,7 @@ function serializePayday(value: PaydayValue | null): string | null {
   if (!value) return null;
   if (value.kind === "legacy" && value.raw) return value.raw;
   return JSON.stringify({
+    ...(value.cutoff_day == null ? {} : { cutoff_day: value.cutoff_day }),
     adjust: value.adjust,
     day: value.day,
     kind: value.kind,
@@ -119,6 +123,7 @@ function PaydayPicker({ value, onChange }: {
   const update = (patch: Partial<PaydayValue>) => {
     const next: PaydayValue = {
       kind: kind as PaydayKind,
+      cutoff_day: parsed?.cutoff_day,
       day: parsed?.day ?? 25,
       weekday: parsed?.weekday ?? 4,
       nth: parsed?.nth ?? -1,
@@ -156,6 +161,12 @@ function PaydayPicker({ value, onChange }: {
           <Input id={id} type="number" min={1} max={31}
             value={parsed?.day ?? 25}
             onChange={(e) => update({ day: Math.max(1, Math.min(31, Number(e.target.value) || 1)) })} />
+        )}</Field>
+      )}
+      {kind && kind !== "legacy" && (
+        <Field label="Payroll cutoff day" hint="Optional: final day of the earning period (1–31). Leave blank for calendar months.">{(id) => (
+          <Input id={id} type="number" min={1} max={31} value={parsed?.cutoff_day ?? ""}
+            onChange={(e) => update({ cutoff_day: e.target.value ? Math.max(1, Math.min(31, Number(e.target.value))) : undefined })} />
         )}</Field>
       )}
       {(kind === "nth_weekday" || kind === "weekly") && (

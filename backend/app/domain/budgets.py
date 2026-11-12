@@ -12,11 +12,12 @@ and never double-counted *within* a budget.
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.domain import splits
+from app.domain import contributions, splits
 from app.persistence.models import (
     Account,
     Budget,
@@ -24,7 +25,6 @@ from app.persistence.models import (
     BudgetLineSide,
     BudgetPeriodType,
     BudgetStatus,
-    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     ReportingPeriod,
@@ -158,7 +158,8 @@ def effective_pence(line: BudgetLine) -> int:
             else line.original_pence)
 
 
-def actuals_for_budget(session: Session, budget: Budget) -> dict[int, int]:
+def actuals_for_budget(session: Session, budget: Budget,
+                       account_ids: list[int] | None = None) -> dict[int, int]:
     """Per-line actual totals (expense lines: spend as positive pence;
     income lines: income as positive pence). Overlapping budgets each
     see the same underlying transactions — attribution is per-budget,
@@ -170,6 +171,7 @@ def actuals_for_budget(session: Session, budget: Budget) -> dict[int, int]:
           if budget.owner_profile_id is not None else []),
         Transaction.date >= budget.start_date,
         Transaction.date <= budget.end_date,
+        *([Account.id.in_(account_ids)] if account_ids is not None else []),
         Transaction.status != TransactionStatus.void,
         Transaction.transfer_id.is_(None))
     for line in budget.lines:
@@ -183,7 +185,8 @@ def actuals_for_budget(session: Session, budget: Budget) -> dict[int, int]:
     return out
 
 
-def bills_remaining(session: Session, budget: Budget
+def bills_remaining(session: Session, budget: Budget,
+                    account_ids: list[int] | None = None
                     ) -> tuple[int, int]:
     """Unpaid scheduled outgoings left in the budget period (issue
     #415). Commitment/subscription expected movements in the window
@@ -191,7 +194,6 @@ def bills_remaining(session: Session, budget: Budget
     overdue, not gone, so it still counts. Member budgets see only
     movements on the owner's accounts; shared budgets see the
     household. Returns ``(pence, count)`` with pence positive."""
-    matched = select(ExpectedMatch.movement_id)
     conds = [
         ExpectedMovement.household_id == budget.household_id,
         ExpectedMovement.source_type.in_(
@@ -199,17 +201,70 @@ def bills_remaining(session: Session, budget: Budget
         ExpectedMovement.expected_date >= budget.start_date,
         ExpectedMovement.expected_date <= budget.end_date,
         ExpectedMovement.amount_pence < 0,
-        ExpectedMovement.dismissed_at.is_(None),
-        ExpectedMovement.id.not_in(matched)]
+        ExpectedMovement.dismissed_at.is_(None)]
     if budget.owner_profile_id is not None:
         conds.append(ExpectedMovement.account_id.in_(
             select(Account.id).where(
                 Account.owner_profile_id == budget.owner_profile_id)))
-    total, count = session.execute(
-        select(func.coalesce(func.sum(ExpectedMovement.amount_pence), 0),
-               func.count(ExpectedMovement.id))
-        .where(*conds)).one()
-    return -int(total), int(count)
+    if account_ids is not None:
+        conds.append(ExpectedMovement.account_id.in_(account_ids))
+    residuals = [contributions.status(session, m).outstanding_pence
+                 for m in session.scalars(select(ExpectedMovement).where(*conds))]
+    return sum(residuals), sum(value > 0 for value in residuals)
+
+
+def spending_summary(session: Session, budget: Budget,
+                     account_ids: list[int] | None = None,
+                     as_of: date | None = None) -> dict[str, Any]:
+    """As-of net expense flow with an exact itemised bridge.
+
+    Outflows count even without a plan/category. Positive rows in an
+    expense category offset spending; other positive rows are income.
+    Opening stock, transfers and void rows are excluded. Per-line actuals
+    retain full-period semantics for historical analysis and rollover.
+    """
+    through = min(budget.end_date, as_of or date.today())
+    rows = session.scalars(select(Transaction).join(Account).where(
+        Account.household_id == budget.household_id,
+        *([Account.owner_profile_id == budget.owner_profile_id]
+          if budget.owner_profile_id is not None else []),
+        *([Account.id.in_(account_ids)] if account_ids is not None else []),
+        Transaction.date >= budget.start_date, Transaction.date <= through,
+        Transaction.status != TransactionStatus.void,
+        Transaction.transfer_id.is_(None),
+        ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+        | Transaction.external_ref.is_(None),
+    ).options(selectinload(Transaction.splits))
+        .order_by(Transaction.date, Transaction.id)).all()
+    covered = {line.category_id for line in budget.lines
+               if line.side == BudgetLineSide.expense}
+    effective: list[tuple[Transaction, int | None, int]] = []
+    for row in rows:
+        if row.splits:
+            effective.extend((row, leg.category_id, leg.amount_pence)
+                             for leg in row.splits)
+        else:
+            effective.append((row, row.category_id, row.amount_pence))
+    expense_categories = covered | {cid for _, cid, amount in effective
+                                    if amount < 0 and cid is not None}
+    items: list[dict[str, Any]] = [{"transaction_id": row.id, "date": row.date,
+              "category_id": cid, "amount_pence": -amount}
+             for row, cid, amount in effective
+             if amount < 0 or cid in expense_categories
+             or (amount > 0 and row.refund_of_id is not None)]
+    spent = sum(int(item["amount_pence"]) for item in items)
+    budget_covered = sum(int(item["amount_pence"]) for item in items
+                         if item["category_id"] in covered)
+    return {"as_of": through, "spent_pence": spent,
+            "budget_covered_pence": budget_covered,
+            "unallocated_pence": spent - budget_covered,
+            "uncategorised_pence": sum(int(item["amount_pence"])
+                for item in items if item["category_id"] is None),
+            "income_received_pence": sum(amount for row, cid, amount in effective
+                if amount > 0 and cid not in expense_categories
+                and row.refund_of_id is None),
+            "spend_items": items}
+
 
 
 # ---------- templates + copy-forward (issue #59) ----------------------

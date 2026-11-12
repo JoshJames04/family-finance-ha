@@ -324,6 +324,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/budgets/reports/combined": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Combined Budget
+         * @description Read-only All view for one exact period; actuals use an account union.
+         *
+         *     One latest budget per owner/period prevents duplicate plan versions from
+         *     multiplying the plan. Personal and shared plans remain separate inputs;
+         *     each underlying transaction and expected obligation contributes once.
+         */
+        get: operations["combined_budget_api_v1_budgets_reports_combined_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/budgets/templates/list": {
         parameters: {
             query?: never;
@@ -369,7 +393,8 @@ export interface paths {
         get: operations["get_template_api_v1_budgets_templates__template_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Template */
+        delete: operations["delete_template_api_v1_budgets_templates__template_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3526,6 +3551,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/energy/tariffs/{tariff_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Tariff */
+        delete: operations["delete_tariff_api_v1_energy_tariffs__tariff_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -3971,6 +4013,38 @@ export interface components {
         BudgetActuals: {
             /** Budget Id */
             budget_id: number;
+            /** As Of */
+            as_of?: string | null;
+            /**
+             * Spent Pence
+             * @default 0
+             */
+            spent_pence: number;
+            /**
+             * Budget Covered Pence
+             * @default 0
+             */
+            budget_covered_pence: number;
+            /**
+             * Unallocated Pence
+             * @default 0
+             */
+            unallocated_pence: number;
+            /**
+             * Uncategorised Pence
+             * @default 0
+             */
+            uncategorised_pence: number;
+            /**
+             * Income Received Pence
+             * @default 0
+             */
+            income_received_pence: number;
+            /**
+             * Spend Items
+             * @default []
+             */
+            spend_items: components["schemas"]["BudgetSpendItem"][];
             /** Totals */
             totals: {
                 [key: string]: number;
@@ -3994,6 +4068,11 @@ export interface components {
              * @default 0
              */
             bills_remaining_count: number;
+        };
+        /** BudgetCombined */
+        BudgetCombined: {
+            detail: components["schemas"]["BudgetDetail"];
+            actuals: components["schemas"]["BudgetActuals"];
         };
         /** BudgetDetail */
         BudgetDetail: {
@@ -4152,6 +4231,20 @@ export interface components {
             original_accuracy_pct: number;
             /** Status */
             status: string;
+        };
+        /** BudgetSpendItem */
+        BudgetSpendItem: {
+            /** Transaction Id */
+            transaction_id: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Category Id */
+            category_id: number | null;
+            /** Amount Pence */
+            amount_pence: number;
         };
         /**
          * BudgetStatus
@@ -8133,6 +8226,41 @@ export interface operations {
             };
         };
     };
+    combined_budget_api_v1_budgets_reports_combined_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCombined"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_templates_api_v1_budgets_templates_list_get: {
         parameters: {
             query?: never;
@@ -8222,6 +8350,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BudgetTemplateDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_template_api_v1_budgets_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -8712,6 +8873,9 @@ export interface operations {
             query?: {
                 account_id?: number | null;
                 category_id?: number | null;
+                owner_profile_id?: number | null;
+                exclude_void?: boolean;
+                exclude_opening?: boolean;
                 status?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
@@ -11959,6 +12123,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11992,6 +12157,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12025,6 +12191,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -15738,6 +15905,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EnergyMonthReportOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_tariff_api_v1_energy_tariffs__tariff_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                tariff_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

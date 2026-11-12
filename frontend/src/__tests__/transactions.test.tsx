@@ -232,3 +232,15 @@ describe("Transactions", () => {
         && c.method === "POST")).toBe(true));
   });
 });
+
+
+describe("Category ordering", () => {
+  afterEach(cleanup);
+  it("sorts native category options alphabetically", async () => {
+    stubFetch([]);
+    render(<MemoryRouter><Transactions /></MemoryRouter>);
+    const select = await screen.findByLabelText("Category");
+    await waitFor(() => expect((select as HTMLSelectElement).options.length).toBe(3));
+    expect(Array.from((select as HTMLSelectElement).options).map(o => o.text)).toEqual(["All categories", "Bills", "Food"]);
+  });
+});
