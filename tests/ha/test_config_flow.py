@@ -26,7 +26,8 @@ VALID = {
 
 async def _start(hass: HomeAssistant):
     return await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER})
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
 
 
 async def test_form_shown(hass: HomeAssistant) -> None:
@@ -36,55 +37,71 @@ async def test_form_shown(hass: HomeAssistant) -> None:
 
 
 async def test_entry_created_on_valid_connection(
-    hass: HomeAssistant, mock_api: AsyncMock,
+    hass: HomeAssistant,
+    mock_api: AsyncMock,
 ) -> None:
     result = await _start(hass)
     with patch(
         "custom_components.family_finance.async_setup_entry",
         return_value=True,
     ):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_URL] == VALID[CONF_URL]
     mock_api.validate.assert_awaited_once()  # type: ignore[attr-defined]
 
 
 async def test_cannot_connect_maps_to_form_error(
-    hass: HomeAssistant, mock_api: AsyncMock,
+    hass: HomeAssistant,
+    mock_api: AsyncMock,
 ) -> None:
     mock_api.validate.side_effect = FamilyFinanceError("down")  # type: ignore[attr-defined]
     result = await _start(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], VALID)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID)
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
 
 
 async def test_invalid_auth_maps_to_form_error(
-    hass: HomeAssistant, mock_api: AsyncMock,
+    hass: HomeAssistant,
+    mock_api: AsyncMock,
 ) -> None:
     mock_api.validate.side_effect = FamilyFinanceAuthError("401")  # type: ignore[attr-defined]
     result = await _start(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], VALID)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID)
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_auth"}
 
 
 async def test_same_household_twice_aborts(
-    hass: HomeAssistant, mock_api: AsyncMock,
+    hass: HomeAssistant,
+    mock_api: AsyncMock,
 ) -> None:
     result = await _start(hass)
     with patch(
         "custom_components.family_finance.async_setup_entry",
         return_value=True,
     ):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     again = await _start(hass)
-    again = await hass.config_entries.flow.async_configure(
-        again["flow_id"], VALID)
+    again = await hass.config_entries.flow.async_configure(again["flow_id"], VALID)
     assert again["type"] == FlowResultType.ABORT
     assert again["reason"] == "already_configured"
+
+
+async def test_service_token_reauthentication_updates_entry(hass, mock_api):
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(domain=DOMAIN, data={**VALID, "token": "old"})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_REAUTH, "entry_id": entry.entry_id},
+        data=dict(entry.data),
+    )
+    assert result["step_id"] == "reauth_confirm"
+    with patch("custom_components.family_finance.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"token": "new"})
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["token"] == "new"

@@ -1,178 +1,179 @@
-# Home Assistant notification triggers
+# Home Assistant automations and energy statistics
 
-**Status:** Plan — trigger side only (issue-tracked implementation to
-follow). Covers how Home Assistant detects that Family Finance needs
-attention and turns that into a notification the user actually sees.
+The integration polls the app every minute. It exposes summary sensors, eight
+compatible device triggers, durable per-family event entities, and optional numeric
+sensors for individual Bills, Accounts and Goals. The app remains authoritative for
+financial calculations and committed transitions.
 
-## 1. What already exists
+## Connection and privacy
 
-**Backend — a real notification engine** (`app/domain/notifications.py`):
+Configure the app URL, household ID and the app's service token. The integration
+sends the token as `X-Admin-Token`; it never invents a household member or an admin
+profile. A rejected token enters HA reauthentication. The token grants only the
+server's explicit service allowlist and shared resource scope. Existing HA actions
+for adding a shared transaction or recording permitted overtime remain audited by
+the app; unauthorised private resources are rejected.
 
-- 12 rule kinds: `spend_above`, `balance_below`, `weekly_digest`,
-  `payday_reminder`, `bill_reminder`, `low_projected_balance`,
-  `budget_overspend`, `unusual_transaction`, `price_change`,
-  `missed_transfer`, `sync_failure`, `payroll_variance`.
-- Rules evaluate into `NotificationEvent` rows; a dispatch pass
-  delivers each pending event once; events support `ack`/`snooze`.
-- `payroll_variance` already fires when a confirmed payslip disagrees
-  with the forecast run — the reconciliation prompt the user asked for
-  is already emitted backend-side.
-- Payslips carry a `PayslipStatus` lifecycle
-  (`uploaded → extracted → needs_review → confirmed | failed`), so
-  "waiting on the user's review" is countable server-side.
+Safe event detail is the app default. An app administrator can select **Safe** or
+**Detailed** in Settings. Detailed mode can place names and monetary values in the
+HA event bus, entity attributes, recorder, automation traces and notification
+recipients. Anyone who can access those surfaces may see that detail. HA is not a
+per-member private financial store. Switch back to Safe to redact subsequent feed
+reads; this does not erase old HA history, traces or notifications.
 
-**HA integration — a transition-event bus** (`custom_components/
-family_finance/events.py`, issue #102):
+Per-item numeric sensors have a separate explicit opt-in. In **Settings > Devices
+& services > Family Finance > Configure**, choose None, All, or Selected for each
+family. Selected is a multiple-item picker with names; its stored identity is the
+opaque record ID, so renaming an item preserves automations. None is the default.
+The global cap is configurable from 1 to 100 entities. A choice exceeding the cap
+is rejected; new items cannot silently grow the active entity set beyond it.
+Account sensors expose GBP balances, Bill sensors expose days to due, and Goal
+sensors expose percent. Summary monetary sensors remain disabled by default in the
+entity registry. Consider recorder exclusions before enabling financial entities.
 
-- The coordinator polls `async_fetch_summary()` every interval and
-  `process_summary()` diffs consecutive payloads.
-- Rising counts fire sanitised HA-bus events —
-  `family_finance_bill_due`, `family_finance_sync_failed`,
-  `family_finance_goal_milestone`, `family_finance_low_balance`.
-- Privacy contract already established: payloads carry counts, flags
-  and enum fields only — never payees, notes or amounts.
+## Version 1 payload catalogue
 
-## 2. The trigger mechanism (what to build)
+The integration publishes `event` entities for bills, banking, budgets,
+subscriptions, goals, payroll, gifts, energy and ops. Their unique IDs contain the
+config-entry ID and family, not a display name. Canonical events also appear on the
+bus as `family_finance_<family>_event` for visual Event triggers.
 
-HA does not need a webhook — the existing poll-and-diff pattern covers
-every notification, including the payslip review prompt.
+Every canonical bus payload contains `schema_version: 1`, `seq`, `event_type`,
+`entity_kind`, `entity_id`, `occurred_at`, `config_entry_id`, and `household_id`, plus
+the server-filtered `data` fields. There are no client-side guessed financial
+transitions. Unknown future types in a recognised family remain consumable.
 
-### Backend: expose two countable states
+| Family | Canonical transition types / source |
+| --- | --- |
+| Bills | `movement.settled`, `movement.partial`, `movement.overdue` from settlement/overdue processing |
+| Banking | `transaction.imported` from a committed imported transaction |
+| Subscriptions | `subscription.price_observed` from an observed price |
+| Ops | `sync.failed`, `sync.recovered`; `backup.created` from successful backup creation |
+| Budgets | `budget.approved`, `budget.locked` from lifecycle changes |
+| Payroll | `payroll.generated`, `payroll.reconciled`, `payslip.review_required` |
+| Gifts | `gift.purchased`, `gift.paid` |
+| Energy | `energy.reading_updated` from a changed persisted daily reading |
+| Goals | Per-goal numeric percent is available for thresholds; a raw `goal.*` event requires its canonical backend emitter |
 
-| Counter | Source | Fires when |
-|---|---|---|
-| `payslips_pending_review` | `GET /api/v1/payslips` filtered to `status=needs_review` | a payslip has been uploaded/extracted and awaits manual review |
-| `notifications_pending` | `GET /api/v1/notifications/events` filtered to unacknowledged | any rule (variance, sync failure, unusual spend, …) has delivered an event the user has not acked |
+Use only types implemented by the installed app version. An available event entity
+is a stream endpoint, not evidence that every conceivable transition exists.
+Detailed transaction events can include `payee`, `amount_pence`, `account_id` and
+`date`; subscription observations can include `payee`, `amount_pence`, `old_pence`
+and `date`. Safe mode excludes names and monetary detail server-side.
 
-If the events list cannot filter server-side today, add a
-`?acknowledged=false` query param — cheaper than shipping the whole
-history to the integration.
+The eight existing device trigger names remain: bill due, bill overdue, sync
+failed, goal milestone, low balance, notification pending, payday and payslip
+review. These remain summary transition signals, not item-specific outbox events.
+First successful connection/reload seeds the summary baseline without replaying
+historical conditions. Each emitted event includes `config_entry_id`, and device
+triggers filter it so another configured household cannot activate the device.
 
-### Integration: two new summary fields, two new events
+## Cursor, retry and offline behaviour
 
-`async_fetch_summary()` gains:
+A new install requests the latest visible event cursor and emits no old history.
+A saved `event_cursor` in the config entry survives reload. Later polls drain after
+that cursor in order, at most 1000 events per refresh. A failed or malformed drain
+leaves the cursor unchanged, allowing retry. No-op/overlapping feed rows do not
+refire an entity. Reload catches up on committed events after the saved cursor;
+summary baseline suppression does not discard these new durable events.
 
-```python
-payslips = await self._get_optional("/api/v1/payslips")
-pending_reviews = sum(
-    1 for p in (payslips or {}).get("items", [])
-    if p.get("status") == "needs_review")
-notif_events = await self._get_optional(
-    "/api/v1/notifications/events?acknowledged=false")
-```
+HA's event bus and config-entry storage do not share an atomic transaction. A hard
+process crash during delivery/storage can replay a sequence at that boundary;
+external actions needing crash-level exactly-once behaviour must deduplicate on
+`config_entry_id` plus `seq`. Ordinary polls/reloads and failed drain retry are
+covered by integration tests. No actual notification or provider delivery is
+claimed by those tests.
 
-`events.py` gains, following the exact `process_summary` pattern:
+## Five visual-editor recipes
 
-- `family_finance_payslip_review` — fires when
-  `payslips_pending_review` rises (payload: `pending_count`).
-- `family_finance_notification_pending` — fires when
-  `notifications_pending` rises (payload: `pending_count`, and if the
-  API can group them, the distinct `kind` values present — enum names
-  only, still no figures).
+These are step-by-step recipes for the actual HA editor controls, with synthetic
+names and values. They are implementation guidance, not completed live-editor
+acceptance evidence. Screenshots and installed HAOS/mobile/ingress validation
+remain to be captured during the owner's review. No screenshots are fabricated.
 
-Rise-not-presence keeps notifications actionable: the event means
-"something new needs you", not "the queue is non-empty".
+### 1. A selected bill is due in three days
 
-### HA side: user automations on the bus events
+1. In integration Configure, choose Selected Bills and pick one or several bills.
+2. Open **Settings > Automations & scenes > Create automation > Create new
+   automation**. Under When, add an **Entity > Numeric state** trigger and select
+   those bills' days-to-due sensors. Set Below to `4` and Above to `-1`.
+3. Under Then do, select the household's notification action and enter a reminder.
+4. Save. A crossing into three-or-fewer non-overdue days triggers once; remaining
+   within that range does not repeat each minute. An item already inside the
+   range when an automation is created needs the editor's Test flow, or a later
+   crossing, to exercise it. Choose All Bills in Configure for the bounded All set.
 
-The integration stays delivery-agnostic; the user wires the event to
-whichever notifier they run (mobile app, persistent notification,
-TTS). Shipped example automation for the docs:
+### 2. An account balance drops below GBP 100
 
-```yaml
-alias: Finance — payslip awaiting review
-triggers:
-  - trigger: event
-    event_type: family_finance_payslip_review
-actions:
-  - action: notify.notify
-    data:
-      title: "Family Finance"
-      message: "A payslip is extracted and awaiting your review."
-      data:
-        url: /family-finance        # ingress panel
-        clickAction: /family-finance
-```
+1. Opt in to Selected Accounts (or All within the cap).
+2. Create a **Numeric state** trigger for the selected account balance sensor(s),
+   Below `100`. The units are GBP, so enter pounds rather than pence.
+3. Optionally set For to ten minutes to ignore brief crossings. Add a notification
+   action and save. Use HA's trace to verify the selected entities and crossing.
 
-And the generic catch-all:
+### 3. A new imported expense exceeds GBP 50
 
-```yaml
-alias: Finance — notifications pending
-triggers:
-  - trigger: event
-    event_type: family_finance_notification_pending
-actions:
-  - action: persistent_notification.create
-    data:
-      title: "Family Finance"
-      message: "{{ trigger.event.data.pending_count }} notification(s)
-               need attention in the Finance panel."
-```
+1. An app administrator enables Detailed event data after reading its warning.
+2. Create an **Other triggers > Event** trigger with event type
+   `family_finance_banking_event` and event data `event_type: transaction.imported`.
+   Add `config_entry_id` for the intended configured household when more than one
+   is installed. These are fields in the visual Event form, not YAML editing.
+3. Add a **Template** condition in the visual condition editor:
+   `{{ trigger.event.data.amount_pence | default(0) | int < -5000 }}`.
+   Negative pence denote expenses. Optionally filter the opaque `account_id` for
+   one or several authorised accounts.
+4. In a notification action's message field use
+   `{{ trigger.event.data.payee }}: {{ (trigger.event.data.amount_pence | int | abs) / 100 }} GBP`.
+   Save. A no-op sync or duplicate provider item must not create a new outbox row.
+   Safe mode supports a generic imported-transaction notification without detail.
 
-### Entity triggers (alternative to events)
+### 4. A savings goal reaches 75 percent
 
-The same two counters are also exposed as entities, so a state
-trigger works too — useful when the automation editor's state picker
-is easier than writing an event type:
+1. Opt in to Selected Goals and select the goal(s), or choose All Goals.
+2. Create a **Numeric state** trigger on the percent sensor(s), Above `74.99`.
+3. Add a celebratory notification action and save. A later crossing of 75 percent
+   fires once; staying above it does not repeat each refresh. The opaque entity
+   identity survives a goal rename. Choose a fresh crossing to validate the trace.
 
-| Entity | State |
-|---|---|
-| `sensor.family_finance_notifications_pending` | count of unacknowledged app notifications |
-| `sensor.family_finance_payslips_pending_review` | count of payslips awaiting review |
+### 5. A subscription's observed price rises
 
-```yaml
-alias: Finance — payslip awaiting review (entity)
-triggers:
-  - trigger: numeric_state
-    entity_id: sensor.family_finance_payslips_pending_review
-    above: 0
-actions:
-  - action: notify.notify
-    data:
-      title: "Family Finance"
-      message: "A payslip is extracted and awaiting your review."
-```
+1. Enable Detailed event data with the app administrator's consent.
+2. Create an **Event** trigger for `family_finance_subscriptions_event`, with event
+   data `event_type: subscription.price_observed`; add the intended
+   `config_entry_id` and optionally the opaque `entity_id` for one subscription.
+3. Add a visual **Template** condition:
+   `{{ trigger.event.data.amount_pence | default(0) | int | abs > trigger.event.data.old_pence | default(0) | int | abs }}`.
+4. Add a notification message using the supplied payee/date/old/new pence fields.
+   Save. A recorded observation with unchanged price fails the condition. Test with
+   a new synthetic observation; replaying the same deduplicated observation does
+   not produce another canonical event.
 
-Both fire on the same underlying count — events for one-shot
-notification, entities for automations that prefer state conditions
-(e.g. "and still pending after 1 hour" reminders).
+For multi-target recipes, select multiple numeric entities in the trigger's entity
+picker. Raw Event triggers can use visual Template conditions for an allowed list
+of stable `entity_id` values. On an EventEntity state trigger, event details are in
+`trigger.to_state.attributes`; raw bus Event triggers use `trigger.event.data`.
+These are different HA trigger contexts and should not be interchanged.
 
-## 3. The payslip flow end-to-end
+## Configured energy-statistics ingestion
 
-1. User uploads a payslip in the panel → status `needs_review`.
-2. Extraction runs locally → review dialog pre-filled (advisory only).
-3. Next coordinator poll sees `payslips_pending_review` rise →
-   `family_finance_payslip_review` fires → HA notifies.
-4. User reviews and confirms → payroll run reconciles.
-5. If actuals differ from forecast → `payroll_variance` event →
-   `notifications_pending` rises → second notification ("the OCR
-   pushed it for review, now tell me what changed").
-6. User acks the event in the panel → count falls → no re-firing.
+Set the meter entity in the app's Energy configuration. With HA recorder enabled,
+the integration requests daily recorder `change` statistics in **Wh**, ending at
+the current HA local midnight, for a bounded seven-completed-day rolling window.
+Recorder handles total-increasing meter resets and unit conversion. The integration
+never subtracts raw cumulative states or invents consumption from a missing sample.
 
-The user does the final reconciliation decision every time; OCR and
-notifications only ever push work *to* them.
+Only rows spanning a complete HA local day, including 23/25-hour DST days, with a
+finite nonnegative change are eligible. Missing, negative, non-finite or partial
+rows are skipped. Known zero consumption is a valid reading. Changed daily values
+are posted to `/api/v1/energy/readings` with source `ha_statistics`; the app upserts
+by household/date, so reload retries cannot duplicate a day. Unchanged values are
+suppressed within a coordinator session. Corrected recorder history is picked up
+within the rolling window. Supplier bills remain actual ledger transactions;
+energy costs from these readings and tariffs remain estimates.
 
-## 4. Deliberate constraints
-
-- **Poll, don't push.** No new ports, no HA→app webhook — the
-  coordinator already authenticates and polls. Latency is one poll
-  interval, acceptable for finance alerts.
-- **Sanitised payloads forever.** Event data is counts/enums only;
-  amounts, payees and salary figures never enter the HA state machine
-  (they would persist in `home-assistant_v2.db`).
-- **Debounce by construction.** Rise-detection + one-`sync_failed`-per
-  -streak already prevent spam; repeated failed polls and flapping
-  counts do not re-fire.
-- **Ack is the off-switch.** Counts fall only when the user acts —
-  no auto-clearing notifications.
-
-## 5. Out of scope for the trigger pass
-
-- Choosing notification channels (mobile push vs persistent vs TTS) —
-  user-side automation config; examples above ship in docs.
-- Rich/digest notifications (weekly summary content) — `weekly_digest`
-  rule exists backend-side; the pending counter surfaces it like any
-  other event.
-- Snooze/ack from the HA side — nice-to-have service call later
-  (`family_finance.acknowledge_notification`); not needed to make the
-  triggers useful.
+The HA APIs used here are documented by the
+[Event entity developer reference](https://contributors.home-assistant.io/core/entities/event/)
+and [Recorder statistics reference](https://www.home-assistant.io/actions/recorder.get_statistics/).
+Local tests exercise synthetic recorder responses and the actual app adapter
+against disposable FastAPI databases. They do not establish real meter completeness,
+HAOS hardware compatibility, notification delivery, or editor screenshots.
