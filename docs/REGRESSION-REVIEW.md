@@ -68,6 +68,11 @@ Follow-up review also restores authenticated owners' and admins' private-account
 sync history. Integration feeds and latest cursors explicitly carry admin scope;
 members, viewers and anonymous HA service callers retain their existing visibility.
 Safe-mode event payload redaction applies equally to administrators.
+The next native review reproduced the HA fetch-before-publish cursor gap and
+payroll cutoffs shifted by adjusted payment dates. HA now acknowledges after
+enabled listener publication; payroll cutoff windows use the requested period
+month rather than the potentially shifted payment month. Crash/retry and both
+previous/next-month payroll shifts have regression coverage.
 
 The historical audit groups are covered by these regression suites:
 

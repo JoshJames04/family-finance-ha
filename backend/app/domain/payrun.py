@@ -105,7 +105,9 @@ def generate(
         raise PayrollError("period end must be on/after start")
     if employment.payday_rule and "cutoff_day" in employment.payday_rule:
         cal = pay_calendar.parse_calendar(employment.payday_rule)
-        window = pay_calendar.period(cal, pay_date.year, pay_date.month)
+        # The caller's period end labels the payroll month; bank-day shifts
+        # can move the payment date into the previous or following month.
+        window = pay_calendar.period(cal, end.year, end.month)
         start, end = window.start, window.cutoff
         if employment.start_date is not None:
             start = max(start, employment.start_date)

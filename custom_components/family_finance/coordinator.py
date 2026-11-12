@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -43,6 +43,7 @@ class FamilyFinanceCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._failed = False
         self.entry = entry
         self.options_snapshot = dict(entry.options)
+        self.events_ready = False
         self.energy = EnergyStatistics(hass, client)
         self.drain = EventDrain(
             client, entry.data.get("event_cursor"), self._persist_cursor
@@ -67,6 +68,13 @@ class FamilyFinanceCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         process_summary(self.hass, self.data, new, self.entry.entry_id)
         self._failed = False
         return new
+
+    @callback
+    def async_update_listeners(self) -> None:
+        """Keep the durable cursor behind synchronous event publication."""
+        super().async_update_listeners()
+        if self.events_ready and self.last_update_success:
+            self.drain.acknowledge()
 
     def _persist_cursor(self, cursor: int) -> None:
         if self.entry.data.get("event_cursor") != cursor:

@@ -25,6 +25,8 @@ async def test_first_install_skips_history_then_persists_catchup_cursor():
     assert await drain.poll() == []
     client.async_fetch_events.assert_awaited_once_with(latest=True)
     assert (await drain.poll())[0]["seq"] == 5
+    assert drain.cursor == 4
+    drain.acknowledge()
     assert drain.cursor == 5
     save.assert_called_with(5)
     # Reload resumes the persisted position, never from zero.
@@ -32,6 +34,23 @@ async def test_first_install_skips_history_then_persists_catchup_cursor():
     client.async_fetch_events = AsyncMock(return_value={"events": [], "next_cursor": 5})
     assert await resumed.poll() == []
     client.async_fetch_events.assert_awaited_once_with(5)
+
+
+async def test_crash_before_publication_replays_unacknowledged_batch():
+    row = {"seq": 5, "event_type": "movement.settled"}
+    client = Mock()
+    client.async_fetch_events = AsyncMock(return_value={"events": [row], "next_cursor": 5})
+    save = Mock()
+    drain = EventDrain(client, 4, save)
+    assert await drain.poll() == [row]
+    assert drain.cursor == 4
+    save.assert_not_called()
+    # A crash loses the pending in-memory page but retains the old durable cursor.
+    resumed = EventDrain(client, 4, save)
+    assert await resumed.poll() == [row]
+    resumed.acknowledge()
+    assert resumed.cursor == 5
+    save.assert_called_once_with(5)
 
 
 async def test_partial_drain_failure_preserves_cursor_for_retry():

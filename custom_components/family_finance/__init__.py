@@ -21,6 +21,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_register_services(hass)
     entry.async_on_unload(entry.add_update_listener(_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # First refresh precedes entity registration. Publish that pending batch
+    # only after all enabled platforms are ready, then acknowledge it.
+    coordinator.events_ready = True
+    coordinator.async_update_listeners()
     return True
 
 

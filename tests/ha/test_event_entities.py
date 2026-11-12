@@ -2,10 +2,42 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from homeassistant.core import HomeAssistant, callback
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.family_finance.const import DOMAIN
+
+
+async def test_failed_publication_keeps_cursor_until_consumers_succeed(hass, mock_api):
+    entry = MockConfigEntry(domain=DOMAIN, data={
+        "url": "http://synthetic", "household_id": 1, "event_cursor": 4})
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.family_finance.api.FamilyFinanceClient.async_fetch_events",
+        new_callable=AsyncMock,
+    ) as feed:
+        feed.return_value = {"events": [], "next_cursor": 4}
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        feed.return_value = {"events": [{
+            "seq": 5, "event_type": "movement.settled", "data": {},
+        }], "next_cursor": 5}
+        batch = await coordinator._async_update_data()
+        assert entry.data["event_cursor"] == 4
+        with (
+            patch("custom_components.family_finance.event.FamilyFinanceEvent._publish",
+                  side_effect=RuntimeError("Synthetic publisher failure")),
+            pytest.raises(RuntimeError, match="Synthetic publisher failure"),
+        ):
+            coordinator.async_set_updated_data(batch)
+        assert entry.data["event_cursor"] == 4
+        assert coordinator.drain.cursor == 4
+        coordinator.async_set_updated_data(batch)
+        await hass.async_block_till_done()
+        assert entry.data["event_cursor"] == 5
+        assert any(state.attributes.get("seq") == 5 for state in hass.states.async_all("event"))
 
 
 async def test_outbox_entities_skip_initial_history_and_emit_committed_rows(

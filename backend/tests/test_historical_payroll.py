@@ -360,6 +360,36 @@ def test_configured_cutoff_persists_into_generated_run(session, household):
     assert (run.period_start, run.period_end) == (date(2025, 3, 16), date(2025, 4, 15))
 
 
+@pytest.mark.parametrize("year,month,day,adjust", [(2027, 1, 1, "previous"),
+                                                  (2026, 5, 31, "next")])
+def test_cutoff_uses_payroll_month_when_adjusted_payday_crosses_month(
+        session, household, year, month, day, adjust):
+    import calendar
+
+    from app.domain import pay_calendar
+
+    profile = UserProfile(household_id=household.id, display_name="Synthetic", role="member")
+    session.add(profile)
+    session.flush()
+    employment = Employment(
+        household_id=household.id, profile_id=profile.id, employer="Synthetic",
+        jurisdiction="england_wales", contracted_hours=Decimal("37.5"),
+        deduction_mode="gross_only", payday_rule=json.dumps({
+            "kind": "fixed_day", "day": day, "adjust": adjust, "cutoff_day": 15}),
+    )
+    session.add(employment)
+    session.flush()
+    payroll.add_salary_revision(session, employment, date(2025, 1, 1), 3600000)
+    window = pay_calendar.period(pay_calendar.parse_calendar(employment.payday_rule), year, month)
+    assert window.pay_date.month != month
+    run = payrun.generate(session, employment, start=date(year, month, 1),
+                          end=date(year, month, calendar.monthrange(year, month)[1]),
+                          pay_date=window.pay_date)
+    assert (run.period_start, run.period_end) == (window.start, window.cutoff)
+    assert payrun.generate(session, employment, start=window.start, end=window.cutoff,
+                           pay_date=window.pay_date).id == run.id
+
+
 def test_seasonal_remaining_uses_actual_and_exposes_commitments(session, household):
     from app.domain import seasonal
     from app.persistence.models import Gift, SeasonalEvent

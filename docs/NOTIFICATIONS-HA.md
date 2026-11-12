@@ -76,6 +76,10 @@ that cursor in order, at most 1000 events per refresh. A failed or malformed dra
 leaves the cursor unchanged, allowing retry. No-op/overlapping feed rows do not
 refire an entity. Reload catches up on committed events after the saved cursor;
 summary baseline suppression does not discard these new durable events.
+Fetching a page does not acknowledge it. The cursor is persisted only after
+platform setup and successful synchronous publication by enabled coordinator
+listeners. Failed publication retains the pending page for retry; a crash before
+acknowledgement resumes from the old durable cursor.
 
 HA's event bus and config-entry storage do not share an atomic transaction. A hard
 process crash during delivery/storage can replay a sequence at that boundary;

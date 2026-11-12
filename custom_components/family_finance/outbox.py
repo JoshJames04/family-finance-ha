@@ -64,8 +64,8 @@ def family_for(event_type: str) -> str | None:
 class EventDrain:
     """Initial install skips history; an existing cursor catches up in order.
 
-    Cursor acknowledgement follows a validated page, including unknown future
-    types. A failed request never advances it. Sequence IDs remain in payloads
+    Cursor acknowledgement follows publication by coordinator consumers.
+    A failed request or publication never advances it. Sequence IDs remain in payloads
     so external consumers can deduplicate a crash during HA's storage flush.
     """
 
@@ -75,8 +75,12 @@ class EventDrain:
         self.client = client
         self.cursor = cursor
         self.persist = persist
+        self._pending_cursor: int | None = None
+        self._pending_events: list[dict[str, Any]] = []
 
     async def poll(self) -> list[dict[str, Any]]:
+        if self._pending_cursor is not None:
+            return self._pending_events
         if self.cursor is None:
             result = await self.client.async_fetch_events(latest=True)
             self.cursor = int(result["next_cursor"])
@@ -100,6 +104,15 @@ class EventDrain:
             cursor = next_cursor
             if len(rows) < 100:
                 break
-        self.cursor = cursor
-        self.persist(cursor)
+        self._pending_cursor = cursor
+        self._pending_events = events
         return events
+
+    def acknowledge(self) -> None:
+        """Commit only after every enabled coordinator consumer has published."""
+        if self._pending_cursor is None:
+            return
+        self.persist(self._pending_cursor)
+        self.cursor = self._pending_cursor
+        self._pending_cursor = None
+        self._pending_events = []
