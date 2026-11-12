@@ -1,6 +1,6 @@
 /**
- * Theme preference: "system" (default — follows prefers-color-scheme,
- * which HA ingress also follows when its theme is "auto"), or a
+ * Theme preference: "system" (default — follows HA's explicit theme
+ * when accessible, otherwise prefers-color-scheme), or a
  * manual "light"/"dark" override persisted in localStorage. The
  * resolved scheme lands on <html data-theme> for the token layer.
  */
@@ -33,6 +33,14 @@ function readPref(): ThemePref {
 
 function resolve(pref: ThemePref): Scheme {
   if (pref !== "system") return pref;
+  try {
+    // Ingress is embedded in the same-origin HA frontend. Cross-origin
+    // standalone embeds cannot inspect their parent and use the OS.
+    const ha = window.parent.document.querySelector("home-assistant") as
+      (Element & { hass?: { themes?: { darkMode?: boolean } } }) | null;
+    const dark = ha?.hass?.themes?.darkMode;
+    if (typeof dark === "boolean") return dark ? "dark" : "light";
+  } catch { /* parent is not accessible */ }
   return media?.matches ? "dark" : "light";
 }
 
@@ -45,7 +53,10 @@ function subscribe(cb: () => void) {
   listeners.add(cb);
   const onMedia = () => cb();
   media?.addEventListener?.("change", onMedia);
+  // HA's reactive property changes do not emit OS media-query events.
+  const timer = window.setInterval(cb, 2_000);
   return () => {
+    window.clearInterval(timer);
     listeners.delete(cb);
     media?.removeEventListener?.("change", onMedia);
   };

@@ -11,8 +11,9 @@ from datetime import date
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
+from starlette.middleware.base import RequestResponseEndpoint
 
 from app import __version__
 from app.api.errors import install_error_handlers
@@ -84,9 +85,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.execute(text("SELECT 1"))
         try:
             upgrade_head(db_url)
-        except Exception as exc:
+        except Exception:
             log.exception("migration failed — restoring snapshot")
-            app.state.boot_error = f"migration failed: {exc}"
+            app.state.boot_error = "migration_failed"
             if snapshot is not None and db_path is not None:
                 engine.dispose()
                 backup.restore_from(snapshot, db_path)
@@ -184,8 +185,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     tele.record_tick(
                         (time.monotonic() - started) * 1000, None)
 
+        app.state.scheduler_enabled = (
+            settings.scheduler_tick_seconds > 0
+            and not getattr(app.state, "boot_error", None))
         sched = (asyncio.create_task(_scheduler_loop())
-                 if settings.scheduler_tick_seconds > 0 else None)
+                 if app.state.scheduler_enabled else None)
         try:
             yield
         finally:
@@ -203,6 +207,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.api.auth import auth_middleware
     from app.api.auth import router as auth_router
     app.middleware("http")(auth_middleware)
+
+    @app.middleware("http")
+    async def migration_write_guard(
+        request: Request, call_next: RequestResponseEndpoint,
+    ) -> Response:
+        # Recovery endpoints remain available to the administrator. A
+        # restored old schema must never accept new financial mutations.
+        if (getattr(request.app.state, "boot_error", None)
+                and request.method not in {"GET", "HEAD", "OPTIONS"}
+                and request.url.path.startswith("/api/")
+                and not request.url.path.startswith("/api/v1/admin/")):
+            return JSONResponse({"detail": "migration_failed: financial writes disabled"},
+                                status_code=503, headers={"Retry-After": "30"})
+        return await call_next(request)
+
     install_error_handlers(app)
     # Mount at call time, not import time — a circular import edge
     # can reach app.main before app.api.v1 finishes building

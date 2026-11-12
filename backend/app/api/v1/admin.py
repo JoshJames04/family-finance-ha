@@ -69,7 +69,7 @@ def list_backups(request: Request) -> list[schemas.BackupOut]:
     return [
         schemas.BackupOut(name=p.name, bytes=p.stat().st_size,
                           ok=backup.verify_snapshot(p),
-                          taken_at=_taken_at(p.name))
+                          taken_at=backup.snapshot_taken_at(p))
         for p in snaps  # newest first (issue #371)
     ]
 
@@ -87,7 +87,8 @@ def create_backup(request: Request, household: HouseholdDep,
     emit(session, household.id, actor, "backup", "database", 0,
          {"snapshot": snap.name, "rotated": deleted})
     return schemas.BackupOut(name=snap.name, bytes=snap.stat().st_size,
-                             ok=backup.verify_snapshot(snap))
+                             ok=backup.verify_snapshot(snap),
+                             taken_at=backup.snapshot_taken_at(snap))
 
 
 @router.get("/backups/{name}/download")

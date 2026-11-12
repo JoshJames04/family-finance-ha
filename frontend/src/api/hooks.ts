@@ -10,11 +10,12 @@ export type Category = components["schemas"]["CategoryOut"];
 
 /** Household + member identity resolved → safe to fire scoped calls. */
 export function useReady(): boolean {
-  return useIdentity().data !== null;
+  const identity = useIdentity();
+  return identity.data !== null || (identity.error !== null && !identity.loading);
 }
 
 export function useAccounts(rev = 0) {
-  return useApi(() => api.get("/api/v1/accounts"), useReady(), [rev]);
+  return useApi(() => api.get("/api/v1/accounts"), useReady(), [rev], []);
 }
 
 export function useCategories() {
