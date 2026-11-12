@@ -6,8 +6,9 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, true
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.api import schemas
 from app.api.audit import emit
@@ -41,6 +42,14 @@ router = APIRouter(prefix="/notifications", tags=["notifications"],
                    dependencies=[Depends(_write_guard)])
 
 
+def _target_scope(profile: UserProfile | None) -> ColumnElement[bool]:
+    if profile is not None and profile.role == Role.admin:
+        return true()
+    return or_(NotificationRule.target_profile_id.is_(None),
+               NotificationRule.target_profile_id == (
+                   profile.id if profile and profile.role != Role.viewer else None))
+
+
 def _rule(session: Session, household_id: int, rule_id: int,
           profile: UserProfile | None = None
           ) -> NotificationRule:
@@ -70,9 +79,7 @@ def list_rules(
     rows = session.scalars(
         select(NotificationRule)
         .where(NotificationRule.household_id == household.id,
-               or_(NotificationRule.target_profile_id.is_(None),
-                   NotificationRule.target_profile_id == (
-                       profile.id if profile and profile.role != Role.viewer else None)))
+               _target_scope(profile))
         .order_by(NotificationRule.name))
     return [schemas.NotificationRuleOut.model_validate(r)
             for r in rows]
@@ -166,9 +173,7 @@ def list_events(
         .join(NotificationRule,
               NotificationEvent.rule_id == NotificationRule.id)
         .where(NotificationRule.household_id == household.id,
-               or_(NotificationRule.target_profile_id.is_(None),
-                   NotificationRule.target_profile_id == (
-                       profile.id if profile and profile.role != Role.viewer else None)))
+               _target_scope(profile))
         .order_by(NotificationEvent.id.desc()).limit(200))
     return [schemas.NotificationEventOut.model_validate(e)
             for e in rows]
@@ -268,9 +273,7 @@ def list_deliveries(
         select(NotificationDelivery).join(NotificationRule,
             NotificationDelivery.rule_id == NotificationRule.id).where(
             NotificationDelivery.household_id == household.id,
-            or_(NotificationRule.target_profile_id.is_(None),
-                NotificationRule.target_profile_id == (
-                    profile.id if profile and profile.role != Role.viewer else None)))
+            _target_scope(profile))
         .order_by(NotificationDelivery.id.desc()).limit(200)).all()
     return [schemas.NotificationDeliveryOut.model_validate(d)
             for d in rows]

@@ -139,6 +139,29 @@ def test_partial_payment_remains_in_bills_remaining(session, household):
     assert budgets.bills_remaining(session, budget) == (5000, 1)
 
 
+def test_shared_accountless_subscription_survives_account_scope(session, household):
+    a, b, c, other, budget, line = fixture(session, household)
+    movement = ExpectedMovement(
+        household_id=household.id, account_id=None,
+        expected_date=date.today(), amount_pence=-1200,
+        label="Accountless subscription", confidence=Confidence.scheduled,
+        source_type=ExpectedSource.subscription, source_id=123,
+    )
+    private = ExpectedMovement(
+        household_id=household.id, account_id=b.id,
+        expected_date=date.today(), amount_pence=-9900,
+        label="Private bill", confidence=Confidence.scheduled,
+        source_type=ExpectedSource.subscription, source_id=124,
+    )
+    session.add_all([movement, private])
+    session.flush()
+    # Personal budgets cannot acquire unowned or another member's obligations.
+    assert budgets.bills_remaining(session, budget, [a.id]) == (0, 0)
+    budget.owner_profile_id = None
+    assert budgets.bills_remaining(session, budget, [a.id]) == (1200, 1)
+    assert budgets.bills_remaining(session, budget, []) == (1200, 1)
+
+
 def test_report_personal_budget_variance_uses_owner_actuals(session, household):
     a, b, c, other, budget, line = fixture(session, household)
     tx(session, a, c, -1000)

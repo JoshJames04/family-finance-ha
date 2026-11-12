@@ -77,8 +77,13 @@ export function Transactions() {
   const { dataVersion, openQuickAdd } = useShell();
   const categories = useCategories();
   const accounts = useAccounts();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const urlQuery = searchParams.get("q") ?? "";
+  const transactionId = Number(searchParams.get("transaction_id"));
+  const hasTarget = Number.isSafeInteger(transactionId) && transactionId > 0;
+  const target = useApi(() => api.get("/api/v1/transactions/{txn_id}", {
+    path: { txn_id: transactionId },
+  }), ready && hasTarget, [transactionId, dataVersion]);
   const [filters, setFiltersRaw] = useState<Filters>(() => ({ ...EMPTY, q: urlQuery }));
   useEffect(() => {
     setFiltersRaw((current) => ({ ...current, q: urlQuery }));
@@ -196,6 +201,25 @@ export function Transactions() {
           </>
         }
       />
+
+      {hasTarget && (
+        <Panel title="Selected transaction" aria-label="Selected transaction" className="mb-4"
+          actions={<Button variant="ghost" onClick={() => {
+            const next = new URLSearchParams(searchParams);
+            next.delete("transaction_id");
+            setSearchParams(next);
+          }}>Close</Button>}>
+          <DataView state={target} empty="Transaction unavailable">
+            {(txn) => <div className="space-y-1">
+              <p className="font-medium">{txn.payee}</p>
+              <p>{formatDate(txn.date)} · {accountName(txn.account_id)}</p>
+              <Money pence={txn.amount_pence} signed tone="auto" />
+              <p>{cats.find((c) => c.id === txn.category_id)?.name ?? "Uncategorised"} · {txn.status}</p>
+              {txn.notes && <p className="whitespace-pre-wrap">{txn.notes}</p>}
+            </div>}
+          </DataView>
+        </Panel>
+      )}
 
       {(queue.data?.length ?? 0) > 0 && (
         <Panel

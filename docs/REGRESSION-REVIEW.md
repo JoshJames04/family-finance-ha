@@ -57,6 +57,14 @@ energy reading emits no duplicate transition.
 
 ## Verification boundaries
 
+Native review follow-ups preserve accountless subscriptions in shared Budget
+bills remaining while retaining personal account visibility. Administrators can
+list all notification targets within their household; members retain only their
+own and untargeted rows, and viewers retain only untargeted rows. Command-search
+transaction links open the exact authorised record in a selected-record panel,
+including records outside the currently loaded ledger page. Failed or forbidden
+record lookups show an error rather than substituting a matching payee.
+
 The historical audit groups are covered by these regression suites:
 
 | Audit group | Fix / evidence |

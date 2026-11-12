@@ -50,6 +50,8 @@ function stubFetch(
           ? (opts.queue ? QUEUE : [])
           : url.includes("/api/v1/categories")
             ? { items: CATS, total: CATS.length, page: 1, size: 500 }
+            : url.includes("/api/v1/transactions/999")
+              ? { ...TXNS[0], id: 999, payee: "Specific search result", notes: "Exact record" }
             : url.includes("/api/v1/transactions")
               ? { items: TXNS, total: TXNS.length, page: 1, size: 500 }
               : { items: [], total: 0 };
@@ -61,6 +63,17 @@ function stubFetch(
 
 describe("Transactions", () => {
   afterEach(cleanup);
+  it("opens the exact linked transaction even outside the loaded ledger page", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    render(<MemoryRouter initialEntries={["/transactions?q=Shop&transaction_id=999"]}>
+      <Transactions />
+    </MemoryRouter>);
+    const selected = await screen.findByRole("region", { name: "Selected transaction" });
+    await waitFor(() => expect(selected.textContent).toContain("Specific search result"));
+    expect(selected.textContent).toContain("Exact record");
+    expect(calls.some((c) => c.url.includes("/api/v1/transactions/999"))).toBe(true);
+  });
   it("passes the search box through as q param (#126)", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);

@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain import contributions, outbox, splits
@@ -218,7 +218,10 @@ def bills_remaining(session: Session, budget: Budget,
             select(Account.id).where(
                 Account.owner_profile_id == budget.owner_profile_id)))
     if account_ids is not None:
-        conds.append(ExpectedMovement.account_id.in_(account_ids))
+        conds.append(or_(ExpectedMovement.account_id.in_(account_ids),
+                         ExpectedMovement.account_id.is_(None))
+                     if budget.owner_profile_id is None
+                     else ExpectedMovement.account_id.in_(account_ids))
     residuals = [contributions.status(session, m).outstanding_pence
                  for m in session.scalars(select(ExpectedMovement).where(*conds))]
     return sum(residuals), sum(value > 0 for value in residuals)
