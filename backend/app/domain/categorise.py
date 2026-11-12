@@ -59,7 +59,7 @@ def match_rule(session: Session, household_id: int, payee: str,
                *, account_id: int | None = None, amount_pence: int | None = None
                ) -> CategorisationRule | None:
     """First enabled matching rule: priority asc, then the most-
-    confirmed rule wins a tie — learning earns precedence."""
+    specific scope wins a tie, then confirmations earn precedence."""
     rules = session.scalars(
         select(CategorisationRule)
         .where(CategorisationRule.household_id == household_id,
@@ -268,8 +268,8 @@ def classify_owned_movements(session: Session, household_id: int) -> int:
 
 def auto_pair_transfers(session: Session, household_id: int,
                         since: date | None = None) -> int:
-    """Pair same-date equal-magnitude opposite-sign legs across
-    different accounts into Transfer objects. Returns pairs made."""
+    """Pair only unique reciprocal owned-account identities/aliases,
+    same-date opposite amounts and equal currencies. Returns pairs made."""
     stmt = (
         select(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -311,6 +311,9 @@ def auto_pair_transfers(session: Session, household_id: int,
             session.flush()
             d.transfer_id = tr.id
             c.transfer_id = tr.id
+            session.flush()
+            from app.domain import goals
+            goals.emit_contribution_milestones(session, c)
             pairs += 1
     session.flush()
     return pairs

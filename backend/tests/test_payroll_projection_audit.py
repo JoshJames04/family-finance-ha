@@ -185,6 +185,7 @@ def test_scenario_and_reminder_include_projected_payday(session, household):
         session,
         household.id,
         name="Salary",
+        target_profile_id=e.profile_id,
         kind=NotificationKind.payday_reminder,
         params={"days_before": 1},
     )
