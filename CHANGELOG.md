@@ -11,7 +11,7 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
-## [1.5.0] — 2026-11-12
+## [1.4.2] — 2026-11-12
 
 ### Added
 
@@ -50,7 +50,7 @@ release pipeline (multi-arch GHCR image + GitHub release).
   operator checks (#432, #441). These are not claimed complete by this release.
 - Dashboard/layout, payday and automatic bank-sync issues retain their required
   live-installation acceptance checks (#460, #414, #461, #416).
-- [Remaining work after this release](docs/RELEASE-1.5.0-REMAINING.md) records the
+- [Remaining work after this release](docs/RELEASE-1.4.2-REMAINING.md) records the
   eight tracked follow-ups and the blocked personal-project board update.
 
 ## [1.4.1] — 2026-11-11

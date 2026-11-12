@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "family-finance-backend"
-version = "1.5.0"
+version = "1.4.2"
 description = "Family Finance — self-hosted household finance app backend"
 requires-python = ">=3.12"
 dependencies = [

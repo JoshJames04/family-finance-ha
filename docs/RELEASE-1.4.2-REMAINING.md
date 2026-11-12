@@ -1,4 +1,4 @@
-# Work remaining after release 1.5.0
+# Work remaining after release 1.4.2
 
 Tracking snapshot: 12 November 2026. This is the expected position after release
 PR #474 merges into `main`; it is not a claim that publication or live acceptance
