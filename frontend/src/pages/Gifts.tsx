@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Check, Gift as GiftIcon, Plus } from "lucide-react";
-import { api } from "../api/client";
+import { api, getProfileId } from "../api/client";
 import { useApi } from "../api/useApi";
 import { useReady } from "../api/hooks";
 import type { components } from "../api/schema";
@@ -88,6 +88,7 @@ export function Gifts() {
   const event = eid ?? events.data?.[0]?.id ?? null;
   const [rev, setRev] = useState(0);
   const reload = () => setRev((r) => r + 1);
+  const [search, setSearch] = useState("");
   const [addingGift, setAddingGift] = useState(false);
   const [addingEvent, setAddingEvent] = useState(false);
   const gifts = useApi(
@@ -116,10 +117,11 @@ export function Gifts() {
   const byRecipient = useMemo(() => {
     const m = new Map<string, Gift[]>();
     for (const g of gifts.data ?? []) {
+      if (![g.recipient, g.idea, g.notes ?? ""].join(" ").toLowerCase().includes(search.toLowerCase())) continue;
       m.set(g.recipient, [...(m.get(g.recipient) ?? []), g]);
     }
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [gifts.data]);
+  }, [gifts.data, search]);
 
   const act = async (fn: () => Promise<unknown>) => {
     await fn().catch((e: Error) => toast.error(e.message));
@@ -158,14 +160,17 @@ export function Gifts() {
         }
       />
 
+      {eventObj?.notes && <p className="mb-4 text-sm text-fg-muted">{eventObj.notes}</p>}
+      <Input aria-label="Search gifts and notes" placeholder="Search recipients, ideas and notes" value={search} onChange={(e) => setSearch(e.target.value)} />
       {eventObj && totals.data && (
         <Panel className="mb-4">
           <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Planned" value={<Money pence={totals.data.planned_pence} />} />
             <Stat label="Actual" value={<Money pence={totals.data.actual_pence} />} />
             <Stat label="Committed" value={<Money pence={totals.data.committed_pence} />} />
-            <Stat label="Remaining" value={<Money pence={totals.data.remaining_pence} className={totals.data.remaining_pence < 0 ? "text-negative" : ""} />} />
+            <Stat label="Remaining after actual spend" value={<Money pence={totals.data.remaining_pence} className={totals.data.remaining_pence < 0 ? "text-negative" : ""} />} />
           </div>
+          <p className="mb-2 text-sm text-fg-muted">After commitments: <Money pence={totals.data.remaining_after_commitments_pence ?? eventObj.budget_pence - totals.data.committed_pence} /></p>
           <div className="flex items-center gap-3">
             <Progress
               value={totals.data.actual_pence}
@@ -244,6 +249,7 @@ export function Gifts() {
                           <IconTile icon={GiftIcon} label={g.idea} size="sm" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[13.5px] font-medium">{g.idea}</p>
+                            {g.notes && <p className="text-xs text-fg-muted">{g.notes}</p>}
                             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                               <Badge tone={PURCHASE_TONE[g.purchase_status] ?? "neutral"}>{g.purchase_status}</Badge>
                               <Badge tone={
@@ -299,6 +305,7 @@ function AddGiftDialog({ open, onOpenChange, eventId, onSaved }: {
   const [recipient, setRecipient] = useState("");
   const [idea, setIdea] = useState("");
   const [planned, setPlanned] = useState("");
+  const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const valid = recipient.trim() && idea.trim() && /^\d+(\.\d{1,2})?$/.test(planned);
   const submit = (e: React.FormEvent) => {
@@ -307,11 +314,11 @@ function AddGiftDialog({ open, onOpenChange, eventId, onSaved }: {
     setBusy(true);
     api.post("/api/v1/seasonal-events/{eid}/gifts", {
       path: { eid: eventId },
-      body: { recipient: recipient.trim(), idea: idea.trim(), planned },
+      body: { recipient: recipient.trim(), idea: idea.trim(), planned, notes: notes.trim() || null },
     })
       .then(() => {
         toast.success(`Added ${idea.trim()} for ${recipient.trim()}`);
-        setRecipient(""); setIdea(""); setPlanned("");
+        setRecipient(""); setIdea(""); setPlanned(""); setNotes("");
         onSaved();
         onOpenChange(false);
       })
@@ -329,6 +336,7 @@ function AddGiftDialog({ open, onOpenChange, eventId, onSaved }: {
       </>}>
       <form id="ff-add-gift" onSubmit={submit} className="grid gap-4">
         <Field label="Recipient">{(id) => <Input id={id} autoFocus placeholder="e.g. Sam" value={recipient} onChange={(e) => setRecipient(e.target.value)} />}</Field>
+        <Field label="Notes">{(id) => <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>
         <Field label="Gift idea">{(id) => <Input id={id} placeholder="e.g. Lego set" value={idea} onChange={(e) => setIdea(e.target.value)} />}</Field>
         <Field label="Planned spend (£)">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={planned} onChange={(e) => setPlanned(e.target.value.trim())} />}</Field>
       </form>
@@ -345,6 +353,8 @@ function NewEventDialog({ open, onOpenChange, onSaved }: {
   const [type, setType] = useState("christmas");
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [budget, setBudget] = useState("");
+  const [privateEvent, setPrivateEvent] = useState(false);
+  const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const valid = name.trim() && /^\d{4}$/.test(year) && /^\d+(\.\d{1,2})?$/.test(budget);
   const submit = (e: React.FormEvent) => {
@@ -352,7 +362,7 @@ function NewEventDialog({ open, onOpenChange, onSaved }: {
     if (!valid) return;
     setBusy(true);
     api.post("/api/v1/seasonal-events", {
-      body: { name: name.trim(), type, year: Number(year), budget },
+      body: { name: name.trim(), type, year: Number(year), budget, notes: notes.trim() || null, owner_profile_id: privateEvent ? getProfileId() : null },
     })
       .then((ev) => {
         toast.success(`Created ${ev.name}`);
@@ -383,6 +393,8 @@ function NewEventDialog({ open, onOpenChange, onSaved }: {
           )}</Field>
           <Field label="Year">{(id) => <Input id={id} inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value.trim())} />}</Field>
         </div>
+        <Field label="Visibility">{(id) => <Select id={id} value={privateEvent ? "private" : "shared"} onChange={(e) => setPrivateEvent(e.target.value === "private")}><option value="shared">Shared household</option><option value="private" disabled={getProfileId() === null}>Private to me</option></Select>}</Field>
+        <Field label="Notes">{(id) => <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>
         <Field label="Budget (£)">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={budget} onChange={(e) => setBudget(e.target.value.trim())} />}</Field>
       </form>
     </Dialog>

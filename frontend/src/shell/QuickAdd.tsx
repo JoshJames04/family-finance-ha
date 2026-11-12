@@ -157,7 +157,7 @@ export function QuickAdd({
             {(id) => (
               <Select id={id} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
                 <option value="">Uncategorised</option>
-                {(categories.data?.items ?? []).filter((c) => !c.archived).map((c) => (
+                {[...(categories.data?.items ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })).filter((c) => !c.archived).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </Select>

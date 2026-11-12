@@ -142,3 +142,15 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Native Windows pickers need explicit popup foreground/background pairs.
+   Keep the OS selected-option palette, including forced-colour themes. */
+.native-select option,
+.native-select optgroup {
+  color: var(--fg);
+  background-color: var(--surface);
+}
+.native-select option:checked {
+  color: HighlightText;
+  background-color: Highlight;
+}

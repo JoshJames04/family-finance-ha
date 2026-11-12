@@ -20,8 +20,8 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain import outbox, pay_calendar, paydays, payroll_totals, tax
 from app.domain import overtime as ot
-from app.domain import pay_calendar, paydays, payroll_totals, tax
 from app.domain import payroll as dom
 from app.domain.payroll import PayrollError
 from app.domain.tax import Deductions, PensionMode, TaxError
@@ -82,6 +82,16 @@ def pension_pence_for(employment: Employment, pensionable_gross: int
     return pensionable_gross * employment.pension_employee_bps // 10_000
 
 
+def _emit_transition(session: Session, run: PayrollRun, transition: str) -> None:
+    outbox.emit(
+        session, run.employment.household_id, f"payroll.{transition}",
+        entity_kind="payroll_run", entity_id=run.id,
+        payload={"source": "payroll", "status": run.status.value,
+                 "date": run.pay_date.isoformat(),
+                 "owner_profile_id": run.employment.profile_id},
+        dedup_key=f"payroll:{run.id}:{transition}")
+
+
 def generate(
     session: Session, employment: Employment, *,
     start: date, end: date, pay_date: date,
@@ -93,6 +103,14 @@ def generate(
     """Assemble a forecast run for a pay period."""
     if end < start:
         raise PayrollError("period end must be on/after start")
+    if employment.payday_rule and "cutoff_day" in employment.payday_rule:
+        cal = pay_calendar.parse_calendar(employment.payday_rule)
+        # The caller's period end labels the payroll month; bank-day shifts
+        # can move the payment date into the previous or following month.
+        window = pay_calendar.period(cal, end.year, end.month)
+        start, end = window.start, window.cutoff
+        if employment.start_date is not None:
+            start = max(start, employment.start_date)
     if employment.end_date is not None:
         if start > employment.end_date:
             raise PayrollError(
@@ -100,6 +118,13 @@ def generate(
                 f"{employment.end_date} — no run can start after it")
         if end > employment.end_date:   # final partial period
             end = employment.end_date
+    existing = session.scalars(select(PayrollRun).where(
+        PayrollRun.employment_id == employment.id,
+        PayrollRun.period_start == start,
+        PayrollRun.period_end == end,
+        PayrollRun.corrects_id.is_(None))).first()
+    if existing is not None:
+        return existing
     if unpaid_leave_days is not None:
         unpaid_leave_pence += unpaid_leave_for_days(
             session, employment, unpaid_leave_days, end)
@@ -252,6 +277,7 @@ def generate(
                    -ded.student_loan_pence)
     session.add(run)
     session.flush()
+    _emit_transition(session, run, "generated")
     return run
 
 
@@ -288,6 +314,7 @@ def reconcile(
                 delta_pence=actual))
     run.status = PayrollRunStatus.reconciled
     session.flush()
+    _emit_transition(session, run, "reconciled")
     return variances
 
 

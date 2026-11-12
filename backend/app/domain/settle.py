@@ -58,12 +58,18 @@ def settle_occurrence(
     match = contributions._link(
         session, movement, txn,
         min(abs(txn.amount_pence), outstanding), manual=manual)
+    from app.domain import categorise
+    categorise.inherit_movement_category(session, movement, txn)
+    if txn.category_id is None:
+        categorise.apply_provider_map(session, movement.household_id, transaction_ids=[txn.id])
+        categorise.apply_rules(session, movement.household_id, transaction_ids=[txn.id])
     outbox.emit(
         session, movement.household_id, "movement.settled",
         entity_kind=movement.source_type.value,
         entity_id=movement.source_id,
         payload={
             "label": movement.label,
+            "account_id": movement.account_id,
             "expected_date": movement.expected_date.isoformat(),
             "amount_pence": movement.amount_pence,
             "matched_pence_outstanding": outstanding - match
@@ -125,9 +131,12 @@ def post_sync(session: Session, household_id: int, *,
     """
     from app.domain import categorise
     from app.domain import reconcile as recon
+    from app.domain.financial_events import evaluate_budgets
 
     today = today or date.today()
+    evaluate_budgets(session, household_id, today=today)
     pairs = categorise.auto_pair_transfers(session, household_id)
+    categorise.classify_owned_movements(session, household_id)
     refunds = categorise.auto_link_refunds(session, household_id)
     transfer_matches = contributions.auto_match(
         session, household_id, today=today)
@@ -161,11 +170,13 @@ def post_sync(session: Session, household_id: int, *,
                 entity_id=mv.source_id,
                 payload={
                     "label": mv.label,
+                    "account_id": mv.account_id,
                     "expected_date": mv.expected_date.isoformat(),
                     "amount_pence": mv.amount_pence,
                     "count": item.age_days},
                 dedup_key=f"movement.overdue:{item.movement_id}")
     session.flush()
+    evaluate_budgets(session, household_id, today=today)
     return PostSyncStats(
         transfer_pairs=pairs, refund_links=refunds,
         transfer_matches=transfer_matches, scanned=scanned,

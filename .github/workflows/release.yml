@@ -39,25 +39,31 @@ jobs:
   smoke:
     needs: verify
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v4
-      - name: Build single-arch image
+      - name: Build architecture smoke image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           load: true
+          platforms: linux/${{ matrix.arch }}
           tags: ff:ci
           build-args: VERSION=${{ needs.verify.outputs.version }}
       - name: Container smoke test
         run: |
           set -euo pipefail
-          docker run -d --name ff -p 8099:8099 \
+          docker run -d --platform linux/${{ matrix.arch }} --name ff -p 8099:8099 \
             -e FF_ENV=ci -e FF_DATA_DIR=/tmp ff:ci
-          for i in $(seq 1 30); do
+          for i in $(seq 1 120); do
             curl -sf http://localhost:8099/healthz && break || sleep 1
           done
           curl -sf http://localhost:8099/healthz
@@ -80,7 +86,7 @@ jobs:
             'echo "{\"admin_token\":\"\",\"backup_dir\":\"\"}" \
              > /d/options.json && chmod 600 /d/options.json'
           docker network create --subnet 172.30.32.0/24 ff-net >/dev/null
-          docker run -d --name ffsup --network ff-net \
+          docker run -d --platform linux/${{ matrix.arch }} --name ffsup --network ff-net \
             --ip 172.30.32.10 -e SUPERVISOR_TOKEN=ci \
             -v ff-data:/data ff:ci
           for i in $(seq 1 90); do

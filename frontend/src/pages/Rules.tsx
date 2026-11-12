@@ -10,7 +10,7 @@ import { undoToast } from "../lib/toast";
 import { Play, Plus, Trash2, Wand2 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
-import { useCategories, useReady } from "../api/hooks";
+import { useAccounts, useCategories, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
 import { Badge } from "../components/Badge";
@@ -19,6 +19,7 @@ import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Stat } from "../components/Display";
 import { Skeleton } from "../components/Feedback";
+import { formatPenceSigned } from "../lib/format";
 import { cn } from "../lib/cn";
 
 type Rule = components["schemas"]["CategorisationRuleOut"];
@@ -34,6 +35,7 @@ export function Rules() {
   const [rev, setRev] = useState(0);
   const rules = useApi(() => api.get("/api/v1/categorisation/rules"), ready, [rev]);
   const categories = useCategories();
+  const accounts = useAccounts();
   const [adding, setAdding] = useState(false);
   const refresh = () => setRev((r) => r + 1);
 
@@ -64,7 +66,8 @@ export function Rules() {
           body: {
             pattern: r.pattern, match_type: r.match_type,
             category_id: r.category_id, priority: r.priority,
-            auto_apply: r.auto_apply,
+            auto_apply: r.auto_apply, account_id: r.account_id,
+            amount_pence: r.amount_pence, transfer_account_id: r.transfer_account_id,
           },
         }).then(refresh));
       refresh();
@@ -84,7 +87,7 @@ export function Rules() {
     <div>
       <PageHeader
         title="Rules"
-        description="Teach the app once — every matching transaction gets categorised from then on."
+        description="Apply confirmed rules automatically or keep suggestions for review."
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={runNow}>
@@ -130,6 +133,9 @@ export function Rules() {
                   <p className="text-[12px] text-fg-subtle">
                     {MATCH_LABEL[r.match_type] ?? r.match_type} · priority {r.priority}
                     {r.times_confirmed > 0 && ` · confirmed ${r.times_confirmed}×`}
+                    {r.account_id != null && ` · ${accounts.data?.items.find((a) => a.id === r.account_id)?.name ?? "Selected account"}`}
+                    {r.amount_pence != null && ` · ${formatPenceSigned(r.amount_pence)}`}
+                    {r.transfer_account_id != null && " · owned account movement"}
                   </p>
                 </div>
                 {r.source === "learned" && <Badge tone="neutral">learned</Badge>}
@@ -279,17 +285,24 @@ function RuleDialog({ categories, onClose, onSaved }: {
   const [categoryId, setCategoryId] = useState("");
   const [priority, setPriority] = useState("100");
   const [autoApply, setAutoApply] = useState(false);
+  const accounts = useAccounts();
+  const [accountId, setAccountId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [transferAccountId, setTransferAccountId] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pattern.trim() || !categoryId) return;
+    if (!pattern.trim() || !categoryId || (amount !== "" && !Number.isFinite(Number(amount)))) return;
     setBusy(true);
     api.post("/api/v1/categorisation/rules", {
       body: {
         pattern: pattern.trim(), match_type: matchType,
         category_id: Number(categoryId),
         priority: Number(priority) || 100, auto_apply: autoApply,
+        account_id: accountId ? Number(accountId) : null,
+        amount_pence: amount === "" ? null : Math.round(Number(amount) * 100),
+        transfer_account_id: transferAccountId ? Number(transferAccountId) : null,
       },
     }).then(() => { toast.success("Rule created"); onSaved(); })
       .catch((err: Error) => toast.error(err.message))
@@ -315,7 +328,7 @@ function RuleDialog({ categories, onClose, onSaved }: {
         )}</Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Match">{(_id) => (
-            <Select aria-label="Match type" value={matchType}
+            <Select aria-label="Match type" value={matchType} disabled={Boolean(transferAccountId)}
               onChange={(e) => setMatchType(e.target.value)}>
               <option value="contains">contains</option>
               <option value="exact">exact</option>
@@ -334,6 +347,25 @@ function RuleDialog({ categories, onClose, onSaved }: {
             {categories.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
+          </Select>
+        )}</Field>
+        <Field label="Account" hint="Limit this rule to one account when the same payee has different purposes.">{(id) => (
+          <Select id={id} value={accountId} required={Boolean(transferAccountId)}
+            onChange={(e) => { setAccountId(e.target.value); setTransferAccountId(""); }}>
+            <option value="">All accounts</option>
+            {(accounts.data?.items ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+        )}</Field>
+        <Field label="Exact signed amount" hint="Optional pounds: negative for payments, positive for receipts.">{(id) => (
+          <Input id={id} type="number" step="0.01" value={amount}
+            onChange={(e) => setAmount(e.target.value)} placeholder="Any amount" />
+        )}</Field>
+        <Field label="Owned destination account" hint="Use only for your own account or Space. Keep person-to-person transfers as category rules.">{(id) => (
+          <Select id={id} value={transferAccountId} disabled={!accountId}
+            onChange={(e) => { setTransferAccountId(e.target.value); if (e.target.value) setMatchType("exact"); }}>
+            <option value="">Category rule only</option>
+            {(accounts.data?.items ?? []).filter((a) => String(a.id) !== accountId)
+              .map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </Select>
         )}</Field>
         <label className="flex cursor-pointer items-center gap-2.5 text-[13.5px]">

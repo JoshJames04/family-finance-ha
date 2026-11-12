@@ -10,14 +10,15 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import notifications, payrun, payslips, schedule
+from app.api.payroll_scope import authorize_employment
+from app.domain import financial_events, notifications, outbox, payrun, payslips, schedule
 from app.domain import overtime as overtime_domain
 from app.domain import payroll as payroll_domain
 from app.domain.overtime_findings import Candidate, PayslipLine, match_lines
@@ -35,7 +36,7 @@ from app.persistence.models import (
 
 router = APIRouter(
     prefix="/employments/{emp_id}/payroll-runs/{run_id}/payslips",
-    tags=["payslips"])
+    tags=["payslips"], dependencies=[Depends(authorize_employment)])
 MAX_BYTES = 10 * 1024 * 1024
 MAGIC_TYPES = (
     (b"%PDF-", "application/pdf"),
@@ -94,6 +95,14 @@ def _notify_review_needed(
 ) -> None:
     """Raise a ``payslip_review`` event when an upload lands in
     ``needs_review`` — Home Assistant surfaces it as a prompt."""
+    run = session.get(PayrollRun, payslip.payroll_run_id)
+    if run is not None:
+        outbox.emit(
+            session, household_id, "payslip.review_required",
+            entity_kind="payslip", entity_id=payslip.id,
+            payload={"source": "payslip", "status": payslip.status.value,
+                     "owner_profile_id": run.employment.profile_id},
+            dedup_key=f"payslip:{payslip.id}:review_required")
     rules = list(session.scalars(select(NotificationRule).where(
         NotificationRule.household_id == household_id,
         NotificationRule.kind == NotificationKind.payslip_review,
@@ -116,6 +125,7 @@ async def upload_payslip(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.PayslipOut:
     run = _run(session, household.id, emp_id, run_id)
+    financial_events.evaluate_payslips(session, household.id)
     first = await file.read(16)
     media_type = next((mime for magic, mime in MAGIC_TYPES
                        if first.startswith(magic)), None)
@@ -160,6 +170,7 @@ async def upload_payslip(
     _notify_review_needed(session, household.id, row)
     emit(session, household.id, actor, "create", "payslip", row.id,
          {"payroll_run_id": run.id, "size_bytes": size})
+    financial_events.evaluate_payslips(session, household.id)
     return _out(row)
 
 
@@ -198,6 +209,7 @@ def review_payslip(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.PayslipOut:
     run = _run(session, household.id, emp_id, run_id)
+    financial_events.evaluate_payslips(session, household.id)
     row = session.scalar(select(Payslip).where(
         Payslip.id == payslip_id, Payslip.household_id == household.id,
         Payslip.payroll_run_id == run_id))
@@ -308,6 +320,7 @@ def review_payslip(
     row.status = PayslipStatus.needs_review
     emit(session, household.id, actor, "update", "payslip", row.id,
          {"payroll_run_id": run_id})
+    financial_events.evaluate_payslips(session, household.id)
     return _out(row)
 
 
@@ -423,6 +436,7 @@ def confirm_payslip(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.PayslipOut:
     run = _run(session, household.id, emp_id, run_id)
+    financial_events.evaluate_payslips(session, household.id)
     row = session.scalar(select(Payslip).where(
         Payslip.id == payslip_id, Payslip.household_id == household.id,
         Payslip.payroll_run_id == run_id))
@@ -457,4 +471,5 @@ def confirm_payslip(
                  "path": f"/salary?run={run.id}"})
     emit(session, household.id, actor, "confirm", "payslip", row.id,
          {"payroll_run_id": run_id})
+    financial_events.evaluate_payslips(session, household.id)
     return _out(row)

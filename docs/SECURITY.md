@@ -146,3 +146,48 @@ profile is resolved. Member auto-matching is limited to writable visible
 accounts; viewers cannot create even accountless plans or run matching. Legacy
 standalone anonymous write compatibility follows the application's existing
 RBAC contract.
+
+
+Report documents (monthly, annual and year-on-year), including prior figures and
+budget names/variances, use the same authorised account and budget sets as direct
+reads. Budget headlines and the All view apply account visibility before financial
+aggregation; the itemised reconciliation bridge cannot expose another member's
+private ledger. Shared plans do not grant access to private account rows.
+Profile creation uses the same administrator gate as profile management once an
+active administrator exists. Credential reference listing, storage and deletion
+require administrator access. Notification mutations reject viewers and missing
+ingress identities; notification service names must be a single notify service
+identifier. Notification overspend checks use the budget's authoritative scoped,
+split-aware actuals and respect an explicit zero revision.
+
+Integration outbox events apply ownership visibility before returning either safe
+or detailed payloads. Detailed mode does not bypass another member's private
+account visibility; safe mode also omits monetary settlement remainders. Filtered
+rows still advance the drain cursor. Deleted and unknown entity references are
+withheld. Exception logs export the exception class rather than exception text,
+which may contain secrets or financial information, and redact the complete JSON
+payload including nested extras.
+
+Ingress requires a trusted active member identity on protected API routes. The
+anonymous household/profile bootstrap window ends when the first profile exists;
+version, login/logout and the signed Starling webhook retain explicit public
+contracts. Viewer mutations are rejected before routing, apart from arranging
+their own dashboard. Route coverage exercises every OpenAPI method through the
+actual application, including lazy included routers.
+
+Home Assistant uses `X-Admin-Token`, compared in constant time with
+`FF_ADMIN_TOKEN`. This service identity has a specific shared-resource read
+allowlist and the existing shared transaction, shared-destination overtime and
+energy-statistics write actions. The actor is audited as `ha-service`; it never
+impersonates a household member. Private accounts and employment writes remain
+unavailable to the service. Other token-authenticated mutations are rejected in
+ingress mode. Rule evaluation and notification listing are scoped to shared
+resources plus the target member's accounts.
+
+
+Canonical financial-event snapshots remain internal database state. Shared budget
+and energy events aggregate shared scopes only; seasonal, payslip and expected
+payday events retain their source ownership checks in both Safe and Detailed
+feeds. Detailed sync events use constant error codes rather than raw provider
+responses. Backup events remain allowlisted and omit filenames, paths and exception
+text in both modes. The shared Energy report excludes other members' private plans.

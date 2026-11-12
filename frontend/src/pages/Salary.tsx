@@ -2,6 +2,7 @@
  * with per-component forecast-vs-actual breakdown, payslip reconcile
  * for forecast runs, and add-run / add-employment flows. */
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import { Briefcase, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
@@ -39,6 +40,7 @@ type PaydayValue = {
   nth: number | null;
   adjust: "previous" | "next" | "none";
   raw?: string;
+  cutoff_day?: number;
 };
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -55,13 +57,15 @@ function parsePayday(raw: string | null | undefined): PaydayValue | null {
     return { kind: "nth_weekday", day: null, weekday: 4, nth: -1, adjust: "previous", raw };
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<PaydayValue>;
+    const config = JSON.parse(raw) as Partial<PaydayValue> & { pay_rule?: Partial<PaydayValue> };
+    const parsed = config.pay_rule ?? config;
     if (typeof parsed.kind !== "string"
       || !PAYDAY_KINDS.some((item) => item.value === parsed.kind)) {
       return { kind: "legacy", day: null, weekday: null, nth: null, adjust: "previous", raw };
     }
     return {
       kind: parsed.kind as PaydayKind,
+      cutoff_day: config.cutoff_day,
       day: parsed.day ?? null,
       weekday: parsed.weekday ?? null,
       nth: parsed.nth ?? null,
@@ -77,6 +81,7 @@ function serializePayday(value: PaydayValue | null): string | null {
   if (!value) return null;
   if (value.kind === "legacy" && value.raw) return value.raw;
   return JSON.stringify({
+    ...(value.cutoff_day == null ? {} : { cutoff_day: value.cutoff_day }),
     adjust: value.adjust,
     day: value.day,
     kind: value.kind,
@@ -119,6 +124,7 @@ function PaydayPicker({ value, onChange }: {
   const update = (patch: Partial<PaydayValue>) => {
     const next: PaydayValue = {
       kind: kind as PaydayKind,
+      cutoff_day: parsed?.cutoff_day,
       day: parsed?.day ?? 25,
       weekday: parsed?.weekday ?? 4,
       nth: parsed?.nth ?? -1,
@@ -156,6 +162,12 @@ function PaydayPicker({ value, onChange }: {
           <Input id={id} type="number" min={1} max={31}
             value={parsed?.day ?? 25}
             onChange={(e) => update({ day: Math.max(1, Math.min(31, Number(e.target.value) || 1)) })} />
+        )}</Field>
+      )}
+      {kind && kind !== "legacy" && (
+        <Field label="Payroll cutoff day" hint="Optional: final day of the earning period (1–31). Leave blank for calendar months.">{(id) => (
+          <Input id={id} type="number" min={1} max={31} value={parsed?.cutoff_day ?? ""}
+            onChange={(e) => update({ cutoff_day: e.target.value ? Math.max(1, Math.min(31, Number(e.target.value))) : undefined })} />
         )}</Field>
       )}
       {(kind === "nth_weekday" || kind === "weekly") && (
@@ -212,8 +224,9 @@ function activeRuns(runs: Run[]) {
 
 export function Salary() {
   const ready = useReady();
+  const [params] = useSearchParams();
   const [rev, setRev] = useState(0);
-  const [tab, setTab] = useState<"employers" | "breakdown" | "worklog">("employers");
+  const [tab, setTab] = useState<"employers" | "breakdown" | "worklog">(params.has("run_id") ? "breakdown" : "employers");
   const [addingEmp, setAddingEmp] = useState(false);
   const [addingRun, setAddingRun] = useState<Employment | null>(null);
   const employments = useApi(() => api.get("/api/v1/employments"), ready, [rev]);
@@ -514,8 +527,9 @@ function EmployersView({ employments, rev, onChanged }: {
   rev: number;
   onChanged: () => void;
 }) {
+  const [params] = useSearchParams();
   const [selId, setSelId] = useState<number | null>(null);
-  const sel = employments.find((e) => e.id === selId)
+  const sel = employments.find((e) => e.id === (selId ?? Number(params.get("employment_id"))))
     ?? employments.find((e) => !e.end_date) ?? employments[0];
   const [ending, setEnding] = useState(false);
   const [endDate, setEndDate] = useState("");
@@ -535,7 +549,7 @@ function EmployersView({ employments, rev, onChanged }: {
       <Panel flush>
         <ul className="divide-y divide-border">
           {employments.map((e) => (
-            <li key={e.id}>
+            <li key={e.id} id={`employment-${e.id}`}>
               <button type="button" onClick={() => setSelId(e.id)}
                 className={cn(
                   "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
@@ -1028,7 +1042,8 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
 function RunRow({ run: r, empId, onReconcile, onPayslip }: {
   run: Run; empId: number; onReconcile: () => void; onPayslip: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [params] = useSearchParams();
+  const [open, setOpen] = useState(params.get("run_id") === String(r.id));
   const detail = useApi(
     () => api.get("/api/v1/employments/{emp_id}/payroll-runs/{run_id}",
       { path: { emp_id: empId, run_id: r.id } }),
@@ -1037,7 +1052,7 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
   const amounts = runAmounts(r);
   return (
     <>
-      <tr
+      <tr id={`payroll_run-${r.id}`}
         className="cursor-pointer border-b border-border hover:bg-surface-2/60"
         onClick={() => setOpen((o) => !o)}
       >

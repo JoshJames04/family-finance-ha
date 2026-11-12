@@ -6,14 +6,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import categorise
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import categorise, rbac
 from app.persistence.models import (
     Account,
     CategorisationRule,
@@ -22,16 +22,42 @@ from app.persistence.models import (
     ProviderCategoryMap,
     RuleSource,
     Transaction,
+    UserProfile,
 )
 
-router = APIRouter(prefix="/categorisation",
-                   tags=["categorisation"])
+
+def _write_guard(request: Request, profile: ProfileDep) -> None:
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not rbac.write_allowed(
+            None, profile):
+        raise HTTPException(403, "role cannot mutate categorisation")
 
 
-def _get(session: Session, household_id: int, rule_id: int
+def _allowed(session: Session, household_id: int, profile: UserProfile | None) -> list[int]:
+    return [account.id for account in session.scalars(select(Account).where(
+        Account.household_id == household_id)) if rbac.visible(account.owner_profile_id, profile)]
+
+
+def _visible(session: Session, rule: CategorisationRule, allowed: list[int]) -> bool:
+    if any(aid is not None and aid not in allowed for aid in (
+            rule.account_id, rule.transfer_account_id)):
+        return False
+    if rule.source == RuleSource.learned and rule.account_id is None:
+        observed = set(session.scalars(select(Transaction.account_id).join(Account).where(
+            Account.household_id == rule.household_id, Transaction.payee == rule.pattern)))
+        if observed and not observed.intersection(allowed):
+            return False
+    return True
+
+
+router = APIRouter(prefix="/categorisation", tags=["categorisation"],
+                   dependencies=[Depends(_write_guard)])
+
+
+def _get(session: Session, household_id: int, rule_id: int, allowed: list[int]
          ) -> CategorisationRule:
     r = session.get(CategorisationRule, rule_id)
-    if r is None or r.household_id != household_id:
+    if (r is None or r.household_id != household_id
+            or not _visible(session, r, allowed)):
         raise HTTPException(404, f"rule {rule_id} not found")
     return r
 
@@ -43,9 +69,28 @@ def _category(session: Session, household_id: int,
         raise HTTPException(422, f"category {category_id} not found")
 
 
+def _transfer_policy(rule: CategorisationRule) -> None:
+    if rule.transfer_account_id is not None and (
+            rule.account_id is None or rule.account_id == rule.transfer_account_id
+            or rule.match_type != MatchType.exact):
+        raise HTTPException(422, "owned transfer aliases need distinct accounts and exact payee")
+
+
+def _account_scope(session: Session, household_id: int, value: object,
+                   profile: UserProfile | None) -> None:
+    if value is None:
+        return
+    account = session.get(Account, int(str(value)))
+    if (account is None or account.household_id != household_id
+            or not rbac.visible(account.owner_profile_id, profile)
+            or not rbac.write_allowed(account.owner_profile_id, profile)):
+        raise HTTPException(422, "account not found")
+
+
 @router.get("/rules",
             response_model=list[schemas.CategorisationRuleOut])
 def list_rules(
+    profile: ProfileDep,
     household: HouseholdDep, session: SessionDep,
 ) -> list[schemas.CategorisationRuleOut]:
     rows = session.scalars(
@@ -53,21 +98,27 @@ def list_rules(
         .where(CategorisationRule.household_id == household.id)
         .order_by(CategorisationRule.priority, CategorisationRule.id))
     return [schemas.CategorisationRuleOut.model_validate(r)
-            for r in rows]
+            for r in rows if _visible(session, r, _allowed(session, household.id, profile))]
 
 
 @router.post("/rules", response_model=schemas.CategorisationRuleOut,
              status_code=201)
 def create_rule(
+    profile: ProfileDep,
     body: schemas.CategorisationRuleIn, household: HouseholdDep,
     session: SessionDep, actor: ActorDep,
 ) -> schemas.CategorisationRuleOut:
     _category(session, household.id, body.category_id)
+    _account_scope(session, household.id, body.account_id, profile)
+    _account_scope(session, household.id, body.transfer_account_id, profile)
     r = CategorisationRule(
         household_id=household.id, pattern=body.pattern,
         match_type=MatchType(body.match_type),
         category_id=body.category_id, priority=body.priority,
-        auto_apply=body.auto_apply, source=RuleSource.manual)
+        auto_apply=body.auto_apply, source=RuleSource.manual,
+        account_id=body.account_id, amount_pence=body.amount_pence,
+        transfer_account_id=body.transfer_account_id)
+    _transfer_policy(r)
     session.add(r)
     session.flush()
     emit(session, household.id, actor, "create",
@@ -78,16 +129,20 @@ def create_rule(
 @router.patch("/rules/{rule_id}",
               response_model=schemas.CategorisationRuleOut)
 def patch_rule(
+    profile: ProfileDep,
     rule_id: int, body: dict[str, object], household: HouseholdDep,
     session: SessionDep, actor: ActorDep,
 ) -> schemas.CategorisationRuleOut:
-    r = _get(session, household.id, rule_id)
+    r = _get(session, household.id, rule_id, _allowed(session, household.id, profile))
     for k in ("pattern", "priority", "auto_apply", "enabled",
-              "category_id"):
+              "category_id", "account_id", "amount_pence", "transfer_account_id"):
         if k in body:
             if k == "category_id":
                 _category(session, household.id, int(str(body[k])))
+            if k in {"account_id", "transfer_account_id"}:
+                _account_scope(session, household.id, body[k], profile)
             setattr(r, k, body[k])
+    _transfer_policy(r)
     session.flush()
     emit(session, household.id, actor, "update",
          "categorisation_rule", r.id, dict(body))
@@ -96,10 +151,11 @@ def patch_rule(
 
 @router.delete("/rules/{rule_id}", status_code=204)
 def delete_rule(
+    profile: ProfileDep,
     rule_id: int, household: HouseholdDep, session: SessionDep,
     actor: ActorDep,
 ) -> None:
-    r = _get(session, household.id, rule_id)
+    r = _get(session, household.id, rule_id, _allowed(session, household.id, profile))
     emit(session, household.id, actor, "delete",
          "categorisation_rule", r.id)
     session.delete(r)
@@ -107,12 +163,14 @@ def delete_rule(
 
 @router.post("/apply", response_model=schemas.CategoriseApplyOut)
 def apply(
+    profile: ProfileDep,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
     since: Annotated[date | None, Query()] = None,
 ) -> schemas.CategoriseApplyOut:
     """Run the rules over uncategorised transactions — suggestions
     flagged, auto_apply rules applied."""
-    r = categorise.apply_rules(session, household.id, since)
+    r = categorise.apply_rules(session, household.id, since,
+                               account_ids=_allowed(session, household.id, profile))
     emit(session, household.id, actor, "apply",
          "categorisation_rule", 0,
          {"applied": r.auto_applied, "suggested": r.suggested})
@@ -123,11 +181,13 @@ def apply(
 
 @router.post("/auto-pair", response_model=schemas.PairRefundOut)
 def auto_pair(
+    profile: ProfileDep,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
     since: Annotated[date | None, Query()] = None,
 ) -> schemas.PairRefundOut:
     """Identify internal-account movements → Transfer objects."""
-    n = categorise.auto_pair_transfers(session, household.id, since)
+    n = categorise.auto_pair_transfers(session, household.id, since,
+                                     account_ids=_allowed(session, household.id, profile))
     emit(session, household.id, actor, "auto_pair",
          "transfer", 0, {"pairs": n})
     return schemas.PairRefundOut(linked=n)
@@ -136,6 +196,7 @@ def auto_pair(
 @router.get("/provider-categories",
             response_model=list[schemas.ObservedProviderCategoryOut])
 def list_provider_categories(
+    profile: ProfileDep,
     household: HouseholdDep, session: SessionDep,
 ) -> list[schemas.ObservedProviderCategoryOut]:
     """Every provider enum the feed has delivered + its mapping —
@@ -150,6 +211,7 @@ def list_provider_categories(
                func.count(Transaction.id))
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household.id,
+               Account.id.in_(_allowed(session, household.id, profile)),
                Transaction.provider_category.isnot(None))
         .group_by(Transaction.source, Transaction.provider_category)
         .order_by(Transaction.provider_category)).all()
@@ -163,6 +225,7 @@ def list_provider_categories(
 @router.put("/provider-categories",
             response_model=list[schemas.ProviderCategoryMapOut])
 def replace_provider_categories(
+    profile: ProfileDep,
     body: list[schemas.ProviderCategoryMapIn], household: HouseholdDep,
     session: SessionDep, actor: ActorDep,
 ) -> list[schemas.ProviderCategoryMapOut]:
@@ -186,7 +249,8 @@ def replace_provider_categories(
         for e in body]
     session.add_all(rows)
     session.flush()
-    applied = categorise.apply_provider_map(session, household.id)
+    applied = categorise.apply_provider_map(session, household.id,
+                                             account_ids=_allowed(session, household.id, profile))
     emit(session, household.id, actor, "update",
          "provider_category_map", 0,
          {"entries": len(rows), "applied": applied})
@@ -196,11 +260,13 @@ def replace_provider_categories(
 
 @router.post("/auto-refund", response_model=schemas.PairRefundOut)
 def auto_refund(
+    profile: ProfileDep,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
     since: Annotated[date | None, Query()] = None,
 ) -> schemas.PairRefundOut:
     """Link positive txns to earlier same-payee debits as refunds."""
-    n = categorise.auto_link_refunds(session, household.id, since)
+    n = categorise.auto_link_refunds(session, household.id, since,
+                                    account_ids=_allowed(session, household.id, profile))
     emit(session, household.id, actor, "auto_refund",
          "transaction", 0, {"linked": n})
     return schemas.PairRefundOut(linked=n)

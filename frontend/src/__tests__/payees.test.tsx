@@ -133,3 +133,20 @@ describe("Rules", () => {
       c.method === "POST" && c.url.includes("/categorisation/apply"))).toBe(true));
   });
 });
+
+it("creates a category rule limited to signed amount", async () => {
+  const calls: { url: string; method: string; body: string }[] = [];
+  stubFetch(calls);
+  const user = userEvent.setup();
+  render(<MemoryRouter><Rules /></MemoryRouter>);
+  await user.click(await screen.findByRole("button", { name: /New rule/ }));
+  await user.type(screen.getByLabelText(/Payee pattern/), "Apple");
+  await user.selectOptions(screen.getByLabelText("Rule category"), "9");
+  await user.type(screen.getByLabelText("Exact signed amount"), "-0.99");
+  await user.click(screen.getByRole("button", { name: "Create rule" }));
+  await waitFor(() => {
+    const call = calls.find((x) => x.method === "POST" && x.url.endsWith("/categorisation/rules"));
+    expect(JSON.parse(call!.body).amount_pence).toBe(-99);
+  });
+  cleanup();
+});

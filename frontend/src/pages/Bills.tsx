@@ -230,7 +230,7 @@ export function Bills() {
                       const cat = c.category_id != null ? categories.byId.get(c.category_id) : undefined;
                       const acct = accountsById.get(c.account_id);
                       return (
-                        <li key={c.id}
+                        <li key={c.id} id={`commitment-${c.id}`}
                           className="group flex min-w-0 flex-col rounded-[var(--radius-card)] border border-border bg-surface p-4 shadow-card">
                           <div className="mb-3 flex items-start gap-3">
                             <IconTile label={c.name} />
@@ -291,7 +291,7 @@ export function Bills() {
                 </h2>
                 <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {paused.map((c) => (
-                    <li key={c.id}
+                    <li key={c.id} id={`commitment-${c.id}`}
                       className="flex min-w-0 items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-border bg-surface/60 p-4">
                       <IconTile label={c.name} className="opacity-60" />
                       <div className="min-w-0 flex-1">

@@ -16,6 +16,7 @@ from app.domain import notifications as notify
 from app.persistence.models import (
     Account,
     Confidence,
+    Employment,
     ExpectedMovement,
     ExpectedSource,
     Household,
@@ -23,6 +24,7 @@ from app.persistence.models import (
     NotificationKind,
     Transaction,
     TransactionStatus,
+    UserProfile,
 )
 
 TUE = date(2025, 4, 8)          # Tuesday
@@ -95,9 +97,18 @@ class TestPaydayReminder:
         rule = _rule(session, household.id,
                      NotificationKind.payday_reminder,
                      {"days_before": 1})
+        owner = UserProfile(household_id=household.id, display_name="Salary owner")
+        session.add(owner)
+        session.flush()
+        employment = Employment(household_id=household.id, profile_id=owner.id,
+                                employer="Synthetic", jurisdiction="england_wales",
+                                contracted_hours=37)
+        session.add(employment)
+        session.flush()
+        rule.target_profile_id = owner.id
         _movement(session, household.id, account.id,
                   TUE.replace(day=9), 250_000, "Salary",
-                  src=ExpectedSource.payroll_run, sid=9)
+                  src=ExpectedSource.employment, sid=employment.id)
         assert notify.evaluate(session, rule, today=TUE) == 1
         assert notify.evaluate(session, rule,
                                today=TUE.replace(day=9)) == 0

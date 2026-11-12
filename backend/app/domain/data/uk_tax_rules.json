@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Versioned UK statutory parameters (issue #81). All money in pence per ANNUM; rates in basis points (2000 = 20%). Sources: GOV.UK Income Tax rates/allowances, Class 1 NI rates, student-loan repayment thresholds. New tax years append a new rule set \u00e2\u20ac\u201d existing sets are never edited.",
+  "note": "Versioned UK statutory parameters (issue #81). All money in pence per ANNUM; rates in basis points (2000 = 20%). Sources: GOV.UK Income Tax rates/allowances, Class 1 NI rates, student-loan repayment thresholds. New tax years append a new rule set â€” existing sets are never edited.",
   "sets": [
     {
       "tax_year": "2024-25",
@@ -515,6 +515,552 @@
             2100000,
             600
           ]
+        }
+      }
+    },
+    {
+      "tax_year": "2024-25",
+      "jurisdiction": "england_wales",
+      "version": 2,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 3770000,
+            "rate": 2000
+          },
+          {
+            "limit": 12514000,
+            "rate": 4000
+          },
+          {
+            "limit": null,
+            "rate": 4500
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              200
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              200
+            ],
+            "Z": [
+              200,
+              200
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2499000,
+            900
+          ],
+          "plan2": [
+            2729500,
+            900
+          ],
+          "plan4": [
+            3139500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        },
+        "flat_code_band_indices": {
+          "BR": 0,
+          "D0": 1,
+          "D1": 2
+        }
+      }
+    },
+    {
+      "tax_year": "2025-26",
+      "jurisdiction": "england_wales",
+      "version": 2,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 3770000,
+            "rate": 2000
+          },
+          {
+            "limit": 12514000,
+            "rate": 4000
+          },
+          {
+            "limit": null,
+            "rate": 4500
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              200
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              200
+            ],
+            "Z": [
+              200,
+              200
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2606500,
+            900
+          ],
+          "plan2": [
+            2847000,
+            900
+          ],
+          "plan4": [
+            3274500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        },
+        "flat_code_band_indices": {
+          "BR": 0,
+          "D0": 1,
+          "D1": 2
+        }
+      }
+    },
+    {
+      "tax_year": "2024-25",
+      "jurisdiction": "scotland",
+      "version": 2,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 230600,
+            "rate": 1900
+          },
+          {
+            "limit": 1399100,
+            "rate": 2000
+          },
+          {
+            "limit": 3109200,
+            "rate": 2100
+          },
+          {
+            "limit": 6243000,
+            "rate": 4200
+          },
+          {
+            "limit": 12514000,
+            "rate": 4500
+          },
+          {
+            "limit": null,
+            "rate": 4800
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              200
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              200
+            ],
+            "Z": [
+              200,
+              200
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2499000,
+            900
+          ],
+          "plan2": [
+            2729500,
+            900
+          ],
+          "plan4": [
+            3139500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        },
+        "flat_code_band_indices": {
+          "BR": 1,
+          "D0": 2,
+          "D1": 3
+        }
+      }
+    },
+    {
+      "tax_year": "2025-26",
+      "jurisdiction": "scotland",
+      "version": 2,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 282700,
+            "rate": 1900
+          },
+          {
+            "limit": 1492100,
+            "rate": 2000
+          },
+          {
+            "limit": 3109200,
+            "rate": 2100
+          },
+          {
+            "limit": 6243000,
+            "rate": 4200
+          },
+          {
+            "limit": 12514000,
+            "rate": 4500
+          },
+          {
+            "limit": null,
+            "rate": 4800
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              200
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              200
+            ],
+            "Z": [
+              200,
+              200
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2606500,
+            900
+          ],
+          "plan2": [
+            2847000,
+            900
+          ],
+          "plan4": [
+            3274500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        },
+        "flat_code_band_indices": {
+          "BR": 1,
+          "D0": 2,
+          "D1": 3
+        }
+      }
+    },
+    {
+      "tax_year": "2026-27",
+      "jurisdiction": "england_wales",
+      "version": 2,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 3770000,
+            "rate": 2000
+          },
+          {
+            "limit": 12514000,
+            "rate": 4000
+          },
+          {
+            "limit": null,
+            "rate": 4500
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              200
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              200
+            ],
+            "Z": [
+              200,
+              200
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2690000,
+            900
+          ],
+          "plan2": [
+            2938500,
+            900
+          ],
+          "plan4": [
+            3379500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        },
+        "flat_code_band_indices": {
+          "BR": 0,
+          "D0": 1,
+          "D1": 2
+        }
+      }
+    },
+    {
+      "tax_year": "2026-27",
+      "jurisdiction": "scotland",
+      "version": 2,
+      "params": {
+        "personal_allowance": 1257000,
+        "taper_start": 10000000,
+        "taper_divisor": 2,
+        "bands": [
+          {
+            "limit": 396700,
+            "rate": 1900
+          },
+          {
+            "limit": 1695600,
+            "rate": 2000
+          },
+          {
+            "limit": 3109200,
+            "rate": 2100
+          },
+          {
+            "limit": 6243000,
+            "rate": 4200
+          },
+          {
+            "limit": 12514000,
+            "rate": 4500
+          },
+          {
+            "limit": null,
+            "rate": 4800
+          }
+        ],
+        "ni": {
+          "primary_threshold": 1257000,
+          "upper_earnings_limit": 5027000,
+          "categories": {
+            "A": [
+              800,
+              200
+            ],
+            "B": [
+              185,
+              200
+            ],
+            "C": [
+              0,
+              0
+            ],
+            "H": [
+              800,
+              200
+            ],
+            "J": [
+              200,
+              200
+            ],
+            "M": [
+              800,
+              200
+            ],
+            "Z": [
+              200,
+              200
+            ]
+          }
+        },
+        "student_loans": {
+          "plan1": [
+            2690000,
+            900
+          ],
+          "plan2": [
+            2938500,
+            900
+          ],
+          "plan4": [
+            3379500,
+            900
+          ],
+          "plan5": [
+            2500000,
+            900
+          ],
+          "postgrad": [
+            2100000,
+            600
+          ]
+        },
+        "flat_code_band_indices": {
+          "BR": 1,
+          "D0": 2,
+          "D1": 3
         }
       }
     }

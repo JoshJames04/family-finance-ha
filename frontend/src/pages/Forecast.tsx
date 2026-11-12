@@ -18,6 +18,7 @@ import { Select } from "../components/Field";
 import { IconTile, PageHeader, Segmented, Stat } from "../components/Display";
 import { Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
+import { movementLink } from "../lib/recordLink";
 import {
   daysUntil, formatDayMonth, formatMonth, formatPence, formatPenceCompact,
   formatWeekdayDayMonth, toISODate,
@@ -25,18 +26,10 @@ import {
 
 type Movement = components["schemas"]["ExpectedMovementOut"];
 
-const SOURCE_ROUTE: Record<string, string> = {
-  commitment: "/upcoming",
-  payroll_run: "/salary",
-  transfer_rule: "/upcoming",
-  savings_goal: "/goals",
-  subscription: "/subscriptions",
-  manual: "/upcoming",
-};
-
 const SOURCE_LABEL: Record<string, string> = {
   commitment: "Bill",
   payroll_run: "Payday",
+  employment: "Payday",
   transfer_rule: "Transfer",
   savings_goal: "Goal",
   subscription: "Renewal",
@@ -267,7 +260,7 @@ export function Forecast() {
               {selectedEvents.map((e) => (
                 <li key={e.id}>
                   <Link
-                    to={SOURCE_ROUTE[e.source_type] ?? "/upcoming"}
+                    to={movementLink(e)}
                     className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2"
                   >
                     <IconTile label={e.label} size="sm" />

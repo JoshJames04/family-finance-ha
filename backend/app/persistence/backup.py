@@ -28,7 +28,10 @@ MARKER_RE = re.compile(
 
 
 def next_name(now: datetime | None = None, seq: int = 0) -> str:
-    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S")
+    instant = now or datetime.now(UTC)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
+    stamp = instant.astimezone(UTC).strftime("%Y%m%dT%H%M%S")
     suffix = f"-{seq}" if seq else ""
     return f"ff-{stamp}{suffix}.db"
 
@@ -43,14 +46,49 @@ def create_snapshot(engine: Engine, backup_dir: Path,
         if not target.exists():
             break
         seq += 1
-    return vacuum_into(engine, target)
+    vacuum_into(engine, target)
+    taken_at = now or datetime.now(UTC)
+    if taken_at.tzinfo is None:
+        taken_at = taken_at.replace(tzinfo=UTC)
+    # Embedded in the snapshot itself: downloads, copies and restores
+    # preserve provenance independently of filename and filesystem mtime.
+    with sqlite3.connect(target) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS ff_backup_manifest (taken_at TEXT NOT NULL)")
+        conn.execute("DELETE FROM ff_backup_manifest")
+        conn.execute("INSERT INTO ff_backup_manifest VALUES (?)",
+                     (taken_at.astimezone(UTC).isoformat(),))
+    return target
+
+
+def snapshot_taken_at(path: Path) -> datetime | None:
+    """Read embedded UTC provenance, falling back to legacy filenames."""
+    try:
+        with sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True) as conn:
+            row = conn.execute("SELECT taken_at FROM ff_backup_manifest LIMIT 1").fetchone()
+        if row is not None:
+            stamp = datetime.fromisoformat(row[0])
+            if stamp.tzinfo is not None:
+                return stamp.astimezone(UTC)
+    except (sqlite3.Error, ValueError, TypeError):
+        pass
+    match = re.fullmatch(r"ff-(\d{8}T\d{6})(?:-\d+)?\.db", path.name)
+    if match is not None:
+        try:
+            return datetime.strptime(match[1], "%Y%m%dT%H%M%S").replace(tzinfo=UTC)
+        except ValueError:
+            pass
+    return None
 
 
 def list_snapshots(backup_dir: Path) -> list[Path]:
     if not backup_dir.is_dir():
         return []
-    return sorted(p for p in backup_dir.iterdir()
-                  if SNAPSHOT_RE.fullmatch(p.name))
+    def key(path: Path) -> tuple[datetime, int, str]:
+        suffix = re.fullmatch(r"ff-\d{8}T\d{6}(?:-(\d+))?\.db", path.name)
+        seq = int(suffix[1] or 0) if suffix else 0
+        return (snapshot_taken_at(path) or datetime.min.replace(tzinfo=UTC), seq, path.name)
+
+    return sorted((p for p in backup_dir.iterdir() if SNAPSHOT_RE.fullmatch(p.name)), key=key)
 
 
 def latest_snapshot(backup_dir: Path) -> Path | None:

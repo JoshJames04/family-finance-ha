@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 from app.persistence.models import (
     Budget,
     BudgetLine,
+    BudgetLineSide,
+    BudgetStatus,
     EnergyConfig,
     EnergyReading,
     EnergyTariff,
@@ -121,7 +123,7 @@ class MonthReport:
 
 
 def month_report(session: Session, household_id: int,
-                 as_of: date | None = None) -> MonthReport:
+                 as_of: date | None = None, *, shared_only: bool = False) -> MonthReport:
     as_of = as_of or date.today()
     month_start = as_of.replace(day=1)
     next_month = (month_start.replace(day=28)
@@ -144,12 +146,15 @@ def month_report(session: Session, household_id: int,
             .where(Budget.household_id == household_id,
                    BudgetLine.category_id == cfg.budget_category_id,
                    Budget.start_date <= month_end,
-                   Budget.end_date >= month_start)).one()
+                   Budget.end_date >= month_start,
+                   *([Budget.owner_profile_id.is_(None),
+                      Budget.status.in_([BudgetStatus.approved, BudgetStatus.locked]),
+                      BudgetLine.side == BudgetLineSide.expense] if shared_only else []))).one()
         budget_pence = int(rows[0] or 0)
 
-    metered = [d for d in est.days if d.wh > 0]
-    avg_wh = (sum(d.wh for d in metered) // len(metered)
-              if metered else None)
+    metered_days = len(est.days) - est.missing_days
+    avg_wh = (sum(day.wh for day in est.days) // metered_days
+              if metered_days else None)
     projected_total: int | None = None
     if avg_wh is not None and through < month_end:
         remaining = (month_end - through).days

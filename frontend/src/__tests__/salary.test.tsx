@@ -187,3 +187,27 @@ describe("Salary", () => {
     expect((screen.getByRole("button", { name: "Add employment" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+
+describe("Payroll cutoff", () => {
+  afterEach(cleanup);
+  it("preserves cutoff when changing payday and lets the employer edit it", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls, { employments: [{ ...EMP, payday_rule: JSON.stringify({kind: "fixed_day", day: 25, cutoff_day: 14}) }] });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByLabelText("Edit Acme Ltd"));
+    const cutoff = screen.getByLabelText("Payroll cutoff day") as HTMLInputElement;
+    expect(cutoff.value).toBe("14");
+    await user.selectOptions(screen.getByLabelText("Payday"), "nth_weekday");
+    expect(cutoff.value).toBe("14");
+    await user.clear(cutoff);
+    await user.type(cutoff, "18");
+    await user.click(screen.getByRole("button", {name: "Save changes"}));
+    await waitFor(() => {
+      const call = calls.find(c => c.method === "PATCH" && c.url.endsWith("/employments/1"));
+      expect(call).toBeDefined();
+      expect(JSON.parse(JSON.parse(call!.body).payday_rule).cutoff_day).toBe(18);
+    });
+  });
+});

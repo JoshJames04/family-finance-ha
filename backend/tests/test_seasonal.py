@@ -148,7 +148,8 @@ class TestTotals:
         assert t.planned_pence == 11_000
         assert t.actual_pence == 7_000
         assert t.committed_pence == 12_000
-        assert t.remaining_pence == 88_000
+        assert t.remaining_pence == 93_000
+        assert t.remaining_after_commitments_pence == 88_000
 
 
 class TestApi:
@@ -223,14 +224,18 @@ class TestRollover:
 
     def test_rollover_carry_remaining_policy(
             self, session: Session, event: SeasonalEvent) -> None:
-        _gift(session, event, planned=60_000)  # 40k of 100k unspent
+        g = _gift(session, event, planned=60_000)
+        g.actual_pence = 60_000
+        session.flush()  # 40k of 100k actually unspent
         new = seasonal.rollover(session, event, 2027,
                                 carry_remaining=True)
         assert new.budget_pence == 140_000
 
     def test_rollover_overspend_carries_nothing(
             self, session: Session, event: SeasonalEvent) -> None:
-        _gift(session, event, planned=120_000)  # over budget
+        g = _gift(session, event, planned=120_000)
+        g.actual_pence = 120_000
+        session.flush()  # actual overspend
         new = seasonal.rollover(session, event, 2027,
                                 carry_remaining=True)
         assert new.budget_pence == 100_000  # clamped at 0

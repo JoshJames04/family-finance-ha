@@ -13,7 +13,7 @@ payees and pence amounts.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,7 +28,7 @@ _SAFE_KEYS = frozenset({
     "source", "source_type", "status", "old_status", "new_status",
     "state", "date", "expected_date", "occurrence_date", "direction",
     "count", "inserted", "deduped", "skipped", "currency", "manual",
-    "frequency", "matched_pence_outstanding",
+    "frequency", "lead_days",
 })
 
 
@@ -62,10 +62,13 @@ def emit(session: Session, household_id: int, event_type: str, *,
         ).scalar_one_or_none()
         if seen is not None:
             return None
+    instant = at or datetime.now(UTC)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
     row = IntegrationEvent(
         household_id=household_id, event_type=event_type,
         entity_kind=entity_kind, entity_id=entity_id,
-        occurred_at=at or datetime.now(), payload=payload or {},
+        occurred_at=instant.astimezone(UTC).replace(tzinfo=None), payload=payload or {},
         dedup_key=dedup_key)
     session.add(row)
     session.flush()
@@ -88,6 +91,74 @@ def feed(session: Session, household_id: int, *,
 def visible_payload(event: IntegrationEvent, detailed: bool) -> dict[str, object]:
     """Read-time redaction — safe mode strips anything that could
     name or value a real record (ADR-0009)."""
-    if detailed:
+    if detailed and event.entity_kind != "backup":
         return dict(event.payload)
     return {k: v for k, v in event.payload.items() if k in _SAFE_KEYS}
+
+
+def event_visible(session: Session, event: IntegrationEvent, profile_id: int | None,
+                  *, all_scopes: bool = False) -> bool:
+    """Apply account ownership even in safe mode: ids and dates are private too."""
+    from app.persistence import models
+    entities = {
+        "account": models.Account, "transaction": models.Transaction,
+        "commitment": models.RecurringCommitment, "subscription": models.Subscription,
+        "employment": models.Employment, "payroll_run": models.PayrollRun,
+        "loan": models.Loan, "savings_goal": models.SavingsGoal,
+        "expected_movement": models.ExpectedMovement,
+        "budget": models.Budget, "budget_line": models.BudgetLine,
+        "budgetline": models.BudgetLine, "energy_reading": models.EnergyReading,
+        "gift": models.Gift, "payslip": models.Payslip,
+        "seasonal_event": models.SeasonalEvent, "energy_config": models.EnergyConfig,
+    }
+    if event.entity_kind == "backup":
+        return True
+    if event.entity_kind is None and event.entity_id is None:
+        return True
+    if event.entity_kind in {"manual", "transfer_rule"}:
+        account_id = event.payload.get("account_id")
+        account = session.get(models.Account, account_id) if isinstance(account_id, int) else None
+        return (account is not None and account.household_id == event.household_id
+                and (all_scopes or account.owner_profile_id is None
+                     or account.owner_profile_id == profile_id))
+    model = entities.get(event.entity_kind or "")
+    if model is None or event.entity_id is None:
+        return False
+    entity = session.get(model, event.entity_id)
+    if entity is None:
+        return False
+    if isinstance(entity, models.BudgetLine):
+        entity = session.get(models.Budget, entity.budget_id)
+    elif isinstance(entity, models.Gift):
+        entity = session.get(models.SeasonalEvent, entity.event_id)
+    elif isinstance(entity, models.Payslip):
+        entity = session.get(models.PayrollRun, entity.payroll_run_id)
+    if entity is None:
+        return False
+    if isinstance(entity, models.PayrollRun):
+        entity = session.get(models.Employment, entity.employment_id)
+        if entity is None:
+            return False
+    if getattr(entity, "household_id", event.household_id) != event.household_id:
+        return False
+    owner = getattr(entity, "owner_profile_id", getattr(entity, "profile_id", None))
+    if not all_scopes and owner is not None and owner != profile_id:
+        return False
+    account_id = getattr(entity, "account_id", None)
+    if account_id is not None:
+        entity = session.get(models.Account, account_id)
+        if entity is None:
+            return False
+    owner = getattr(entity, "owner_profile_id", None)
+    return (getattr(entity, "household_id", event.household_id) == event.household_id
+            and (all_scopes or owner is None or owner == profile_id))
+
+
+
+def latest_visible_cursor(session: Session, household_id: int, profile_id: int | None,
+                          *, all_scopes: bool = False) -> int:
+    rows = session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.household_id == household_id).order_by(
+            IntegrationEvent.id.desc()).execution_options(yield_per=100))
+    return next((row.id for row in rows
+                 if event_visible(session, row, profile_id, all_scopes=all_scopes)), 0)

@@ -14,4 +14,4 @@ API_TIMEOUT: Final = 10
 
 ATTR_VERSION: Final = "app_version"
 
-PLATFORMS: Final = ["sensor"]
+PLATFORMS: Final = ["sensor", "event"]

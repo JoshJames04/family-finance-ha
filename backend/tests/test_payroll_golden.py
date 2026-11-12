@@ -166,11 +166,11 @@ def test_version_bump_selects_latest(session: Session) -> None:
     mutated = dict(_params("2025-26", "england_wales"))
     mutated["personal_allowance"] = 999_999
     session.add(TaxRuleSet(
-        tax_year="2025-26", jurisdiction="scotland", version=2,
+        tax_year="2025-26", jurisdiction="scotland", version=99,
         params=json.dumps(mutated)))
     session.flush()
     latest = rule_set(session, "2025-26", TaxJurisdiction.scotland)
-    assert latest.version == 2
+    assert latest.version == 99
     assert json.loads(latest.params)["personal_allowance"] == 999_999
     v1 = session.execute(
         select(TaxRuleSet).where(

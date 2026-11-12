@@ -7,9 +7,6 @@ and writes the pending-restore marker the next boot applies.
 
 from __future__ import annotations
 
-import re
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
@@ -22,6 +19,7 @@ from app.api.deps import (
     require_admin,
 )
 from app.core.settings import Settings
+from app.domain import financial_events, outbox
 from app.persistence import backup
 
 router = APIRouter(prefix="/admin", tags=["admin"],
@@ -33,43 +31,14 @@ def _settings(request: Request) -> Settings:
     return s
 
 
-def _taken_at(name: str) -> datetime | None:
-    """Parse the ``ff-YYYYMMDDTHHMMSS(-seq).db`` timestamp (#371)."""
-    m = re.match(r"ff-(\d{8})T(\d{6})(-\d+)?\.db", name)
-    if not m:
-        return None
-    try:
-        return datetime.strptime(m.group(1) + m.group(2),
-                                 "%Y%m%d%H%M%S").replace(tzinfo=UTC)
-    except ValueError:
-        return None
-
-
-def _sort_key(name: str) -> tuple[int, int, str]:
-    """Chronological key: timestamp, then seq — ``ff-...-1.db``
-    lexes *before* ``ff-....db`` alphabetically, so name order
-    alone mis-orders same-second snapshots."""
-    m = re.match(r"ff-(\d{8})T(\d{6})(-(\d+))?\.db", name)
-    if not m:
-        return (0, 0, name)
-    seq = int(m.group(4) or 0)
-    try:
-        ts = int(datetime.strptime(m.group(1) + m.group(2),
-                                   "%Y%m%d%H%M%S").timestamp())
-    except ValueError:
-        ts = 0
-    return (ts, seq, name)
-
-
 @router.get("/backups", response_model=list[schemas.BackupOut])
 def list_backups(request: Request) -> list[schemas.BackupOut]:
     backup_dir = _settings(request).resolved_backup_dir
-    snaps = sorted(backup.list_snapshots(backup_dir),
-                   key=lambda p: _sort_key(p.name), reverse=True)
+    snaps = list(reversed(backup.list_snapshots(backup_dir)))
     return [
         schemas.BackupOut(name=p.name, bytes=p.stat().st_size,
                           ok=backup.verify_snapshot(p),
-                          taken_at=_taken_at(p.name))
+                          taken_at=backup.snapshot_taken_at(p))
         for p in snaps  # newest first (issue #371)
     ]
 
@@ -80,14 +49,27 @@ def create_backup(request: Request, household: HouseholdDep,
                   session: SessionDep, actor: ActorDep,
                   ) -> schemas.BackupOut:
     settings = _settings(request)
-    snap = backup.create_snapshot(request.app.state.engine,
-                                  settings.resolved_backup_dir)
-    deleted = backup.rotate(settings.resolved_backup_dir,
-                            settings.backup_keep)
+    try:
+        snap = backup.create_snapshot(request.app.state.engine,
+                                      settings.resolved_backup_dir)
+        if not backup.verify_snapshot(snap):
+            raise RuntimeError("backup integrity verification failed")
+        deleted = backup.rotate(settings.resolved_backup_dir, settings.backup_keep)
+    except Exception:
+        # The failed operation has no financial mutation to commit. Persist a
+        # sanitised ops transition separately so request rollback cannot erase it.
+        session.rollback()
+        financial_events.record_backup_status(session, household.id, succeeded=False)
+        session.commit()
+        raise
+    financial_events.record_backup_status(session, household.id, succeeded=True)
     emit(session, household.id, actor, "backup", "database", 0,
          {"snapshot": snap.name, "rotated": deleted})
+    outbox.emit(session, household.id, "backup.created", entity_kind="backup",
+                payload={"status": "completed"}, dedup_key=f"backup:{snap.name}")
     return schemas.BackupOut(name=snap.name, bytes=snap.stat().st_size,
-                             ok=backup.verify_snapshot(snap))
+                             ok=True,
+                             taken_at=backup.snapshot_taken_at(snap))
 
 
 @router.get("/backups/{name}/download")

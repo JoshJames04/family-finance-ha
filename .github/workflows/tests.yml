@@ -54,6 +54,18 @@ jobs:
         if: steps.check.outputs.present == 'yes'
         working-directory: backend
         run: python scripts/verify_restore.py
+      - uses: actions/setup-node@v7
+        if: steps.check.outputs.present == 'yes'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Generated API types match the backend
+        if: steps.check.outputs.present == 'yes'
+        run: |
+          npm --prefix frontend ci --ignore-scripts
+          npm --prefix frontend run gen:api
+          git diff --exit-code -- frontend/src/api/schema.d.ts
 
   e2e:
     runs-on: ubuntu-latest
@@ -84,6 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v4
       - name: Build add-on image
         uses: docker/build-push-action@v6
@@ -100,6 +113,26 @@ jobs:
             curl -sf http://localhost:8099/healthz && break || sleep 1
           done
           curl -sf http://localhost:8099/ | grep -qi "html"
+      - name: Build arm64 add-on image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: ff:ci-arm64
+      - name: Smoke arm64 runtime under QEMU
+        run: |
+          set -euo pipefail
+          docker image inspect ff:ci-arm64 --format '{{.Architecture}}' | grep -Fx arm64
+          docker run -d --platform linux/arm64 --name ffarm -p 8100:8099 \
+            -e FF_ENV=ci -e FF_DATA_DIR=/tmp ff:ci-arm64
+          for i in $(seq 1 120); do
+            curl -sf http://localhost:8100/readyz && break || sleep 1
+          done
+          curl -sf http://localhost:8100/readyz
+          curl -sf http://localhost:8100/ | grep -qi html
+          curl -sf http://localhost:8100/api/v1/version
 
   frontend:
     runs-on: ubuntu-latest

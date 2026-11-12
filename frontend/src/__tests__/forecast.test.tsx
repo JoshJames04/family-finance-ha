@@ -94,9 +94,9 @@ describe("Forecast", () => {
     });
     expect(list).toBeDefined();
     const bill = screen.getByRole("link", { name: /Council tax/ });
-    expect(bill.getAttribute("href")).toBe("/upcoming");
+    expect(bill.getAttribute("href")).toBe("/bills#commitment-3");
     const payday = screen.getByRole("link", { name: /Salary/ });
-    expect(payday.getAttribute("href")).toBe("/salary");
+    expect(payday.getAttribute("href")).toBe("/salary?run_id=9#payroll_run-9");
   });
   it("month navigation buttons change the grid", async () => {
     stubFetch();

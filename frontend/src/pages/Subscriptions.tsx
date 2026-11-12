@@ -161,7 +161,7 @@ export function Subscriptions() {
                 {items.map((s) => {
                   const overdue = s.overdue === true || (s.status !== "cancelled" && daysUntil(s.next_renewal_date) < 0);
                   return (
-                    <tr key={s.id} className="border-b border-border last:border-0 hover:bg-surface-2/60">
+                    <tr key={s.id} id={`subscription-${s.id}`} className="border-b border-border last:border-0 hover:bg-surface-2/60">
                       <td className="py-2.5 pl-4">
                         <div className="flex items-center gap-2.5">
                           <IconTile label={s.payee} size="sm" />

@@ -19,12 +19,12 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.domain import budgets as budget_domain
 from app.domain import splits
 from app.domain.reporting import external_only
 from app.persistence.models import (
     Account,
     Budget,
-    BudgetLineSide,
     Category,
     Transaction,
     TransactionStatus,
@@ -36,11 +36,13 @@ TX = "/api/v1/transactions"
 def _drill(**params: Any) -> dict[str, Any]:
     return {"endpoint": TX, "params": {
         k: (v.isoformat() if isinstance(v, date) else v)
-        for k, v in params.items() if v is not None}}
+        for k, v in {"exclude_void": True, "exclude_opening": True,
+                     "internal": "exclude", **params}.items() if v is not None}}
 
 
 def _base(
-        household_id: int, start: date, end: date
+        household_id: int, start: date, end: date,
+        account_ids: list[int] | None = None
 ) -> Select[Any]:
     return (
         select(func.coalesce(func.sum(Transaction.amount_pence), 0))
@@ -49,12 +51,16 @@ def _base(
             Account.household_id == household_id,
             Transaction.status != TransactionStatus.void,
             Transaction.date >= start,
-            Transaction.date <= end))
+            Transaction.date <= end,
+            *([Account.id.in_(account_ids)] if account_ids is not None else []),
+            ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+            | Transaction.external_ref.is_(None)))
 
 
 def _sum(session: Session, household_id: int, start: date, end: date,
          positive: bool, category_id: int | None = None,
-         internal: bool | None = None) -> int:
+         internal: bool | None = None,
+         account_ids: list[int] | None = None) -> int:
     sign = (Transaction.amount_pence > 0 if positive
             else Transaction.amount_pence < 0)
     if category_id is not None:
@@ -63,7 +69,10 @@ def _sum(session: Session, household_id: int, start: date, end: date,
         wheres = [Account.household_id == household_id,
                   Transaction.status != TransactionStatus.void,
                   Transaction.date >= start, Transaction.date <= end,
-                  sign]
+                  sign,
+                  *([Account.id.in_(account_ids)] if account_ids is not None else []),
+                  ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+                  | Transaction.external_ref.is_(None)]
         if internal is True:
             wheres.append(Transaction.transfer_id.isnot(None))
         elif internal is False:
@@ -73,7 +82,7 @@ def _sum(session: Session, household_id: int, start: date, end: date,
             func.coalesce(func.sum(ea.c.amount_pence), 0)).where(
             ea.c.category_id == category_id)
         return int(session.execute(stmt).scalar_one())
-    stmt = _base(household_id, start, end).where(sign)
+    stmt = _base(household_id, start, end, account_ids).where(sign)
     if internal is True:
         stmt = stmt.where(Transaction.transfer_id.isnot(None))
     elif internal is False:
@@ -82,14 +91,15 @@ def _sum(session: Session, household_id: int, start: date, end: date,
 
 
 def _count(session: Session, household_id: int, start: date, end: date,
-           internal: bool) -> int:
+           internal: bool, account_ids: list[int] | None = None) -> int:
     stmt = (
         select(func.count(func.distinct(Transaction.transfer_id)))
         .join(Account, Transaction.account_id == Account.id)
         .where(
             Account.household_id == household_id,
             Transaction.status != TransactionStatus.void,
-            Transaction.date >= start, Transaction.date <= end))
+            Transaction.date >= start, Transaction.date <= end,
+            *([Account.id.in_(account_ids)] if account_ids is not None else [])))
     if internal:
         stmt = stmt.where(Transaction.transfer_id.isnot(None))
     else:
@@ -113,11 +123,13 @@ def _fig(key: str, label: str, amount: int | None,
 
 
 def _sections(session: Session, household_id: int,
-              start: date, end: date) -> list[dict[str, Any]]:
+              start: date, end: date,
+              account_ids: list[int] | None = None,
+              budget_ids: list[int] | None = None) -> list[dict[str, Any]]:
     income = _sum(session, household_id, start, end,
-                  positive=True, internal=False)
+                  positive=True, internal=False, account_ids=account_ids)
     expense = -_sum(session, household_id, start, end,
-                    positive=False, internal=False)
+                    positive=False, internal=False, account_ids=account_ids)
     income_drill = _drill(date_from=start, date_to=end,
                           direction="income")
     expense_drill = _drill(date_from=start, date_to=end,
@@ -128,7 +140,10 @@ def _sections(session: Session, household_id: int,
         Transaction.status != TransactionStatus.void,
         Transaction.date >= start, Transaction.date <= end,
         Transaction.amount_pence < 0,
-        Transaction.transfer_id.is_(None))
+        Transaction.transfer_id.is_(None),
+        *([Account.id.in_(account_ids)] if account_ids is not None else []),
+        ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+        | Transaction.external_ref.is_(None))
     cat_rows = session.execute(
         select(ea.c.category_id, func.sum(ea.c.amount_pence))
         .group_by(ea.c.category_id)
@@ -146,8 +161,9 @@ def _sections(session: Session, household_id: int,
         for cid, total in cat_rows]
 
     t_total = -_sum(session, household_id, start, end,
-                    positive=False, internal=True)
-    t_count = _count(session, household_id, start, end, internal=True)
+                    positive=False, internal=True, account_ids=account_ids)
+    t_count = _count(session, household_id, start, end, internal=True,
+                     account_ids=account_ids)
     t_drill = _drill(date_from=start, date_to=end,
                      direction="expense", internal="only")
 
@@ -155,24 +171,19 @@ def _sections(session: Session, household_id: int,
     budgets = session.execute(
         select(Budget)
         .where(Budget.household_id == household_id,
-               Budget.start_date >= start, Budget.end_date <= end)
+               Budget.start_date >= start, Budget.end_date <= end,
+               *([Budget.id.in_(budget_ids)] if budget_ids is not None else []))
         .order_by(Budget.id)).scalars()
     for b in budgets:
+        actuals = budget_domain.actuals_for_budget(session, b, account_ids)
         for ln in sorted(b.lines, key=lambda line: line.id):
-            actual = _sum(
-                session, household_id, b.start_date, b.end_date,
-                positive=ln.side == BudgetLineSide.income,
-                category_id=ln.category_id, internal=False)
-            actual = actual if ln.side == BudgetLineSide.income \
-                else -actual
+            actual = actuals[ln.id]
             variance_figs.append(_fig(
                 f"budget_{b.id}_line_{ln.id}",
                 f"{b.name} · {names.get(ln.category_id, ln.category_id)}",
                 ln.effective_pence - actual,
                 _drill(date_from=b.start_date, date_to=b.end_date,
-                       direction="income"
-                       if ln.side == BudgetLineSide.income
-                       else "expense",
+                       owner_profile_id=b.owner_profile_id,
                        category_id=ln.category_id)))
 
     savings = income - expense
@@ -201,19 +212,21 @@ def _sections(session: Session, household_id: int,
 
 def build_report(session: Session, household_id: int,
                  start: date, end: date,
-                 prior: tuple[date, date] | None = None
+                 prior: tuple[date, date] | None = None,
+                 account_ids: list[int] | None = None,
+                 budget_ids: list[int] | None = None
                  ) -> dict[str, Any]:
     """Full report document for ``[start, end]``. When ``prior`` is a
     (start, end) window, each figure gains ``prior_amount_pence`` /
     ``delta_pence`` — keys are the union of both periods' figures."""
-    sections = _sections(session, household_id, start, end)
+    sections = _sections(session, household_id, start, end, account_ids, budget_ids)
     doc: dict[str, Any] = {
         "period": {"start": start.isoformat(), "end": end.isoformat()},
         "sections": sections}
     if prior is None:
         return doc
 
-    prior_secs = _sections(session, household_id, prior[0], prior[1])
+    prior_secs = _sections(session, household_id, prior[0], prior[1], account_ids, budget_ids)
     prior_idx = {f["key"]: f["amount_pence"]
                  for s in prior_secs for f in s["figures"]}
     seen: set[str] = set()

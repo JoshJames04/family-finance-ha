@@ -324,6 +324,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/budgets/reports/combined": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Combined Budget
+         * @description Read-only All view for one exact period; actuals use an account union.
+         *
+         *     One latest budget per owner/period prevents duplicate plan versions from
+         *     multiplying the plan. Personal and shared plans remain separate inputs;
+         *     each underlying transaction and expected obligation contributes once.
+         */
+        get: operations["combined_budget_api_v1_budgets_reports_combined_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/budgets/templates/list": {
         parameters: {
             query?: never;
@@ -369,7 +393,8 @@ export interface paths {
         get: operations["get_template_api_v1_budgets_templates__template_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Template */
+        delete: operations["delete_template_api_v1_budgets_templates__template_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1805,6 +1830,26 @@ export interface paths {
         };
         /** List Imports */
         get: operations["list_imports_api_v1_imports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integration/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Items
+         * @description Opt-in HA discovery; cap entities and apply ledger visibility first.
+         */
+        get: operations["items_api_v1_integration_items_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3526,6 +3571,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/energy/tariffs/{tariff_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Tariff */
+        delete: operations["delete_tariff_api_v1_energy_tariffs__tariff_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -3971,6 +4033,38 @@ export interface components {
         BudgetActuals: {
             /** Budget Id */
             budget_id: number;
+            /** As Of */
+            as_of?: string | null;
+            /**
+             * Spent Pence
+             * @default 0
+             */
+            spent_pence: number;
+            /**
+             * Budget Covered Pence
+             * @default 0
+             */
+            budget_covered_pence: number;
+            /**
+             * Unallocated Pence
+             * @default 0
+             */
+            unallocated_pence: number;
+            /**
+             * Uncategorised Pence
+             * @default 0
+             */
+            uncategorised_pence: number;
+            /**
+             * Income Received Pence
+             * @default 0
+             */
+            income_received_pence: number;
+            /**
+             * Spend Items
+             * @default []
+             */
+            spend_items: components["schemas"]["BudgetSpendItem"][];
             /** Totals */
             totals: {
                 [key: string]: number;
@@ -3994,6 +4088,11 @@ export interface components {
              * @default 0
              */
             bills_remaining_count: number;
+        };
+        /** BudgetCombined */
+        BudgetCombined: {
+            detail: components["schemas"]["BudgetDetail"];
+            actuals: components["schemas"]["BudgetActuals"];
         };
         /** BudgetDetail */
         BudgetDetail: {
@@ -4153,6 +4252,20 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** BudgetSpendItem */
+        BudgetSpendItem: {
+            /** Transaction Id */
+            transaction_id: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Category Id */
+            category_id: number | null;
+            /** Amount Pence */
+            amount_pence: number;
+        };
         /**
          * BudgetStatus
          * @enum {string}
@@ -4284,6 +4397,12 @@ export interface components {
             match_type: string;
             /** Category Id */
             category_id: number;
+            /** Account Id */
+            account_id?: number | null;
+            /** Transfer Account Id */
+            transfer_account_id?: number | null;
+            /** Amount Pence */
+            amount_pence?: number | null;
             /**
              * Priority
              * @default 100
@@ -4307,6 +4426,12 @@ export interface components {
             match_type: string;
             /** Category Id */
             category_id: number;
+            /** Account Id */
+            account_id?: number | null;
+            /** Transfer Account Id */
+            transfer_account_id?: number | null;
+            /** Amount Pence */
+            amount_pence?: number | null;
             /** Priority */
             priority: number;
             /** Auto Apply */
@@ -5108,6 +5233,8 @@ export interface components {
         };
         /** EventTotalsOut */
         EventTotalsOut: {
+            /** Remaining After Commitments Pence */
+            remaining_after_commitments_pence: number;
             /** Planned Pence */
             planned_pence: number;
             /** Actual Pence */
@@ -5352,6 +5479,27 @@ export interface components {
             events: components["schemas"]["IntegrationEventOut"][];
             /** Next Cursor */
             next_cursor: number;
+        };
+        /** IntegrationItemOut */
+        IntegrationItemOut: {
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "bills" | "accounts" | "goals";
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Value */
+            value: number | string;
+            /** Unit */
+            unit: string;
+        };
+        /** IntegrationItemsOut */
+        IntegrationItemsOut: {
+            /** Items */
+            items: components["schemas"]["IntegrationItemOut"][];
         };
         /** IntegrationSettingsOut */
         IntegrationSettingsOut: {
@@ -6729,6 +6877,8 @@ export interface components {
         };
         /** SeasonalEventIn */
         SeasonalEventIn: {
+            /** Owner Profile Id */
+            owner_profile_id?: number | null;
             /** Year */
             year: number;
             /** Type */
@@ -6746,6 +6896,8 @@ export interface components {
         };
         /** SeasonalEventOut */
         SeasonalEventOut: {
+            /** Owner Profile Id */
+            owner_profile_id?: number | null;
             /** Id */
             id: number;
             /** Year */
@@ -8133,6 +8285,41 @@ export interface operations {
             };
         };
     };
+    combined_budget_api_v1_budgets_reports_combined_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetCombined"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_templates_api_v1_budgets_templates_list_get: {
         parameters: {
             query?: never;
@@ -8222,6 +8409,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BudgetTemplateDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_template_api_v1_budgets_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -8712,6 +8932,9 @@ export interface operations {
             query?: {
                 account_id?: number | null;
                 category_id?: number | null;
+                owner_profile_id?: number | null;
+                exclude_void?: boolean;
+                exclude_opening?: boolean;
                 status?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
@@ -9397,6 +9620,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -9731,6 +9955,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path?: never;
@@ -9767,6 +9992,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -9800,6 +10026,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -9832,6 +10059,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -9870,6 +10098,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path?: never;
@@ -9906,6 +10135,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -9939,6 +10169,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -9977,6 +10208,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10010,6 +10242,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10049,6 +10282,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -10082,6 +10316,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10122,6 +10357,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -10158,6 +10394,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -10191,6 +10428,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -10224,6 +10462,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10262,6 +10501,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10295,6 +10535,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10336,6 +10577,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -10369,6 +10611,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10407,6 +10650,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10443,6 +10687,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10476,6 +10721,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10515,6 +10761,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -10548,6 +10795,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10586,6 +10834,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -10620,6 +10869,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10659,6 +10909,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10694,6 +10945,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -10729,6 +10981,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -11233,6 +11486,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11264,6 +11518,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path?: never;
@@ -11300,6 +11555,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 gid: number;
@@ -11333,6 +11589,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 gid: number;
@@ -11366,6 +11623,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -11850,14 +12108,50 @@ export interface operations {
             };
         };
     };
+    items_api_v1_integration_items_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationItemsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     events_api_v1_integration_events_get: {
         parameters: {
             query?: {
                 after?: number;
                 limit?: number;
+                latest?: boolean;
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11959,6 +12253,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -11992,6 +12287,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12025,6 +12321,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12188,6 +12485,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12219,6 +12517,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path?: never;
@@ -12255,6 +12554,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 eid: number;
@@ -12288,6 +12588,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 eid: number;
@@ -12321,6 +12622,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 eid: number;
@@ -12355,6 +12657,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 eid: number;
@@ -12388,6 +12691,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -12426,6 +12730,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -12464,6 +12769,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -12503,6 +12809,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -12542,6 +12849,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -13581,6 +13889,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
             };
             path?: never;
@@ -13612,6 +13921,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13648,6 +13958,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13680,6 +13991,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13720,6 +14032,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13756,6 +14069,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13788,6 +14102,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
             };
             path?: never;
@@ -13819,6 +14134,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13853,6 +14169,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13893,8 +14210,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
+                "x-household-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -13925,8 +14242,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
+                "x-household-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -13960,6 +14277,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -13992,6 +14310,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -14027,6 +14346,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -14061,6 +14381,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -14100,6 +14421,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 emp_id: number;
@@ -14135,6 +14457,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -14175,6 +14498,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -14216,6 +14540,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
             path: {
@@ -14255,6 +14580,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
             };
             path?: never;
@@ -14286,6 +14612,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14322,6 +14649,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14354,6 +14682,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14396,6 +14725,7 @@ export interface operations {
                 since?: string | null;
             };
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14430,6 +14760,7 @@ export interface operations {
                 since?: string | null;
             };
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14462,6 +14793,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
             };
             path?: never;
@@ -14493,6 +14825,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14531,6 +14864,7 @@ export interface operations {
                 since?: string | null;
             };
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14564,6 +14898,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 account_id: number;
@@ -14597,6 +14932,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 account_id: number;
@@ -15738,6 +16074,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EnergyMonthReportOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_tariff_api_v1_energy_tariffs__tariff_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                tariff_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

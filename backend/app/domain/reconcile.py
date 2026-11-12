@@ -18,7 +18,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import settle
+from app.domain import categorise, settle
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -137,6 +137,8 @@ def reconcile_account(session: Session, account: Account,
         ).order_by(Transaction.date)).all()
     matched = queued = 0
     for txn in txns:
+        if not categorise.transaction_editable(session, txn):
+            continue
         lo = date.fromordinal(txn.date.toordinal() - DATE_WINDOW)
         hi = date.fromordinal(txn.date.toordinal() + DATE_WINDOW)
         candidates = [
@@ -176,12 +178,12 @@ def reconcile_account(session: Session, account: Account,
         _snapshot(r, top, txn)
         if auto:
             r.resolved_at = datetime.now()
-            txn.status = TransactionStatus.reconciled
             matched_keys.add((top.source_type.value, top.source_id,
                               top.expected_date))
             # canonical settlement: ExpectedMatch + schedule advance
             # (issue #429 — a matched row alone left bills overdue)
             settle.settle_occurrence(session, top, txn, manual=False)
+            txn.status = TransactionStatus.reconciled
             matched += 1
         else:
             queued += 1
@@ -197,9 +199,10 @@ def confirm(session: Session, r: Reconciliation) -> None:
     txn = session.get(Transaction, r.transaction_id)
     if txn is None:
         raise ReconError("transaction missing")
+    if not categorise.transaction_editable(session, txn):
+        raise ReconError("transaction is protected")
     r.status = ReconStatus.matched
     r.resolved_at = datetime.now()
-    txn.status = TransactionStatus.reconciled
     # settle the live movement the snapshot proposed (issue #429) —
     # it may have been rematerialised since the proposal queued, so
     # resolve by identity rather than holding a stale row
@@ -215,6 +218,7 @@ def confirm(session: Session, r: Reconciliation) -> None:
         if movement is not None:
             settle.settle_occurrence(session, movement, txn,
                                      manual=True)
+    txn.status = TransactionStatus.reconciled
     session.flush()
 
 

@@ -183,3 +183,10 @@ retries).
   committed or posted — the repo is public.
 - The workbook is a one-time migration source; the app is the system
   of record since the 2026-11-09 retirement sign-off.
+
+Freshness is measured from each active Starling cursor's last successful sync,
+with a grace window of twice the configured sync interval and a five-minute
+minimum. A never-synced cursor uses its creation timestamp. Scheduled ticks append
+one `data.stale` event per cursor/freshness episode; repeated ticks do not replay
+it. A later successful sync begins a new episode. Stale events contain source,
+status and date only, and retain account ownership in the integration feed.
