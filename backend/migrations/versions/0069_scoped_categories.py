@@ -1,6 +1,6 @@
 """Scope explicit categorisation rules to account and signed amount."""
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = '0069_scoped_categories'
 down_revision = '0068_finance_integrity'
@@ -12,7 +12,8 @@ def upgrade():
     with op.batch_alter_table('categorisation_rule') as batch:
         batch.add_column(sa.Column('account_id', sa.Integer(), nullable=True))
         batch.add_column(sa.Column('transfer_account_id', sa.Integer(), nullable=True))
-        batch.create_foreign_key('fk_categorisation_transfer_account', 'account', ['transfer_account_id'], ['id'])
+        batch.create_foreign_key('fk_categorisation_transfer_account', 'account',
+                                 ['transfer_account_id'], ['id'])
         batch.add_column(sa.Column('amount_pence', sa.Integer(), nullable=True))
         batch.create_foreign_key('fk_categorisation_account', 'account', ['account_id'], ['id'])
 
