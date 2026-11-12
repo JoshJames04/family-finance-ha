@@ -11,14 +11,20 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
-## [1.4.2] — 2026-11-12
+## [1.5.0] — 2026-11-12
+
+### Added
+
+- Combined All Budget view as the default landing view.
+- Opt-in per-item HA numeric entities, scoped family event streams and energy
+  statistics, with explicit privacy controls and bounded discovery.
 
 ### Fixed
 
 - Recover prolonged dashboard/API outages and block financial writes after a
   failed migration while preserving administrator recovery access.
-- Reconcile Budget MTD spending to the authorised ledger; open the combined All
-  view by default and preserve the selected period and unpaid bill balances.
+- Reconcile Budget MTD spending to the authorised ledger and preserve the selected
+  period and unpaid bill balances.
 - Apply durable scoped categorisation and owned-transfer rules while protecting
   reconciled history; sort category choices alphabetically with readable colours.
 - Repair historical payroll, tax/refund, goal, loan and seasonal accounting and
@@ -40,6 +46,8 @@ release pipeline (multi-arch GHCR image + GitHub release).
 - Sixteen recovered workbook comments still need mapping into app records (#360).
   Physical HAOS installation and actual HA editor/live delivery acceptance remain
   operator checks (#432, #441). These are not claimed complete by this release.
+- Dashboard/layout, payday and automatic bank-sync issues retain their required
+  live-installation acceptance checks (#460, #414, #461, #416).
 
 ## [1.4.1] — 2026-11-11
 

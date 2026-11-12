@@ -1,6 +1,6 @@
 # Changelog — Family Finance add-on
 
-## 1.4.2
+## 1.5.0
 
 - Fix dashboard outage recovery, Budget MTD totals and default All navigation.
 - Repair scoped categorisation, transfer matching and readable category choices
