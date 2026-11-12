@@ -18,7 +18,7 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.api.payroll_scope import authorize_employment
-from app.domain import notifications, payrun, payslips, schedule
+from app.domain import notifications, outbox, payrun, payslips, schedule
 from app.domain import overtime as overtime_domain
 from app.domain import payroll as payroll_domain
 from app.domain.overtime_findings import Candidate, PayslipLine, match_lines
@@ -95,6 +95,14 @@ def _notify_review_needed(
 ) -> None:
     """Raise a ``payslip_review`` event when an upload lands in
     ``needs_review`` — Home Assistant surfaces it as a prompt."""
+    run = session.get(PayrollRun, payslip.payroll_run_id)
+    if run is not None:
+        outbox.emit(
+            session, household_id, "payslip.review_required",
+            entity_kind="payslip", entity_id=payslip.id,
+            payload={"source": "payslip", "status": payslip.status.value,
+                     "owner_profile_id": run.employment.profile_id},
+            dedup_key=f"payslip:{payslip.id}:review_required")
     rules = list(session.scalars(select(NotificationRule).where(
         NotificationRule.household_id == household_id,
         NotificationRule.kind == NotificationKind.payslip_review,

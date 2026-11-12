@@ -20,8 +20,8 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain import outbox, pay_calendar, paydays, payroll_totals, tax
 from app.domain import overtime as ot
-from app.domain import pay_calendar, paydays, payroll_totals, tax
 from app.domain import payroll as dom
 from app.domain.payroll import PayrollError
 from app.domain.tax import Deductions, PensionMode, TaxError
@@ -80,6 +80,16 @@ def pension_pence_for(employment: Employment, pensionable_gross: int
     if employment.pension_fixed_pence:
         return employment.pension_fixed_pence
     return pensionable_gross * employment.pension_employee_bps // 10_000
+
+
+def _emit_transition(session: Session, run: PayrollRun, transition: str) -> None:
+    outbox.emit(
+        session, run.employment.household_id, f"payroll.{transition}",
+        entity_kind="payroll_run", entity_id=run.id,
+        payload={"source": "payroll", "status": run.status.value,
+                 "date": run.pay_date.isoformat(),
+                 "owner_profile_id": run.employment.profile_id},
+        dedup_key=f"payroll:{run.id}:{transition}")
 
 
 def generate(
@@ -265,6 +275,7 @@ def generate(
                    -ded.student_loan_pence)
     session.add(run)
     session.flush()
+    _emit_transition(session, run, "generated")
     return run
 
 
@@ -301,6 +312,7 @@ def reconcile(
                 delta_pence=actual))
     run.status = PayrollRunStatus.reconciled
     session.flush()
+    _emit_transition(session, run, "reconciled")
     return variances
 
 

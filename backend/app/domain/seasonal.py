@@ -9,8 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import case, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
+from app.domain import outbox
 from app.persistence.models import (
     Gift,
     PaymentStatus,
@@ -33,6 +34,15 @@ PURCHASE_ORDER = {
 }
 
 
+def _emit_gift(session: Session, gift: Gift, transition: str) -> None:
+    outbox.emit(
+        session, gift.event.household_id, f"gift.{transition}",
+        entity_kind="gift", entity_id=gift.id,
+        payload={"source": "seasonal", "status": transition,
+                 "owner_profile_id": gift.event.owner_profile_id},
+        dedup_key=f"gift:{gift.id}:{transition}")
+
+
 def transition_purchase(gift: Gift, to: PurchaseStatus) -> Gift:
     """Advance purchase state one step — skips and backwards moves
     are domain errors, never silent state corruption."""
@@ -44,6 +54,9 @@ def transition_purchase(gift: Gift, to: PurchaseStatus) -> Gift:
             f"invalid transition {gift.purchase_status} → {to}; "
             f"next step is {nxt}")
     gift.purchase_status = to
+    if to is PurchaseStatus.purchased and (session := object_session(gift)) is not None:
+        session.flush()
+        _emit_gift(session, gift, "purchased")
     return gift
 
 
@@ -62,6 +75,7 @@ def mark_paid(session: Session, gift: Gift,
     gift.transaction_id = tx.id if tx is not None else gift.transaction_id
     gift.payment_status = PaymentStatus.paid
     session.flush()
+    _emit_gift(session, gift, "paid")
     return gift
 
 

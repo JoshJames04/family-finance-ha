@@ -89,6 +89,9 @@ class TestGenerate:
         NI'd through compute_period like any other earning."""
         plain = payrun.generate(session, emp, start=APR_S, end=APR_E,
                                 pay_date=PAY)
+        # Compare independent forecasts; ordinary periods are now idempotent.
+        session.delete(plain)
+        session.flush()
         run = payrun.generate(session, emp, start=APR_S, end=APR_E,
                               pay_date=PAY, allowance_pence=15_000)
         kinds = {c.kind: c.forecast_pence for c in run.components}

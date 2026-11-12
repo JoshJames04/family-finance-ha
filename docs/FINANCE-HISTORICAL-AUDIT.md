@@ -52,3 +52,12 @@ The historical probe baseline had ten failures and one unsupported-year control
 pass. Integrated cutoff, seasonal scope, actual remaining, payee privacy, NI
 category matrix and visible/searchable-note checks were also reproduced before
 their final fixes. Verification results are recorded with the delivery evidence.
+
+Canonical outbox transitions now include `payroll.generated`,
+`payroll.reconciled`, `payslip.review_required`, `gift.purchased` and `gift.paid`.
+They use the existing transactional outbox and a per-entity transition dedupe
+key. Default HA payloads expose status/source/date only; private file paths,
+names and amounts are absent. Stored ownership metadata preserves scope context.
+An authenticated HA service may record overtime only for an employment paid into
+a shared account; it does not impersonate a household member or access salary
+and payslip detail.
