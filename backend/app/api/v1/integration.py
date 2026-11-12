@@ -87,15 +87,16 @@ def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = N
            ) -> schemas.IntegrationFeedOut:
     """Ordered event drain — HA polls from its persisted cursor."""
     profile_id = profile.id if profile and profile.role != Role.viewer else None
+    all_scopes = profile is not None and profile.role == Role.admin
     if latest:
         return schemas.IntegrationFeedOut(events=[], next_cursor=outbox.latest_visible_cursor(
-            session, household.id, profile_id))
+            session, household.id, profile_id, all_scopes=all_scopes))
     detailed = outbox.detail_enabled(session)
     rows, cursor = outbox.feed(session, household.id,
                                after=after, limit=limit)
     return schemas.IntegrationFeedOut(
         events=[_out(e, detailed) for e in rows
-                if outbox.event_visible(session, e, profile_id)],
+                if outbox.event_visible(session, e, profile_id, all_scopes=all_scopes)],
         next_cursor=cursor)
 
 

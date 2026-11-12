@@ -96,7 +96,8 @@ def visible_payload(event: IntegrationEvent, detailed: bool) -> dict[str, object
     return {k: v for k, v in event.payload.items() if k in _SAFE_KEYS}
 
 
-def event_visible(session: Session, event: IntegrationEvent, profile_id: int | None) -> bool:
+def event_visible(session: Session, event: IntegrationEvent, profile_id: int | None,
+                  *, all_scopes: bool = False) -> bool:
     """Apply account ownership even in safe mode: ids and dates are private too."""
     from app.persistence import models
     entities = {
@@ -118,7 +119,8 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
         account_id = event.payload.get("account_id")
         account = session.get(models.Account, account_id) if isinstance(account_id, int) else None
         return (account is not None and account.household_id == event.household_id
-                and (account.owner_profile_id is None or account.owner_profile_id == profile_id))
+                and (all_scopes or account.owner_profile_id is None
+                     or account.owner_profile_id == profile_id))
     model = entities.get(event.entity_kind or "")
     if model is None or event.entity_id is None:
         return False
@@ -140,7 +142,7 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
     if getattr(entity, "household_id", event.household_id) != event.household_id:
         return False
     owner = getattr(entity, "owner_profile_id", getattr(entity, "profile_id", None))
-    if owner is not None and owner != profile_id:
+    if not all_scopes and owner is not None and owner != profile_id:
         return False
     account_id = getattr(entity, "account_id", None)
     if account_id is not None:
@@ -148,12 +150,15 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
         if entity is None:
             return False
     owner = getattr(entity, "owner_profile_id", None)
-    return owner is None or owner == profile_id
+    return (getattr(entity, "household_id", event.household_id) == event.household_id
+            and (all_scopes or owner is None or owner == profile_id))
 
 
 
-def latest_visible_cursor(session: Session, household_id: int, profile_id: int | None) -> int:
+def latest_visible_cursor(session: Session, household_id: int, profile_id: int | None,
+                          *, all_scopes: bool = False) -> int:
     rows = session.scalars(select(IntegrationEvent).where(
         IntegrationEvent.household_id == household_id).order_by(
             IntegrationEvent.id.desc()).execution_options(yield_per=100))
-    return next((row.id for row in rows if event_visible(session, row, profile_id)), 0)
+    return next((row.id for row in rows
+                 if event_visible(session, row, profile_id, all_scopes=all_scopes)), 0)

@@ -53,9 +53,9 @@ def cursor_state(
 @router.get("/accounts/{account_id}/runs",
             response_model=list[schemas.SyncRunOut])
 def run_history(
-    account_id: int, household: HouseholdDep, session: SessionDep,
+    account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
 ) -> list[schemas.SyncRunOut]:
-    a = _account(session, household.id, account_id)
+    a = _account(session, household.id, account_id, profile)
     rows = session.scalars(
         select(SyncRun)
         .where(SyncRun.account_id == a.id)

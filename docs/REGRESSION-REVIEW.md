@@ -64,6 +64,10 @@ own and untargeted rows, and viewers retain only untargeted rows. Command-search
 transaction links open the exact authorised record in a selected-record panel,
 including records outside the currently loaded ledger page. Failed or forbidden
 record lookups show an error rather than substituting a matching payee.
+Follow-up review also restores authenticated owners' and admins' private-account
+sync history. Integration feeds and latest cursors explicitly carry admin scope;
+members, viewers and anonymous HA service callers retain their existing visibility.
+Safe-mode event payload redaction applies equally to administrators.
 
 The historical audit groups are covered by these regression suites:
 
