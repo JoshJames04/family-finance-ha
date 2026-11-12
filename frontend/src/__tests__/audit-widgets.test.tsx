@@ -7,13 +7,15 @@ import { Budget } from "../pages/Budget";
 import { Transactions } from "../pages/Transactions";
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const budget = { id: 1, start_date: "2020-01-01", end_date: "2030-12-31", owner_profile_id: null, lines: [{ id: 5, side: "expense", category_id: 1, original_pence: 10000 }] };
+const budgetActuals = { budget_id: 1, as_of: "2026-11-12", spent_pence: 2500, budget_covered_pence: 2500, income_received_pence: 0, unallocated_pence: 0, uncategorised_pence: 0, totals: { "5": -2500 }, spend_items: [], lines: { "5": { actual_pence: -2500, effective_pence: 10000 } } };
 function stub(overrides: (url: string) => Response | Promise<Response> | undefined) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(input => {
     const url = String(input);
     const overridden = overrides(url);
     if (overridden) return Promise.resolve(overridden);
     const body = url.includes("households") ? { items: [{ id: 1, name: "Home" }] }
-      : url.includes("/budgets/1/actuals") ? { lines: { "5": { actual_pence: -2500, effective_pence: 10000 } } }
+      : url.includes("/budgets/reports/combined") ? { detail: { ...budget, read_only: true }, actuals: budgetActuals }
+      : url.includes("/budgets/1/actuals") ? budgetActuals
       : url.includes("/budgets/1") ? budget
       : url.includes("/budgets") ? { items: [budget] }
       : url.includes("/categories") ? { items: [{ id: 1, name: "Food" }] }
@@ -93,6 +95,7 @@ it("budget expected movements follow selected owner even within the same period"
   const personal = {...shared, id: 2, owner_profile_id: 2};
   stub(url => url.includes("expected-movements") ? response([{id: 1, label: new URL(url, "http://local").searchParams.get("budget_id") === "2" ? "Personal payday" : "Shared bill", expected_date: "2026-11-20", amount_pence: 1000}]) : /\/budgets(?:\?|$)/.test(url) ? response({items:[shared, personal]}) : url.includes("/budgets/2/actuals") ? response({lines:{}}) : url.includes("/budgets/2") ? response(personal) : url.includes("/budgets/1") && !url.includes("actuals") ? response(shared) : undefined);
   render(<MemoryRouter><Budget /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("radio", {name:"Shared"}));
   expect(await screen.findByText("Shared bill")).toBeTruthy();
   fireEvent.click(screen.getByRole("radio", {name:"Member 2"}));
   expect(await screen.findByText("Personal payday")).toBeTruthy();
@@ -145,6 +148,7 @@ it("owner switch does not relabel retained expected movements while the new scop
   let requested = false;
   stub(url => url.includes("expected-movements") ? new URL(url,"http://local").searchParams.get("budget_id") === "2" ? (requested=true, new Promise<Response>(()=>{})) : response([{id:1,label:"Shared pending bill",expected_date:"2026-11-20",amount_pence:-1000}]) : /\/budgets(?:\?|$)/.test(url) ? response({items:[shared,personal]}) : url.includes("/budgets/2/actuals") ? response({lines:{}}) : url.includes("/budgets/2") ? response(personal) : url.includes("/budgets/1") && !url.includes("actuals") ? response(shared) : undefined);
   render(<MemoryRouter><Budget /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("radio", {name:"Shared"}));
   await screen.findByText("Shared pending bill");
   fireEvent.click(screen.getByRole("radio",{name:"Member 2"}));
   await waitFor(()=>expect(requested).toBe(true));
@@ -157,6 +161,7 @@ it("owner switch hides prior budget detail and actuals until each new resource s
   let finishDetail!: (r:Response)=>void, finishActuals!: (r:Response)=>void;
   stub(url => /\/budgets(?:\?|$)/.test(url) ? response({items:[shared,personal]}) : url.includes("/budgets/2/actuals") ? (actualsRequested=true,new Promise(resolve=>{finishActuals=resolve})) : url.includes("/budgets/2") ? (detailRequested=true,new Promise(resolve=>{finishDetail=resolve})) : url.includes("/budgets/1")&&!url.includes("actuals") ? response(shared) : url.includes("expected-movements") ? response([]) : undefined);
   render(<MemoryRouter><Budget /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("radio", {name:"Shared"}));
   await screen.findByText("Food");
   expect(screen.getAllByText("£25.00").length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("radio",{name:"Member 2"}));
@@ -167,7 +172,7 @@ it("owner switch hides prior budget detail and actuals until each new resource s
   await screen.findByText("locked — read-only");
   await waitFor(()=>expect(screen.queryByText("Spent so far")).toBeNull());
   expect(screen.queryByText("£25.00")).toBeNull();
-  finishActuals(response({lines:{"6":{actual_pence:-5000,effective_pence:20000}}}));
+  finishActuals(response({...budgetActuals, budget_id:2, spent_pence:5000, budget_covered_pence:5000, totals:{"6":-5000}, lines:{"6":{actual_pence:-5000,effective_pence:20000}}}));
   await screen.findByText("Food");
   expect(screen.getAllByText("£50.00").length).toBeGreaterThan(0);
 });
