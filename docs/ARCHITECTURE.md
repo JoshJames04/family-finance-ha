@@ -85,7 +85,16 @@ system.
 SQLite is sufficient **provided**:
 
 - WAL mode + `busy_timeout` for concurrent reads during writes.
-- Single-writer discipline via the backend (no direct DB access).
+- Single-writer discipline via the backend (no direct DB access) —
+  enforced *temporally* too: WAL still serialises writers, so unit
+  boundaries commit promptly. Sync ingests commit per page and no
+  write transaction may span provider or HA network I/O (issue #460
+  — a flush-held-across-HTTP writer stalled every other writer).
+- All blocking work stays off the uvicorn event loop: the scheduler
+  tick runs in a worker thread, and per-request identity resolution
+  (which can write — profile provisioning/display-name refresh)
+  runs via `asyncio.to_thread` (#460 — an event-loop write blocked
+  by a held writer froze every in-flight request → ingress 503s).
 - Scheduled online backups (`VACUUM INTO` / `.backup`) — never file copies of
   a live DB.
 - Alembic migrations tested upgrade **and** downgrade paths in CI.
@@ -137,3 +146,98 @@ encrypted vault; never in the frontend, logs or exports.
 | Excel data quality worse than expected | Reconciliation report + flagged-review workflow rather than silent fixes |
 | HA upgrades breaking integration | Compatibility test matrix; pin HA version range; semver'd API |
 | Scope creep | Roadmap phases; P3 features never gate v1.0 core |
+
+### Historical provider category refresh
+
+Incremental Starling sync only enriches old transactions when their references
+are returned by the provider. An administrator can explicitly replay an older
+window with `POST /api/v1/banking/connections/{id}/sync?historical_since=YYYY-MM-DD`.
+The date cannot be in the future. Existing backoff still applies. Exact feed
+references deduplicate replayed rows, update provider metadata when supplied and
+retain the normal fresh watermark for subsequent incremental syncs. A provider
+that does not return historical category metadata leaves it missing; the app does
+not guess a category or claim that a map alone repaired history. This operation
+is explicit and is not run automatically against existing installations.
+
+Discovery commits pending changes before provider requests. Balance refresh
+fetches every linked balance before applying reconciliation writes, so scheduled
+and manual refreshes do not hold the SQLite writer during provider HTTP calls.
+Partial occurrence payments retain their current bill/renewal head until the
+remaining amount is paid. Active bill/subscription clashes are checked on create,
+rename and bill reactivation as well as initial setup.
+
+An explicit historical refresh during provider backoff returns HTTP 409 before
+provider work starts. It is not queued because the incremental queue does not
+persist a historical boundary; retry with the same `historical_since` after the
+reported retry time. Feed sync persists its running cursor state before releasing
+the writer so ORM refreshes of expired cursor fields cannot autoflush writes
+immediately before the real provider adapter makes HTTP requests.
+
+Unexpected provider parsing or ingest errors roll back the incomplete page,
+preserve committed checkpoints, and persist a failed run/cursor and completion
+event before propagating the error. Subscription settlement records the sum of
+matched amounts; an oversized final transaction contributes only its linked
+portion to the observed price.
+
+### Employment forecast lifecycle
+
+Employment paydays use salary and tax-code revisions effective on each payday,
+clipped to the employment start/end dates. Estimates apply one period of tax
+allowance, current NI/student-loan/pension settings and monthly (or weekly)
+regular salary. They do not reuse a prior run's cumulative tax, overtime,
+bonuses, leave or manual adjustments. Missing salary/tax/rule prerequisites
+leave dates unestimated; gross-only employment does not need a tax code.
+Piecework income requires logged work and generated runs. Salaried nightly rules do
+not produce estimates: annual salary has no supported nightly calculation basis.
+
+Generated payroll runs own their exact dates and supersede unmatched employment
+estimates. Recorded actual net takes precedence, including zero actuals and
+reopened runs; correction runs retain zero actual totals. Salary revision
+create/edit/delete, tax-code creation, employment edits/replacement/deletion
+refresh future estimates. Matched history and explicit salary dismissals survive
+refreshes. Employment forecasts are repaired on startup and once per calendar
+day by the scheduler to keep the year-long horizon rolling; this transaction
+commits before any provider network request. No tax codes or future tax rules
+are guessed for existing installations. Payday reminders and scenario payday
+comparisons include employment projections as well as generated runs.
+
+Employment rebuilds preserve the movement ID for the same employment, payday
+and destination account, so saved scenario remove/shift operations survive
+startup and daily horizon repair. Only obsolete unmatched, undismissed rows
+are deleted. A changed date or destination clears scenario references to the
+removed estimate; the saved operation becomes a no-op and cannot silently act
+on an unrelated row if SQLite later reuses its ID.
+
+Run supersession only adopts estimates and prior runs on the same destination
+account; matched and dismissed rows on a previous destination retain their
+ownership and scenario references.
+
+### Dashboard data recovery
+
+Monthly report figures and subscription totals have independent loading and error
+boundaries. Budget spending is rendered only after actuals succeed; retrying a
+budget widget retries its metadata and actuals together. An empty budget list
+settles without waiting for a detail request that cannot run. Failed refreshes,
+including previously empty lists, retain a visible error and Retry action.
+
+Transaction pagination appends only a newly completed response for its requested
+page and disables Load more during refresh. A recovered dashboard profile
+replaces the temporary local layout and restores member save permissions.
+
+Safe to spend has an explicit account selector; its balance and payday belong to
+that account. A missing payday prompts review of salary settings for that account,
+including salary and tax-code prerequisites, rather than implying all household
+employment is unconfigured. The forecast widget also names its account. Budget
+expected movements request the selected budget ID so the server applies its
+owner scope even when two budgets cover the same dates.
+
+Active and future salaried employer details identify missing effective salary and
+PAYE tax-code revisions, payday rules and active paid-into accounts. Dated tax
+codes can be added from the employer card; salary and account/payday repair reuse
+the existing editors. Gross-only employment does not require PAYE tax setup.
+Piecework explains that recorded shifts/runs supply income rather than invented
+future shifts. Failed prerequisite reads offer Retry instead of missing-setup claims.
+
+A failed transaction page must be retried before pagination can advance. Retained
+safe-to-spend and account balances display their refresh errors beside the last
+known values, and payroll-run failures expose Retry instead of claiming no runs.

@@ -1,5 +1,19 @@
 # Changelog — Family Finance add-on
 
+## 1.4.1
+
+- Financial widgets show request failures explicitly and preserve old figures
+  only while refreshing the same account or budget.
+- Fix member-scoped forecasts and personal Budget actuals, bank writer windows,
+  historical refresh handling and partial-payment settlement.
+- Repair effective payday forecasts and preserve settled history when the salary
+  destination changes.
+- Record only matched subscription payment amounts and finalize failed syncs
+  without retaining incomplete pages.
+- Historical audit follow-ups remain open, including Budget MTD accounting,
+  ordinary payroll generation and additional financial/access-control and Home
+  Assistant acceptance. Review the release PR before promotion to main.
+
 ## 1.4.0
 
 - Bank categories now feed your categories automatically — map each

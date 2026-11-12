@@ -37,14 +37,21 @@ export function useProjection(accountId?: number | null) {
     () => api.get("/api/v1/accounts/{account_id}/projection",
       { path: { account_id: id! } }),
     id !== null, [id]);
+  const accountName = accounts.data?.items.find((a) => a.id === id)?.name;
   // No account at all → behave as an empty (not loading) state.
   if (accounts.data && id === null) {
-    return { data: null, loading: false, error: null };
+    return { accountName, data: null, loading: false, retrying: false,
+             error: null, refetch: projection.refetch };
   }
   if (accounts.loading || accounts.error) {
-    return { data: null, loading: accounts.loading, error: accounts.error };
+    return { accountName, data: null, loading: accounts.loading,
+             retrying: accounts.retrying, error: accounts.error,
+             refetch: accounts.refetch };
   }
-  return projection;
+  if (projection.data && projection.data.account_id !== id) {
+    return { ...projection, accountName, data: null, loading: !projection.error };
+  }
+  return { ...projection, accountName };
 }
 
 /** Expected movements from today for `days` days. */
@@ -83,12 +90,26 @@ export interface LineAnalysis {
 }
 
 export function useBudgetDetail(id: number | null, rev = 0) {
-  const detail = useApi(
-    () => api.get("/api/v1/budgets/{budget_id}", { path: { budget_id: id! } }),
+  const detailRequest = useApi(
+    () => api.get("/api/v1/budgets/{budget_id}", { path: { budget_id: id! } })
+      .then((value) => ({ id, value })),
     id !== null, [id, rev]);
-  const actuals = useApi(
-    () => api.get("/api/v1/budgets/{budget_id}/actuals", { path: { budget_id: id! } }),
+  const actualsRequest = useApi(
+    () => api.get("/api/v1/budgets/{budget_id}/actuals", { path: { budget_id: id! } })
+      .then((value) => ({ id, value })),
     id !== null, [id, rev]);
+  // Retain stale values only for the same budget; another owner/period's
+  // completed response cannot be relabelled while the new one is pending.
+  const detail = {
+    ...detailRequest,
+    data: detailRequest.data?.id === id ? detailRequest.data.value : null,
+    loading: detailRequest.loading || (detailRequest.data?.id !== id && !detailRequest.error),
+  };
+  const actuals = {
+    ...actualsRequest,
+    data: actualsRequest.data?.id === id ? actualsRequest.data.value : null,
+    loading: actualsRequest.loading || (actualsRequest.data?.id !== id && !actualsRequest.error),
+  };
   const analyses = (actuals.data?.lines ?? {}) as unknown as Record<string, LineAnalysis>;
   return { detail, actuals, analyses };
 }

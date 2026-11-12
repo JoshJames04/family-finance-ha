@@ -315,8 +315,10 @@ def correct(session: Session, run: PayrollRun) -> PayrollRun:
         status=PayrollRunStatus.forecast, tax_year=run.tax_year,
         rule_set_year=run.rule_set_year,
         rule_set_version=run.rule_set_version,
-        gross_pence=totals.actual_gross_pence or run.gross_pence,
-        net_pence=totals.actual_net_pence or run.net_pence,
+        gross_pence=(totals.actual_gross_pence if totals.actual_gross_pence
+                     is not None else run.gross_pence),
+        net_pence=(totals.actual_net_pence if totals.actual_net_pence
+                   is not None else run.net_pence),
         corrects_id=run.id)
     session.add(new)
     for c in run.components:

@@ -30,7 +30,8 @@ def signed_component(kind: PayrollComponentKind, value: int) -> int:
 def totals_for_run(run: PayrollRun) -> PayrollTotals:
     actual_gross: int | None = None
     actual_net: int | None = None
-    if run.status is PayrollRunStatus.reconciled:
+    if run.status is PayrollRunStatus.reconciled or any(
+            component.actual_pence is not None for component in run.components):
         actual_gross = run.gross_pence
         actual_net = run.net_pence
         for component in run.components:

@@ -7,6 +7,7 @@ can replace the stdlib default transparently."""
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, HouseholdDep, SessionDep, require_admin
 from app.domain import banks, discovery, settle, vault
 from app.domain import sync as sync_domain
 from app.domain.banks import (
@@ -34,6 +35,7 @@ from app.persistence.models import (
     BankProvider,
     ConnStatus,
     MappingStatus,
+    SyncCursor,
     TransactionSource,
 )
 
@@ -276,15 +278,32 @@ def sync_balances(
 @router.post("/connections/{cid}/sync")
 def sync_transactions(
     cid: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep, ring: RingDep, client: ClientDep,
+    actor: ActorDep, ring: RingDep, client: ClientDep, request: Request,
+    historical_since: date | None = None,
 ) -> dict[str, object]:
     """Manual refresh — runs the incremental feed sync for every
     linked mapping. A revoked connection 422s (re-auth first);
     rate-limit/network failures surface per-account, resumable."""
+    if historical_since is not None:
+        require_admin(request, session)
+        if historical_since > date.today():
+            raise HTTPException(422, "historical_since must not be in the future")
     c = _conn(session, household.id, cid)
     if not banks.syncable(c):
         raise HTTPException(
             422, "connection is revoked — re-authenticate first")
+    if historical_since is not None:
+        blocked = session.scalar(select(SyncCursor).join(
+            BankAccountMapping, BankAccountMapping.account_id == SyncCursor.account_id
+        ).where(
+            BankAccountMapping.connection_id == c.id,
+            BankAccountMapping.status == MappingStatus.linked,
+            SyncCursor.source == TransactionSource.starling,
+            SyncCursor.retry_at > datetime.now()).limit(1))
+        if blocked is not None:
+            raise HTTPException(
+                409, f"historical refresh was not queued; retry with historical_since "
+                f"after {blocked.retry_at}")
     try:
         token = banks.token(session, c, ring)
     except ConnError as e:
@@ -321,7 +340,8 @@ def sync_transactions(
         run = sync_domain.sync_account(
             session, acct, TransactionSource.starling,
             starling_fetch(client, token, m.external_uid,
-                           str(m.external_category_uid)))
+                           str(m.external_category_uid),
+                           historical_since=historical_since))
         results.append({"mapping_id": m.id,
                         "status": run.status.value,
                         "inserted": run.inserted,

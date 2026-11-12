@@ -11,6 +11,38 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-11-11
+
+### Fixed
+
+- Dashboard and Budget distinguish failed financial requests from genuine zero
+  values, retain cached figures only for the same resource, and recover saved
+  layouts and transaction pagination (#462, #465).
+- Forecast and expected-payment access follow member account permissions;
+  personal Budget actuals include only the owner's accounts (#463).
+- Bank discovery, balance refresh and feed checkpoints release database writers
+  before provider calls. Explicit historical metadata refreshes report backoff
+  rather than silently dropping the requested window (#463).
+- Partial payments retain the remaining bill occurrence. Subscription price
+  history records the matched total, including oversized final payments (#463,
+  #469).
+- Payday estimates use effective salary and tax revisions, keep one-off pay out
+  of later periods, and repair forecast lifecycle changes. Run supersession
+  preserves matched and dismissed history on a previous salary account (#464,
+  #469).
+- Unexpected sync errors discard incomplete pages, preserve prior checkpoints
+  and persist a failed run/cursor before the original error propagates (#469).
+
+### Release acceptance still outstanding
+
+This patch does not complete the historical issue audit. Budget MTD accounting
+(#415), the separate ordinary payroll-generation invariant in #461, further
+financial/access-control acceptance, and Home Assistant integration follow-ups
+remain outstanding. The requested All budget view and transaction category
+dropdown improvements (#466–#468) are tracked separately. Promotion to main
+requires owner review of these limitations; this entry does not certify the
+remaining workflows as complete.
+
 ## [1.4.0] — 2026-11-11
 
 ### Added

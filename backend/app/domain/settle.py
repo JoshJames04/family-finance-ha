@@ -71,6 +71,8 @@ def settle_occurrence(
             "manual": manual,
             "date": txn.date.isoformat()},
         dedup_key=f"movement.settled:{movement.id}:{txn.id}")
+    if match.matched_pence < outstanding:
+        return match
     if movement.source_type == ExpectedSource.commitment:
         from app.domain import recurring, schedule
         c = session.get(RecurringCommitment, movement.source_id)
@@ -88,9 +90,11 @@ def settle_occurrence(
         sub = session.get(Subscription, movement.source_id)
         # cancelled subs keep the ExpectedMatch (the payment happened)
         # but reject record_price — no price history / renewal advance
-        if sub is not None and sub.status != SubscriptionStatus.cancelled:
+        if (sub is not None and sub.status != SubscriptionStatus.cancelled
+                and sub.next_renewal_date == movement.expected_date):
             subscriptions.record_price(
-                session, sub, txn.date, abs(txn.amount_pence),
+                session, sub, txn.date,
+                abs(movement.amount_pence) - outstanding + match.matched_pence,
                 transaction_id=txn.id)
             schedule.rematerialize_subscription(session, sub)
     return match

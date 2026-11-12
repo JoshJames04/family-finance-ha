@@ -32,7 +32,7 @@ function stubFetch(
                 opening_date: "2026-01-01", owner_profile_id: null,
                 institution_ref: null, archived: false,
                 min_balance_pence: 0 }], total: 1 }
-            : url.includes("expected-movements")
+            : url.includes("expected-movements") || (url.includes("/subscriptions") && !url.includes("annualised"))
               ? []
               : url.includes("/projection")
                 ? {
@@ -47,7 +47,7 @@ function stubFetch(
                     { date: "2026-04-30", balance_pence: 200 },
                   ],
                 }
-                : { items: [], total: 0 };
+                : url.includes("expected-movements") || url.includes("/subscriptions") ? [] : { items: [], total: 0 };
       return Promise.resolve(new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json" } }));
     });
@@ -121,8 +121,8 @@ describe("Dashboard", () => {
     render(<MemoryRouter><Dashboard /></MemoryRouter>);
     await screen.findByText("Accounts");
     // After the retry, the widget's own fetch resolves and data shows.
-    expect(await screen.findByText("Joint", {}, { timeout: 5000 }))
-      .toBeTruthy();
+    expect((await screen.findAllByText("Joint", {}, { timeout: 5000 })).length)
+      .toBeGreaterThan(0);
   }, 15000);
   it("#430: terminal households failure surfaces an error, not silent empty", async () => {
     // A dead backend fails every call — widgets must surface the

@@ -35,7 +35,9 @@ export function DataView<T>({
         )}
       </div>
     );
-  if (state.error) return <ErrorState message={state.error} />;
+  // Terminal failure with nothing usable to show → honest error.
+  if (state.error && (state.data == null || (Array.isArray(state.data) && state.data.length === 0)))
+    return <ErrorState message={state.error} onRetry={state.refetch} />;
   if (
     state.data == null ||
     (Array.isArray(state.data) && state.data.length === 0)
@@ -49,5 +51,15 @@ export function DataView<T>({
         action={emptyAction}
       />
     ) : null;
-  return <>{children(state.data as NonNullable<T>)}</>;
+  // Stale data alongside a terminal refresh error keeps rendering —
+  // last known-good records beat an empty panel (#460) — with a
+  // slim warning so it can't be mistaken for live data.
+  return (
+    <>
+      {state.error ? (
+        <ErrorState message={state.error} onRetry={state.refetch} />
+      ) : null}
+      {children(state.data as NonNullable<T>)}
+    </>
+  );
 }

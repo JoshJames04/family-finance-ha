@@ -138,3 +138,13 @@ Do not assume Starling personal access supports webhooks. The spike must establi
 ## 8. Home Assistant automation triggers (10/11/2026)
 
 - [ ] [#424 — Home Assistant integration: expose native automation triggers for Family Finance events](https://github.com/JoshJames04/family-finance-ha/issues/424) — related to Epic #12 and existing event hooks in #102. Make triggers discoverable in the HA automation editor and document event/YAML usage; keep payloads privacy-safe.
+
+
+## 9. Dashboard data-loading regression after v1.4.0 (11/11/2026)
+
+- [ ] [#460 — Dashboard still returns 503s and false empty financial data after v1.4.0](https://github.com/JoshJames04/family-finance-ha/issues/460) — P1; linked to #451/#455 (scheduler responsiveness), #430/#433 (household readiness retry), #414 (layout persistence) and Epic #16. User supplied live Home Assistant ingress screenshots showing both HTTP 503 widget failures and subsequent empty/£0 states despite existing financial data. Requires endpoint-level diagnosis, widget request recovery, correct error-vs-empty semantics and real ingress E2E acceptance.
+
+
+## 10. Payday and projected income acceptance concern (11/11/2026)
+
+- [ ] [#461 — Payday setup and projected income still not appearing correctly after v1.4.0](https://github.com/JoshJames04/family-finance-ha/issues/461) — P1 investigation linked to #454/#455, #460 and #415. User reports Dashboard still prompts `Set up payday` and Shared budget `Income received` is zero. Verify employment payday rule + paid-into account prerequisites, rematerialisation of existing records, forecast account linkage and distinction between actual received income vs projected salary. User's screenshot and all personal financial values must remain private and must not be uploaded to GitHub or CI.

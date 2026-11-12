@@ -7,6 +7,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -24,7 +25,7 @@ from app.core.health import (
 )
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
-from app.domain import appconfig, vault
+from app.domain import appconfig, schedule, vault
 from app.domain import banks as bankdom
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
@@ -96,6 +97,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not integrity_check(engine):
             log.error("database integrity_check failed on boot")
 
+        last_projection_day: date | None = None
+        if not getattr(app.state, "boot_error", None):
+            # Existing installs repair forecasts on upgrade, even with the
+            # periodic scheduler disabled. No provider I/O in this transaction.
+            with Session(engine) as projection_session:
+                schedule.rematerialize_employments(projection_session)
+                projection_session.commit()
+            last_projection_day = date.today()
+
         async def _snapshot_loop() -> None:
             while True:
                 await asyncio.sleep(
@@ -120,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             event loop keeps serving requests during a tick (#451):
             a full sync can block for seconds, and through HA ingress
             a stalled request surfaces as 503."""
+            nonlocal last_projection_day
             from app.api.v1.notifications import _UrllibNotifier
             from app.integrations.starling import StarlingClient
             from app.persistence.session import get_session
@@ -142,6 +153,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # the running scheduler without a restart.
                 interval = appconfig.effective_sync_interval_minutes(
                     s, settings)[0]
+                if last_projection_day != date.today():
+                    schedule.rematerialize_employments(s)
+                    s.commit()  # Release the writer before provider I/O.
+                    last_projection_day = date.today()
                 scheduler.sync_tick(
                     s, client=client, token_for=_tok,
                     interval_seconds=interval * 60)
@@ -153,12 +168,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             notification evaluate/dispatch/deliver. Deps resolve from
             app.state so tests inject fakes; a failing tick logs and
             sleeps, never kills the loop."""
+            import time
+            tele = app.state.telemetry
             while True:
                 await asyncio.sleep(settings.scheduler_tick_seconds)
+                started = time.monotonic()
                 try:
                     await asyncio.to_thread(_run_tick)
-                except Exception:
+                except Exception as exc:
                     log.exception("scheduler tick failed")
+                    tele.record_tick(
+                        (time.monotonic() - started) * 1000,
+                        str(exc)[:300])
+                else:
+                    tele.record_tick(
+                        (time.monotonic() - started) * 1000, None)
 
         sched = (asyncio.create_task(_scheduler_loop())
                  if settings.scheduler_tick_seconds > 0 else None)
@@ -173,6 +197,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Family Finance", version=__version__, lifespan=lifespan)
     app.state.settings = settings
+    from app.core.telemetry import RuntimeTelemetry
+    app.state.telemetry = RuntimeTelemetry()
     app.add_middleware(RequestIdMiddleware)
     from app.api.auth import auth_middleware
     from app.api.auth import router as auth_router

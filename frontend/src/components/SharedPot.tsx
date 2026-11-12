@@ -246,8 +246,10 @@ export function SharedPot({ period }: {
       <DataView
         state={{
           loading: rules.loading || movements.loading || contributions.loading,
+          retrying: rules.retrying || movements.retrying || contributions.retrying,
           error: rules.error ?? movements.error ?? contributions.error,
           data: "ready",
+          refetch: () => { rules.refetch(); movements.refetch(); contributions.refetch(); },
         }}
         empty=""
       >

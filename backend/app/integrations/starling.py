@@ -218,14 +218,16 @@ BACKFILL_DAYS = 90  # initial changesSince window when no cursor
 
 
 def starling_fetch(client: BankClient, token: str,
-                   external_uid: str, category_uid: str
+                   external_uid: str, category_uid: str, *,
+                   historical_since: date | None = None,
                    ) -> Callable[[SyncCursor], Iterator[FeedPage]]:
     """Adapt the client to the sync engine's ``fetch`` protocol:
     cursor ``last_ref`` is the changesSince watermark — absent → a
     bounded backfill start. The watermark is stamped pre-request so
     items updated during the fetch arrive next run."""
     def fetch(cursor: SyncCursor) -> Iterator[FeedPage]:
-        since = cursor.last_ref or (
+        since = (historical_since.isoformat() + "T00:00:00.000Z"
+                 if historical_since is not None else cursor.last_ref) or (
             (date.today() - timedelta(days=BACKFILL_DAYS))
             .isoformat() + "T00:00:00.000Z")
         watermark = (datetime.now(UTC)

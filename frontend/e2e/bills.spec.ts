@@ -8,7 +8,7 @@ const API = "http://localhost:8099/api/v1";
 test.beforeAll(async ({ request }) => {
   const acct = await request.post(`${API}/accounts`, {
     data: {
-      name: "E2E Bills Account",
+      name: `E2E Bills Account ${crypto.randomUUID()}`,
       type: "personal",
       opening_balance: { pence: 0 },
       opening_date: "2026-01-01",
@@ -63,3 +63,4 @@ for (const width of [320, 375, 430]) {
     expect(clipped).toEqual([]);
   });
 }
+

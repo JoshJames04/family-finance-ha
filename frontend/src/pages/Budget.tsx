@@ -140,13 +140,18 @@ export function Budget() {
   const id = budgetId;
   const selectedBudget = items.find((b) => b.id === id);
   const { detail, actuals, analyses } = useBudgetDetail(id, rev);
-  const period = detail.data
+  const period = detail.data?.id === id
     ? { from: detail.data.start_date, to: detail.data.end_date }
     : null;
-  const movements = useApi(
+  const movementRequest = useApi(
     () => api.get("/api/v1/expected-movements",
-      { query: { start: period!.from, end: period!.to } }),
-    period !== null, [period?.from, period?.to]);
+      { query: { start: period!.from, end: period!.to, budget_id: id! } }).then((items) => ({ budgetId: id, items })),
+    period !== null, [period?.from, period?.to, id]);
+  const movements = {
+    ...movementRequest,
+    data: movementRequest.data?.budgetId === id ? movementRequest.data.items : null,
+    loading: movementRequest.loading || (movementRequest.data?.budgetId !== id && !movementRequest.error),
+  };
   const locked = detail.data
     ? detail.data.status === "locked" || detail.data.read_only
     : false;
@@ -300,7 +305,8 @@ export function Budget() {
                       left = planned − spent (negative ⇒ overspent),
                       bills remaining (unmatched scheduled occurrences),
                       income received. */}
-                  <div className="mb-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+                  <DataView state={actuals} empty="">
+                    {() => <div className="mb-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
                     {(() => {
                       const left = plannedOut - actualOut;
                       const billsPence = actuals.data?.bills_remaining_pence;
@@ -321,7 +327,8 @@ export function Budget() {
                       <Stat key={s.label} label={s.label} value={s.value} hint={s.hint}
                         className="rounded-xl border border-border bg-surface p-4 shadow-card" />
                     ))}
-                  </div>
+                  </div>}
+                  </DataView>
 
                   <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
                     <div className="flex min-w-0 flex-col gap-4">

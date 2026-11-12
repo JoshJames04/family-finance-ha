@@ -5,16 +5,27 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isIngress } from "../ingress";
-import { api, getHouseholdId, getProfileId, setHouseholdId, setProfileId }
-  from "./client";
+import { api, ApiError, getHouseholdId, getProfileId, setHouseholdId,
+  setProfileId } from "./client";
 import type { components } from "./schema";
 
 export type Profile = components["schemas"]["ProfileOut"];
 
+/** The five states every consumer must distinguish (issue #460):
+ * loading (nothing asked or first flight) / data / honest-empty /
+ * retrying (fetch in flight, stale data still shown) / failed. An
+ * error must never masquerade as an empty dataset — `data === null`
+ * with `loading === false && error === null` means "asked, got
+ * nothing", never "haven't asked yet". */
 export interface ApiState<T> {
   data: T | null;
   loading: boolean;
+  /** A retry/backoff pass is running while `data` may hold the last
+   * good response — render stale data rather than a skeleton. */
+  retrying: boolean;
   error: string | null;
+  /** Restart the attempt sequence — the Retry action's handler. */
+  refetch: () => void;
 }
 
 /** Max attempts before a households failure is surfaced as a
@@ -28,12 +39,19 @@ const HOUSEHOLD_ATTEMPTS = 8;
  * leave `data` null forever, silently starving every `useReady`
  * consumer (issue #430). */
 export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
-  const [state, setState] = useState<ApiState<{ id: number; name: string }[]>>({
+  const [state, setState] = useState<
+    Omit<ApiState<{ id: number; name: string }[]>, "refetch">>({
     data: null,
     loading: true,
+    retrying: false,
     error: null,
   });
   const [attempt, setAttempt] = useState(0);
+  const [tick, setTick] = useState(0);
+  const refetch = useCallback(() => {
+    setAttempt(0);
+    setTick((t) => t + 1);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -45,25 +63,28 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
         if (items.length > 0 && getHouseholdId() === null) {
           setHouseholdId(items[0]!.id);
         }
-        setState({ data: items, loading: false, error: null });
+        setState({ data: items, loading: false, retrying: false,
+                   error: null });
       })
       .catch((e: Error) => {
         if (cancelled) return;
         if (attempt + 1 < HOUSEHOLD_ATTEMPTS) {
-          setState({ data: null, loading: true, error: e.message });
+          setState({ data: null, loading: true, retrying: true,
+                     error: e.message });
           timer = setTimeout(
             () => setAttempt((a) => a + 1),
             Math.min(4000, 500 * 2 ** attempt));
         } else {
-          setState({ data: null, loading: false, error: e.message });
+          setState({ data: null, loading: false, retrying: false,
+                     error: e.message });
         }
       });
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [attempt]);
-  return state;
+  }, [attempt, tick]);
+  return { ...state, refetch };
 }
 
 /**
@@ -134,34 +155,103 @@ export function useMeProfileId(): number | null {
   return identity.data ? getProfileId() : null;
 }
 
+/** Total attempts per fetch cycle (initial + retries). Transient
+ * failures — network drops and 429/5xx from an upstream that is
+ * briefly busy (ingress restart, a sync holding the DB writer) —
+ * retry with exponential backoff: ~500ms, 1s, 2s, 4s → ~7.5s of
+ * cover, bounded so a dead backend surfaces an error promptly.
+ * 4xx (auth, validation, not-found) never retries. */
+const MAX_ATTEMPTS = 4;
+const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+function isTransient(e: unknown): boolean {
+  // ApiError carries an HTTP status; anything else (TypeError from
+  // fetch, aborted connections) is a transport blip → transient.
+  if (e instanceof ApiError) return TRANSIENT_STATUSES.has(e.status);
+  return true;
+}
+
 /**
  * Run a typed API call once `ready` is true (typically once the
  * household id is known). Re-runs when `ready` flips or `deps` change.
+ *
+ * #460 semantics: `loading` is true until the first settled response
+ * (including while `ready` is still false — a gated request is
+ * pending, not "loaded and empty"). Transient failures retry in the
+ * background; once `data` exists it is kept (stale) while a refresh
+ * fails, so a blip never re-renders real records as £0/empty.
  */
 export function useApi<T>(
   fetcher: () => Promise<T>,
   ready: boolean,
   deps: readonly unknown[] = [],
 ): ApiState<T> {
-  const [state, setState] = useState<ApiState<T>>({
+  const [state, setState] = useState<
+    Omit<ApiState<T>, "refetch">>({
     data: null,
-    loading: ready,
+    loading: true,
+    retrying: false,
     error: null,
   });
   const fnRef = useRef(fetcher);
   fnRef.current = fetcher;
-  const load = useCallback(() => {
-    setState((s) => ({ ...s, loading: true, error: null }));
-    fnRef
-      .current()
-      .then((data) => setState({ data, loading: false, error: null }))
-      .catch((e: Error) =>
-        setState({ data: null, loading: false, error: e.message }),
-      );
-  }, []);
+  // Generation counter: only the newest fetch cycle may write
+  // state — a late response from a stale cycle (deps changed,
+  // refetch fired) must never clobber fresher data.
+  const genRef = useRef(0);
+  const [tick, setTick] = useState(0);
+  const refetch = useCallback(() => setTick((t) => t + 1), []);
   useEffect(() => {
-    if (ready) load();
+    if (!ready) {
+      // Gated: nothing asked yet — report pending, never empty.
+      setState((s) => (s.loading && s.data === null
+        ? s
+        : { data: s.data, loading: true, retrying: false,
+            error: s.error }));
+      return;
+    }
+    const gen = ++genRef.current;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = (attempt: number) => {
+      setState((s) => ({
+        data: s.data,
+        loading: s.data === null,   // skeleton only with nothing to show
+        retrying: attempt > 0 || s.data !== null,
+        error: null,
+      }));
+      fnRef
+        .current()
+        .then((data) => {
+          if (cancelled || gen !== genRef.current) return;
+          setState({ data, loading: false, retrying: false,
+                     error: null });
+        })
+        .catch((e: Error) => {
+          if (cancelled || gen !== genRef.current) return;
+          if (isTransient(e) && attempt + 1 < MAX_ATTEMPTS) {
+            // Stay in the loading/retrying band — the failure is
+            // being absorbed; it is NOT a terminal error state yet.
+            setState((s) => ({ data: s.data,
+                              loading: s.data === null,
+                              retrying: true, error: null }));
+            timer = setTimeout(
+              () => run(attempt + 1),
+              Math.min(4000, 500 * 2 ** attempt));
+          } else {
+            // Terminal: keep the last good data (stale-but-real)
+            // alongside the error so consumers can show both.
+            setState((s) => ({ data: s.data, loading: false,
+                              retrying: false, error: e.message }));
+          }
+        });
+    };
+    run(0);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, load, ...deps]);
-  return state;
+  }, [ready, tick, ...deps]);
+  return { ...state, refetch };
 }

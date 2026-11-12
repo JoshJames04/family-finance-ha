@@ -28,7 +28,8 @@ one-time migration source only — it is never a runtime dependency.
   budget, revised forecast, actuals, variance and forecast-accuracy tracking.
 - **Cash-flow forecasting** — date-aware projected balances, safe-to-spend,
   payday intelligence and overdraft risk warnings. Salary is projected from
-  the employment's payday rule — no run needed — into the account it is
+  the employment's payday rule — no run needed — using effective salary/tax
+  configuration and regular deductions, into the account it is
   paid into.
 - **UK payroll** — salary history, overtime (configurable multipliers), PAYE,
   National Insurance, student loans, pension and payslip reconciliation.
@@ -101,6 +102,13 @@ cd backend && pip install -e '.[dev]' && pytest
 Layout: `backend/` (FastAPI), `frontend/` (Vite + React + TS), `addon/` (HA
 app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
 `tests/` (shared synthetic fixtures).
+
+An ingress-faithful stack for regression work lives in
+`docker-compose.ingress.yml`: the production image behind a
+Supervisor-emulating proxy at the trusted ingress IP with chaos
+fault injection (`dev/ingress-proxy/`), plus the issue #460
+acceptance harness `dev/ff460_acceptance.py` (Tests A–G against a
+dedicated synthetic-data volume).
 
 ## Privacy
 

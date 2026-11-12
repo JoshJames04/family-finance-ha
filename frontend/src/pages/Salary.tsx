@@ -17,7 +17,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Stat } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import {
   formatDayMonth, formatPence, formatSmartDate, toISODate,
@@ -576,6 +576,29 @@ function EmployersView({ employments, rev, onChanged }: {
   );
 }
 
+function TaxCodeDialog({ employment, onClose, onSaved }: {
+  employment: Employment; onClose: () => void; onSaved: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [date, setDate] = useState(toISODate(new Date()));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }} title={`Tax code — ${employment.employer}`}
+    description="Record the tax code and the date it becomes effective."
+    footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" form="ff-tax-code" variant="primary" disabled={busy || !code.trim() || !date}>Save tax code</Button></>}>
+    <form id="ff-tax-code" className="grid gap-4" onSubmit={(event) => {
+      event.preventDefault(); setBusy(true); setError(null);
+      void api.post("/api/v1/employments/{emp_id}/tax-code-revisions", {
+        path: { emp_id: employment.id }, body: { tax_code: code.trim(), effective_date: date },
+      }).then(() => { onSaved(); onClose(); }).catch((err: Error) => { setError(err.message); setBusy(false); });
+    }}>
+      <Field label="Tax code">{(id) => <Input id={id} required value={code} onChange={(e) => setCode(e.target.value)} placeholder="1257L" />}</Field>
+      <Field label="Effective from">{(id) => <Input id={id} required type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
+      {error && <p role="alert">{error}</p>}
+    </form>
+  </Dialog>;
+}
+
 function EmployerDetail({ employment: e, ending, endDate, setEndDate,
   onEnding, onCancelEnd, onSaveEnd, onDelete, rev, onChanged }: {
   employment: Employment;
@@ -590,6 +613,16 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
     () => api.get("/api/v1/employments/{emp_id}/salary-revisions",
       { path: { emp_id: e.id } }),
     true, [e.id, rev]);
+  const taxCodes = useApi(
+    () => api.get("/api/v1/employments/{emp_id}/tax-code-revisions", { path: { emp_id: e.id } }),
+    e.deduction_mode !== "gross_only", [e.id, rev]);
+  const accounts = useAccounts(rev);
+  const [taxOpen, setTaxOpen] = useState(false);
+  const effectiveOn = e.start_date && e.start_date > toISODate(new Date()) ? e.start_date : toISODate(new Date());
+  const active = !e.end_date || e.end_date >= toISODate(new Date());
+  const missingSalary = e.employment_type !== "piecework" && revisions.data !== null && !revisions.data.some((r) => r.effective_date <= effectiveOn && r.annual_salary_pence > 0);
+  const missingTax = e.deduction_mode !== "gross_only" && taxCodes.data !== null && !taxCodes.data.some((r) => r.effective_date <= effectiveOn);
+  const missingAccount = accounts.data !== null && !accounts.data.items.some((a) => a.id === e.paid_into_account_id && !a.archived);
   const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -638,6 +671,19 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
             onClick={onDelete}><Trash2 /></Button>
         </div>
       </div>
+      {active && (
+        <div className="mt-3 space-y-2 text-[13px]">
+          {e.employment_type === "piecework" && <p>Piecework income appears when shifts or payroll runs are recorded; future shifts are not assumed.</p>}
+          {revisions.error && <p role="alert">Salary setup could not be checked. <button onClick={revisions.refetch}>Retry</button></p>}
+          {taxCodes.error && <p role="alert">Tax-code setup could not be checked. <button onClick={taxCodes.refetch}>Retry</button></p>}
+          {accounts.error && <p role="alert">Paid-into account could not be checked. <button onClick={accounts.refetch}>Retry</button></p>}
+          {missingSalary && <p>Missing salary effective on {effectiveOn}. <button className="underline" onClick={() => setSalaryOpen(true)}>Add salary</button></p>}
+          {missingTax && <p>Missing tax code effective on {effectiveOn}; PAYE payday estimates are unavailable. <button className="underline" onClick={() => setTaxOpen(true)}>Add tax code</button></p>}
+          {!e.payday_rule && <p>Missing payday rule. <button className="underline" onClick={() => setEditing(true)}>Set payday</button></p>}
+          {missingAccount && <p>Missing active paid-into account. <button className="underline" onClick={() => setEditing(true)}>Choose salary account</button></p>}
+        </div>
+      )}
+      {taxOpen && <TaxCodeDialog employment={e} onClose={() => setTaxOpen(false)} onSaved={onChanged} />}
       {ending && (
         <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
           <Field label="Last day of employment">{(id) => (
@@ -847,9 +893,10 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
       </div>
 
       <div className="border-t border-border">
-        {(runs.data ?? []).length === 0 ? (
+        {runs.error && <ErrorState message={runs.error} onRetry={runs.refetch} />}
+        {runs.error && !(runs.data?.length) ? null : (runs.data ?? []).length === 0 ? (
           <p className="px-4 py-6 text-center text-[13px] text-fg-subtle">
-            {runs.loading ? "Loading runs…" : "No payroll runs yet — add one to forecast payday."}
+            {runs.loading ? "Loading runs…" : "No payroll runs yet. Payday estimates use the employer’s salary, tax code and payday settings."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1431,7 +1478,7 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
           )}</Field>
         </div>
         {deductionMode === "paye" && (
-          <Field label="Tax code" hint="Optional until your first tax code is available.">{(id) => (
+          <Field label="Tax code" hint="Optional to save employment; an effective tax code is required for PAYE payday estimates.">{(id) => (
             <Input id={id} placeholder="e.g. 1257L" value={taxCode}
               onChange={(e) => setTaxCode(e.target.value.trim())} />
           )}</Field>
