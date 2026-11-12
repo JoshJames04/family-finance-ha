@@ -117,3 +117,95 @@ PR image CI now starts the arm64 image under QEMU and checks readiness, the SPA
 and version. Release smoke runs both amd64 and arm64, including the existing
 Supervisor-mode second boot, before either architecture is published. This
 verifies emulated architecture boot; it is not evidence of a physical HAOS install.
+
+Budget owner tabs retain the selected calendar year and month. An owner without
+a budget in that period sees an explicit missing-budget state, while the year,
+month and mobile period picker retain the selection. Previous/next and explicit
+period selection remain available for that owner's existing budgets. Switching
+back to All or another owner restores the same period rather than an unrelated
+historical budget.
+All always uses the combined report, including when only one owner's budget
+exists; authorised unbudgeted and private accounts still belong to All. The
+individual owner remains available for scoped review and editing.
+
+Budget shows positive employment and payroll expected movements for the scoped
+period as a distinct **Planned salary (forecast)** metric and a non-editable
+**Expected salary** list in Income, including when no manual income lines exist.
+Only outstanding amounts contribute: fully matched and dismissed movements are
+excluded, and partially matched salary shows its remaining amount.
+These estimates remain separate from the manual income plan, which may already
+include the same pay, and do not increase received income. Owner/period switches
+mask stale forecasts while the scoped request loads; a scope with no returned
+salary forecasts shows none. Synthetic component coverage is in
+`frontend/src/__tests__/budget-owner-period.test.tsx`.
+
+Report transaction links retain their date, category, direction and ownership
+filters, including the explicit shared-only scope. Transactions applies these
+filters to the ledger request and clears the whole scope with Clear. CSV export
+URLs resolve from the app mount for both standalone and Home Assistant ingress
+routes. Synthetic route coverage is in
+`frontend/src/__tests__/reports-drill.test.tsx`.
+
+An optional Starling Spaces permission denial keeps existing space mappings and
+their last known balances. Main accounts continue syncing, while inaccessible
+space balances and feeds are skipped and the connection retains a permission
+warning. A later complete successful sync clears the warning. Discovery state
+is isolated between connections sharing a client; required account permission
+failures and HTTP 401 still invalidate credentials. Synthetic coverage is in
+`backend/tests/test_spaces_discovery_permissions.py`.
+
+Analytics monthly series, current net worth and spending forecasts apply the
+same account and loan visibility rules as the ledger: administrators see the
+household, members see shared and their own private resources, and viewers or
+unresolved standalone service identities see shared resources only. Empty
+authorized scopes return empty series/forecasts and zero net worth. Forecast
+history and recurring commitments both use the authorized account set. Global
+aggregate rebuilds require the existing administrator gate; the ingress service
+allowlist remains unchanged. Real-route role coverage is in
+`backend/tests/test_analytics_privacy.py`.
+
+### v1.4.2 acceptance follow-up
+
+Read-only inspection of the released HA ingress UI reproduced the Dashboard
+failure. Browser diagnostics showed requests to
+`/api/hassio_ingress/api/v1/accounts`, with the session mount segment missing,
+while direct backend readiness was healthy. Returning to Dashboard removes the
+URL's trailing slash; `fetch('./api/...')` then resolves outside the mount.
+JSON, upload, download and export URLs now anchor to the app mount independently
+of route depth. Generated Dashboard links keep the trailing directory slash so
+reloading also retains the token on production CSS and module URLs. A legacy
+slashless-entry guard preserves the search/fragment while the app boots; browser
+preloading can still attempt a rejected asset URL before that guard runs.
+The strict production-bundle browser test verifies navigation, reload, legacy
+entry and standalone boot with synthetic read-only API responses. Unit coverage
+resolves URLs as a browser does, including the
+Dashboard root without a slash. Earlier injected-503 tests exercised recovery
+but did not exercise this mount-resolution failure.
+
+Shared Budget now means shared/joint accounts only. All includes every account
+the member may see, even if an account owner has no plan for that period. Only
+explicitly linked refunds reduce spending; a receipt cannot change from income
+to negative spending when the selected scope or category plan changes. API tests
+cover those rules and the matching bills, forecasts and report drills.
+
+The live Reconcile spending disclosure displayed transaction rows when expanded
+during inspection. An empty disclosure was not reproduced in that session;
+missing-period and request-failure states are tested separately. These local
+changes do not establish that the released add-on or real provider errors have
+recovered. Live financial data and bank configuration were left unchanged.
+
+Uncategorised report links carry an explicit null-category filter; the matching
+transaction selector is visible and alphabetically ordered. Changing it clears
+the previous null-category constraint. Payroll setup also explains that cutoff
+15 includes the previous month's 16th through the current month's 15th, including
+overtime. These are presentation clarifications, not live configuration changes.
+
+The real-API Budget browser fixture creates its own household and verifies the
+combined/shared/personal totals and reconciliation records against a running
+backend. Bills browser setup creates its prerequisite household rather than
+depending on another spec's execution order. For an isolated external test
+server, set `FF_E2E_EXTERNAL=true`, `FF_E2E_BASE` and `FF_E2E_API`; the optional
+`FF_E2E_CHANNEL` selects an installed browser. Default CI startup is unchanged.
+The shell and Dashboard describe the selected household, matching the API scope.
+
+![Synthetic real-API combined Budget and reconciliation](images/live142-budget-real-api.png)

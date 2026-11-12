@@ -6,7 +6,7 @@ import { Component, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowRight, ArrowUp, Eye, EyeOff, Inbox, Plus, SlidersHorizontal } from "lucide-react";
-import { api } from "../api/client";
+import { api, getHouseholdId } from "../api/client";
 import { useApi, useHouseholds } from "../api/useApi";
 import { useReview } from "../api/useReview";
 import type { components } from "../api/schema";
@@ -90,6 +90,7 @@ function ReviewCallout() {
 
 export function Dashboard() {
   const households = useHouseholds();
+  const household = households.data?.find((h) => h.id === getHouseholdId()) ?? households.data?.[0];
   const ready = households.data !== null;
   const { openQuickAdd } = useShell();
   const remote = useApi(
@@ -161,7 +162,7 @@ export function Dashboard() {
       <PageHeader
         eyebrow={formatLongDate(now)}
         title={greeting(now)}
-        description={households.data?.[0] ? `Here's where ${households.data[0].name} stands today.` : undefined}
+        description={household ? `Here's where ${household.name} stands today.` : undefined}
         actions={
           <>
             <Button variant="secondary" onClick={() => setCustomising(true)}>

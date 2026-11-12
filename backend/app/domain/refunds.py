@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.domain.reporting import external_only
+from app.domain.reporting import external_category_amounts
 from app.persistence.models import Transaction
 
 
@@ -73,13 +73,9 @@ def category_spend(
     net=True  — refunds reduce spend (refund-of rows are included).
     net=False — gross spend only (refund-of rows excluded).
     """
-    stmt = external_only(
-        select(func.coalesce(func.sum(Transaction.amount_pence), 0))
-        .where(
-            Transaction.category_id == category_id,
-            Transaction.date >= start,
-            Transaction.date <= end,
-        ))
-    if not net:
-        stmt = stmt.where(Transaction.refund_of_id.is_(None))
+    amounts = external_category_amounts(Transaction.date >= start, Transaction.date <= end)
+    stmt = select(func.coalesce(func.sum(amounts.c.amount_pence), 0)).where(
+        amounts.c.category_id == category_id,
+        or_(amounts.c.amount_pence < 0, amounts.c.refund_of_id.is_not(None))
+        if net else amounts.c.amount_pence < 0)
     return int(session.execute(stmt).scalar_one())

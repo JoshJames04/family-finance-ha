@@ -246,25 +246,60 @@ known values, and payroll-run failures expose Retry instead of claiming no runs.
 ### Budget and reporting acceptance boundaries
 
 `BudgetActuals` separates full-period per-line analysis from as-of expense flow.
+Expense lines include negative effective legs and net explicitly linked refunds;
+unrelated positive receipts never offset them. Income lines include positive
+nonrefund legs. Variance drills carry `budget_side` to select the same records.
 The headline includes non-void external outflows through the earlier of today and
-the period end. Positive entries in an expense category, and explicitly linked
-refunds, offset expense flow; remaining positive entries are income. An unlinked,
-uncategorised inflow remains income rather than being guessed to be a refund.
+the period end. Explicitly linked refunds offset expense flow; all other positive
+entries are receipts, regardless of category, plan membership or account scope.
+An unrelated debit in the same category cannot turn a receipt into a refund.
+Linked transfers and effective category legs explicitly classified as
+`Internal Transfers` do not contribute to economic flows, even before pairing.
+Mixed splits retain their external fee legs. The ordinary `Transfer` category
+remains external. This rule also applies to reports, monthly flow analytics and
+spending forecasts; account balances and net worth retain all ledger legs.
+Named report income, monthly income and income-percentage rules exclude linked
+refunds. Expense reports, monthly spending and category forecasts net explicit
+refunds against outflows without offsetting unrelated receipts. Anomaly detection
+continues to examine gross external outflows, retaining mixed-split fee amounts.
+Category anomaly comparisons use the current category's effective subtotal;
+payee comparisons retain the full external transaction subtotal. Uncategorised
+report drills send `uncategorised=true` so they cannot expand to all expenses.
+Monthly series derive fresh values from authorised raw ledger and loan records
+without writing on GET or depending on a manual cache rebuild; the explicit
+rebuild endpoint remains available for materialised-table compatibility.
+Report internal outflow totals sum negative internal effective legs, including
+confirmed unpaired movements. Internal movement counts include each paired
+transfer ID once and each unpaired internal transaction once; their drill covers
+both directions, while the internal outflow drill selects negative legs.
 Opening transactions (`system`, `open:<account-id>`) remain balance stock and are
 excluded from period flow. The returned itemised bridge uses effective split
 amounts and preserves uncategorised status without writing classifications.
 
-The read-only combined Budget endpoint selects one latest visible plan per owner
+Shared Budget actuals, unpaid obligations and budget-scoped expected movements
+use shared accounts (owner NULL); personal Budgets use the owner's accounts.
+Accountless household obligations remain shared. The read-only combined Budget
+endpoint selects one latest visible plan per owner
 for the exact period, adds their plan lines, and computes actuals and unpaid bill
 residuals over a union of authorised accounts. Shared and personal overlap cannot
 multiply a transaction or expected obligation. Alternative plan versions for the
 same owner/period do not multiply the plan. An owner view retains normal editing.
+All includes every authorised account even when an account's owner has no plan
+in the selected period; plan lines sum only the plans that actually exist.
 
 Monthly, annual and comparative reports apply the caller's account and budget
 visibility to both current and prior sections. Personal budget variances reuse the
 Budget actuals calculation, including the owner scope and signed category refunds.
-Transaction drills carry owner and non-void/opening/transfer exclusions. Account
+Shared Budget variance drills include `shared_only=true`; personal drills carry
+the owner filter. Transaction drills retain non-void/opening/transfer exclusions. Account
 balances and net worth continue to include opening stock.
+
+Expected movements retain their original scheduled amounts and expose
+`outstanding_pence` from contribution matching plus `dismissed_at`. Budget salary
+forecasts use the undismissed residual of employment/payroll-run movements within
+the selected period and account scope. Forecast salary remains separate from
+manual plan totals and received ledger income; fully matched salary adds no
+remaining forecast income.
 
 Deleting a budget template removes its copied-line source and clears optional
 provenance pointers; previously applied budget lines are retained. Tariff deletion

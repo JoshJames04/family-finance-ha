@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Family Finance</title>
+    <script>
+      // Relative production assets need a directory URL at the ingress root.
+      // Run before Vite's module/CSS tags, including a reload after SPA navigation.
+      if (/^\/api\/hassio_ingress\/[^/]+$/.test(window.location.pathname)) {
+        history.replaceState(history.state, "", window.location.pathname + "/"
+          + window.location.search + window.location.hash);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

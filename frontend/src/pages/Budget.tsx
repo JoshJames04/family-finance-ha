@@ -138,10 +138,13 @@ export function Budget() {
     setBudgetId((today ?? latestPast ?? items[0])!.id);
   }, [items, budgetId]);
 
-  const id = budgetId;
-  const selectedBudget = items.find((b) => b.id === id);
+  // Keep a calendar representative when an owner has no budget in that
+  // period. Scope changes must not silently select a historical month.
+  const selectedBudget = items.find((b) => b.id === budgetId);
+  const id = scope === "all" || (selectedBudget && ownerKey(selectedBudget) === scope)
+    ? budgetId : null;
   const single = useBudgetDetail(id, rev);
-  const aggregate = scope === "all" && new Set(items.map(ownerKey)).size > 1;
+  const aggregate = scope === "all";
   const combinedRequest = useApi(
     () => api.get("/api/v1/budgets/reports/combined", { query: {
       start: selectedBudget!.start_date, end: selectedBudget!.end_date,
@@ -150,7 +153,9 @@ export function Budget() {
   const combined = combinedRequest.data?.id === id ? combinedRequest.data.value : null;
   const combinedState = { ...combinedRequest,
     loading: combinedRequest.loading || (!combined && !combinedRequest.error) };
-  const detail = aggregate ? { ...combinedState, data: combined?.detail ?? null } : single.detail;
+  const detail = id === null && selectedBudget
+    ? { ...single.detail, data: null, loading: false, error: null }
+    : aggregate ? { ...combinedState, data: combined?.detail ?? null } : single.detail;
   const actuals = aggregate ? { ...combinedState, data: combined?.actuals ?? null } : single.actuals;
   const analyses = (actuals.data?.lines ?? {}) as unknown as Record<string, LineAnalysis>;
   const period = detail.data && (!aggregate || combined)
@@ -172,21 +177,27 @@ export function Budget() {
 
   /* ---- period navigation ---- */
   const owners = useMemo(() => [...new Set(items.map(ownerKey))], [items]);
-  const owner = scope === "all" ? "all" : selectedBudget ? ownerKey(selectedBudget) : scope;
+  const owner = scope;
   const ownerItems = owner === "all"
     ? [...new Map([...items].reverse().map(b => [`${b.start_date}:${b.end_date}`, b])).values()]
       .map(b => selectedBudget && b.start_date === selectedBudget.start_date
         && b.end_date === selectedBudget.end_date ? selectedBudget : b)
     : items.filter((b) => ownerKey(b) === owner);
-  const years = [...new Set(ownerItems.map((b) => parseISODate(b.start_date).getFullYear()))].sort();
-  const year = selectedBudget ? parseISODate(selectedBudget.start_date).getFullYear() : years[0];
+  const year = selectedBudget ? parseISODate(selectedBudget.start_date).getFullYear() : undefined;
+  const years = [...new Set([
+    ...ownerItems.map((b) => parseISODate(b.start_date).getFullYear()),
+    ...(year === undefined ? [] : [year]),
+  ])].sort();
   const byMonth = new Map<number, BudgetT>();
   for (const b of ownerItems) {
     const d = parseISODate(b.start_date);
     if (d.getFullYear() === year) byMonth.set(d.getMonth(), b);
   }
   const chrono = [...ownerItems].sort((a, b) => a.start_date.localeCompare(b.start_date));
-  const pos = chrono.findIndex((b) => b.id === id);
+  const previous = selectedBudget
+    ? [...chrono].reverse().find((b) => b.start_date < selectedBudget.start_date) : undefined;
+  const next = selectedBudget
+    ? chrono.find((b) => b.start_date > selectedBudget.start_date) : undefined;
   const ownerLabel = (k: string) =>
     k === "all" ? "All" : k === "shared" ? "Shared"
       : profiles.data?.items.find((p) => String(p.id) === k)?.display_name ?? `Member ${k}`;
@@ -198,8 +209,7 @@ export function Budget() {
       const d = parseISODate(b.start_date);
       return d.getFullYear() === cur.getFullYear() && d.getMonth() === cur.getMonth();
     });
-    const next = same ?? pickBudgetFor(candidates) ?? candidates[0];
-    if (next) setBudgetId(next.id);
+    if (same) setBudgetId(same.id);
   };
 
   /* ---- totals ---- */
@@ -210,6 +220,10 @@ export function Budget() {
   const actualOut = actuals.data?.spent_pence ?? sum("expense", (_l, a) => a?.actual_pence ?? 0);
   const plannedIn = sum("income", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
   const actualIn = actuals.data?.income_received_pence ?? sum("income", (_l, a) => a?.actual_pence ?? 0);
+  const salaryForecasts = (movements.data ?? []).filter((m) =>
+    m.amount_pence > 0 && m.outstanding_pence > 0 && m.dismissed_at == null
+    && (m.source_type === "employment" || m.source_type === "payroll_run"));
+  const plannedSalary = salaryForecasts.reduce((total, m) => total + m.outstanding_pence, 0);
 
   const sides: Array<{ key: "income" | "expense"; label: string }> = [
     { key: "expense", label: "Expenses" },
@@ -222,7 +236,7 @@ export function Budget() {
         title="Budget"
         description="Plan against actuals, month by month."
         actions={
-          owners.length > 1 ? (
+          owners.length > 0 ? (
             <Segmented
               label="Budget owner"
               value={owner}
@@ -244,8 +258,8 @@ export function Budget() {
           <>
             {/* Period picker */}
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-2 shadow-card">
-              <Button variant="ghost" size="icon" aria-label="Previous budget" disabled={pos <= 0}
-                onClick={() => setBudgetId(chrono[pos - 1]!.id)}>
+              <Button variant="ghost" size="icon" aria-label="Previous budget" disabled={!previous}
+                onClick={() => previous && setBudgetId(previous.id)}>
                 <ChevronLeft />
               </Button>
               <Select
@@ -255,6 +269,9 @@ export function Budget() {
                 wrapperClassName="w-44 sm:hidden"
                 onChange={(e) => setBudgetId(Number(e.target.value))}
               >
+                {id === null && selectedBudget && (
+                  <option value="">{formatMonthOf(selectedBudget.start_date)} — no budget</option>
+                )}
                 {[...ownerItems].sort((a, b) => b.start_date.localeCompare(a.start_date)).map((b) => (
                   <option key={b.id} value={b.id}>{formatMonthOf(b.start_date)}</option>
                 ))}
@@ -277,7 +294,7 @@ export function Budget() {
               <div className="scrollbar-thin hidden flex-1 gap-1 overflow-x-auto sm:flex" role="group" aria-label="Month">
                 {Array.from({ length: 12 }, (_, m) => {
                   const b = byMonth.get(m);
-                  const isSel = b && b.id === id;
+                  const isSel = selectedBudget && parseISODate(selectedBudget.start_date).getMonth() === m;
                   return (
                     <button
                       key={m}
@@ -295,13 +312,15 @@ export function Budget() {
                   );
                 })}
               </div>
-              <Button variant="ghost" size="icon" aria-label="Next budget" disabled={pos < 0 || pos >= chrono.length - 1}
-                onClick={() => setBudgetId(chrono[pos + 1]!.id)}>
+              <Button variant="ghost" size="icon" aria-label="Next budget" disabled={!next}
+                onClick={() => next && setBudgetId(next.id)}>
                 <ChevronRight />
               </Button>
             </div>
 
-            <DataView state={detail} empty="" loading={<Skeleton className="h-64 w-full rounded-xl" />}>
+            <DataView state={detail}
+              empty={selectedBudget ? `No budget for this owner in ${formatMonthOf(selectedBudget.start_date)}` : ""}
+              loading={<Skeleton className="h-64 w-full rounded-xl" />}>
               {(d) => (
                 <>
                   <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -340,6 +359,8 @@ export function Budget() {
                           hint: billsCount === 1 ? "1 scheduled bill unpaid" : `${billsCount ?? 0} scheduled bills unpaid`,
                         }] : []),
                         { label: "Income received", value: <Money pence={actualIn} />, hint: plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : undefined },
+                        ...(salaryForecasts.length ? [{ label: "Planned salary (forecast)",
+                          value: <Money pence={plannedSalary} />, hint: "expected pay; separate from manual income plan" }] : []),
                       ];
                     })().map((s) => (
                       <Stat key={s.label} label={s.label} value={s.value} hint={s.hint}
@@ -381,7 +402,8 @@ export function Budget() {
                           <>
                             {sides.map((side) => {
                               const rows = d.lines.filter((l) => l.side === side.key);
-                              if (rows.length === 0) return null;
+                              const showSalary = side.key === "income" && salaryForecasts.length > 0;
+                              if (rows.length === 0 && !showSalary) return null;
                               const sections = groupLines(rows, categories.byId, analyses);
                               // Only show section furniture when real grouping
                               // exists — one ungrouped bucket renders flat.
@@ -457,7 +479,26 @@ export function Budget() {
                               return (
                                 <Panel key={side.key} title={side.label} flush
                                   description={`${rows.length} line${rows.length === 1 ? "" : "s"}`}>
-                                  <div className="overflow-x-auto">
+                                  {showSalary && (
+                                    <div className="border-b border-border p-4">
+                                      <h3 className="text-sm font-medium">Expected salary</h3>
+                                      <p className="mt-1 text-[12.5px] text-fg-muted">
+                                        Outstanding forecast pay for this period, not received income. Shown separately from manual budget lines, which may already include this salary.
+                                      </p>
+                                      <ul aria-label="Expected salary" className="mt-2 divide-y divide-border">
+                                        {salaryForecasts.map((m) => (
+                                          <li key={m.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                                            <div>
+                                              <p className="font-medium">{m.label}</p>
+                                              <p className="text-[12.5px] text-fg-subtle">{formatWeekdayDayMonth(m.expected_date)}</p>
+                                            </div>
+                                            <Money pence={m.outstanding_pence} />
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {rows.length > 0 && <div className="overflow-x-auto">
                                     <table className="ff-table ff-budget-table w-full min-w-[720px] border-collapse text-[13.5px]" aria-label={`${side.label} lines`}>
                                       <thead className="text-left text-[12px] text-fg-subtle">
                                         <tr className="h-9 border-b border-border">
@@ -503,11 +544,11 @@ export function Budget() {
                                         })}
                                       </tbody>
                                     </table>
-                                  </div>
+                                  </div>}
                                 </Panel>
                               );
                             })}
-                            {d.lines.length === 0 && (
+                            {d.lines.length === 0 && salaryForecasts.length === 0 && (
                               <Panel><EmptyState compact icon={Target} title="This budget has no lines yet" /></Panel>
                             )}
                           </>

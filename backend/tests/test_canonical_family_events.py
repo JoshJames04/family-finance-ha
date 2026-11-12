@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.scheduler import notify_tick
-from app.domain import outbox
+from app.domain import outbox, refunds
 from app.persistence.models import (
     Account,
     Budget,
@@ -132,16 +132,17 @@ def test_budget_state_uses_complete_signed_asof_ledger_and_deduplicates(session,
     assert all(event.entity_id == budget.id for event in events)
     tick(session)
     assert len(rows(session, "budget.")) == 3
-    session.add(
-        Transaction(
-            account_id=account.id,
-            date=NOW.date(),
-            amount_pence=3000,
-            payee="Refund",
-            category_id=category.id,
-            status=TransactionStatus.cleared,
-        )
+    refund = Transaction(
+        account_id=account.id,
+        date=NOW.date(),
+        amount_pence=3000,
+        payee="Refund",
+        category_id=category.id,
+        status=TransactionStatus.cleared,
     )
+    session.add(refund)
+    session.flush()
+    refunds.link_refund(session, refund, tx)
     tick(session)
     assert len(rows(session, "budget.over")) == 1
     assert rows(session, "budget.remaining_changed")[-1].payload["remaining_pence"] == 1000

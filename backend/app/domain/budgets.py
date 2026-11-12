@@ -17,7 +17,13 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.domain import contributions, outbox, splits
+from app.domain import contributions, outbox
+from app.domain.reporting import (
+    expense_leg,
+    external_category_amounts,
+    income_leg,
+    internal_category_ids,
+)
 from app.persistence.models import (
     Account,
     Budget,
@@ -170,16 +176,17 @@ def effective_pence(line: BudgetLine) -> int:
 
 
 def actuals_for_budget(session: Session, budget: Budget,
-                       account_ids: list[int] | None = None) -> dict[int, int]:
+                       account_ids: list[int] | None = None, *,
+                       include_private: bool = False) -> dict[int, int]:
     """Per-line actual totals (expense lines: spend as positive pence;
     income lines: income as positive pence). Overlapping budgets each
     see the same underlying transactions — attribution is per-budget,
     so nothing is double-counted inside a single budget."""
     out: dict[int, int] = {}
-    ea = splits.effective_category_amounts(
+    ea = external_category_amounts(
         Account.household_id == budget.household_id,
         *([Account.owner_profile_id == budget.owner_profile_id]
-          if budget.owner_profile_id is not None else []),
+          if budget.owner_profile_id is not None or not include_private else []),
         Transaction.date >= budget.start_date,
         Transaction.date <= budget.end_date,
         *([Account.id.in_(account_ids)] if account_ids is not None else []),
@@ -188,6 +195,10 @@ def actuals_for_budget(session: Session, budget: Budget,
     for line in budget.lines:
         q = select(func.coalesce(func.sum(ea.c.amount_pence), 0)).where(
             ea.c.category_id == line.category_id)
+        if line.side == BudgetLineSide.expense:
+            q = q.where(expense_leg(ea))
+        else:
+            q = q.where(income_leg(ea))
         total = int(session.execute(q).scalar_one())
         # expense lines measure outflow (negative ledger values);
         # income lines measure inflow (positive values)
@@ -197,14 +208,16 @@ def actuals_for_budget(session: Session, budget: Budget,
 
 
 def bills_remaining(session: Session, budget: Budget,
-                    account_ids: list[int] | None = None
+                    account_ids: list[int] | None = None, *,
+                    include_private: bool = False,
                     ) -> tuple[int, int]:
     """Unpaid scheduled outgoings left in the budget period (issue
     #415). Commitment/subscription expected movements in the window
     that no real transaction has matched — a past-due unposted one is
     overdue, not gone, so it still counts. Member budgets see only
-    movements on the owner's accounts; shared budgets see the
-    household. Returns ``(pence, count)`` with pence positive."""
+    movements on the owner's accounts; shared budgets see shared accounts
+    and accountless obligations. All explicitly includes private accounts.
+    Returns ``(pence, count)`` with pence positive."""
     conds = [
         ExpectedMovement.household_id == budget.household_id,
         ExpectedMovement.source_type.in_(
@@ -213,10 +226,12 @@ def bills_remaining(session: Session, budget: Budget,
         ExpectedMovement.expected_date <= budget.end_date,
         ExpectedMovement.amount_pence < 0,
         ExpectedMovement.dismissed_at.is_(None)]
-    if budget.owner_profile_id is not None:
-        conds.append(ExpectedMovement.account_id.in_(
+    if budget.owner_profile_id is not None or not include_private:
+        scoped_accounts = ExpectedMovement.account_id.in_(
             select(Account.id).where(
-                Account.owner_profile_id == budget.owner_profile_id)))
+                Account.owner_profile_id == budget.owner_profile_id))
+        conds.append(or_(scoped_accounts, ExpectedMovement.account_id.is_(None))
+                     if budget.owner_profile_id is None else scoped_accounts)
     if account_ids is not None:
         conds.append(or_(ExpectedMovement.account_id.in_(account_ids),
                          ExpectedMovement.account_id.is_(None))
@@ -229,11 +244,13 @@ def bills_remaining(session: Session, budget: Budget,
 
 def spending_summary(session: Session, budget: Budget,
                      account_ids: list[int] | None = None,
-                     as_of: date | None = None) -> dict[str, Any]:
+                     as_of: date | None = None, *,
+                     include_private: bool = False) -> dict[str, Any]:
     """As-of net expense flow with an exact itemised bridge.
 
-    Outflows count even without a plan/category. Positive rows in an
-    expense category offset spending; other positive rows are income.
+    Outflows count even without a plan/category. Explicitly linked refunds
+    offset spending; other positive rows are receipts. Economic direction
+    cannot change with account scope or budget plan composition.
     Opening stock, transfers and void rows are excluded. Per-line actuals
     retain full-period semantics for historical analysis and rollover.
     """
@@ -241,7 +258,7 @@ def spending_summary(session: Session, budget: Budget,
     rows = session.scalars(select(Transaction).join(Account).where(
         Account.household_id == budget.household_id,
         *([Account.owner_profile_id == budget.owner_profile_id]
-          if budget.owner_profile_id is not None else []),
+          if budget.owner_profile_id is not None or not include_private else []),
         *([Account.id.in_(account_ids)] if account_ids is not None else []),
         Transaction.date >= budget.start_date, Transaction.date <= through,
         Transaction.status != TransactionStatus.void,
@@ -252,6 +269,7 @@ def spending_summary(session: Session, budget: Budget,
         .order_by(Transaction.date, Transaction.id)).all()
     covered = {line.category_id for line in budget.lines
                if line.side == BudgetLineSide.expense}
+    internal = set(session.scalars(internal_category_ids()))
     effective: list[tuple[Transaction, int | None, int]] = []
     for row in rows:
         if row.splits:
@@ -259,13 +277,11 @@ def spending_summary(session: Session, budget: Budget,
                              for leg in row.splits)
         else:
             effective.append((row, row.category_id, row.amount_pence))
-    expense_categories = covered | {cid for _, cid, amount in effective
-                                    if amount < 0 and cid is not None}
+    effective = [(row, cid, amount) for row, cid, amount in effective if cid not in internal]
     items: list[dict[str, Any]] = [{"transaction_id": row.id, "date": row.date,
               "category_id": cid, "amount_pence": -amount}
              for row, cid, amount in effective
-             if amount < 0 or cid in expense_categories
-             or (amount > 0 and row.refund_of_id is not None)]
+             if amount < 0 or (amount > 0 and row.refund_of_id is not None)]
     spent = sum(int(item["amount_pence"]) for item in items)
     budget_covered = sum(int(item["amount_pence"]) for item in items
                          if item["category_id"] in covered)
@@ -275,8 +291,7 @@ def spending_summary(session: Session, budget: Budget,
             "uncategorised_pence": sum(int(item["amount_pence"])
                 for item in items if item["category_id"] is None),
             "income_received_pence": sum(amount for row, cid, amount in effective
-                if amount > 0 and cid not in expense_categories
-                and row.refund_of_id is None),
+                if amount > 0 and row.refund_of_id is None),
             "spend_items": items}
 
 

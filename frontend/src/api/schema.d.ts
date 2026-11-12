@@ -4600,6 +4600,10 @@ export interface components {
             status: string;
             /** Last Error */
             last_error: string | null;
+            /** Sync Status */
+            sync_status?: string | null;
+            /** Sync Error */
+            sync_error?: string | null;
             /** Account Id */
             account_id: number | null;
             /** Last Attempted At */
@@ -5281,6 +5285,13 @@ export interface components {
             source_type: components["schemas"]["ExpectedSource"];
             /** Source Id */
             source_id: number;
+            /**
+             * Outstanding Pence
+             * @default 0
+             */
+            outstanding_pence: number;
+            /** Dismissed At */
+            dismissed_at?: string | null;
         };
         /**
          * ExpectedSource
@@ -8932,7 +8943,10 @@ export interface operations {
             query?: {
                 account_id?: number | null;
                 category_id?: number | null;
+                uncategorised?: boolean;
                 owner_profile_id?: number | null;
+                shared_only?: boolean;
+                budget_side?: ("expense" | "income") | null;
                 exclude_void?: boolean;
                 exclude_opening?: boolean;
                 status?: string | null;
@@ -12354,6 +12368,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12389,6 +12404,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12420,6 +12436,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12454,6 +12471,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;

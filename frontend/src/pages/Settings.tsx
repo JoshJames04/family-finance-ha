@@ -9,7 +9,7 @@ import {
   Plus, Sun, Tags, Upload, UserRound, Users,
 } from "lucide-react";
 import { api } from "../api/client";
-import { isIngress } from "../ingress";
+import { appUrl, isIngress } from "../ingress";
 import { useApi, useIdentity, useMeProfileId } from "../api/useApi";
 import { useReady } from "../api/hooks";
 import type { components } from "../api/schema";
@@ -276,7 +276,7 @@ export function Settings() {
             <HardDrive /> {backingUp ? "Backing up…" : "Back up now"}
           </Button>
             <a
-              href="./api/v1/transactions/export.csv"
+              href={appUrl("/api/v1/transactions/export.csv")}
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
             >
               <Download /> Export transactions (CSV)
@@ -453,7 +453,7 @@ function intervalLabel(minutes: number): string {
 
 /** Banking & synchronisation (issue #431): persisted, admin-editable
  * Starling poll cadence + per-connection sync status. */
-function BankingSyncPanel() {
+export function BankingSyncPanel() {
   const ready = useReady();
   const isAdmin = useIsAdmin(ready);
   const [rev, setRev] = useState(0);
@@ -537,22 +537,26 @@ function BankingSyncPanel() {
                       <Badge tone={c.status === "connected" ? "success" : "warning"}>
                         {c.status}
                       </Badge>
+                      {c.sync_status === "failed" && <Badge tone="error">Sync failed</Badge>}
                       {c.refresh_queued && <Badge tone="info">queued</Badge>}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-fg-subtle">
                       <span>Last ok {c.last_success_at ? formatDateTime(c.last_success_at) : "never"}</span>
                       {c.next_due_at && (
                         <span>
-                          {c.refresh_queued ? "Runs" : "Next"} {formatDateTime(c.next_due_at)}
+                          {c.retry_at ? "Retry after" : c.refresh_queued ? "Runs" : "Next"} {formatDateTime(c.next_due_at)}
                         </span>
                       )}
                       <Button size="sm" variant="ghost"
-                        disabled={busyId === c.connection_id}
+                        disabled={busyId === c.connection_id || !["connected", "degraded"].includes(c.status)}
                         onClick={() => syncNow(c.connection_id)}
                         aria-label={`Sync now for connection ${c.connection_id}`}>
                         Sync now
                       </Button>
                     </span>
+                    {(c.sync_error || c.last_error) && <p className="w-full text-negative" role="status">
+                      {c.sync_error || c.last_error}
+                    </p>}
                   </li>
                 ))}
               </ul>
