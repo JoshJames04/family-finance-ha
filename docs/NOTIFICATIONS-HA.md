@@ -55,6 +55,10 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
 | Goals | `goal.milestone` from a real committed inbound contribution crossing; per-goal numeric percent supports other visual thresholds |
 
+A matched payment emits `movement.partial` while an outstanding amount remains.
+Only a payment that completes the obligation emits `movement.settled`; replaying
+an already matched transaction emits neither event again.
+
 Use only types implemented by the installed app version. An available event entity
 is a stream endpoint, not evidence that every conceivable transition exists.
 Detailed transaction events can include `payee`, `amount_pence`, `account_id` and

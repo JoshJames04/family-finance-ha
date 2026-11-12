@@ -33,6 +33,8 @@ release pipeline (multi-arch GHCR image + GitHub release).
   history, and open the exact transaction selected from command search.
 - Publish every HA event before acknowledging its durable cursor; add scoped
   entity discovery, energy statistics and canonical financial transitions.
+- Emit partial-payment events while an obligation has a remaining balance;
+  settled-payment events now wait for the final payment (#476).
 
 ### Release checks and upgrade notes
 
@@ -48,6 +50,8 @@ release pipeline (multi-arch GHCR image + GitHub release).
   operator checks (#432, #441). These are not claimed complete by this release.
 - Dashboard/layout, payday and automatic bank-sync issues retain their required
   live-installation acceptance checks (#460, #414, #461, #416).
+- [Remaining work after this release](docs/RELEASE-1.5.0-REMAINING.md) records the
+  eight tracked follow-ups and the blocked personal-project board update.
 
 ## [1.4.1] — 2026-11-11
 

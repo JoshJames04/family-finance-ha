@@ -9,6 +9,8 @@
 - Restore private monitoring permissions and exact transaction search links.
 - Acknowledge HA outbox cursors after event publication; improve HA events,
   optional entities and energy statistics.
+- Partial payments emit `movement.partial`; only completion emits
+  `movement.settled`, without duplicate events on replay.
 - Back up before upgrading: startup applies migrations 0068 and 0069. Private
   space-transfer aliases require configuration after deployment; no live rules
   were changed during verification.
