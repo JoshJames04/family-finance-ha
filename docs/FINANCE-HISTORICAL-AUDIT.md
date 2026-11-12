@@ -33,11 +33,14 @@ links remain an explicit payment workflow. Automated bank-match discovery is not
 claimed. Private payment accounts require the same private event owner, so a
 shared event cannot disclose private transaction references.
 
-The original meaningful workbook comments were not retained by the retired
-one-shot importer. Current application notes are visible and searchable, but
-missing original comments cannot be reconstructed from available source evidence.
-The parity matrix's historical difference remains open evidence, not acceptance
-proof. The retired importer and old Piecework operational tooling are not restored.
+The retired importer did not retain workbook annotations. The retained local
+workbook still contains 16 recoverable threaded comments on its 2025–2027 budget
+sheets; compatibility comment copies must not be counted twice. Current
+application notes are visible and searchable, but BudgetLine has no annotation
+field and exact assignment of those source comments to current records remains
+unverified. A private recovery inventory is supplied outside the public repository.
+This is a retained data-preservation gap, not completed migration acceptance.
+The retired importer and old Piecework operational tooling are not restored.
 
 ## Independent statutory sources
 

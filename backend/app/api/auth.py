@@ -178,7 +178,9 @@ async def auth_middleware(
             given = request.headers.get("x-admin-token", "")
             service = bool(expected and given and hmac.compare_digest(given, expected))
             if service:
-                if not _service_route(request.method, path):
+                # Recovery retains the existing fail-closed admin token gate.
+                if (not path.startswith("/api/v1/admin/")
+                        and not _service_route(request.method, path)):
                     return Response(status_code=403)
                 request.state.service_authenticated = True
             elif (request.method, path) in {

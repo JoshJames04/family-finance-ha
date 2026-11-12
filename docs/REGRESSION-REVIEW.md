@@ -19,6 +19,11 @@ degraded, financial API mutations return 503, and the scheduler remains
 disabled. Administrator recovery endpoints remain available. Readiness
 exports a fixed failure code, without database exception details.
 
+Ingress also preserves token-authenticated administrator backup/restore access
+through the existing admin gate. The restricted HA service endpoint allowlist
+does not strand recovery on a failed upgrade. This does not assign the service
+a household member identity.
+
 New snapshots embed their UTC creation timestamp in
 `ff_backup_manifest`. Listing reads this timestamp independently of file
 modification time or a changed filename; legacy or malformed manifests
@@ -52,8 +57,41 @@ energy reading emits no duplicate transition.
 
 ## Verification boundaries
 
+The historical audit groups are covered by these regression suites:
+
+| Audit group | Fix / evidence |
+|---|---|
+| B1, B6, B7 | Complete signed, as-of Budget spending with an itemised bridge; `test_historical_budget_acceptance.py` |
+| B2, B3 | Authorised reports and owner-scoped budget variance; same suite |
+| B4 | Opening balance stock excluded from earned income; same suite |
+| B5 | Partially paid bills retain their remaining obligation; same suite |
+| B8 / #456 | Tariff and template deletion lifecycle; `test_budget_register_acceptance.py` |
+| P1, P2, P12 | Employment, payslip, goal and payee privacy; `test_historical_payroll.py` |
+| P3–P5 | K-code limits, cumulative refunds, NI categories and versioned flat tax rates; historical payroll and `test_paye_refunds.py` |
+| P6, P7 | Unique loan payment attribution and sequential repayment balances; historical payroll suite |
+| P8, P9 | Dated, non-void goal funding; historical payroll suite |
+| P10, P11 | Ordinary payroll generation identity and operational cutoff; historical payroll suite |
+| P13 | Seasonal visibility, actual versus committed costs, visible/searchable notes; original workbook annotation mapping remains unverified |
+| F1 | Real-route ingress, viewer and shared-service authorization; `test_banking_security_regressions.py`, `test_rule_privacy.py` |
+| F2 | Real HA adapter against synthetic FastAPI; `test_ha_adapter_contract.py` |
+| F3, F5 | Scoped outbox, safe monetary redaction, class-only exception exports; banking security suite |
+| F4 | Quiet first connection/reload and durable cursor delivery; `tests/ha/test_outbox.py`, `test_event_entities.py` |
+| F6 | Cursor/EventEntity/options, canonical families, energy recorder ingestion, HA theme, financial search, exact source links, schema CI, snapshot manifests and migration write guard; dedicated HA, recovery, search and canonical-event suites |
+| F7 | Shared and owner-aware overspend evaluation; banking security suite |
+| Review followups | Scoped learned policies, immutable historic rows, native event batch delivery, renamed sensor names and correct All period selection; dedicated rule, immutability, HA and browser regressions |
+
+Synthetic browser evidence contains no household data:
+
+![Combined Budget](images/historical-budget.png)
+
+![Alphabetical transaction categories](images/historical-categories.png)
+
 Passing synthetic tests, a successful container startup and a published
 release are separate facts. Actual HAOS device runtime, the visual Home
 Assistant automation editor, real bank-provider sync and real notification
 delivery require operator checks; this review does not fabricate those
 results. This PR is for review and does not deploy or change live data.
+
+The retained workbook's 16 threaded comments are recoverable. Exact assignment
+to application records is unverified; see the finance disposition. These limits
+remain explicit review items, rather than inferred acceptance from closed issues.

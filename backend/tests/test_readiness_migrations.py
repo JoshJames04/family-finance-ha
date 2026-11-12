@@ -17,6 +17,7 @@ def test_failed_upgrade_blocks_financial_writes(
     upgrade_head(url)
     settings = Settings.load({"FF_DATA_DIR": str(tmp_path), "FF_DATABASE_URL": url,
                               "FF_SCHEDULER_TICK_SECONDS": "0.01",
+                              "FF_INGRESS": "true", "FF_ADMIN_TOKEN": "synthetic-recovery",
                               "FF_BACKUP_INTERVAL_HOURS": "0"})
 
     def fail(_url: str) -> None:
@@ -32,6 +33,8 @@ def test_failed_upgrade_blocks_financial_writes(
         assert response.status_code == 503
         assert app.state.scheduler_enabled is False
         assert client.get("/api/v1/version").status_code == 200
+        assert client.get("/api/v1/admin/backups", headers={
+            "X-Admin-Token": "synthetic-recovery"}).status_code == 200
 
 
 def test_readyz_shows_migrations_current(tmp_path: Path) -> None:
