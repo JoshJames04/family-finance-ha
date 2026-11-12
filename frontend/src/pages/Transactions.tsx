@@ -167,7 +167,14 @@ export function Transactions() {
   const active = Object.values(filters).some(Boolean);
 
   const refresh = () => { setPage(1); setRev((r) => r + 1); };
-  const setFilters = (f: Filters) => { setPage(1); setFiltersRaw(f); };
+  const setFilters = (f: Filters) => {
+    const next = new URLSearchParams(searchParams);
+    for (const key of URL_FILTER_KEYS) next.delete(key);
+    for (const [key, value] of Object.entries(f)) {
+      if (URL_FILTER_KEYS.includes(key) && value) next.set(key, value);
+    }
+    setSearchParams(next, { replace: true });
+  };
   /** Inline edits patch the row in place — no refetch, scroll kept. */
   const patch = (id: number, body: object) =>
     api.patch("/api/v1/transactions/{txn_id}",

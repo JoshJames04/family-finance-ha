@@ -141,8 +141,10 @@ salary forecasts shows none. Synthetic component coverage is in
 
 Report transaction links retain their date, category, direction and ownership
 filters, including the explicit shared-only scope. Transactions applies these
-filters to the ledger request and clears the whole scope with Clear. CSV export
-URLs resolve from the app mount for both standalone and Home Assistant ingress
+filters to the ledger request and clears the whole scope with Clear.
+Filter edits and Clear also update the URL, preserving unrelated parameters
+such as a selected transaction, so reload cannot restore an obsolete report scope.
+CSV export URLs resolve from the app mount for standalone and Home Assistant ingress
 routes. Synthetic route coverage is in
 `frontend/src/__tests__/reports-drill.test.tsx`.
 
