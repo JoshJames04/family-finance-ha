@@ -8,7 +8,7 @@ the settings surface).
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
@@ -74,7 +74,8 @@ def _out(ev: IntegrationEvent, detailed: bool) -> schemas.IntegrationEventOut:
     return schemas.IntegrationEventOut(
         seq=ev.id, event_type=ev.event_type,
         entity_kind=ev.entity_kind, entity_id=ev.entity_id,
-        occurred_at=ev.occurred_at,
+        occurred_at=(ev.occurred_at.replace(tzinfo=UTC) if ev.occurred_at.tzinfo is None
+                     else ev.occurred_at.astimezone(UTC)),
         data=outbox.visible_payload(ev, detailed))
 
 

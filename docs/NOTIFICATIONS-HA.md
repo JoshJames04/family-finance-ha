@@ -194,7 +194,11 @@ flow. An unchanged poll, void row, future-dated row or unrelated owner's private
 spend cannot manufacture a usage transition. `budget.usage` carries actual plan,
 spent, remaining and percent values in detailed mode. `budget.over` fires on a real
 crossing below zero remaining; `budget.remaining_changed` requires the remaining
-amount itself to change. Ordinary transaction/split/status/correction/bulk writes,
+amount itself to change. Detailed events include `old_remaining_pence` and
+`old_usage_pct`, so an automation condition can compare old and new values for
+its chosen threshold without firing repeatedly while already below it. Feed
+timestamps carry an explicit UTC offset; legacy naive outbox timestamps are
+interpreted as UTC. Ordinary transaction/split/status/correction/bulk writes,
 bank page checkpoints, settlement classification and budget revisions evaluate
 inside their actual mutation boundary.
 

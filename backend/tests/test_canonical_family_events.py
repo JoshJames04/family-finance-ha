@@ -144,6 +144,7 @@ def test_budget_state_uses_complete_signed_asof_ledger_and_deduplicates(session,
     tick(session)
     assert len(rows(session, "budget.over")) == 1
     assert rows(session, "budget.remaining_changed")[-1].payload["remaining_pence"] == 1000
+    assert rows(session, "budget.remaining_changed")[-1].payload["old_remaining_pence"] == -2000
 
 
 def test_seasonal_variance_is_actual_and_commitment_scoped(session, household):

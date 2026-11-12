@@ -13,7 +13,7 @@ payees and pence amounts.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -62,10 +62,13 @@ def emit(session: Session, household_id: int, event_type: str, *,
         ).scalar_one_or_none()
         if seen is not None:
             return None
+    instant = at or datetime.now(UTC)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
     row = IntegrationEvent(
         household_id=household_id, event_type=event_type,
         entity_kind=entity_kind, entity_id=entity_id,
-        occurred_at=at or datetime.now(), payload=payload or {},
+        occurred_at=instant.astimezone(UTC).replace(tzinfo=None), payload=payload or {},
         dedup_key=dedup_key)
     session.add(row)
     session.flush()

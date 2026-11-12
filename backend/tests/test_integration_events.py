@@ -30,6 +30,15 @@ from app.persistence.models import (
 TODAY = date(2025, 1, 16)
 
 
+def test_event_api_timestamp_is_explicitly_utc(session, household):
+    from datetime import datetime
+
+    event = outbox.emit(session, household.id, "sync.recovered", at=datetime(2026, 6, 1, 12))
+    assert event is not None
+    result = integration_route._out(event, False).model_dump(mode="json")
+    assert result["occurred_at"] == "2026-06-01T12:00:00Z"
+
+
 @pytest.fixture()
 def account(session: Session, household: Household) -> Account:
     a = Account(household_id=household.id, name="Bills",

@@ -88,6 +88,9 @@ def evaluate_budgets(session: Session, household_id: int, *, today: date | None 
             "planned_pence": planned,
             "spent_pence": spent,
             "remaining_pence": remaining,
+            "old_remaining_pence": int(previous["planned"]) - int(previous["spent"]),
+            "old_usage_pct": (round(int(previous["spent"]) * 100 / int(previous["planned"]), 2)
+                              if int(previous["planned"]) else None),
             "usage_pct": round(spent * 100 / planned, 2) if planned else None,
         }
         kinds = ["budget.usage"]

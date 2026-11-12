@@ -9,6 +9,9 @@ import types
 from datetime import date, timedelta
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
 from app.core.settings import Settings
 from app.main import create_app
 from app.persistence.models import (
@@ -22,8 +25,6 @@ from app.persistence.models import (
     SyncCursor,
     SyncStatus,
 )
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 
 def _adapter(monkeypatch):

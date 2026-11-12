@@ -337,7 +337,7 @@ def test_tax_code_and_deduction_changes_refresh_estimates(session, household, mo
     monkeypatch.setattr(api, "date", Clock)
     # schedule's default uses its own clock.
     monkeypatch.setattr(schedule, "date", Clock)
-    e, _, _ = employment(session, household)
+    e, _, p = employment(session, household)
     schedule.rematerialize_employment(session, e, horizon_days=35)
     ordinary_net = projected(session)[0].amount_pence
     api.add_tax_code_revision(

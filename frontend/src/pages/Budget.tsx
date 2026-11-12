@@ -306,11 +306,11 @@ export function Budget() {
                 <>
                   <div className="mb-4 flex flex-wrap items-center gap-2">
                     <h2 className="text-[17px] font-semibold tracking-tight">{formatMonthOf(d.start_date)}</h2>
-                    <Badge tone={STATUS_TONE[d.status] ?? "info"}>{d.status}</Badge>
+                    {!aggregate && <Badge tone={STATUS_TONE[d.status] ?? "info"}>{d.status}</Badge>}
                     {locked && (
                       <span className="inline-flex items-center gap-1 text-[12.5px] text-fg-subtle">
                         <Lock className="size-3.5" />
-                        <span>locked — read-only</span>
+                        <span>{aggregate ? "Combined view — read-only" : "locked — read-only"}</span>
                       </span>
                     )}
                     <span className="ml-auto text-[12.5px] text-fg-subtle">
