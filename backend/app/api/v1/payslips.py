@@ -10,13 +10,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.payroll_scope import authorize_employment
 from app.domain import notifications, payrun, payslips, schedule
 from app.domain import overtime as overtime_domain
 from app.domain import payroll as payroll_domain
@@ -35,7 +36,7 @@ from app.persistence.models import (
 
 router = APIRouter(
     prefix="/employments/{emp_id}/payroll-runs/{run_id}/payslips",
-    tags=["payslips"])
+    tags=["payslips"], dependencies=[Depends(authorize_employment)])
 MAX_BYTES = 10 * 1024 * 1024
 MAGIC_TYPES = (
     (b"%PDF-", "application/pdf"),

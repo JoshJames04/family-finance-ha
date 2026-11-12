@@ -18,6 +18,7 @@ from app.persistence.models import (
     GoalType,
     SavingsGoal,
     Transaction,
+    TransactionStatus,
 )
 
 
@@ -32,13 +33,16 @@ def _months_between(start: date, end: date) -> int:
 
 
 def contributed_pence(session: Session, goal: SavingsGoal,
-                      since: date | None = None) -> int:
+                      since: date | None = None, today: date | None = None) -> int:
     """Real inbound transfer legs into the goal account."""
     q = select(func.coalesce(func.sum(Transaction.amount_pence), 0)
                ).where(
         Transaction.account_id == goal.account_id,
         Transaction.amount_pence > 0,
-        Transaction.transfer_id.is_not(None))
+        Transaction.transfer_id.is_not(None),
+        Transaction.status != TransactionStatus.void,
+        Transaction.date >= goal.start_date,
+        Transaction.date <= (today or date.today()))
     if since is not None:
         q = q.where(Transaction.date >= since)
     return int(session.execute(q).scalar_one())
@@ -50,12 +54,16 @@ def ledger(session: Session, goal: SavingsGoal) -> list[Transaction]:
         select(Transaction).where(
             Transaction.account_id == goal.account_id,
             Transaction.amount_pence > 0,
-            Transaction.transfer_id.is_not(None))
+            Transaction.transfer_id.is_not(None),
+            Transaction.status != TransactionStatus.void,
+            Transaction.date >= goal.start_date,
+            Transaction.date <= date.today())
         .order_by(Transaction.date, Transaction.id)).scalars())
 
 
-def remaining_pence(session: Session, goal: SavingsGoal) -> int:
-    return max(0, goal.target_pence - contributed_pence(session, goal))
+def remaining_pence(session: Session, goal: SavingsGoal,
+                    today: date | None = None) -> int:
+    return max(0, goal.target_pence - contributed_pence(session, goal, today=today))
 
 
 def monthly_need(session: Session, goal: SavingsGoal,
@@ -67,7 +75,7 @@ def monthly_need(session: Session, goal: SavingsGoal,
         return None
     today = today or date.today()
     months = _months_between(today, goal.target_date)
-    need = remaining_pence(session, goal)
+    need = remaining_pence(session, goal, today)
     return -(-need // months)  # ceiling division
 
 
@@ -79,7 +87,7 @@ def sinking_schedule(session: Session, goal: SavingsGoal, *,
     if goal.target_date is None:
         return []
     today = today or date.today()
-    need = remaining_pence(session, goal)
+    need = remaining_pence(session, goal, today)
     months = _months_between(today, goal.target_date)
     per = -(-need // months)
     out: list[tuple[date, int]] = []
@@ -105,7 +113,7 @@ class GoalProgress:
 
 def progress(session: Session, goal: SavingsGoal,
              today: date | None = None) -> GoalProgress:
-    c = contributed_pence(session, goal)
+    c = contributed_pence(session, goal, today=today)
     return GoalProgress(
         contributed_pence=c,
         remaining_pence=max(0, goal.target_pence - c),
@@ -139,7 +147,7 @@ def average_monthly_rate(session: Session, goal: SavingsGoal,
     """Contribution velocity: total ÷ months since goal start."""
     today = today or date.today()
     months = _months_between(goal.start_date, today)
-    return contributed_pence(session, goal) // months
+    return contributed_pence(session, goal, today=today) // months
 
 
 def projected_completion(session: Session, goal: SavingsGoal,
@@ -148,7 +156,7 @@ def projected_completion(session: Session, goal: SavingsGoal,
     of the month it completes. ``None`` when the rate is zero
     (unknowable) or the goal is already funded."""
     today = today or date.today()
-    need = remaining_pence(session, goal)
+    need = remaining_pence(session, goal, today)
     if need == 0:
         return today  # funded
     rate = average_monthly_rate(session, goal, today)

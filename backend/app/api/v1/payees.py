@@ -13,7 +13,8 @@ from sqlalchemy import func, select
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import rbac
 from app.domain.periods import assert_editable
 from app.persistence.models import Account, Transaction
 
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/payees", tags=["payees"])
 
 @router.get("", response_model=list[schemas.PayeeOut])
 def list_payees(
-    household: HouseholdDep, session: SessionDep,
+    household: HouseholdDep, session: SessionDep, profile: ProfileDep,
     q: Annotated[str | None, Query()] = None,
 ) -> list[schemas.PayeeOut]:
     """Distinct payees with transaction counts, most-used first."""
@@ -32,6 +33,10 @@ def list_payees(
         .where(Account.household_id == household.id)
         .group_by(Transaction.payee)
         .order_by(func.count().desc(), Transaction.payee))
+    visible_ids = [a.id for a in session.scalars(select(Account).where(
+        Account.household_id == household.id))
+        if rbac.visible(a.owner_profile_id, profile)]
+    stmt = stmt.where(Account.id.in_(visible_ids))
     if q:
         stmt = stmt.where(Transaction.payee.ilike(f"%{q}%"))
     return [schemas.PayeeOut(payee=p, transaction_count=n)
@@ -41,7 +46,7 @@ def list_payees(
 @router.post("/rename", response_model=schemas.PayeeRenameOut)
 def rename_payee(
     body: schemas.PayeeRenameIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.PayeeRenameOut:
     """Rename/merge a payee across editable transactions."""
     rows = session.scalars(
@@ -51,6 +56,9 @@ def rename_payee(
                Transaction.payee == body.source)).all()
     renamed = skipped = 0
     for t in rows:
+        if (not rbac.visible(t.account.owner_profile_id, profile)
+                or not rbac.write_allowed(t.account.owner_profile_id, profile)):
+            continue
         try:
             assert_editable(session, t)
         except Exception:

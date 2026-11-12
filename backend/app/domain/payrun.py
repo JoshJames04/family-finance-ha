@@ -93,6 +93,12 @@ def generate(
     """Assemble a forecast run for a pay period."""
     if end < start:
         raise PayrollError("period end must be on/after start")
+    if employment.payday_rule and "cutoff_day" in employment.payday_rule:
+        cal = pay_calendar.parse_calendar(employment.payday_rule)
+        window = pay_calendar.period(cal, pay_date.year, pay_date.month)
+        start, end = window.start, window.cutoff
+        if employment.start_date is not None:
+            start = max(start, employment.start_date)
     if employment.end_date is not None:
         if start > employment.end_date:
             raise PayrollError(
@@ -100,6 +106,13 @@ def generate(
                 f"{employment.end_date} — no run can start after it")
         if end > employment.end_date:   # final partial period
             end = employment.end_date
+    existing = session.scalars(select(PayrollRun).where(
+        PayrollRun.employment_id == employment.id,
+        PayrollRun.period_start == start,
+        PayrollRun.period_end == end,
+        PayrollRun.corrects_id.is_(None))).first()
+    if existing is not None:
+        return existing
     if unpaid_leave_days is not None:
         unpaid_leave_pence += unpaid_leave_for_days(
             session, employment, unpaid_leave_days, end)

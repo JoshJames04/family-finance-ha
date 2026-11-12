@@ -31,7 +31,7 @@ DATA = (Path(__file__).resolve().parents[1] / "app" / "domain" / "data"
 
 def _params(year: str, jur: str) -> Any:
     raw: Any = json.loads(DATA.read_text(encoding="utf-8"))
-    for s in raw["sets"]:
+    for s in sorted(raw["sets"], key=lambda row: row["version"], reverse=True):
         if s["tax_year"] == year and s["jurisdiction"] == jur:
             return s["params"]  # type: ignore[no-any-return]
     raise AssertionError(f"missing rule set {year}/{jur}")
@@ -147,11 +147,11 @@ class TestCodeVariants:
 
 
 class TestNiAndLoans:
-    def test_ni_category_m_zero_above_uel(self) -> None:
+    def test_ni_category_m_employee_rates_match_a(self) -> None:
         d = compute_period(gross_pence=500_000, tax_code="1257L",
                            params=EW, ni_category="M")
-        # under-21: 8% to UEL, 0% above → only the £251.33 band
-        assert d.ni_pence == 25_133
+        # HMRC employee M rates are 8% then 2%, like A.
+        assert d.ni_pence == 26_754
 
     def test_ni_category_c_zero(self) -> None:
         d = compute_period(gross_pence=500_000, tax_code="1257L",
@@ -219,11 +219,11 @@ class TestVersioning:
             self, session: Session) -> None:
         seed_rule_sets(session)
         session.add(TaxRuleSet(
-            tax_year="2025-26", jurisdiction="scotland", version=2,
+            tax_year="2025-26", jurisdiction="scotland", version=99,
             params="{}"))
         session.flush()
         assert rule_set(session, "2025-26",
-                        TaxJurisdiction.scotland).version == 2
+                        TaxJurisdiction.scotland).version == 99
 
 
 class TestCodeParsing:

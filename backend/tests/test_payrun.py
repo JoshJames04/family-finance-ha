@@ -55,7 +55,7 @@ class TestGenerate:
                               pay_date=PAY)
         assert run.status is PayrollRunStatus.forecast
         assert run.tax_year == "2025-26"
-        assert run.rule_set_version == 1
+        assert run.rule_set_version == 2
         base = 3_600_000 * 30 // 365
         assert run.gross_pence == base
         kinds = {c.kind: c.forecast_pence for c in run.components}

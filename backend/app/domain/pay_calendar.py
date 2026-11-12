@@ -94,6 +94,8 @@ def serialize_rule(rule: PaydayRule) -> str:
 
 def parse_rule(raw: str) -> PaydayRule:
     d: dict[str, Any] = json.loads(raw)
+    if "pay_rule" in d:
+        d = d["pay_rule"]
     default_adjust = "none" if d.get("kind") in {
         RuleKind.nth_weekday.value, RuleKind.weekly.value,
     } else "previous"
@@ -123,6 +125,8 @@ def serialize_calendar(cal: PayrollCalendar) -> str:
 
 def parse_calendar(raw: str) -> PayrollCalendar:
     d: dict[str, Any] = json.loads(raw)
+    if not isinstance(d.get("cutoff_day"), int) or not 1 <= d["cutoff_day"] <= 31:
+        raise ValueError("payroll cutoff must be between 1 and 31")
     return PayrollCalendar(
-        cutoff_day=int(d["cutoff_day"]),
-        pay_rule=parse_rule(json.dumps(d["pay_rule"])))
+        cutoff_day=d["cutoff_day"],
+        pay_rule=parse_rule(json.dumps(d.get("pay_rule", d))))

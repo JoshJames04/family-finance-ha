@@ -9,16 +9,17 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.api.payroll_scope import authorize_employment
 from app.domain import budgets as budget_dom
 from app.domain import overtime as ot
-from app.domain import pay_calendar, paydays, payrun, schedule
+from app.domain import pay_calendar, paydays, payrun, rbac, schedule
 from app.domain import payroll as dom
 from app.persistence.models import (
     Account,
@@ -34,7 +35,8 @@ from app.persistence.models import (
     UserProfile,
 )
 
-router = APIRouter(prefix="/employments", tags=["employments"])
+router = APIRouter(prefix="/employments", tags=["employments"],
+                   dependencies=[Depends(authorize_employment)])
 
 
 def _get(session: Session, household_id: int, emp_id: int) -> Employment:
@@ -52,8 +54,10 @@ def list_employments(
 ) -> schemas.Page[schemas.EmploymentOut]:
     stmt = select(Employment).where(
         Employment.household_id == household.id)
-    if profile is not None:
+    if profile is not None and not rbac.can(profile, rbac.Action.admin):
         stmt = stmt.where(Employment.profile_id == profile.id)
+        if not rbac.visible(profile.id, profile):
+            stmt = stmt.where(Employment.id == -1)
     total = len(list(session.execute(stmt).scalars().all()))
     rows = session.execute(
         stmt.order_by(Employment.id).offset((page - 1) * size)
@@ -66,8 +70,10 @@ def list_employments(
 @router.post("", response_model=schemas.EmploymentOut, status_code=201)
 def create_employment(
     body: schemas.EmploymentIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.EmploymentOut:
+    if not rbac.write_allowed(body.profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
     p = session.get(UserProfile, body.profile_id)
     if p is None or p.household_id != household.id:
         raise HTTPException(404, f"profile {body.profile_id} not found")
@@ -92,7 +98,9 @@ def create_employment(
         raise HTTPException(422, "salary effective date cannot precede employment start")
     if body.paid_into_account_id is not None:
         acct = session.get(Account, body.paid_into_account_id)
-        if acct is None or acct.household_id != household.id:
+        if (acct is None or acct.household_id != household.id
+                or not rbac.visible(acct.owner_profile_id, profile)
+                or not rbac.write_allowed(acct.owner_profile_id, profile)):
             raise HTTPException(404, "paid-into account not found")
     e = Employment(household_id=household.id,
                    profile_id=p.id, employer=body.employer,
@@ -179,7 +187,7 @@ def _shift_year(d: date, year: int) -> date:
              status_code=201)
 def prepare_year(
     body: schemas.PrepareYearIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.PrepareYearOut:
     """Roll the year forward (issue #304): forecast payroll runs for
     every employment active in the year + budget structure copied
@@ -191,6 +199,8 @@ def prepare_year(
         select(Employment).where(
             Employment.household_id == household.id)).all()
     for e in emps:
+        if not rbac.write_allowed(e.profile_id, profile):
+            continue
         if not e.is_active:
             continue
         if e.end_date is not None and e.end_date < date(year, 1, 1):
@@ -303,6 +313,9 @@ def prepare_year(
         for m in range(1, 13):
             month_start = date(year, m, 1)
             end = date(year, m, calendar.monthrange(year, m)[1])
+            if "cutoff_day" in e.payday_rule:
+                window = pay_calendar.period(pay_calendar.parse_calendar(e.payday_rule), year, m)
+                month_start, end = window.start, window.cutoff
             if employment_start is not None and end < employment_start:
                 continue
             start = max(month_start, employment_start or month_start)
@@ -378,7 +391,7 @@ def get_employment(emp_id: int, household: HouseholdDep,
 @router.patch("/{emp_id}", response_model=schemas.EmploymentOut)
 def patch_employment(
     emp_id: int, body: schemas.EmploymentPatch,
-    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.EmploymentOut:
     e = _get(session, household.id, emp_id)
     changed = body.model_dump(exclude_unset=True)
@@ -393,7 +406,9 @@ def patch_employment(
     if "paid_into_account_id" in changed \
             and changed["paid_into_account_id"] is not None:
         acct = session.get(Account, changed["paid_into_account_id"])
-        if acct is None or acct.household_id != household.id:
+        if (acct is None or acct.household_id != household.id
+                or not rbac.visible(acct.owner_profile_id, profile)
+                or not rbac.write_allowed(acct.owner_profile_id, profile)):
             raise HTTPException(404, "paid-into account not found")
     for k, v in changed.items():
         setattr(e, k, v)

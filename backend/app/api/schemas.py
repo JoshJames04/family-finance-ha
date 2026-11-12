@@ -1187,6 +1187,7 @@ class LoanProjectionOut(BaseModel):
 
 
 class SeasonalEventIn(BaseModel):
+    owner_profile_id: int | None = None
     year: int = Field(ge=1900, le=2200)
     type: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=120)
@@ -1196,6 +1197,7 @@ class SeasonalEventIn(BaseModel):
 
 
 class SeasonalEventOut(BaseModel):
+    owner_profile_id: int | None = None
     model_config = ConfigDict(from_attributes=True)
     id: int
     year: int
@@ -1207,6 +1209,7 @@ class SeasonalEventOut(BaseModel):
 
 
 class EventTotalsOut(BaseModel):
+    remaining_after_commitments_pence: int
     planned_pence: int
     actual_pence: int
     committed_pence: int

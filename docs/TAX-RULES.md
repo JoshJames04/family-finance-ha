@@ -69,7 +69,7 @@ for that year:
 
 ## Supported scope
 
-- Tax years 2024-25 and 2025-26; jurisdictions `england_wales` (also
+- Tax years 2024-25, 2025-26 and 2026-27; jurisdictions `england_wales` (also
   used for Northern Ireland income tax, which shares the rUK bands) and
   `scotland`.
 - Codes: `NnL/T/M/N` (+ `S`/`C` prefix), `K` codes, `BR`, `D0`, `D1`,
@@ -81,3 +81,12 @@ for that year:
 - Weekly/fortnightly pay frequencies are expressed in *periods per
   year* — the engine takes `months` pro-rata so 13/26/52-period years
   only need a period-count parameter change, not new code.
+
+## November 2026 corrections
+
+Version 2 entries correct employee NI above UEL for H/M/Z; version 1 remains
+available for historical provenance. BR/D0/D1 resolve through the selected
+parameters' `flat_code_band_indices` and `bands` rates. K-code deductions obey
+the HMRC overriding limit of half the period's gross pay. See the
+[historical finance disposition](FINANCE-HISTORICAL-AUDIT.md) for sources,
+regression evidence and the limits of this audit.

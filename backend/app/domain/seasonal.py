@@ -70,7 +70,8 @@ class EventTotals:
     planned_pence: int
     actual_pence: int
     committed_pence: int  # actual where spent, else planned — real ask
-    remaining_pence: int  # budget − committed (negative = over)
+    remaining_pence: int  # budget minus recorded actual spend
+    remaining_after_commitments_pence: int
 
 
 def totals(session: Session, event: SeasonalEvent) -> EventTotals:
@@ -89,7 +90,8 @@ def totals(session: Session, event: SeasonalEvent) -> EventTotals:
         planned_pence=int(rows[0] or 0),
         actual_pence=int(rows[1] or 0),
         committed_pence=int(rows[2] or 0),
-        remaining_pence=event.budget_pence - int(rows[2] or 0))
+        remaining_pence=event.budget_pence - int(rows[1] or 0),
+        remaining_after_commitments_pence=event.budget_pence - int(rows[2] or 0))
 
 
 @dataclass(frozen=True)
@@ -179,6 +181,7 @@ def rollover(
     clash = session.execute(
         select(SeasonalEvent).where(
             SeasonalEvent.household_id == event.household_id,
+            SeasonalEvent.owner_profile_id == event.owner_profile_id,
             SeasonalEvent.type == event.type,
             SeasonalEvent.year == year)
     ).scalar_one_or_none()
@@ -191,7 +194,8 @@ def rollover(
     new = SeasonalEvent(
         household_id=event.household_id, year=year, type=event.type,
         name=event.name, budget_pence=budget,
-        savings_goal_id=event.savings_goal_id, notes=event.notes)
+        savings_goal_id=event.savings_goal_id, notes=event.notes,
+        owner_profile_id=event.owner_profile_id)
     session.add(new)
     session.flush()
     for g in event.gifts:

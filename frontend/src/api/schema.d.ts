@@ -5201,6 +5201,7 @@ export interface components {
         };
         /** EventTotalsOut */
         EventTotalsOut: {
+            remaining_after_commitments_pence: number;
             /** Planned Pence */
             planned_pence: number;
             /** Actual Pence */
@@ -6822,6 +6823,7 @@ export interface components {
         };
         /** SeasonalEventIn */
         SeasonalEventIn: {
+            owner_profile_id?: number | null;
             /** Year */
             year: number;
             /** Type */
@@ -6839,6 +6841,7 @@ export interface components {
         };
         /** SeasonalEventOut */
         SeasonalEventOut: {
+            owner_profile_id?: number | null;
             /** Id */
             id: number;
             /** Year */

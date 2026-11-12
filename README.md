@@ -24,6 +24,10 @@ one-time migration source only — it is never a runtime dependency.
 
 ## What it does
 
+The [specialist finance audit disposition](docs/FINANCE-HISTORICAL-AUDIT.md)
+documents payroll cutoffs, private salary and savings boundaries, versioned
+tax corrections, loan attribution, and seasonal actual versus committed budgets.
+
 - **Budgeting** — monthly, annual and custom-period budgets with original
   budget, revised forecast, actuals, variance and forecast-accuracy tracking.
 - **Cash-flow forecasting** — date-aware projected balances, safe-to-spend,
