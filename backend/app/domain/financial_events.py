@@ -246,13 +246,13 @@ def evaluate_paydays(session: Session, household_id: int, *, today: date | None 
             and (employment.end_date is None or employment.end_date >= movement.expected_date)
         ):
             occurrences[(employment.id, movement.expected_date)] = movement
-    for (employment_id, due), movement in occurrences.items():
+    for employment_id, due in occurrences:
         outbox.emit(
             session,
             household_id,
             "payroll.approaching",
-            entity_kind="expected_movement",
-            entity_id=movement.id,
+            entity_kind="employment",
+            entity_id=employment_id,
             payload={
                 "source": "payroll",
                 "status": "approaching",

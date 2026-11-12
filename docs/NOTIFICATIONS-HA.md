@@ -212,8 +212,11 @@ energy report responses apply the same private-plan exclusion.
 
 `payroll.approaching` is a durable time event in the three-day lead window of a
 real employment/payroll expected occurrence. It deduplicates on employment plus
-due date, including refresh, reload and catch-up inside the window. Account scope
-on the expected movement controls visibility. `payslip.state_changed` compares
+due date, including refresh, reload and catch-up inside the window. Employment
+ownership controls visibility even with a shared or absent destination account;
+the shared HA service does not receive private employment events. Regenerating
+an expected occurrence does not discard the event's ownership reference.
+`payslip.state_changed` compares
 persisted lifecycle status only and never includes a filename, file path, document
 text or extraction contents. Private occurrence/artifact events remain private in
 the feed even in Safe mode.

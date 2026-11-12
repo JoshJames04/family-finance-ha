@@ -3,6 +3,7 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 
 from app.core.scheduler import notify_tick
@@ -233,12 +234,17 @@ def payroll_fixture(session, household):
     return profile, employment, account
 
 
-def test_payday_approaches_once_per_employment_occurrence_and_is_private(session, household):
+@pytest.mark.parametrize("destination", ["private", "shared", "accountless"])
+def test_payday_approaches_once_per_employment_occurrence_and_is_private(
+    session, household, destination,
+):
     profile, employment, account = payroll_fixture(session, household)
+    if destination == "shared":
+        account.owner_profile_id = None
     session.add(
         ExpectedMovement(
             household_id=household.id,
-            account_id=account.id,
+            account_id=None if destination == "accountless" else account.id,
             expected_date=date(2026, 1, 13),
             amount_pence=10000,
             label="Synthetic salary",
@@ -255,6 +261,8 @@ def test_payday_approaches_once_per_employment_occurrence_and_is_private(session
     assert events[0].payload["expected_date"] == "2026-01-13"
     assert not outbox.event_visible(session, events[0], None)
     assert outbox.event_visible(session, events[0], profile.id)
+    assert events[0].entity_kind == "employment"
+    assert events[0].entity_id == employment.id
 
 
 def test_payslip_status_changes_do_not_disclose_artifact_contents(session, household):
