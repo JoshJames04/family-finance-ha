@@ -95,3 +95,8 @@ results. This PR is for review and does not deploy or change live data.
 The retained workbook's 16 threaded comments are recoverable. Exact assignment
 to application records is unverified; see the finance disposition. These limits
 remain explicit review items, rather than inferred acceptance from closed issues.
+
+PR image CI now starts the arm64 image under QEMU and checks readiness, the SPA
+and version. Release smoke runs both amd64 and arm64, including the existing
+Supervisor-mode second boot, before either architecture is published. This
+verifies emulated architecture boot; it is not evidence of a physical HAOS install.
