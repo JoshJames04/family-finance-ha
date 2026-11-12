@@ -126,8 +126,10 @@ def post_sync(session: Session, household_id: int, *,
     """
     from app.domain import categorise
     from app.domain import reconcile as recon
+    from app.domain.financial_events import evaluate_budgets
 
     today = today or date.today()
+    evaluate_budgets(session, household_id, today=today)
     pairs = categorise.auto_pair_transfers(session, household_id)
     categorise.classify_owned_movements(session, household_id)
     refunds = categorise.auto_link_refunds(session, household_id)
@@ -169,6 +171,7 @@ def post_sync(session: Session, household_id: int, *,
                     "count": item.age_days},
                 dedup_key=f"movement.overdue:{item.movement_id}")
     session.flush()
+    evaluate_budgets(session, household_id, today=today)
     return PostSyncStats(
         transfer_pairs=pairs, refund_links=refunds,
         transfer_matches=transfer_matches, scanned=scanned,

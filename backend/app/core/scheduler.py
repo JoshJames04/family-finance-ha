@@ -28,14 +28,15 @@ from sqlalchemy.orm import Session
 from app.domain import banks as bankdom
 from app.domain import deliver as deliverdom
 from app.domain import discovery as discdom
+from app.domain import financial_events, settle
 from app.domain import notifications as notifydom
-from app.domain import settle
 from app.domain import sync as syncdom
 from app.persistence.models import (
     Account,
     BankAccountMapping,
     BankConnection,
     ConnStatus,
+    Household,
     MappingStatus,
     NotificationRule,
     SyncCursor,
@@ -156,6 +157,8 @@ def notify_tick(session: Session, *,
     pending deliveries (issue #70 — the notification half of the
     job runner). Returns ``(raised, delivered)``."""
     now = now or datetime.now()
+    for household_id in session.scalars(select(Household.id)).all():
+        financial_events.evaluate_household(session, household_id, today=now.date())
     raised = 0
     rules = session.scalars(select(NotificationRule).where(
         NotificationRule.enabled.is_(True))).all()

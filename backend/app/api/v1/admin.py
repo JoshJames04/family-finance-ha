@@ -19,7 +19,7 @@ from app.api.deps import (
     require_admin,
 )
 from app.core.settings import Settings
-from app.domain import outbox
+from app.domain import financial_events, outbox
 from app.persistence import backup
 
 router = APIRouter(prefix="/admin", tags=["admin"],
@@ -49,16 +49,26 @@ def create_backup(request: Request, household: HouseholdDep,
                   session: SessionDep, actor: ActorDep,
                   ) -> schemas.BackupOut:
     settings = _settings(request)
-    snap = backup.create_snapshot(request.app.state.engine,
-                                  settings.resolved_backup_dir)
-    deleted = backup.rotate(settings.resolved_backup_dir,
-                            settings.backup_keep)
+    try:
+        snap = backup.create_snapshot(request.app.state.engine,
+                                      settings.resolved_backup_dir)
+        if not backup.verify_snapshot(snap):
+            raise RuntimeError("backup integrity verification failed")
+        deleted = backup.rotate(settings.resolved_backup_dir, settings.backup_keep)
+    except Exception:
+        # The failed operation has no financial mutation to commit. Persist a
+        # sanitised ops transition separately so request rollback cannot erase it.
+        session.rollback()
+        financial_events.record_backup_status(session, household.id, succeeded=False)
+        session.commit()
+        raise
+    financial_events.record_backup_status(session, household.id, succeeded=True)
     emit(session, household.id, actor, "backup", "database", 0,
          {"snapshot": snap.name, "rotated": deleted})
     outbox.emit(session, household.id, "backup.created", entity_kind="backup",
                 payload={"status": "completed"}, dedup_key=f"backup:{snap.name}")
     return schemas.BackupOut(name=snap.name, bytes=snap.stat().st_size,
-                             ok=backup.verify_snapshot(snap),
+                             ok=True,
                              taken_at=backup.snapshot_taken_at(snap))
 
 

@@ -299,3 +299,12 @@ and destination mappings share both the connection and provider account UID, and
 the label resolves uniquely. Proposed mappings, other connections, other account
 UIDs and ambiguous labels confer no alias. Human names are never inferred from
 UIDs; absent aliases require an explicit account-scoped rule before deployment.
+
+Canonical HA family events use compact `app_meta` prior-state JSON and outbox rows
+in the same mutation transaction. The scheduled evaluator compares per-budget
+signed ledger flow, per-event gift totals, per-period energy estimates, and actual
+payslip lifecycle states; it runs independently of notification-rule configuration.
+First observation seeds existing financial state quietly. Expected payday lead
+windows use employment/date occurrence deduplication, not summary count movement.
+Financial and snapshot rollback is atomic. Shared automation/report energy budgets
+and shared budget event flow exclude private plans/accounts before aggregation.

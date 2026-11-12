@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import rbac, splits
+from app.domain import financial_events, rbac, splits
 from app.domain import transactions as txn_domain
 from app.domain.money import Money
 from app.domain.periods import assert_editable
@@ -204,6 +204,7 @@ def create_transaction(
     session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.TransactionOut:
     _write_account(session, household.id, body.account_id, profile)
+    financial_events.evaluate_budgets(session, household.id)
     a = session.get(Account, body.account_id)
     if a is None or a.household_id != household.id:
         raise HTTPException(404, f"account {body.account_id} not found")
@@ -222,6 +223,7 @@ def create_transaction(
         link_refund(session, t, orig)
     emit(session, household.id, actor, "create", "transaction", t.id,
          {"account_id": a.id, "amount_pence": t.amount_pence})
+    financial_events.evaluate_budgets(session, household.id)
     return schemas.TransactionOut.model_validate(t)
 
 
@@ -242,6 +244,7 @@ def patch_transaction(
 ) -> schemas.TransactionOut:
     t = _get(session, household.id, txn_id, profile)
     _write_account(session, household.id, t.account_id, profile)
+    financial_events.evaluate_budgets(session, household.id)
     assert_editable(session, t)
     changed = body.model_dump(exclude_unset=True)
     new_status = changed.pop("status", None)
@@ -251,12 +254,13 @@ def patch_transaction(
         from app.domain import categorise
         t.suggested_category_id = None
         categorise.learn(session, household.id, t.payee,
-                         t.category_id)
+                         t.category_id, account_id=t.account_id)
     if new_status is not None:
         apply_transition(session, t, new_status)
     session.flush()
     emit(session, household.id, actor, "update", "transaction",
          t.id, changed | ({"status": new_status} if new_status else {}))
+    financial_events.evaluate_budgets(session, household.id)
     return schemas.TransactionOut.model_validate(t)
 
 
@@ -270,6 +274,7 @@ def put_splits(
     to the parent amount; reconciled rows refuse — use ``correct``."""
     t = _get(session, household.id, txn_id, profile)
     _write_account(session, household.id, t.account_id, profile)
+    financial_events.evaluate_budgets(session, household.id)
     try:
         splits.replace(session, t, household.id,
                        [s.model_dump() for s in body.splits])
@@ -278,6 +283,7 @@ def put_splits(
     session.flush()
     emit(session, household.id, actor, "update", "transaction",
          t.id, {"splits": len(body.splits)})
+    financial_events.evaluate_budgets(session, household.id)
     return schemas.TransactionOut.model_validate(t)
 
 
@@ -292,6 +298,7 @@ def correct_transaction(
     original is voided, never edited."""
     t = _get(session, household.id, txn_id, profile)
     _write_account(session, household.id, t.account_id, profile)
+    financial_events.evaluate_budgets(session, household.id)
     try:
         corrected = txn_domain.correct(
             session, t, body.reason, payee=body.payee,
@@ -301,10 +308,11 @@ def correct_transaction(
     if body.category_id is not None:
         from app.domain import categorise
         categorise.learn(session, household.id, corrected.payee,
-                         body.category_id)
+                         body.category_id, account_id=corrected.account_id)
     session.flush()
     emit(session, household.id, actor, "correct", "transaction",
          corrected.id, {"corrects": txn_id, "reason": body.reason})
+    financial_events.evaluate_budgets(session, household.id)
     return schemas.TransactionOut.model_validate(corrected)
 
 
@@ -314,6 +322,7 @@ def bulk_transactions(
     session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.BulkResult:
     """Categorise / status-change many rows; per-row failures reported."""
+    seeded = False
     applied: list[int] = []
     rejected: list[dict[str, str]] = []
     for txn_id in body.ids:
@@ -322,12 +331,15 @@ def bulk_transactions(
             _write_account(session, household.id, t.account_id,
                            profile)
             assert_editable(session, t)
+            if not seeded:
+                financial_events.evaluate_budgets(session, household.id)
+                seeded = True
             if body.category_id is not None:
                 from app.domain import categorise
                 t.category_id = body.category_id
                 t.suggested_category_id = None
                 categorise.learn(session, household.id, t.payee,
-                                 body.category_id)
+                                 body.category_id, account_id=t.account_id)
             if body.status is not None:
                 apply_transition(session, t, body.status)
             applied.append(t.id)
@@ -339,4 +351,6 @@ def bulk_transactions(
     for tid in applied:
         emit(session, household.id, actor, "bulk_update",
              "transaction", tid)
+    if applied:
+        financial_events.evaluate_budgets(session, household.id)
     return schemas.BulkResult(applied=applied, rejected=rejected)

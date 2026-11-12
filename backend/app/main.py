@@ -116,17 +116,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # the event loop so requests stay served (#451).
                     snap = await asyncio.to_thread(
                         backup.create_snapshot, engine, backup_dir)
+                    if not await asyncio.to_thread(backup.verify_snapshot, snap):
+                        raise RuntimeError("backup integrity verification failed")
                     n = await asyncio.to_thread(
                         backup.rotate, backup_dir, settings.backup_keep)
                     await asyncio.to_thread(_record_backup, snap.name)
                     log.info("scheduled snapshot taken (%d rotated)", n)
                 except Exception:
+                    try:
+                        await asyncio.to_thread(_record_backup, None)
+                    except Exception:
+                        log.exception("backup failure status could not be persisted")
                     log.exception("scheduled backup failed")
 
-        def _record_backup(name: str) -> None:
+        def _record_backup(name: str | None) -> None:
             from sqlalchemy import select
+
+            from app.domain.financial_events import record_backup_status
             with Session(engine) as session:
                 for household in session.scalars(select(Household)):
+                    record_backup_status(session, household.id, succeeded=name is not None)
+                    if name is None:
+                        continue
                     outbox.emit(session, household.id, "backup.created", entity_kind="backup",
                                 payload={"status": "completed"},
                                 dedup_key=f"backup:{household.id}:{name}")

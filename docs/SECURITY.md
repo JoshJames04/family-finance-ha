@@ -183,3 +183,11 @@ impersonates a household member. Private accounts and employment writes remain
 unavailable to the service. Other token-authenticated mutations are rejected in
 ingress mode. Rule evaluation and notification listing are scoped to shared
 resources plus the target member's accounts.
+
+
+Canonical financial-event snapshots remain internal database state. Shared budget
+and energy events aggregate shared scopes only; seasonal, payslip and expected
+payday events retain their source ownership checks in both Safe and Detailed
+feeds. Detailed sync events use constant error codes rather than raw provider
+responses. Backup events remain allowlisted and omit filenames, paths and exception
+text in both modes. The shared Energy report excludes other members' private plans.

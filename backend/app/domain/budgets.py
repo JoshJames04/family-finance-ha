@@ -98,6 +98,8 @@ def approve(session: Session, budget: Budget) -> Budget:
         raise BudgetError("cannot approve a budget with no lines")
     budget.status = BudgetStatus.approved
     session.flush()
+    from app.domain.financial_events import evaluate_budgets
+    evaluate_budgets(session, budget.household_id)
     outbox.emit(session, budget.household_id, "budget.approved", entity_kind="budget",
                 entity_id=budget.id, payload={"status": budget.status.value},
                 dedup_key=f"budget:{budget.id}:approved")
@@ -114,9 +116,12 @@ def revise_line(session: Session, line: BudgetLine,
         raise BudgetError("line amounts are unsigned")
     if not reason.strip():
         raise BudgetError("revisions require a reason")
+    from app.domain.financial_events import evaluate_budgets
+    evaluate_budgets(session, budget.household_id)
     line.revised_pence = amount_pence
     line.revision_reason = reason.strip()
     session.flush()
+    evaluate_budgets(session, budget.household_id)
     return line
 
 

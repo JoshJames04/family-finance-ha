@@ -48,12 +48,12 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Bills | `movement.settled`, `movement.partial`, `movement.overdue` from settlement/overdue processing |
 | Banking | `transaction.imported` from a committed imported transaction |
 | Subscriptions | `subscription.price_observed` from an observed price |
-| Ops | `sync.failed`, `sync.recovered`; `backup.created` from successful backup creation |
-| Budgets | `budget.approved`, `budget.locked` from lifecycle changes |
-| Payroll | `payroll.generated`, `payroll.reconciled`, `payslip.review_required` |
-| Gifts | `gift.purchased`, `gift.paid` |
-| Energy | `energy.reading_updated` from a changed persisted daily reading |
-| Goals | Per-goal numeric percent is available for thresholds; a raw `goal.*` event requires its canonical backend emitter |
+| Ops | `sync.failed`, `sync.completed`, `sync.recovered`, `data.stale`; `backup.created` / `backup.failed` from real backup outcomes |
+| Budgets | `budget.approved`, `budget.locked`, `budget.usage`, `budget.over`, `budget.remaining_changed` from canonical lifecycle/financial changes |
+| Payroll | `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
+| Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance` |
+| Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
+| Goals | `goal.milestone` from a real committed inbound contribution crossing; per-goal numeric percent supports other visual thresholds |
 
 Use only types implemented by the installed app version. An available event entity
 is a stream endpoint, not evidence that every conceivable transition exists.
@@ -177,3 +177,47 @@ and [Recorder statistics reference](https://www.home-assistant.io/actions/record
 Local tests exercise synthetic recorder responses and the actual app adapter
 against disposable FastAPI databases. They do not establish real meter completeness,
 HAOS hardware compatibility, notification delivery, or editor screenshots.
+
+## Canonical family transitions and restart-safe comparison state
+
+The backend keeps one compact prior-state snapshot per budget, seasonal event,
+energy period and payslip in `app_meta`. A financial mutation and its snapshot /
+outbox updates share one database transaction: rollback removes both. The first
+observation of existing data seeds a baseline; it does not invent old transitions.
+Normal scheduler wakes evaluate households even when no notification rule exists.
+The scheduler compares authoritative entity values, not rising summary counts.
+
+Budget usage uses the same signed, split-aware, as-of expense flow as Budget's
+headline, including unplanned and uncategorised expenses and net refunds. Shared
+canonical events include shared account flow; owner budgets include that owner's
+flow. An unchanged poll, void row, future-dated row or unrelated owner's private
+spend cannot manufacture a usage transition. `budget.usage` carries actual plan,
+spent, remaining and percent values in detailed mode. `budget.over` fires on a real
+crossing below zero remaining; `budget.remaining_changed` requires the remaining
+amount itself to change. Ordinary transaction/split/status/correction/bulk writes,
+bank page checkpoints, settlement classification and budget revisions evaluate
+inside their actual mutation boundary.
+
+`seasonal.variance` compares recorded gift actuals and commitments separately;
+remaining is budget minus actual, while remaining after commitments retains its
+planning meaning. `energy.variance` compares the authoritative metered estimate
+against approved/locked shared energy plans. Missing readings are explicit in its
+status and payload, and missing tariffs are unknown rather than zero. Known zero
+consumption days count in the projection average; missing days do not. Shared
+energy report responses apply the same private-plan exclusion.
+
+`payroll.approaching` is a durable time event in the three-day lead window of a
+real employment/payroll expected occurrence. It deduplicates on employment plus
+due date, including refresh, reload and catch-up inside the window. Account scope
+on the expected movement controls visibility. `payslip.state_changed` compares
+persisted lifecycle status only and never includes a filename, file path, document
+text or extraction contents. Private occurrence/artifact events remain private in
+the feed even in Safe mode.
+
+Successful syncs retain `sync.completed`; a failed-to-completed transition also
+emits `sync.recovered` once. Raw provider exception text is never included in the
+outbox, including Detailed mode. Manual and scheduled backup failures emit
+`backup.failed` once per failure streak, with constant status/source/date only;
+a successful verified backup clears the streak. A failed manual request persists
+that sanitised failure separately from request rollback. No snapshot filename or
+exception text is included in either detail mode.

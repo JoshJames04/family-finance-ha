@@ -167,6 +167,7 @@ def sync_account(
     cursor so a later resume continues where this run stopped (AC 3).
     ``RateLimited``/``SyncError`` mark the run failed — resumable."""
     cursor = cursor_for(session, account.id, source)
+    was_failed = cursor.status == SyncStatus.failed
     run = SyncRun(account_id=account.id, source=source)
     session.add(run)
     # Commit, not flush: WAL permits one writer at a time, and the
@@ -183,6 +184,8 @@ def sync_account(
     unexpected_error: Exception | None = None
     try:
         for page in fetch(cursor):
+            from app.domain.financial_events import evaluate_budgets
+            evaluate_budgets(session, account.household_id)
             for item in page.items:
                 _ingest_item(session, account, source, item, run)
             if page.cursor_ref:
@@ -191,6 +194,7 @@ def sync_account(
                 cursor.last_ref = page.items[-1].external_ref
             if page.items:
                 cursor.last_date = page.items[-1].date
+            evaluate_budgets(session, account.household_id)
             session.commit()         # page checkpoint — writer released
         run.status = SyncStatus.completed
         cursor.status = SyncStatus.completed
@@ -224,8 +228,12 @@ def sync_account(
         payload={
             "source": source.value, "status": run.status.value,
             "inserted": run.inserted, "deduped": run.deduped,
-            "error": (run.error or "")[:200]},
+            "error_code": "sync_failed" if run.status == SyncStatus.failed else None},
         dedup_key=f"sync.run:{run.id}")
+    if was_failed and run.status == SyncStatus.completed:
+        outbox.emit(session, account.household_id, "sync.recovered", entity_kind="account",
+                    entity_id=account.id, payload={"source": source.value, "status": "recovered"},
+                    dedup_key=f"sync.recovered:{run.id}")
     session.commit()
     if unexpected_error is not None:
         raise unexpected_error

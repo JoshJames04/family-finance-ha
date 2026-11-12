@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import energy, outbox, rbac
+from app.domain import energy, financial_events, outbox, rbac
 from app.persistence.models import (
     EnergyConfig,
     EnergyReading,
@@ -35,6 +35,7 @@ def upsert_tariff(body: schemas.EnergyTariffIn,
                   actor: ActorDep) -> EnergyTariff:
     """Effective-dated upsert — posting the same date replaces the rate
     (corrections), a later date supersedes (a real price change)."""
+    financial_events.evaluate_energy(session, household.id)
     t = session.execute(
         select(EnergyTariff).where(
             EnergyTariff.household_id == household.id,
@@ -52,6 +53,7 @@ def upsert_tariff(body: schemas.EnergyTariffIn,
     session.flush()
     emit(session, household.id, actor, "upsert", "energy_tariff", t.id,
          {"effective_from": str(t.effective_from)})
+    financial_events.evaluate_energy(session, household.id)
     return t
 
 
@@ -77,6 +79,7 @@ def upsert_reading(body: schemas.EnergyReadingIn,
                    actor: ActorDep) -> EnergyReading:
     """Idempotent per-day ingest — the HA statistics feed or a manual
     entry can re-post the same day safely; last write wins."""
+    financial_events.evaluate_energy(session, household.id)
     r = session.execute(
         select(EnergyReading).where(
             EnergyReading.household_id == household.id,
@@ -95,6 +98,7 @@ def upsert_reading(body: schemas.EnergyReadingIn,
     if changed:
         outbox.emit(session, household.id, "energy.reading_updated", entity_kind="energy_reading",
                     entity_id=r.id, payload={"date": str(r.date), "source": r.source})
+    financial_events.evaluate_energy(session, household.id)
     return r
 
 
@@ -134,6 +138,7 @@ def get_config(household: HouseholdDep,
 def put_config(body: schemas.EnergyConfigIn,
                household: HouseholdDep, session: SessionDep,
                actor: ActorDep) -> EnergyConfig:
+    financial_events.evaluate_energy(session, household.id)
     cfg = session.execute(
         select(EnergyConfig).where(
             EnergyConfig.household_id == household.id)
@@ -149,6 +154,7 @@ def put_config(body: schemas.EnergyConfigIn,
     session.flush()
     emit(session, household.id, actor, "upsert", "energy_config", cfg.id,
          {"meter_entity": cfg.meter_entity})
+    financial_events.evaluate_energy(session, household.id)
     return cfg
 
 
@@ -160,7 +166,7 @@ def get_report(
     """Month-to-date estimate vs the configured energy budget with a
     month-end projection (issue #104). The projection extrapolates the
     average metered daily consumption at the current tariff."""
-    r = energy.month_report(session, household.id, as_of)
+    r = energy.month_report(session, household.id, as_of, shared_only=True)
     est = r.estimate
     return schemas.EnergyMonthReportOut(
         month_start=r.month_start, month_end=r.month_end,
@@ -184,8 +190,10 @@ def delete_tariff(
         raise HTTPException(404, "tariff not found")
     if not rbac.write_allowed(None, profile):
         raise HTTPException(403, "role cannot mutate this scope")
+    financial_events.evaluate_energy(session, household.id)
     emit(session, household.id, actor, "delete", "energy_tariff", tariff.id,
          {"effective_from": str(tariff.effective_from)})
     session.delete(tariff)
     session.flush()
+    financial_events.evaluate_energy(session, household.id)
     return Response(status_code=204)

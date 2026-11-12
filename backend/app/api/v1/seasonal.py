@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import rbac, seasonal
+from app.domain import financial_events, rbac, seasonal
 from app.persistence.models import (
     Account,
     Gift,
@@ -149,6 +149,7 @@ def add_gift(
     session: SessionDep, actor: ActorDep,
 ) -> Gift:
     e = _event(session, household.id, eid)
+    financial_events.evaluate_seasonal(session, household.id)
     g = Gift(event_id=e.id, recipient=body.recipient, idea=body.idea,
              planned_pence=body.planned.pence,
              actual_pence=body.actual.pence if body.actual else None,
@@ -157,6 +158,7 @@ def add_gift(
     session.flush()
     emit(session, household.id, actor, "create", "gift", g.id,
          {"event_id": e.id, "recipient": g.recipient})
+    financial_events.evaluate_seasonal(session, household.id)
     return g
 
 
@@ -190,11 +192,13 @@ def transition_gift(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> Gift:
     e = _event(session, household.id, eid)
+    financial_events.evaluate_seasonal(session, household.id)
     g = _gift(session, e, gid)
     seasonal.transition_purchase(g, body.to)
     session.flush()
     emit(session, household.id, actor, "transition", "gift", g.id,
          {"to": body.to.value})
+    financial_events.evaluate_seasonal(session, household.id)
     return g
 
 
@@ -205,6 +209,7 @@ def pay_gift(
     household: HouseholdDep, session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> Gift:
     e = _event(session, household.id, eid)
+    financial_events.evaluate_seasonal(session, household.id)
     g = _gift(session, e, gid)
     tx: Transaction | None = None
     if body.transaction_id is not None:
@@ -222,6 +227,7 @@ def pay_gift(
     seasonal.mark_paid(session, g, tx)
     emit(session, household.id, actor, "pay", "gift", g.id,
          {"event_id": e.id})
+    financial_events.evaluate_seasonal(session, household.id)
     return g
 
 
@@ -231,6 +237,7 @@ def delete_gift(
     session: SessionDep, actor: ActorDep,
 ) -> None:
     e = _event(session, household.id, eid)
+    financial_events.evaluate_seasonal(session, household.id)
     g = _gift(session, e, gid)
     if g.purchase_status not in (PurchaseStatus.idea,
                                  PurchaseStatus.planned):
@@ -240,3 +247,5 @@ def delete_gift(
     session.flush()
     emit(session, household.id, actor, "delete", "gift", gid,
          {"event_id": e.id})
+
+    financial_events.evaluate_seasonal(session, household.id)

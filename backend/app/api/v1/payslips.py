@@ -18,7 +18,7 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
 from app.api.payroll_scope import authorize_employment
-from app.domain import notifications, outbox, payrun, payslips, schedule
+from app.domain import financial_events, notifications, outbox, payrun, payslips, schedule
 from app.domain import overtime as overtime_domain
 from app.domain import payroll as payroll_domain
 from app.domain.overtime_findings import Candidate, PayslipLine, match_lines
@@ -125,6 +125,7 @@ async def upload_payslip(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.PayslipOut:
     run = _run(session, household.id, emp_id, run_id)
+    financial_events.evaluate_payslips(session, household.id)
     first = await file.read(16)
     media_type = next((mime for magic, mime in MAGIC_TYPES
                        if first.startswith(magic)), None)
@@ -169,6 +170,7 @@ async def upload_payslip(
     _notify_review_needed(session, household.id, row)
     emit(session, household.id, actor, "create", "payslip", row.id,
          {"payroll_run_id": run.id, "size_bytes": size})
+    financial_events.evaluate_payslips(session, household.id)
     return _out(row)
 
 
@@ -207,6 +209,7 @@ def review_payslip(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.PayslipOut:
     run = _run(session, household.id, emp_id, run_id)
+    financial_events.evaluate_payslips(session, household.id)
     row = session.scalar(select(Payslip).where(
         Payslip.id == payslip_id, Payslip.household_id == household.id,
         Payslip.payroll_run_id == run_id))
@@ -317,6 +320,7 @@ def review_payslip(
     row.status = PayslipStatus.needs_review
     emit(session, household.id, actor, "update", "payslip", row.id,
          {"payroll_run_id": run_id})
+    financial_events.evaluate_payslips(session, household.id)
     return _out(row)
 
 
@@ -432,6 +436,7 @@ def confirm_payslip(
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.PayslipOut:
     run = _run(session, household.id, emp_id, run_id)
+    financial_events.evaluate_payslips(session, household.id)
     row = session.scalar(select(Payslip).where(
         Payslip.id == payslip_id, Payslip.household_id == household.id,
         Payslip.payroll_run_id == run_id))
@@ -466,4 +471,5 @@ def confirm_payslip(
                  "path": f"/salary?run={run.id}"})
     emit(session, household.id, actor, "confirm", "payslip", row.id,
          {"payroll_run_id": run_id})
+    financial_events.evaluate_payslips(session, household.id)
     return _out(row)

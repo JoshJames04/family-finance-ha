@@ -28,7 +28,7 @@ _SAFE_KEYS = frozenset({
     "source", "source_type", "status", "old_status", "new_status",
     "state", "date", "expected_date", "occurrence_date", "direction",
     "count", "inserted", "deduped", "skipped", "currency", "manual",
-    "frequency",
+    "frequency", "lead_days",
 })
 
 
@@ -105,6 +105,7 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
         "budget": models.Budget, "budget_line": models.BudgetLine,
         "budgetline": models.BudgetLine, "energy_reading": models.EnergyReading,
         "gift": models.Gift, "payslip": models.Payslip,
+        "seasonal_event": models.SeasonalEvent, "energy_config": models.EnergyConfig,
     }
     if event.entity_kind == "backup":
         return True
