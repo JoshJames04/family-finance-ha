@@ -14,7 +14,9 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain import outbox
 from app.persistence.models import (
+    Account,
     GoalType,
     SavingsGoal,
     Transaction,
@@ -200,3 +202,32 @@ def newly_crossed(prev_pence: int, new_pence: int,
     before = prev_pence * 100 // target_pence
     after = new_pence * 100 // target_pence
     return [m for m in MILESTONES if before < m <= after]
+
+
+def emit_contribution_milestones(session: Session, transaction: Transaction, *,
+                                 today: date | None = None) -> None:
+    """Emit actual threshold crossings when a real inbound leg is attributed.
+
+    Called by contribution writers, never polling. The newly eligible credit
+    is subtracted from authoritative progress to recover the preceding total.
+    """
+    today = today or date.today()
+    if (transaction.transfer_id is None or transaction.amount_pence <= 0
+            or transaction.status is TransactionStatus.void or transaction.date > today):
+        return
+    account = session.get(Account, transaction.account_id)
+    if account is None:
+        return
+    for goal in session.scalars(select(SavingsGoal).where(
+            SavingsGoal.account_id == account.id, SavingsGoal.active.is_(True),
+            SavingsGoal.start_date <= transaction.date)):
+        total = contributed_pence(session, goal, today=today)
+        previous = total - transaction.amount_pence
+        for milestone in newly_crossed(previous, total, goal.target_pence):
+            outbox.emit(
+                session, goal.household_id, "goal.milestone",
+                entity_kind="savings_goal", entity_id=goal.id,
+                payload={"source": "savings_goal", "state": str(milestone),
+                         "date": transaction.date.isoformat(),
+                         "owner_profile_id": account.owner_profile_id},
+                dedup_key=f"goal:{goal.id}:milestone:{milestone}")
