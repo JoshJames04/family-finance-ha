@@ -277,3 +277,28 @@ def resolve_merge(session: Session, candidate: MergeCandidate,
         raise SyncError(f"unknown merge action {action}")
     candidate.resolved_at = datetime.now()
     session.flush()
+
+
+def emit_stale_transitions(session: Session, *, now: datetime,
+                           interval_seconds: float) -> int:
+    """One stale event per missed freshness episode, from real bank cursors.
+
+    Freshness allows two configured sync intervals (at least five minutes).
+    A never-synced cursor gets the same grace from its creation timestamp.
+    """
+    threshold = max(300.0, 2 * interval_seconds)
+    count = 0
+    rows = session.execute(select(SyncCursor, Account).join(
+        Account, SyncCursor.account_id == Account.id).where(
+            Account.archived.is_(False), SyncCursor.source == TransactionSource.starling))
+    for cursor, account in rows:
+        reference = cursor.last_success_at or cursor.created_at
+        if reference is None or (now - reference).total_seconds() < threshold:
+            continue
+        event = outbox.emit(session, account.household_id, "data.stale",
+                            entity_kind="account", entity_id=account.id,
+                            payload={"source": cursor.source.value, "status": "stale",
+                                     "date": reference.isoformat()},
+                            dedup_key=f"data.stale:{cursor.id}:{reference.isoformat()}", at=now)
+        count += event is not None
+    return count

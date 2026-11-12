@@ -88,7 +88,7 @@ def feed(session: Session, household_id: int, *,
 def visible_payload(event: IntegrationEvent, detailed: bool) -> dict[str, object]:
     """Read-time redaction — safe mode strips anything that could
     name or value a real record (ADR-0009)."""
-    if detailed:
+    if detailed and event.entity_kind != "backup":
         return dict(event.payload)
     return {k: v for k, v in event.payload.items() if k in _SAFE_KEYS}
 
@@ -102,7 +102,12 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
         "employment": models.Employment, "payroll_run": models.PayrollRun,
         "loan": models.Loan, "savings_goal": models.SavingsGoal,
         "expected_movement": models.ExpectedMovement,
+        "budget": models.Budget, "budget_line": models.BudgetLine,
+        "budgetline": models.BudgetLine, "energy_reading": models.EnergyReading,
+        "gift": models.Gift, "payslip": models.Payslip,
     }
+    if event.entity_kind == "backup":
+        return True
     if event.entity_kind is None and event.entity_id is None:
         return True
     if event.entity_kind in {"manual", "transfer_rule"}:
@@ -116,10 +121,20 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
     entity = session.get(model, event.entity_id)
     if entity is None:
         return False
+    if isinstance(entity, models.BudgetLine):
+        entity = session.get(models.Budget, entity.budget_id)
+    elif isinstance(entity, models.Gift):
+        entity = session.get(models.SeasonalEvent, entity.event_id)
+    elif isinstance(entity, models.Payslip):
+        entity = session.get(models.PayrollRun, entity.payroll_run_id)
+    if entity is None:
+        return False
     if isinstance(entity, models.PayrollRun):
         entity = session.get(models.Employment, entity.employment_id)
         if entity is None:
             return False
+    if getattr(entity, "household_id", event.household_id) != event.household_id:
+        return False
     owner = getattr(entity, "owner_profile_id", getattr(entity, "profile_id", None))
     if owner is not None and owner != profile_id:
         return False

@@ -597,19 +597,50 @@ def test_shared_notification_rule_cannot_scan_private_account(session, household
     assert notifications.evaluate(session, rule) == 0
 
 
-def test_salary_reminder_keeps_employment_owner_on_shared_account(session,household):
+def test_salary_reminder_keeps_employment_owner_on_shared_account(session, household):
     from app.domain import notifications
-    from app.persistence.models import Confidence, Employment, ExpectedMovement, ExpectedSource, NotificationKind, UserProfile
-    owner=UserProfile(household_id=household.id,display_name='Salary owner')
+    from app.persistence.models import (
+        Confidence,
+        Employment,
+        ExpectedMovement,
+        ExpectedSource,
+        NotificationKind,
+        UserProfile,
+    )
+
+    owner = UserProfile(household_id=household.id, display_name="Salary owner")
     session.add(owner)
     session.flush()
-    a=account(session,household,'Shared salary destination')
-    employment=Employment(household_id=household.id,profile_id=owner.id,employer='Synthetic employer',jurisdiction='england_wales',contracted_hours=37)
+    a = account(session, household, "Shared salary destination")
+    employment = Employment(
+        household_id=household.id,
+        profile_id=owner.id,
+        employer="Synthetic employer",
+        jurisdiction="england_wales",
+        contracted_hours=37,
+    )
     session.add(employment)
     session.flush()
-    session.add(ExpectedMovement(household_id=household.id,account_id=a.id,expected_date=date(2025,4,11),amount_pence=10000,label='Salary',source_type=ExpectedSource.employment,source_id=employment.id,confidence=Confidence.estimated))
+    session.add(
+        ExpectedMovement(
+            household_id=household.id,
+            account_id=a.id,
+            expected_date=date(2025, 4, 11),
+            amount_pence=10000,
+            label="Salary",
+            source_type=ExpectedSource.employment,
+            source_id=employment.id,
+            confidence=Confidence.estimated,
+        )
+    )
     session.flush()
-    rule=notifications.create_rule(session,household.id,name='Shared payday',kind=NotificationKind.payday_reminder,params={'days_before':1})
-    assert notifications.evaluate(session,rule,today=date(2025,4,10))==0
-    rule.target_profile_id=owner.id
-    assert notifications.evaluate(session,rule,today=date(2025,4,10))==1
+    rule = notifications.create_rule(
+        session,
+        household.id,
+        name="Shared payday",
+        kind=NotificationKind.payday_reminder,
+        params={"days_before": 1},
+    )
+    assert notifications.evaluate(session, rule, today=date(2025, 4, 10)) == 0
+    rule.target_profile_id = owner.id
+    assert notifications.evaluate(session, rule, today=date(2025, 4, 10)) == 1

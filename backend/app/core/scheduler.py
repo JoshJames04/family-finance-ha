@@ -79,6 +79,7 @@ def sync_tick(session: Session, *,
     Returns the number of sync runs performed. Failure on one
     mapping marks its run/cursor but never aborts the tick."""
     now = now or datetime.now()
+    syncdom.emit_stale_transitions(session, now=now, interval_seconds=interval_seconds)
     ran = 0
     queued = {(c.account_id, c.source): c
               for c in syncdom.drain_due(session, now)}

@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import Select, and_, func, or_, select
-from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.domain.accounts import current_balance
 from app.persistence.models import (
@@ -28,7 +28,6 @@ from app.persistence.models import (
     AnomalyFlag,
     AnomalyStatus,
     Employment,
-    PayrollRun,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
@@ -37,6 +36,7 @@ from app.persistence.models import (
     NotificationKind,
     NotificationRule,
     NotificationState,
+    PayrollRun,
     Transaction,
     TransactionStatus,
 )
@@ -111,7 +111,8 @@ def _movement_scope(rule: NotificationRule) -> ColumnElement[bool]:
         Employment.profile_id == rule.target_profile_id)
     payrolls = select(PayrollRun.id).where(PayrollRun.employment_id.in_(employments))
     salary_owner = or_(
-        ExpectedMovement.source_type.not_in([ExpectedSource.employment, ExpectedSource.payroll_run]),
+        ExpectedMovement.source_type.not_in(
+            [ExpectedSource.employment, ExpectedSource.payroll_run]),
         and_(ExpectedMovement.source_type == ExpectedSource.employment,
              ExpectedMovement.source_id.in_(employments)),
         and_(ExpectedMovement.source_type == ExpectedSource.payroll_run,

@@ -91,7 +91,7 @@ def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = N
                                after=after, limit=limit)
     return schemas.IntegrationFeedOut(
         events=[_out(e, detailed) for e in rows
-                if outbox.event_visible(session, e, profile.id if profile else None)],
+                if outbox.event_visible(session, e, profile.id if profile and profile.role != Role.viewer else None)],
         next_cursor=cursor)
 
 
