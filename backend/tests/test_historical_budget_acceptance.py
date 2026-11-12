@@ -164,7 +164,8 @@ def test_monthly_report_hides_other_members_private_budget_and_payee_category(tm
             "/api/v1/profiles", json={"display_name": "Synthetic admin", "role": "admin"}
         ).json()
         member = client.post(
-            "/api/v1/profiles", json={"display_name": "Synthetic member", "role": "member"}
+            "/api/v1/profiles", json={"display_name": "Synthetic member", "role": "member"},
+            headers={"X-Profile-Id": str(owner["id"])},
         ).json()
         h = {"X-Profile-Id": str(owner["id"])}
         category = client.post(

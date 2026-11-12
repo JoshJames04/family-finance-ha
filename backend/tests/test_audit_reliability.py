@@ -212,7 +212,8 @@ def test_expected_movements_hide_another_members_private_account(review_client):
     client = review_client
     owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
     member = client.post(
-        "/api/v1/profiles", json={"display_name": "Other", "role": "member"}
+        "/api/v1/profiles", headers={"X-Profile-Id": str(owner["id"])},
+        json={"display_name": "Other", "role": "member"}
     ).json()
     response = client.post(
         "/api/v1/accounts",
@@ -409,7 +410,8 @@ def test_private_outstanding_not_disclosed(review_client):
     client = review_client
     owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
     member = client.post(
-        "/api/v1/profiles", json={"display_name": "Member", "role": "member"}
+        "/api/v1/profiles", headers={"X-Profile-Id": str(owner["id"])},
+        json={"display_name": "Member", "role": "member"}
     ).json()
     account = client.post(
         "/api/v1/accounts",
@@ -494,7 +496,10 @@ def test_balance_http_all_fetched_before_reconciliation_writes(session, househol
 def test_expected_selected_budget_filters_other_owner(review_client):
     client = review_client
     owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
-    other = client.post("/api/v1/profiles", json={"display_name": "Other", "role": "member"}).json()
+    other = client.post(
+        "/api/v1/profiles", headers={"X-Profile-Id": str(owner["id"])},
+        json={"display_name": "Other", "role": "member"}
+    ).json()
     day = date.today().isoformat()
     for profile in [owner, other]:
         account = client.post(
@@ -594,7 +599,8 @@ def test_member_cannot_mutate_another_private_movement(review_client, action):
     client = review_client
     owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
     member = client.post(
-        "/api/v1/profiles", json={"display_name": "Member", "role": "member"}
+        "/api/v1/profiles", headers={"X-Profile-Id": str(owner["id"])},
+        json={"display_name": "Member", "role": "member"}
     ).json()
     account = client.post(
         "/api/v1/accounts",
@@ -765,7 +771,8 @@ def test_member_auto_match_only_visible_accounts(review_client):
     client = review_client
     owner = client.post("/api/v1/profiles", json={"display_name": "Owner", "role": "admin"}).json()
     member = client.post(
-        "/api/v1/profiles", json={"display_name": "Member", "role": "member"}
+        "/api/v1/profiles", headers={"X-Profile-Id": str(owner["id"])},
+        json={"display_name": "Member", "role": "member"}
     ).json()
     generator = get_session()
     session = next(generator)
