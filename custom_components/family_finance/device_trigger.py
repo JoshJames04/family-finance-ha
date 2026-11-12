@@ -44,11 +44,13 @@ TRIGGER_TYPES: dict[str, str] = {
 }
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
-    {vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES)})
+    {vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES)}
+)
 
 
 async def async_get_triggers(
-        hass: HomeAssistant, device_id: str) -> list[dict[str, str]]:
+    hass: HomeAssistant, device_id: str
+) -> list[dict[str, str]]:
     """Every Family Finance event, offered once per our device.
 
     Only runs against devices carrying our ``(DOMAIN, entry_id)``
@@ -72,14 +74,26 @@ async def async_get_triggers(
 
 
 async def async_attach_trigger(
-        hass: HomeAssistant, config: ConfigType,
-        action: TriggerActionType,
-        trigger_info: TriggerInfo) -> CALLBACK_TYPE:
+    hass: HomeAssistant,
+    config: ConfigType,
+    action: TriggerActionType,
+    trigger_info: TriggerInfo,
+) -> CALLBACK_TYPE:
     """Delegate to the core event trigger for the mapped event."""
+    device = dr.async_get(hass).async_get(config[CONF_DEVICE_ID])
+    if device is None:
+        raise vol.Invalid("device no longer exists")
+    entry_id = next(
+        (value for domain, value in device.identifiers if domain == DOMAIN), None
+    )
+    if entry_id is None:
+        raise vol.Invalid("not a Family Finance device")
     event_config = {
         event_trigger.CONF_PLATFORM: "event",
         event_trigger.CONF_EVENT_TYPE: TRIGGER_TYPES[config[CONF_TYPE]],
+        event_trigger.CONF_EVENT_DATA: {"config_entry_id": entry_id},
     }
     event_config = event_trigger.TRIGGER_SCHEMA(event_config)
     return await event_trigger.async_attach_trigger(
-        hass, event_config, action, trigger_info)
+        hass, event_config, action, trigger_info
+    )

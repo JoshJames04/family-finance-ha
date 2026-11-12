@@ -91,7 +91,7 @@ function GoalCard({ goal: g, rev, onClose }: { goal: Goal; rev: number; onClose:
   const done = pct >= 100;
   return (
     <Panel className={g.active ? undefined : "opacity-60"}>
-      <div className="flex items-start gap-3">
+      <div id={`savings_goal-${g.id}`} className="flex items-start gap-3">
         <IconTile icon={PiggyBank} label={g.name} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-semibold">{g.name}</p>

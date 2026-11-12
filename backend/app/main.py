@@ -11,8 +11,9 @@ from datetime import date
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
+from starlette.middleware.base import RequestResponseEndpoint
 
 from app import __version__
 from app.api.errors import install_error_handlers
@@ -25,12 +26,12 @@ from app.core.health import (
 )
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
-from app.domain import appconfig, schedule, vault
+from app.domain import appconfig, outbox, schedule, vault
 from app.domain import banks as bankdom
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
 from app.persistence.migrate import migrations_current, upgrade_head
-from app.persistence.models import BankConnection
+from app.persistence.models import BankConnection, Household
 from app.persistence.session import init_session_factory
 
 log = logging.getLogger(__name__)
@@ -84,9 +85,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.execute(text("SELECT 1"))
         try:
             upgrade_head(db_url)
-        except Exception as exc:
+        except Exception:
             log.exception("migration failed — restoring snapshot")
-            app.state.boot_error = f"migration failed: {exc}"
+            app.state.boot_error = "migration_failed"
             if snapshot is not None and db_path is not None:
                 engine.dispose()
                 backup.restore_from(snapshot, db_path)
@@ -113,13 +114,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 try:
                     # Snapshot work is blocking file+SQLite I/O — off
                     # the event loop so requests stay served (#451).
-                    await asyncio.to_thread(
+                    snap = await asyncio.to_thread(
                         backup.create_snapshot, engine, backup_dir)
+                    if not await asyncio.to_thread(backup.verify_snapshot, snap):
+                        raise RuntimeError("backup integrity verification failed")
                     n = await asyncio.to_thread(
                         backup.rotate, backup_dir, settings.backup_keep)
+                    await asyncio.to_thread(_record_backup, snap.name)
                     log.info("scheduled snapshot taken (%d rotated)", n)
                 except Exception:
+                    try:
+                        await asyncio.to_thread(_record_backup, None)
+                    except Exception:
+                        log.exception("backup failure status could not be persisted")
                     log.exception("scheduled backup failed")
+
+        def _record_backup(name: str | None) -> None:
+            from sqlalchemy import select
+
+            from app.domain.financial_events import record_backup_status
+            with Session(engine) as session:
+                for household in session.scalars(select(Household)):
+                    record_backup_status(session, household.id, succeeded=name is not None)
+                    if name is None:
+                        continue
+                    outbox.emit(session, household.id, "backup.created", entity_kind="backup",
+                                payload={"status": "completed"},
+                                dedup_key=f"backup:{household.id}:{name}")
+                session.commit()
 
         task = (asyncio.create_task(_snapshot_loop())
                 if settings.backup_interval_hours > 0 else None)
@@ -184,8 +206,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     tele.record_tick(
                         (time.monotonic() - started) * 1000, None)
 
+        app.state.scheduler_enabled = (
+            settings.scheduler_tick_seconds > 0
+            and not getattr(app.state, "boot_error", None))
         sched = (asyncio.create_task(_scheduler_loop())
-                 if settings.scheduler_tick_seconds > 0 else None)
+                 if app.state.scheduler_enabled else None)
         try:
             yield
         finally:
@@ -203,6 +228,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.api.auth import auth_middleware
     from app.api.auth import router as auth_router
     app.middleware("http")(auth_middleware)
+
+    @app.middleware("http")
+    async def migration_write_guard(
+        request: Request, call_next: RequestResponseEndpoint,
+    ) -> Response:
+        # Recovery endpoints remain available to the administrator. A
+        # restored old schema must never accept new financial mutations.
+        if (getattr(request.app.state, "boot_error", None)
+                and request.method not in {"GET", "HEAD", "OPTIONS"}
+                and request.url.path.startswith("/api/")
+                and not request.url.path.startswith("/api/v1/admin/")):
+            return JSONResponse({"detail": "migration_failed: financial writes disabled"},
+                                status_code=503, headers={"Retry-After": "30"})
+        return await call_next(request)
+
     install_error_handlers(app)
     # Mount at call time, not import time — a circular import edge
     # can reach app.main before app.api.v1 finishes building

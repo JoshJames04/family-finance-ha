@@ -1,6 +1,7 @@
 /** Upcoming: the forward timeline of expected movements, plus the
  * recurring bills (commitments) and transfer rules that generate it. */
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeftRight, CalendarClock, Plus, Receipt } from "lucide-react";
 import { api } from "../api/client";
@@ -34,7 +35,8 @@ type Tab = "timeline" | "bills" | "transfers";
 
 export function Upcoming() {
   const ready = useReady();
-  const [tab, setTab] = useState<Tab>("timeline");
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(params.get("tab") === "transfers" ? "transfers" : "timeline");
   const [rev, setRev] = useState(0);
   const [adding, setAdding] = useState(false);
   const state = useUpcoming(90, rev);
@@ -103,7 +105,7 @@ export function Upcoming() {
                   <table className="ff-table w-full text-[13.5px]">
                     <tbody>
                       {items.map((m) => (
-                        <tr key={m.id} className="border-b border-border last:border-0 hover:bg-surface-2/60">
+                        <tr key={m.id} id={`movement-${m.id}`} className="border-b border-border last:border-0 hover:bg-surface-2/60">
                           <td className="w-px py-2.5 pl-4"><IconTile label={m.label} size="sm" /></td>
                           <td className="px-3 py-2.5">
                             <p className="font-medium">{m.label}</p>
@@ -176,7 +178,7 @@ export function Upcoming() {
             {(items) => (
               <ul className="divide-y divide-border">
                 {items.map((t) => (
-                  <li key={t.id} className="flex items-center gap-3 px-4 py-3">
+                  <li key={t.id} id={`transfer_rule-${t.id}`} className="flex items-center gap-3 px-4 py-3">
                     <IconTile icon={ArrowLeftRight} label="transfer" size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{t.name}</p>

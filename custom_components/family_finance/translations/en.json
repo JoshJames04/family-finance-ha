@@ -6,8 +6,15 @@
         "description": "Enter the URL of your Family Finance app (e.g. the add-on ingress URL or http://host:8099) and the household to link.",
         "data": {
           "url": "App URL",
-          "token": "Access token (optional)",
+          "token": "App service token (required for protected deployments)",
           "household_id": "Household ID"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update Family Finance service token",
+        "description": "The app rejected this connection. Enter its current service token; the household and app URL stay unchanged.",
+        "data": {
+          "token": "Service token"
         }
       }
     },
@@ -16,7 +23,8 @@
       "invalid_auth": "Invalid credentials or household"
     },
     "abort": {
-      "already_configured": "This household connection is already configured"
+      "already_configured": "This household connection is already configured",
+      "reauth_successful": "Service token updated"
     }
   },
   "device_automation": {
@@ -29,6 +37,27 @@
       "notification_pending": "A notification is pending",
       "payday": "Payday was reached",
       "payslip_review": "A payslip needs review"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Per-item financial sensors",
+        "description": "Optional: expose selected bill, account and goal names and numeric values to Home Assistant entities, recorder and automations. None keeps item details disabled. All and Selected share the entity cap (maximum 100).",
+        "data": {
+          "entity_cap": "Maximum per-item entities",
+          "bills_mode": "Bills: None / All / Selected",
+          "accounts_mode": "Accounts: None / All / Selected",
+          "goals_mode": "Goals: None / All / Selected",
+          "bills_selected": "Selected bills",
+          "accounts_selected": "Selected accounts",
+          "goals_selected": "Selected goals"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot load authorised items",
+      "too_many_entities": "The chosen items exceed the entity cap. Reduce the selection or increase the cap."
     }
   }
 }

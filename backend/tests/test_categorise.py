@@ -175,8 +175,8 @@ class TestAutoPair:
                         opening_date=date(2025, 1, 1))
         session.add(other)
         session.flush()
-        d = _txn(session, account, "Transfer", -20_000)
-        c = _txn(session, other, "Transfer", 20_000)
+        d = _txn(session, account, other.name, -20_000)
+        c = _txn(session, other, account.name, 20_000)
         assert categorise.auto_pair_transfers(
             session, household.id) == 1
         assert d.transfer_id is not None

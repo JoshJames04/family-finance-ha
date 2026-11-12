@@ -50,7 +50,7 @@ class TaxError(ValueError):
 class TaxCode:
     allowance_pence: int          # may be negative (K codes)
     cumulative: bool              # False → W1/M1 period-only basis
-    flat_rate_bps: int | None     # BR=2000 D0=4000 D1=4500; NT → no tax
+    flat_code: str | None        # rate is resolved from versioned parameters
     prefix: str                   # '', 'S', 'C' → jurisdiction override
 
 
@@ -81,22 +81,22 @@ def parse_tax_code(raw: str) -> TaxCode:
             cumulative = False
             code = code[: -len(marker.strip())] or code
             break
-    flat = {"BR": 2000, "D0": 4000, "D1": 4500, "NT": 0}
+    flat = {"BR", "D0", "D1", "NT"}
     if code in flat:
         return TaxCode(allowance_pence=0, cumulative=False,
-                       flat_rate_bps=flat[code], prefix="")
+                       flat_code=code, prefix="")
     if code == "0T":
         return TaxCode(allowance_pence=0, cumulative=cumulative,
-                       flat_rate_bps=None, prefix="")
+                       flat_code=None, prefix="")
     if m := _CODE_K.match(code):
         prefix, num = m.group(1) or "", int(m.group(2))
         return TaxCode(allowance_pence=-num * 1000,
-                       cumulative=cumulative, flat_rate_bps=None,
+                       cumulative=cumulative, flat_code=None,
                        prefix=prefix)
     if m := _CODE_NUM.match(code):
         prefix, num = m.group(1) or "", int(m.group(2))
         return TaxCode(allowance_pence=num * 1000,
-                       cumulative=cumulative, flat_rate_bps=None,
+                       cumulative=cumulative, flat_code=None,
                        prefix=prefix)
     raise TaxError(f"unrecognised tax code: {raw!r}")
 
@@ -148,6 +148,7 @@ def seed_rule_sets(session: Session) -> int:
 
 def rule_set(session: Session, tax_year: str,
              jurisdiction: TaxJurisdiction) -> TaxRuleSet:
+    seed_rule_sets(session)
     row = session.execute(
         select(TaxRuleSet).where(
             TaxRuleSet.tax_year == tax_year,
@@ -229,15 +230,23 @@ def compute_period(
                   if cumulative else taxable_gross)
     prior_tax = ytd_tax_pence if cumulative else 0
 
-    if code.flat_rate_bps is not None:
-        tax = taxable_gross * code.flat_rate_bps // 10_000
+    if code.flat_code is not None:
+        flat_name = code.flat_code
+        band_index = params.get("flat_code_band_indices", {"BR": 0, "D0": -2, "D1": -1})
+        rate = (int(params["bands"][band_index[flat_name]]["rate"])
+                if flat_name in band_index else 0)
+        tax = taxable_gross * rate // 10_000
     else:
         allow = _allowance(code, params, cum_income, periods,
                            periods_per_year)
         taxable = max(0, cum_income - allow)
-        tax = max(0, _banded(taxable, params["bands"], periods,
-                             periods_per_year)
-                  - prior_tax)
+        # Cumulative PAYE repays excess tax already paid (regulation 23(6)).
+        # W1/M1 has prior_tax=0 and therefore cannot refund earlier periods.
+        tax = (_banded(taxable, params["bands"], periods,
+                       periods_per_year) - prior_tax)
+
+    if code.allowance_pence < 0:
+        tax = min(tax, max(0, gross_pence // 2))
 
     # NI: period thresholds, non-cumulative.
     ni = params["ni"]
@@ -268,7 +277,7 @@ def compute_period(
 @lru_cache(maxsize=1)
 def embedded_rule_sets() -> tuple[dict[str, Any], ...]:
     raw = json.loads(_DATA.read_text(encoding="utf-8"))
-    return tuple(raw["sets"])
+    return tuple(sorted(raw["sets"], key=lambda row: row["version"], reverse=True))
 
 
 def tax_year_for(d: date) -> str:

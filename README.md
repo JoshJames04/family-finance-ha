@@ -24,6 +24,10 @@ one-time migration source only — it is never a runtime dependency.
 
 ## What it does
 
+The [specialist finance audit disposition](docs/FINANCE-HISTORICAL-AUDIT.md)
+documents payroll cutoffs, private salary and savings boundaries, versioned
+tax corrections, loan attribution, and seasonal actual versus committed budgets.
+
 - **Budgeting** — monthly, annual and custom-period budgets with original
   budget, revised forecast, actuals, variance and forecast-accuracy tracking.
 - **Cash-flow forecasting** — date-aware projected balances, safe-to-spend,
@@ -126,3 +130,17 @@ permitted.
 
 If this project is useful to you, you can support its development via
 [GitHub Sponsors](https://github.com/sponsors/JoshJames04) — thank you.
+
+
+Budget starts with **All**, combining the visible plans for the selected period.
+Choose an owner to edit that owner's budget. Spent so far includes every eligible
+outflow through today, even without a budget line or category; refunds reduce it.
+Expand **Reconcile spending** for the transaction and split amounts behind the
+headline, including budget-covered, unallocated and uncategorised totals. Category
+actuals retain the full budget period for historical analysis. Part-paid bills
+remain in Bills remaining until their outstanding amount is zero.
+
+Employer payday settings include an optional payroll cutoff day (1–31); leave it
+blank to retain calendar-month earning periods. Category pickers sort by name and
+native option colours follow the selected light/dark theme and system selection
+palette.

@@ -141,7 +141,9 @@ class TestApi:
         ) as client:
             hid = client.post("/api/v1/households",
                               json={"name": "H"}).json()["id"]
-            h = {"X-Household-Id": str(hid)}
+            admin = client.post("/api/v1/profiles", headers={"X-Household-Id": str(hid)},
+                                json={"display_name": "Admin", "role": "admin"}).json()["id"]
+            h = {"X-Household-Id": str(hid), "X-Profile-Id": str(admin)}
             r = client.post("/api/v1/credentials", json={
                 "ref": "starling:token", "secret": "pat-123"},
                 headers=h)

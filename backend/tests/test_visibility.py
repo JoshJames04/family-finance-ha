@@ -27,7 +27,9 @@ def _setup(client: TestClient) -> tuple[str, dict, dict, dict]:
     def mk(n: str, r: str) -> dict:
         return client.post("/api/v1/profiles", json={
             "display_name": n, "role": r}, headers=h).json()
-    return h, mk("Admin", "admin"), mk("Mum", "member"), \
+    admin = mk("Admin", "admin")
+    h["X-Profile-Id"] = str(admin["id"])
+    return h, admin, mk("Mum", "member"), \
         mk("Kid", "viewer")
 
 

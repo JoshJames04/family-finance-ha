@@ -185,6 +185,7 @@ def test_scenario_and_reminder_include_projected_payday(session, household):
         session,
         household.id,
         name="Salary",
+        target_profile_id=e.profile_id,
         kind=NotificationKind.payday_reminder,
         params={"days_before": 1},
     )
@@ -316,6 +317,7 @@ def test_employment_replacement_removes_old_future_rows(session, household):
         household,
         session,
         "test",
+        p,
     )
     old_rows = [m for m in projected(session) if m.source_id == e.id]
     assert all(m.expected_date < new_start for m in old_rows)
@@ -335,7 +337,7 @@ def test_tax_code_and_deduction_changes_refresh_estimates(session, household, mo
     monkeypatch.setattr(api, "date", Clock)
     # schedule's default uses its own clock.
     monkeypatch.setattr(schedule, "date", Clock)
-    e, _, _ = employment(session, household)
+    e, _, p = employment(session, household)
     schedule.rematerialize_employment(session, e, horizon_days=35)
     ordinary_net = projected(session)[0].amount_pence
     api.add_tax_code_revision(
@@ -355,6 +357,7 @@ def test_tax_code_and_deduction_changes_refresh_estimates(session, household, mo
         household,
         session,
         "test",
+        p,
     )
     assert projected(session)[0].amount_pence == baseline - 10000
 

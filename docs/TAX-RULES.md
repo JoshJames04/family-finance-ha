@@ -69,7 +69,7 @@ for that year:
 
 ## Supported scope
 
-- Tax years 2024-25 and 2025-26; jurisdictions `england_wales` (also
+- Tax years 2024-25, 2025-26 and 2026-27; jurisdictions `england_wales` (also
   used for Northern Ireland income tax, which shares the rUK bands) and
   `scotland`.
 - Codes: `NnL/T/M/N` (+ `S`/`C` prefix), `K` codes, `BR`, `D0`, `D1`,
@@ -81,3 +81,26 @@ for that year:
 - Weekly/fortnightly pay frequencies are expressed in *periods per
   year* — the engine takes `months` pro-rata so 13/26/52-period years
   only need a period-count parameter change, not new code.
+
+## November 2026 corrections
+
+Version 2 entries correct employee NI above UEL for H/M/Z; version 1 remains
+available for historical provenance. BR/D0/D1 resolve through the selected
+parameters' `flat_code_band_indices` and `bands` rates. K-code deductions obey
+the HMRC overriding limit of half the period's gross pay. See the
+[historical finance disposition](FINANCE-HISTORICAL-AUDIT.md) for sources,
+regression evidence and the limits of this audit.
+
+Cumulative PAYE now preserves negative tax as a refund when tax already paid
+exceeds the recalculated year-to-date liability. W1/M1 ignores earlier pay and
+tax; the K-code half-pay limit constrains withholding, never refunds. Native
+versioned payroll components retain signed refund values through reconciliation
+and subsequent YTD calculations. Unversioned legacy imports retain their
+existing positive-deduction normalization.
+
+The regression goldens are independently hand-calculated examples, supported by
+[HMRC PAYE11090](https://www.gov.uk/hmrc-internal-manuals/paye-manual/paye11090),
+[PAYE regulation 23(6)](https://www.legislation.gov.uk/uksi/2003/2682/regulation/23),
+and the [HMRC tax-table routines, section 3.7](https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/386401/payenominal.pdf)
+(including the rule that K-code refund amounts are unaffected by the withholding
+limit). This remains bounded test evidence, rather than full HMRC certification.

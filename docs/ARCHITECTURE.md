@@ -241,3 +241,77 @@ future shifts. Failed prerequisite reads offer Retry instead of missing-setup cl
 A failed transaction page must be retried before pagination can advance. Retained
 safe-to-spend and account balances display their refresh errors beside the last
 known values, and payroll-run failures expose Retry instead of claiming no runs.
+
+
+### Budget and reporting acceptance boundaries
+
+`BudgetActuals` separates full-period per-line analysis from as-of expense flow.
+The headline includes non-void external outflows through the earlier of today and
+the period end. Positive entries in an expense category, and explicitly linked
+refunds, offset expense flow; remaining positive entries are income. An unlinked,
+uncategorised inflow remains income rather than being guessed to be a refund.
+Opening transactions (`system`, `open:<account-id>`) remain balance stock and are
+excluded from period flow. The returned itemised bridge uses effective split
+amounts and preserves uncategorised status without writing classifications.
+
+The read-only combined Budget endpoint selects one latest visible plan per owner
+for the exact period, adds their plan lines, and computes actuals and unpaid bill
+residuals over a union of authorised accounts. Shared and personal overlap cannot
+multiply a transaction or expected obligation. Alternative plan versions for the
+same owner/period do not multiply the plan. An owner view retains normal editing.
+
+Monthly, annual and comparative reports apply the caller's account and budget
+visibility to both current and prior sections. Personal budget variances reuse the
+Budget actuals calculation, including the owner scope and signed category refunds.
+Transaction drills carry owner and non-void/opening/transfer exclusions. Account
+balances and net worth continue to include opening stock.
+
+Deleting a budget template removes its copied-line source and clears optional
+provenance pointers; previously applied budget lines are retained. Tariff deletion
+removes the selected effective-dated rate and leaves readings intact. Both DELETE
+routes are household scoped, audited, and reject viewer mutations.
+Bank categorisation policies are applied after each ingest. Explicit rules may be
+restricted by `account_id` and signed `amount_pence`; leave `auto_apply` false for
+suggestions. A confirmed correction continues to teach suggestions only. An
+exact, account-scoped rule may declare `transfer_account_id` to identify an owned
+account alias without changing the bank counterparty name. Alias targets must be
+a different account in the same household. Use an ordinary category rule for
+person-to-person transfers; do not declare that counterparty as an owned account.
+Merchant names shared by subscriptions and small purchases need separate amount
+and account scopes. There is no global Apple amount rule.
+
+Owned account-name movements receive Internal Transfers only when uncategorised.
+Automatic pairing additionally requires unique reciprocal account names or
+explicit reciprocal owned-account aliases, equal opposite amounts, the same date
+and currency, and different accounts. Ambiguous or unrelated equal amounts stay
+unpaired. Existing authored categories are retained. Historical links are not
+silently rewritten by this migration.
+
+Rules that include an account or owned destination are visible only when both
+accounts are visible to the caller. Member-triggered apply, provider-map reapply,
+transfer pairing and refund linking operate on that caller's authorized accounts.
+Learned associations retain their originating account; old unscoped learned
+payees with only inaccessible transaction history are withheld from other users.
+Trusted scheduler passes continue to process the household internally.
+
+Linked provider account labels are additional owned aliases only when the source
+and destination mappings share both the connection and provider account UID, and
+the label resolves uniquely. Proposed mappings, other connections, other account
+UIDs and ambiguous labels confer no alias. Human names are never inferred from
+UIDs; absent aliases require an explicit account-scoped rule before deployment.
+
+Canonical HA family events use compact `app_meta` prior-state JSON and outbox rows
+in the same mutation transaction. The scheduled evaluator compares per-budget
+signed ledger flow, per-event gift totals, per-period energy estimates, and actual
+payslip lifecycle states; it runs independently of notification-rule configuration.
+First observation seeds existing financial state quietly. Expected payday lead
+windows use employment/date occurrence deduplication, not summary count movement.
+Financial and snapshot rollback is atomic. Shared automation/report energy budgets
+and shared budget event flow exclude private plans/accounts before aggregation.
+Automatic categorisation, suggestions, provider mapping, owned movement
+classification, transfer pairing and refund-credit linking skip reconciled rows
+and rows inside locked periods. A refund can still reference a reconciled
+purchase because the purchase is unchanged. Canonical occurrence settlement
+inherits its source category, then applies provider/rule fallbacks to that one
+editable row, before reconciliation freezes it. Existing user categories and
+protected historical rows remain unchanged.

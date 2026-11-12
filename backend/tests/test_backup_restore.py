@@ -46,6 +46,31 @@ def _rows(engine, table: str) -> list[tuple]:
 
 
 class TestSnapshots:
+    def test_embedded_manifest_survives_rename_and_mtime(self, db) -> None:
+        from datetime import UTC, datetime
+
+        engine, db_path = db
+        when = datetime(2026, 10, 25, 1, 30, tzinfo=UTC)
+        snap = backup.create_snapshot(engine, db_path.parent / "b", now=when)
+        renamed = snap.with_name("ff-19990101T000000.db")
+        snap.rename(renamed)
+        assert backup.snapshot_taken_at(renamed) == when
+        older = backup.create_snapshot(engine, renamed.parent,
+                                       now=datetime(2026, 1, 1, tzinfo=UTC))
+        assert backup.list_snapshots(renamed.parent) == [older, renamed]
+        assert backup.rotate(renamed.parent, keep=1) == 1
+        assert renamed.exists()
+
+    def test_legacy_and_malformed_manifest_fallback(self, tmp_path: Path) -> None:
+        from datetime import UTC, datetime
+
+        snap = tmp_path / "ff-20260101T120000.db"
+        with sqlite3.connect(snap) as conn:
+            conn.execute("CREATE TABLE ff_backup_manifest (taken_at TEXT NOT NULL)")
+            conn.execute("INSERT INTO ff_backup_manifest VALUES ('invalid')")
+        assert backup.snapshot_taken_at(snap) == datetime(2026, 1, 1, 12, tzinfo=UTC)
+        assert backup.snapshot_taken_at(tmp_path / "ff-20269999T999999.db") is None
+
     def test_wipe_restore_identical(self, db) -> None:
         """AC: backup → wipe → restore → integrity check = identical."""
         engine, db_path = db
@@ -136,7 +161,7 @@ class TestAdminEndpoints:
                 headers=h).json()
             member = c.post("/api/v1/profiles", json={
                 "display_name": "Kid", "role": "member"},
-                headers=h).json()
+                headers={**h, "X-Profile-Id": str(admin["id"])}).json()
             assert c.get("/api/v1/admin/backups", headers={
                 **h, "X-Profile-Id": str(admin["id"])}
             ).status_code == 200
@@ -270,7 +295,7 @@ class TestFailedMigration:
             assert r.status_code == 503
             comps = r.json()["components"]
             assert comps["boot"]["ok"] is False
-            assert "boom" in comps["boot"]["detail"]
+            assert comps["boot"]["detail"] == "migration_failed"
         # data preserved by the auto-restored snapshot
         conn = sqlite3.connect(db_file)
         try:

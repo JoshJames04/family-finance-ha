@@ -12,6 +12,7 @@ from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import pytest_socket
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 
@@ -22,8 +23,6 @@ pytest_plugins = "pytest_homeassistant_custom_component"
 # setup (including phacc's session-scoped ones) — ordering can't be
 # won. Neutralise the guard for this suite: the API client is fully
 # mocked, so no real network traffic occurs anyway.
-import pytest_socket
-
 pytest_socket.disable_socket = lambda allow_unix_socket=False: None  # type: ignore[attr-defined]
 
 
@@ -36,15 +35,32 @@ def _custom_integrations(enable_custom_integrations: None) -> None:
 @pytest.fixture()
 def mock_api() -> Generator[AsyncMock]:
     """Patch the API client — tests assert HA-side behaviour, not HTTP."""
-    with patch(
-        "custom_components.family_finance.api.FamilyFinanceClient"
-        ".async_fetch_summary",
-        new_callable=AsyncMock,
-    ) as fetch, patch(
-        "custom_components.family_finance.api.FamilyFinanceClient"
-        ".async_validate",
-        new_callable=AsyncMock,
-    ) as validate:
+    with (
+        patch(
+            "custom_components.family_finance.api.FamilyFinanceClient"
+            ".async_fetch_summary",
+            new_callable=AsyncMock,
+        ) as fetch,
+        patch(
+            "custom_components.family_finance.api.FamilyFinanceClient.async_validate",
+            new_callable=AsyncMock,
+        ) as validate,
+        patch(
+            "custom_components.family_finance.api.FamilyFinanceClient.async_fetch_events",
+            new_callable=AsyncMock,
+            return_value={"events": [], "next_cursor": 0},
+        ),
+        patch(
+            "custom_components.family_finance.api.FamilyFinanceClient.async_fetch_items",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
+            "custom_components.family_finance.api.FamilyFinanceClient.async_energy_config",
+            new_callable=AsyncMock,
+            return_value={"meter_entity": None},
+        ),
+    ):
         validate.return_value = {"version": "0.1.0"}
         fetch.return_value = {
             "app_version": "0.1.0",

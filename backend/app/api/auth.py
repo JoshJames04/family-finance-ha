@@ -14,6 +14,8 @@ Every request resolves an identity into ``request.state.profile_id``:
 from __future__ import annotations
 
 import asyncio
+import hmac
+import re
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated
@@ -131,7 +133,10 @@ def _resolve_profile_id(request: Request) -> int | None:
     with Session(engine) as s:
         p = resolve_identity(request, s)
         s.commit()
-        return p.id if p is not None else None
+        if p is not None and p.is_active:
+            request.state.auth_role = p.role.value
+            return p.id
+        return None
 
 
 async def auth_middleware(
@@ -154,7 +159,63 @@ async def auth_middleware(
                                in request.cookies):
         request.state.profile_id = await asyncio.to_thread(
             _resolve_profile_id, request)
+    settings = request.app.state.settings
+    path = request.url.path.rstrip("/")
+    if settings.ingress and path.startswith("/api/v1/"):
+        public = {
+            ("GET", "/api/v1/version"),
+            ("POST", "/api/v1/auth/login"),
+            ("POST", "/api/v1/auth/logout"),
+        }
+        signed_webhook = (request.method == "POST"
+                          and path == "/api/v1/integrations/starling/webhook")
+        if (request.method, path) in public or signed_webhook:
+            return await call_next(request)
+        pid = getattr(request.state, "profile_id", None)
+        if pid is None:
+            expected = (settings.admin_token.get_secret_value()
+                        if settings.admin_token else "")
+            given = request.headers.get("x-admin-token", "")
+            service = bool(expected and given and hmac.compare_digest(given, expected))
+            if service:
+                # Recovery retains the existing fail-closed admin token gate.
+                if (not path.startswith("/api/v1/admin/")
+                        and not _service_route(request.method, path)):
+                    return Response(status_code=403)
+                request.state.service_authenticated = True
+            elif (request.method, path) in {
+                    ("POST", "/api/v1/households"), ("POST", "/api/v1/profiles")
+            } and engine is not None and await asyncio.to_thread(_bootstrap_open, engine):
+                pass
+            else:
+                return Response(status_code=401)
+        elif (getattr(request.state, "auth_role", None) == Role.viewer.value
+              and request.method not in {"GET", "HEAD", "OPTIONS"}
+              and (request.method, path) != ("PUT", "/api/v1/profiles/me/dashboard")):
+            return Response(status_code=403)
     return await call_next(request)
+
+
+def _bootstrap_open(engine) -> bool:  # type: ignore[no-untyped-def]
+    with Session(engine) as session:
+        return session.scalar(select(UserProfile.id).limit(1)) is None
+
+
+def _service_route(method: str, path: str) -> bool:
+    """HA's shared read contract plus its explicit statistics ingest endpoint."""
+    if method == "POST":
+        return (path in {"/api/v1/energy/readings", "/api/v1/transactions"}
+                or re.fullmatch(r"/api/v1/employments/[0-9]+/overtime-entries", path) is not None)
+    if method != "GET":
+        return False
+    return re.fullmatch(
+        r"/api/v1/(?:accounts(?:/[0-9]+/balance)?"
+        r"|sync/accounts/[0-9]+/cursor"
+        r"|expected-movements(?:/outstanding)?"
+        r"|budgets(?:/[0-9]+(?:/actuals)?)?"
+        r"|savings-goals(?:/[0-9]+/progress)?"
+        r"|notifications/(?:rules|events)"
+        r"|integration/(?:events|items)|energy/config)", path) is not None
 
 
 def current_profile(request: Request,

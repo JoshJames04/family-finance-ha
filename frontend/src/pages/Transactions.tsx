@@ -5,12 +5,13 @@
  * queue, and a reason-enforced correction flow for reconciled rows —
  * never a silent edit. */
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Bookmark, Check, Download, FilterX, Lock, Pencil, Plus, Receipt,
   Scissors, StickyNote, Upload, X,
 } from "lucide-react";
-import { api } from "../api/client";
+import { api, getHouseholdId, getProfileId } from "../api/client";
 import { useApi, useHouseholds } from "../api/useApi";
 import { useAccounts, useCategories } from "../api/hooks";
 import type { components } from "../api/schema";
@@ -76,7 +77,19 @@ export function Transactions() {
   const { dataVersion, openQuickAdd } = useShell();
   const categories = useCategories();
   const accounts = useAccounts();
-  const [filters, setFiltersRaw] = useState<Filters>(EMPTY);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = searchParams.get("q") ?? "";
+  const transactionId = Number(searchParams.get("transaction_id"));
+  const hasTarget = Number.isSafeInteger(transactionId) && transactionId > 0;
+  const target = useApi(() => api.get("/api/v1/transactions/{txn_id}", {
+    path: { txn_id: transactionId },
+  }), ready && hasTarget, [transactionId, dataVersion]);
+  const [filters, setFiltersRaw] = useState<Filters>(() => ({ ...EMPTY, q: urlQuery }));
+  useEffect(() => {
+    setFiltersRaw((current) => ({ ...current, q: urlQuery }));
+    setLoaded([]);
+    setPage(1);
+  }, [urlQuery]);
   const [saved, setSaved] = useState<Record<string, Filters>>(loadSaved);
   const [saving, setSaving] = useState(false);
   const [rev, setRev] = useState(0);
@@ -88,6 +101,9 @@ export function Transactions() {
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(1);
   const [loaded, setLoaded] = useState<Txn[]>([]);
+  const ledgerScope = JSON.stringify([getHouseholdId(), getProfileId(), filters]);
+  const loadedScope = useRef(ledgerScope);
+  useEffect(() => { setPage(1); setSelected(new Set()); }, [ledgerScope]);
   const state = useApi(
     () => api.get("/api/v1/transactions", {
       query: {
@@ -101,16 +117,19 @@ export function Transactions() {
     }).then((response) => ({ ...response, requestedPage: page })),
     ready,
     [filters, rev, dataVersion, page],
+    [filters],
   );
   useEffect(() => {
     if (!state.data || state.data.requestedPage !== page) return;
     const next = state.data.items;
-    setLoaded((prev) => (page === 1 ? next : [...prev, ...next]));
+    const append = page !== 1 && loadedScope.current === ledgerScope;
+    loadedScope.current = ledgerScope;
+    setLoaded((prev) => append ? [...prev, ...next] : next);
   }, [state.data]);
   useEffect(() => { setPage(1); }, [dataVersion]);
   const queue = useApi(
     () => api.get("/api/v1/reconcile/queue"), ready, [rev]);
-  const items = loaded;
+  const items = loadedScope.current === ledgerScope ? loaded : [];
   const total = state.data?.total ?? 0;
   const hasMore = items.length < total;
   const win = useWindowed(items.length);
@@ -183,6 +202,25 @@ export function Transactions() {
         }
       />
 
+      {hasTarget && (
+        <Panel title="Selected transaction" aria-label="Selected transaction" className="mb-4"
+          actions={<Button variant="ghost" onClick={() => {
+            const next = new URLSearchParams(searchParams);
+            next.delete("transaction_id");
+            setSearchParams(next);
+          }}>Close</Button>}>
+          <DataView state={target} empty="Transaction unavailable">
+            {(txn) => <div className="space-y-1">
+              <p className="font-medium">{txn.payee}</p>
+              <p>{formatDate(txn.date)} · {accountName(txn.account_id)}</p>
+              <Money pence={txn.amount_pence} signed tone="auto" />
+              <p>{cats.find((c) => c.id === txn.category_id)?.name ?? "Uncategorised"} · {txn.status}</p>
+              {txn.notes && <p className="whitespace-pre-wrap">{txn.notes}</p>}
+            </div>}
+          </DataView>
+        </Panel>
+      )}
+
       {(queue.data?.length ?? 0) > 0 && (
         <Panel
           title={`Expected matches (${queue.data?.length ?? 0})`}
@@ -227,7 +265,7 @@ export function Transactions() {
           className="flex flex-wrap items-center gap-2 border-b border-border p-3"
         >
           <SearchInput
-            placeholder="Search payee…"
+            placeholder="Search payee, notes, category or amount…"
             aria-label="Search payee"
             value={filters.q}
             wrapperClassName="w-full sm:w-64"

@@ -65,7 +65,7 @@ Tables per year: `tblIncome` (income rows), `tblPersonal`/`tblDaily`
 
 | Area | Coverage | Verdict |
 |---|---|---|
-| Comments/annotations | `inspect_workbook.py` counts comments per sheet; not imported (structural only) | DIFF — comments are context, not financial records |
+| Comments/annotations | Historical importer counted comments but did not retain them. Current gift/event notes are visible; gift notes are searchable. | UNVERIFIED — 16 original threaded comments remain recoverable from the retained budget workbook; exact mapping into current records is not established. See [finance audit disposition](FINANCE-HISTORICAL-AUDIT.md). |
 | `LastCol`/`PrintArea_SET` defined names | `cached_values` reads Excel's last-calculated results — never recomputes formulas | PASS — design: read cached values, never recompute |
 | Error cells (`#REF!`, `#DIV/0!`) | `inspect_workbook` reports counts; `defects.py` flags them in the review queue | PASS — B×1 flag pending reviewer (§7.1) |
 

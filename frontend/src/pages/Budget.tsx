@@ -86,7 +86,7 @@ function groupLines(
     rows: g.rows,
     original: g.rows.reduce((s, l) => s + l.original_pence, 0),
     revised: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.effective_pence ?? l.revised_pence ?? l.original_pence), 0),
-    actual: g.rows.reduce((s, l) => s + Math.abs(analyses[String(l.id)]?.actual_pence ?? 0), 0),
+    actual: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.actual_pence ?? 0), 0),
     variance: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.variance_pence ?? 0), 0),
   }));
   // Named sections alphabetically; the ungrouped bucket always last.
@@ -122,6 +122,7 @@ export function Budget() {
   const categories = useCategories();
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const items = useMemo(() => budgets.data?.items ?? [], [budgets.data]);
+  const [scope, setScope] = useState("all");
   const [budgetId, setBudgetId] = useState<number | null>(null);
   const [rev, setRev] = useState(0);
   const [revising, setRevising] = useState<Line | null>(null);
@@ -139,18 +140,30 @@ export function Budget() {
 
   const id = budgetId;
   const selectedBudget = items.find((b) => b.id === id);
-  const { detail, actuals, analyses } = useBudgetDetail(id, rev);
-  const period = detail.data?.id === id
+  const single = useBudgetDetail(id, rev);
+  const aggregate = scope === "all" && new Set(items.map(ownerKey)).size > 1;
+  const combinedRequest = useApi(
+    () => api.get("/api/v1/budgets/reports/combined", { query: {
+      start: selectedBudget!.start_date, end: selectedBudget!.end_date,
+    } }).then(value => ({ id, value })),
+    aggregate && selectedBudget !== undefined, [id, aggregate, rev]);
+  const combined = combinedRequest.data?.id === id ? combinedRequest.data.value : null;
+  const combinedState = { ...combinedRequest,
+    loading: combinedRequest.loading || (!combined && !combinedRequest.error) };
+  const detail = aggregate ? { ...combinedState, data: combined?.detail ?? null } : single.detail;
+  const actuals = aggregate ? { ...combinedState, data: combined?.actuals ?? null } : single.actuals;
+  const analyses = (actuals.data?.lines ?? {}) as unknown as Record<string, LineAnalysis>;
+  const period = detail.data && (!aggregate || combined)
     ? { from: detail.data.start_date, to: detail.data.end_date }
     : null;
   const movementRequest = useApi(
     () => api.get("/api/v1/expected-movements",
-      { query: { start: period!.from, end: period!.to, budget_id: id! } }).then((items) => ({ budgetId: id, items })),
-    period !== null, [period?.from, period?.to, id]);
+      { query: { start: period!.from, end: period!.to, budget_id: aggregate ? undefined : id! } }).then((items) => ({ budgetId: id, aggregate, items })),
+    period !== null, [period?.from, period?.to, id, aggregate]);
   const movements = {
     ...movementRequest,
-    data: movementRequest.data?.budgetId === id ? movementRequest.data.items : null,
-    loading: movementRequest.loading || (movementRequest.data?.budgetId !== id && !movementRequest.error),
+    data: movementRequest.data?.budgetId === id && movementRequest.data.aggregate === aggregate ? movementRequest.data.items : null,
+    loading: movementRequest.loading || ((movementRequest.data?.budgetId !== id || movementRequest.data?.aggregate !== aggregate) && !movementRequest.error),
   };
   const locked = detail.data
     ? detail.data.status === "locked" || detail.data.read_only
@@ -159,8 +172,12 @@ export function Budget() {
 
   /* ---- period navigation ---- */
   const owners = useMemo(() => [...new Set(items.map(ownerKey))], [items]);
-  const owner = selectedBudget ? ownerKey(selectedBudget) : "shared";
-  const ownerItems = items.filter((b) => ownerKey(b) === owner);
+  const owner = scope === "all" ? "all" : selectedBudget ? ownerKey(selectedBudget) : scope;
+  const ownerItems = owner === "all"
+    ? [...new Map([...items].reverse().map(b => [`${b.start_date}:${b.end_date}`, b])).values()]
+      .map(b => selectedBudget && b.start_date === selectedBudget.start_date
+        && b.end_date === selectedBudget.end_date ? selectedBudget : b)
+    : items.filter((b) => ownerKey(b) === owner);
   const years = [...new Set(ownerItems.map((b) => parseISODate(b.start_date).getFullYear()))].sort();
   const year = selectedBudget ? parseISODate(selectedBudget.start_date).getFullYear() : years[0];
   const byMonth = new Map<number, BudgetT>();
@@ -171,11 +188,12 @@ export function Budget() {
   const chrono = [...ownerItems].sort((a, b) => a.start_date.localeCompare(b.start_date));
   const pos = chrono.findIndex((b) => b.id === id);
   const ownerLabel = (k: string) =>
-    k === "shared" ? "Shared"
+    k === "all" ? "All" : k === "shared" ? "Shared"
       : profiles.data?.items.find((p) => String(p.id) === k)?.display_name ?? `Member ${k}`;
   const switchOwner = (k: string) => {
+    setScope(k);
     const cur = selectedBudget ? parseISODate(selectedBudget.start_date) : new Date();
-    const candidates = items.filter((b) => ownerKey(b) === k);
+    const candidates = k === "all" ? items : items.filter((b) => ownerKey(b) === k);
     const same = candidates.find((b) => {
       const d = parseISODate(b.start_date);
       return d.getFullYear() === cur.getFullYear() && d.getMonth() === cur.getMonth();
@@ -189,9 +207,9 @@ export function Budget() {
   const sum = (side: string, f: (l: Line, a?: LineAnalysis) => number) =>
     lines.filter((l) => l.side === side).reduce((s, l) => s + f(l, analyses[String(l.id)]), 0);
   const plannedOut = sum("expense", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
-  const actualOut = sum("expense", (_l, a) => Math.abs(a?.actual_pence ?? 0));
+  const actualOut = actuals.data?.spent_pence ?? sum("expense", (_l, a) => a?.actual_pence ?? 0);
   const plannedIn = sum("income", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
-  const actualIn = sum("income", (_l, a) => Math.abs(a?.actual_pence ?? 0));
+  const actualIn = actuals.data?.income_received_pence ?? sum("income", (_l, a) => a?.actual_pence ?? 0);
 
   const sides: Array<{ key: "income" | "expense"; label: string }> = [
     { key: "expense", label: "Expenses" },
@@ -209,7 +227,7 @@ export function Budget() {
               label="Budget owner"
               value={owner}
               onChange={switchOwner}
-              options={owners.map((k) => ({ value: k, label: ownerLabel(k) }))}
+              options={["all", ...owners].map((k) => ({ value: k, label: ownerLabel(k) }))}
             />
           ) : undefined
         }
@@ -288,11 +306,11 @@ export function Budget() {
                 <>
                   <div className="mb-4 flex flex-wrap items-center gap-2">
                     <h2 className="text-[17px] font-semibold tracking-tight">{formatMonthOf(d.start_date)}</h2>
-                    <Badge tone={STATUS_TONE[d.status] ?? "info"}>{d.status}</Badge>
+                    {!aggregate && <Badge tone={STATUS_TONE[d.status] ?? "info"}>{d.status}</Badge>}
                     {locked && (
                       <span className="inline-flex items-center gap-1 text-[12.5px] text-fg-subtle">
                         <Lock className="size-3.5" />
-                        <span>locked — read-only</span>
+                        <span>{aggregate ? "Combined view — read-only" : "locked — read-only"}</span>
                       </span>
                     )}
                     <span className="ml-auto text-[12.5px] text-fg-subtle">
@@ -330,6 +348,32 @@ export function Budget() {
                   </div>}
                   </DataView>
 
+                  {actuals.data?.as_of && (
+                    <details className="mb-4 rounded-xl border border-border bg-surface p-4">
+                      <summary className="cursor-pointer text-sm font-medium">Reconcile spending</summary>
+                      <p className="my-2 text-sm text-fg-muted">
+                        Through {formatDayMonth(actuals.data.as_of)}: budget-covered <Money pence={actuals.data.budget_covered_pence ?? 0} />;
+                        outside the expense plan <Money pence={actuals.data.unallocated_pence ?? 0} />;
+                        including uncategorised <Money pence={actuals.data.uncategorised_pence ?? 0} />.
+                        Refunds reduce spending. The table below keeps full-period category actuals.
+                      </p>
+                      <div className="max-h-72 overflow-auto">
+                        <table className="w-full text-left text-sm">
+                          <caption className="sr-only">Transactions included in spent so far</caption>
+                          <thead><tr><th>Transaction</th><th>Date</th><th>Category</th><th className="text-right">Net spend</th></tr></thead>
+                          <tbody>{(actuals.data.spend_items ?? []).map((item, index) => (
+                            <tr key={`${item.transaction_id}:${index}`}>
+                              <td>#{item.transaction_id}</td><td>{formatDayMonth(item.date)}</td>
+                              <td>{item.category_id == null ? "Uncategorised" : categories.byId.get(item.category_id)?.name ?? `Category ${item.category_id}`}</td>
+                              <td className="text-right"><Money pence={item.amount_pence} /></td>
+                            </tr>
+                          ))}</tbody>
+                          <tfoot><tr><th colSpan={3}>Spent so far</th><td className="text-right"><Money pence={actualOut} /></td></tr></tfoot>
+                        </table>
+                      </div>
+                    </details>
+                  )}
+
                   <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
                     <div className="flex min-w-0 flex-col gap-4">
                       <DataView state={actuals} empty="" loading={<Skeleton className="h-64 w-full rounded-xl" />}>
@@ -347,7 +391,7 @@ export function Budget() {
                                 const name = categories.byId.get(l.category_id)?.name ?? `Category ${l.category_id}`;
                                 const v = an?.variance_pence ?? 0;
                                 const plan = an?.effective_pence ?? l.revised_pence ?? l.original_pence;
-                                const actual = Math.abs(an?.actual_pence ?? 0);
+                                const actual = (an?.actual_pence ?? 0);
                                 const wasRevised = l.revised_pence != null
                                   && l.revised_pence !== l.original_pence;
                                 // Usage means nothing when there's no plan and no spend.

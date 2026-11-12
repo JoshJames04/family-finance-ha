@@ -135,7 +135,12 @@ def add_repayment(
         if tx.account.household_id != ln.household_id:
             raise HTTPException(409, "transaction belongs to another "
                                      "household")
-        rp.transaction_id = tx.id
+        if not rbac.visible(tx.account.owner_profile_id, profile):
+            raise HTTPException(404, "transaction not found")
+        try:
+            loans.link_repayment(session, rp, tx)
+        except loans.LoanError as error:
+            raise HTTPException(409, str(error)) from error
     session.add(rp)
     session.flush()
     emit(session, household.id, actor, "create", "repayment", rp.id,

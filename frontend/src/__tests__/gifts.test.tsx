@@ -32,7 +32,7 @@ const GIFTS = [
   { id: 11, event_id: 4, recipient: "Sam", idea: "Lego set",
     planned_pence: 4000, actual_pence: 3500,
     purchase_status: "purchased", payment_status: "paid",
-    transaction_id: 77, notes: null },
+    transaction_id: 77, notes: "Synthetic historical note" },
   { id: 12, event_id: 4, recipient: "Sam", idea: "Book",
     planned_pence: 1500, actual_pence: null,
     purchase_status: "idea", payment_status: "unpaid",
@@ -81,6 +81,16 @@ function stubFetch(posts: { url: string; body: string }[]) {
 
 describe("Gifts", () => {
   afterEach(cleanup);
+  it("shows historical notes and searches their context", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Gifts /></MemoryRouter>);
+    expect(await screen.findByText("Synthetic historical note")).toBeDefined();
+    await user.type(screen.getByLabelText("Search gifts and notes"), "historical");
+    expect(screen.getByText("Lego set")).toBeDefined();
+    expect(screen.queryByText("Scarf")).toBeNull();
+    expect(screen.queryByText("Book")).toBeNull();
+  });
   it("groups gifts per recipient with variance", async () => {
     stubFetch([]);
     render(<MemoryRouter><Gifts /></MemoryRouter>);

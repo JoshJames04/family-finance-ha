@@ -46,11 +46,12 @@ class JsonFormatter(logging.Formatter):
             "request_id": getattr(record, "request_id", request_id_ctx.get()),
         }
         if record.exc_info:
-            payload["exc"] = self.formatException(record.exc_info)
+            # Exception text may contain bank payloads, financial values or secrets.
+            payload["exc"] = type(record.exc_info[1]).__name__
         for key, val in getattr(record, "extra", {}).items():
             payload[key] = _redact(val)
         payload["msg"] = _redact(payload["msg"])
-        return json.dumps(payload, default=str)
+        return json.dumps(_redact(payload), default=str)
 
 
 class SecretRedactionFilter(logging.Filter):
@@ -89,3 +90,4 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             request_id_ctx.reset(token)
+

@@ -73,7 +73,7 @@ describe("useApi #460 state machine", () => {
       .mockResolvedValueOnce({ v: "first" })
       .mockRejectedValue(new TypeError("gone"));
     const { result, rerender } = renderHook(
-      ({ dep }) => useApi(spy, true, [dep]),
+      ({ dep }) => useApi(spy, true, [dep], []),
       { initialProps: { dep: 0 } });
     await waitFor(() =>
       expect(result.current.data).toEqual({ v: "first" }));

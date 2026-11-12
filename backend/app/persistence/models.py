@@ -20,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
@@ -27,6 +28,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -1266,13 +1268,18 @@ class SeasonalEvent(TimestampMixin, Base):
                         name="ck_seasonal_event_budget"),
         CheckConstraint("year BETWEEN 1900 AND 2200",
                         name="ck_seasonal_event_year"),
-        UniqueConstraint("household_id", "type", "year",
-                         name="uq_seasonal_event_household_type_year"),
+        Index("uq_seasonal_shared_type_year", "household_id", "type", "year",
+              unique=True, sqlite_where=text("owner_profile_id IS NULL")),
+        Index("uq_seasonal_private_type_year", "household_id", "type", "year",
+              "owner_profile_id", unique=True,
+              sqlite_where=text("owner_profile_id IS NOT NULL")),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     household_id: Mapped[int] = mapped_column(
         ForeignKey("household.id"), nullable=False, index=True)
+    owner_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=True, index=True)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     type: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -1763,6 +1770,9 @@ class CategorisationRule(TimestampMixin, Base):
         Enum(MatchType), default=MatchType.contains, nullable=False)
     category_id: Mapped[int] = mapped_column(
         ForeignKey("category.id"), nullable=False)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("account.id"), nullable=True)
+    transfer_account_id: Mapped[int | None] = mapped_column(ForeignKey("account.id"), nullable=True)
+    amount_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=100,
                                           nullable=False)
     auto_apply: Mapped[bool] = mapped_column(Boolean, default=False,

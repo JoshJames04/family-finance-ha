@@ -1,9 +1,10 @@
 """Budgets: CRUD, lines, lifecycle transitions, per-line actuals."""
 
+from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Query, Response
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.api import schemas
@@ -17,6 +18,7 @@ from app.api.deps import (
 from app.domain import budgets as dom
 from app.domain import rbac, schedule
 from app.persistence.models import (
+    Account,
     Budget,
     BudgetLine,
     BudgetStatus,
@@ -198,14 +200,69 @@ def budget_actuals(
     profile: ProfileDep,
 ) -> schemas.BudgetActuals:
     b = _get(session, household.id, budget_id, profile)
-    totals = dom.actuals_for_budget(session, b)
+    return _actuals(session, b, _account_ids(session, household.id, profile))
+
+
+def _account_ids(session: Session, household_id: int,
+                 profile: UserProfile | None) -> list[int]:
+    return [a.id for a in session.scalars(select(Account).where(
+        Account.household_id == household_id))
+        if rbac.visible(a.owner_profile_id, profile)]
+
+
+def _actuals(session: Session, b: Budget,
+             account_ids: list[int]) -> schemas.BudgetActuals:
+    totals = dom.actuals_for_budget(session, b, account_ids)
     lines = {line.id: dom.line_analysis(totals[line.id], line)
              for line in b.lines}
-    rem_pence, rem_count = dom.bills_remaining(session, b)
-    return schemas.BudgetActuals(
-        budget_id=b.id, totals=totals, lines=lines,
-        bills_remaining_pence=rem_pence,
-        bills_remaining_count=rem_count)
+    rem_pence, rem_count = dom.bills_remaining(session, b, account_ids)
+    return schemas.BudgetActuals.model_validate({
+        "budget_id": b.id, "totals": totals, "lines": lines,
+        "bills_remaining_pence": rem_pence, "bills_remaining_count": rem_count,
+        **dom.spending_summary(session, b, account_ids)})
+
+
+@router.get("/reports/combined", response_model=schemas.BudgetCombined)
+def combined_budget(
+    start: date, end: date, household: HouseholdDep,
+    session: SessionDep, profile: ProfileDep,
+) -> schemas.BudgetCombined:
+    """Read-only All view for one exact period; actuals use an account union.
+
+    One latest budget per owner/period prevents duplicate plan versions from
+    multiplying the plan. Personal and shared plans remain separate inputs;
+    each underlying transaction and expected obligation contributes once.
+    """
+    rows = session.scalars(select(Budget).where(
+        Budget.household_id == household.id,
+        Budget.start_date == start, Budget.end_date == end
+    ).order_by(Budget.id)).all()
+    by_owner = {b.owner_profile_id: b for b in rows if _visible(b, profile)}
+    if not by_owner:
+        raise HTTPException(404, "no visible budgets for this period")
+    combined = Budget(id=0, household_id=household.id, name="All",
+        owner_profile_id=None, period_type=next(iter(by_owner.values())).period_type,
+        start_date=start, end_date=end, status=BudgetStatus.locked)
+    groups: dict[tuple[int, object], BudgetLine] = {}
+    for budget in by_owner.values():
+        for line in budget.lines:
+            key = (line.category_id, line.side)
+            if key not in groups:
+                groups[key] = BudgetLine(id=-(len(groups) + 1),
+                    category_id=line.category_id, side=line.side,
+                    original_pence=0, revised_pence=0, rollover=False)
+            merged = groups[key]
+            merged.original_pence += line.original_pence
+            merged.revised_pence = (merged.revised_pence or 0) + line.effective_pence
+    combined.lines = list(groups.values())
+    account_ids = _account_ids(session, household.id, profile)
+    # With no shared plan, include only the owners represented in this period.
+    if None not in by_owner:
+        account_ids = list(session.scalars(select(Account.id).where(
+            Account.id.in_(account_ids), Account.owner_profile_id.in_(by_owner))))
+    return schemas.BudgetCombined(detail=_detail(session, combined),
+        actuals=_actuals(session, combined, account_ids))
+
 
 
 # ---------- templates + copy-forward (issue #59) ----------------------
@@ -464,3 +521,22 @@ def bulk_revise_lines(
          {"bulk_revisions": updated, "skipped": skipped})
     return schemas.BulkReviseResult(updated=updated,
                                     skipped=skipped)
+
+
+@router.delete("/templates/{template_id}", status_code=204)
+def delete_template(
+    template_id: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, profile: ProfileDep,
+) -> Response:
+    template = _get_template(session, household.id, template_id)
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
+    # Applied budgets contain copied lines. Drop only the optional provenance
+    # pointer so FK enforcement preserves every existing budget and its plan.
+    session.execute(update(Budget).where(Budget.from_template_id == template.id)
+                    .values(from_template_id=None))
+    emit(session, household.id, actor, "delete", "budget_template", template.id,
+         {"name": template.name})
+    session.delete(template)
+    session.flush()
+    return Response(status_code=204)

@@ -262,9 +262,9 @@ class TestPatchApi:
         h = {"X-Household-Id": str(hid)}
         admin = client.post("/api/v1/profiles", headers=h, json={
             "display_name": "Admin", "role": "admin"}).json()
-        member = client.post("/api/v1/profiles", headers=h, json={
-            "display_name": "Member", "role": "member"}).json()
         ha = {**h, "X-Profile-Id": str(admin["id"])}
+        member = client.post("/api/v1/profiles", headers=ha, json={
+            "display_name": "Member", "role": "member"}).json()
         hm = {**h, "X-Profile-Id": str(member["id"])}
         return h, ha, hm, admin, member
 

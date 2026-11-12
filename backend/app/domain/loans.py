@@ -115,11 +115,11 @@ def repayment_balances(
     """Repayment history with running outstanding after each entry
     (#94) — balance recomputed at each repayment's own date."""
     out: list[tuple[Repayment, int]] = []
+    repaid = 0
     for r in sorted(loan.repayments,
                     key=lambda x: (x.date, x.id)):
-        due = (loan.principal_pence
-               + accrued_interest(loan, r.date)
-               - repaid_pence(session, loan, before=r.date))
+        repaid += r.amount_pence
+        due = loan.principal_pence + accrued_interest(loan, r.date) - repaid
         out.append((r, max(0, due)))
     return out
 
@@ -127,8 +127,18 @@ def repayment_balances(
 def link_repayment(session: Session, repayment: Repayment,
                    tx: Transaction) -> Repayment:
     """Bind a repayment to the real transaction it represents."""
-    if tx.account.household_id != repayment.loan.household_id:
+    loan = repayment.loan or session.get(Loan, repayment.loan_id)
+    if loan is None or tx.account.household_id != loan.household_id:
         raise LoanError("transaction belongs to another household")
+    with session.no_autoflush:
+        used = session.scalar(select(Repayment.id).where(
+            Repayment.transaction_id == tx.id,
+            Repayment.id != repayment.id).limit(1))
+    if used is not None:
+        raise LoanError("transaction already attributed to a repayment")
+    expected_sign = -1 if loan.direction.value == "we_owe" else 1
+    if (tx.status.value == "void" or tx.transfer_id is not None
+            or tx.amount_pence * expected_sign != repayment.amount_pence):
+        raise LoanError("repayment must match an eligible transaction amount and direction")
     repayment.transaction_id = tx.id
-    session.flush()
     return repayment

@@ -77,8 +77,9 @@ def list_profiles(
 @router.post("", response_model=schemas.ProfileOut, status_code=201)
 def create_profile(
     body: schemas.ProfileIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, actor_profile: ProfileDep,
 ) -> schemas.ProfileOut:
+    _guard(actor_profile, session, household.id)
     p = UserProfile(household_id=household.id,
                     display_name=body.display_name, role=body.role,
                     ha_user_id=body.ha_user_id)

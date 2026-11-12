@@ -52,6 +52,13 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
     setAttempt(0);
     setTick((t) => t + 1);
   }, []);
+  const bootstrapError = useRef(state.error);
+  bootstrapError.current = state.error;
+  useEffect(() => {
+    const recover = () => { if (bootstrapError.current !== null) refetch(); };
+    window.addEventListener("online", recover);
+    return () => window.removeEventListener("online", recover);
+  }, [refetch]);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -68,7 +75,7 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
       })
       .catch((e: Error) => {
         if (cancelled) return;
-        if (attempt + 1 < HOUSEHOLD_ATTEMPTS) {
+        if (isTransient(e) && attempt + 1 < HOUSEHOLD_ATTEMPTS) {
           setState({ data: null, loading: true, retrying: true,
                      error: e.message });
           timer = setTimeout(
@@ -77,6 +84,7 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
         } else {
           setState({ data: null, loading: false, retrying: false,
                      error: e.message });
+          if (isTransient(e)) timer = setTimeout(refetch, RECOVERY_DELAY_MS);
         }
       });
     return () => {
@@ -96,10 +104,8 @@ export function useHouseholds(): ApiState<{ id: number; name: string }[]> {
  */
 export function useIdentity(): ApiState<Profile[]> {
   const households = useHouseholds();
-  // Also settle on a *terminal* households failure: identity then
-  // resolves (catch → []) so `useReady` lifts and each consumer's
-  // own call can surface the real error — instead of every widget
-  // silently rendering its empty state forever (issue #430).
+  // A terminal bootstrap failure permits an identity attempt, whose
+  // failure remains visible and recoverable rather than an empty list.
   const settled = households.data !== null
     || (households.error !== null && !households.loading);
   const state = useApi(
@@ -121,9 +127,13 @@ export function useIdentity(): ApiState<Profile[]> {
           }
           return items;
         })
-        // Identity is optional (fresh installs have no profiles) — a
-        // failed probe must never block readiness.
-        .catch(() => [] as Profile[]),
+        .catch((error: unknown) => {
+          // A fresh household list can genuinely be empty. A failed
+          // identity request is not an empty successful identity.
+          if (error instanceof ApiError && error.status === 404
+            && households.data?.length === 0) return [] as Profile[];
+          throw error;
+        }),
     settled,
     [households.data?.length],
   );
@@ -162,7 +172,12 @@ export function useMeProfileId(): number | null {
  * cover, bounded so a dead backend surfaces an error promptly.
  * 4xx (auth, validation, not-found) never retries. */
 const MAX_ATTEMPTS = 4;
+const RECOVERY_DELAY_MS = 30_000;
 const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+function sameScope(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
+}
 
 function isTransient(e: unknown): boolean {
   // ApiError carries an HTTP status; anything else (TypeError from
@@ -185,7 +200,12 @@ export function useApi<T>(
   fetcher: () => Promise<T>,
   ready: boolean,
   deps: readonly unknown[] = [],
+  resourceDeps: readonly unknown[] = deps,
 ): ApiState<T> {
+  const household = getHouseholdId();
+  const profile = isIngress() ? null : getProfileId();
+  const scope = [household, profile, ...resourceDeps];
+  const scopeRef = useRef<readonly unknown[]>(scope);
   const [state, setState] = useState<
     Omit<ApiState<T>, "refetch">>({
     data: null,
@@ -201,12 +221,29 @@ export function useApi<T>(
   const genRef = useRef(0);
   const [tick, setTick] = useState(0);
   const refetch = useCallback(() => setTick((t) => t + 1), []);
+  const errorRef = useRef(state.error);
+  errorRef.current = state.error;
   useEffect(() => {
+    if (!ready) return;
+    const recover = () => { if (errorRef.current !== null) refetch(); };
+    const visible = () => {
+      if (document.visibilityState === "visible") recover();
+    };
+    window.addEventListener("online", recover);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.removeEventListener("online", recover);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [ready, refetch]);
+  useEffect(() => {
+    const scopeChanged = !sameScope(scopeRef.current, scope);
+    scopeRef.current = [...scope];
     if (!ready) {
       // Gated: nothing asked yet — report pending, never empty.
       setState((s) => (s.loading && s.data === null
         ? s
-        : { data: s.data, loading: true, retrying: false,
+        : { data: scopeChanged ? null : s.data, loading: true, retrying: false,
             error: s.error }));
       return;
     }
@@ -214,14 +251,14 @@ export function useApi<T>(
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const run = (attempt: number) => {
+      if (cancelled || gen !== genRef.current) return;
       setState((s) => ({
-        data: s.data,
-        loading: s.data === null,   // skeleton only with nothing to show
-        retrying: attempt > 0 || s.data !== null,
+        data: scopeChanged ? null : s.data,
+        loading: scopeChanged || s.data === null,
+        retrying: attempt > 0 || (!scopeChanged && s.data !== null),
         error: null,
       }));
-      fnRef
-        .current()
+      Promise.resolve().then(() => fnRef.current())
         .then((data) => {
           if (cancelled || gen !== genRef.current) return;
           setState({ data, loading: false, retrying: false,
@@ -243,6 +280,12 @@ export function useApi<T>(
             // alongside the error so consumers can show both.
             setState((s) => ({ data: s.data, loading: false,
                               retrying: false, error: e.message }));
+            // Ingress can remain unavailable longer than a burst (for
+            // example during an add-on upgrade). Keep an honest error,
+            // then retry at a quiet cadence without requiring navigation.
+            if (isTransient(e)) {
+              timer = setTimeout(() => run(0), RECOVERY_DELAY_MS);
+            }
           }
         });
     };
@@ -252,6 +295,9 @@ export function useApi<T>(
       if (timer !== undefined) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, tick, ...deps]);
-  return { ...state, refetch };
+  }, [ready, tick, household, profile, ...deps, ...resourceDeps]);
+  const visible = sameScope(scopeRef.current, scope) ? state : {
+    data: null, loading: true, retrying: false, error: null,
+  };
+  return { ...visible, refetch };
 }

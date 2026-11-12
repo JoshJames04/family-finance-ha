@@ -136,6 +136,22 @@ function SearchButton({ onClick, className }: { onClick: () => void; className?:
 export function AppShell() {
   useTheme();
   const location = useLocation();
+  useEffect(() => {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (!id) return;
+    const focus = () => {
+      const element = document.getElementById(id);
+      if (!element) return false;
+      element.scrollIntoView?.({ block: "center" });
+      element.tabIndex = -1;
+      element.focus({ preventScroll: true });
+      return true;
+    };
+    if (focus()) return;
+    const observer = new MutationObserver(() => { if (focus()) observer.disconnect(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [location.pathname, location.search, location.hash]);
   const households = useHouseholds();
   const household = households.data?.[0]?.name;
   const [drawerOpen, setDrawerOpen] = useState(false);

@@ -18,14 +18,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.domain.accounts import current_balance
 from app.persistence.models import (
     Account,
     AnomalyFlag,
     AnomalyStatus,
+    Employment,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
@@ -34,6 +36,7 @@ from app.persistence.models import (
     NotificationKind,
     NotificationRule,
     NotificationState,
+    PayrollRun,
     Transaction,
     TransactionStatus,
 )
@@ -92,6 +95,32 @@ def raise_event(session: Session, rule: NotificationRule,
     return e
 
 
+def _owner_scope(rule: NotificationRule) -> ColumnElement[bool]:
+    return or_(Account.owner_profile_id.is_(None),
+               Account.owner_profile_id == rule.target_profile_id)
+
+
+def _account_ids(rule: NotificationRule) -> Select[int]:
+    return select(Account.id).where(Account.household_id == rule.household_id,
+                                    _owner_scope(rule))
+
+
+def _movement_scope(rule: NotificationRule) -> ColumnElement[bool]:
+    employments = select(Employment.id).where(
+        Employment.household_id == rule.household_id,
+        Employment.profile_id == rule.target_profile_id)
+    payrolls = select(PayrollRun.id).where(PayrollRun.employment_id.in_(employments))
+    salary_owner = or_(
+        ExpectedMovement.source_type.not_in(
+            [ExpectedSource.employment, ExpectedSource.payroll_run]),
+        and_(ExpectedMovement.source_type == ExpectedSource.employment,
+             ExpectedMovement.source_id.in_(employments)),
+        and_(ExpectedMovement.source_type == ExpectedSource.payroll_run,
+             ExpectedMovement.source_id.in_(payrolls)))
+    return and_(or_(ExpectedMovement.account_id.in_(_account_ids(rule)),
+                    ExpectedMovement.account_id.is_(None)), salary_owner)
+
+
 def _eval_spend_above(session: Session, rule: NotificationRule,
                       params: dict[str, object],
                       at: datetime | None = None) -> int:
@@ -102,6 +131,7 @@ def _eval_spend_above(session: Session, rule: NotificationRule,
         select(Transaction)
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == rule.household_id,
+               _owner_scope(rule),
                Transaction.amount_pence < -threshold,
                Transaction.status != TransactionStatus.void))
     if (aid := params.get("account_id")) is not None:
@@ -123,7 +153,7 @@ def _eval_balance_below(session: Session, rule: NotificationRule,
     daily — a sustained dip notifies once, not every poll."""
     threshold = int(str(params.get("threshold_pence", 0)))
     stmt = select(Account).where(
-        Account.household_id == rule.household_id)
+        Account.household_id == rule.household_id, _owner_scope(rule))
     if (aid := params.get("account_id")) is not None:
         stmt = stmt.where(Account.id == int(str(aid)))
     raised = 0
@@ -266,6 +296,7 @@ def _eval_weekly_digest(session: Session, rule: NotificationRule,
         select(func.coalesce(func.sum(-Transaction.amount_pence), 0))
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == rule.household_id,
+               _owner_scope(rule),
                Transaction.date >= week_start,
                Transaction.date <= today,
                Transaction.amount_pence < 0,
@@ -273,6 +304,7 @@ def _eval_weekly_digest(session: Session, rule: NotificationRule,
     upcoming = session.scalars(
         select(ExpectedMovement).where(
             ExpectedMovement.household_id == rule.household_id,
+            _movement_scope(rule),
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= today + timedelta(days=6),
             ExpectedMovement.amount_pence < 0,
@@ -285,6 +317,7 @@ def _eval_weekly_digest(session: Session, rule: NotificationRule,
     anomalies = session.scalar(
         select(func.count()).select_from(AnomalyFlag).where(
             AnomalyFlag.household_id == rule.household_id,
+            AnomalyFlag.account_id.in_(_account_ids(rule)),
             AnomalyFlag.status == AnomalyStatus.pending)) or 0
     iso = today.isocalendar()
     liabilities = sum(-m.amount_pence for m in upcoming)
@@ -318,6 +351,7 @@ def _eval_payday_reminder(session: Session, rule: NotificationRule,
     paydays = session.scalars(
         select(ExpectedMovement).where(
             ExpectedMovement.household_id == rule.household_id,
+            _movement_scope(rule),
             ExpectedMovement.source_type.in_(
                 [ExpectedSource.payroll_run, ExpectedSource.employment]),
             ExpectedMovement.amount_pence > 0,
@@ -346,6 +380,7 @@ def _eval_bill_reminder(session: Session, rule: NotificationRule,
     bills = session.scalars(
         select(ExpectedMovement).where(
             ExpectedMovement.household_id == rule.household_id,
+            _movement_scope(rule),
             ExpectedMovement.amount_pence < 0,
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= end,
@@ -418,6 +453,7 @@ def _eval_low_projected(session: Session, rule: NotificationRule,
     days = int(str(params.get("days", 30)))
     stmt = select(Account).where(
         Account.household_id == rule.household_id,
+               _owner_scope(rule),
         Account.archived.is_(False))
     if (aid := params.get("account_id")) is not None:
         stmt = stmt.where(Account.id == int(str(aid)))
@@ -457,15 +493,16 @@ def _eval_budget_overspend(session: Session, rule: NotificationRule,
                BudgetLine.side == BudgetLineSide.expense)).all()
     raised = 0
     active_keys: set[str] = set()
+    allowed_accounts = list(session.scalars(_account_ids(rule)))
     for line, budget in lines:
-        effective = line.revised_pence or line.original_pence
-        spent = session.scalar(
-            select(func.coalesce(func.sum(-Transaction.amount_pence), 0))
-            .where(Transaction.category_id == line.category_id,
-                   Transaction.date >= budget.start_date,
-                   Transaction.date <= budget.end_date,
-                   Transaction.amount_pence < 0,
-                   Transaction.status != TransactionStatus.void)) or 0
+        from app.domain import budgets
+        # Read the same owner/split/transfer-aware actuals as budget reports.
+        if (budget.owner_profile_id is not None
+                and budget.owner_profile_id != rule.target_profile_id):
+            continue
+        effective = budgets.effective_pence(line)
+        spent = budgets.actuals_for_budget(
+            session, budget, account_ids=allowed_accounts).get(line.id, 0)
         if spent > effective:
             key = f"overspend:{line.id}:{budget.start_date.isoformat()}"
             active_keys.add(key)
@@ -492,6 +529,7 @@ def _eval_unusual(session: Session, rule: NotificationRule,
     flags = session.scalars(
         select(AnomalyFlag).where(
             AnomalyFlag.household_id == rule.household_id,
+            AnomalyFlag.account_id.in_(_account_ids(rule)),
             AnomalyFlag.status == AnomalyStatus.pending)).all()
     raised = 0
     for f in flags:
@@ -512,11 +550,14 @@ def _eval_price_change(session: Session, rule: NotificationRule,
                        at: datetime | None = None) -> int:
     """Subscription PriceChangeEvents → one alert each (severity
     warning — the change may need a budget revision)."""
-    from app.persistence.models import PriceChangeEvent
+    from app.persistence.models import PriceChangeEvent, Subscription
 
     events = session.scalars(
         select(PriceChangeEvent).where(
-            PriceChangeEvent.household_id == rule.household_id)).all()
+            PriceChangeEvent.household_id == rule.household_id,
+            PriceChangeEvent.subscription_id.in_(select(Subscription.id).where(or_(
+                Subscription.account_id.is_(None),
+                Subscription.account_id.in_(_account_ids(rule))))))).all()
     raised = 0
     for e in events:
         if raise_event(session, rule, f"price:{e.id}", {
@@ -544,6 +585,7 @@ def _eval_missed_transfer(session: Session, rule: NotificationRule,
     missed = session.scalars(
         select(ExpectedMovement).where(
             ExpectedMovement.household_id == rule.household_id,
+            _movement_scope(rule),
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,
             ExpectedMovement.expected_date <= overdue,
             ExpectedMovement.dismissed_at.is_(None),
@@ -575,7 +617,7 @@ def _eval_sync_failure(session: Session, rule: NotificationRule,
     cursors = session.scalars(
         select(SyncCursor)
         .join(Account, SyncCursor.account_id == Account.id)
-        .where(Account.household_id == rule.household_id)).all()
+        .where(Account.household_id == rule.household_id, _owner_scope(rule))).all()
     raised = 0
     active_keys: set[str] = set()
     for c in cursors:
@@ -594,3 +636,4 @@ def _eval_sync_failure(session: Session, rule: NotificationRule,
                 raised += 1
     return raised + _clears(session, rule, "syncfail",
                             active_keys, params, at=at)
+

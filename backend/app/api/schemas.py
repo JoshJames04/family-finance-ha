@@ -368,14 +368,33 @@ class BudgetDetail(BudgetOut):
     read_only: bool
 
 
+class BudgetSpendItem(BaseModel):
+    transaction_id: int
+    date: date
+    category_id: int | None
+    amount_pence: int  # signed spend: refunds are negative
+
+
 class BudgetActuals(BaseModel):
     budget_id: int
+    as_of: date | None = None
+    spent_pence: int = 0
+    budget_covered_pence: int = 0
+    unallocated_pence: int = 0
+    uncategorised_pence: int = 0
+    income_received_pence: int = 0
+    spend_items: list[BudgetSpendItem] = []
     totals: dict[int, int]  # line_id → actual pence
     lines: dict[int, dict[str, object]] = {}  # variance/accuracy per line
     # issue #415: unpaid scheduled outgoings left in the period —
     # distinct from `totals` (real spend) and from planned amounts
     bills_remaining_pence: int = 0
     bills_remaining_count: int = 0
+
+
+class BudgetCombined(BaseModel):
+    detail: BudgetDetail
+    actuals: BudgetActuals
 
 
 class BudgetTemplateIn(BaseModel):
@@ -1168,6 +1187,7 @@ class LoanProjectionOut(BaseModel):
 
 
 class SeasonalEventIn(BaseModel):
+    owner_profile_id: int | None = None
     year: int = Field(ge=1900, le=2200)
     type: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=120)
@@ -1177,6 +1197,7 @@ class SeasonalEventIn(BaseModel):
 
 
 class SeasonalEventOut(BaseModel):
+    owner_profile_id: int | None = None
     model_config = ConfigDict(from_attributes=True)
     id: int
     year: int
@@ -1188,6 +1209,7 @@ class SeasonalEventOut(BaseModel):
 
 
 class EventTotalsOut(BaseModel):
+    remaining_after_commitments_pence: int
     planned_pence: int
     actual_pence: int
     committed_pence: int
@@ -1549,6 +1571,9 @@ class CategorisationRuleIn(BaseModel):
     match_type: str = Field(default="contains",
                             pattern="^(contains|exact|regex)$")
     category_id: int
+    account_id: int | None = None
+    transfer_account_id: int | None = None
+    amount_pence: int | None = None
     priority: int = 100
     auto_apply: bool = False
 
@@ -1560,6 +1585,9 @@ class CategorisationRuleOut(BaseModel):
     pattern: str
     match_type: str
     category_id: int
+    account_id: int | None = None
+    transfer_account_id: int | None = None
+    amount_pence: int | None = None
     priority: int
     auto_apply: bool
     times_confirmed: int
@@ -1932,6 +1960,18 @@ class IntegrationEventOut(BaseModel):
 class IntegrationFeedOut(BaseModel):
     events: list[IntegrationEventOut]
     next_cursor: int
+
+
+class IntegrationItemOut(BaseModel):
+    family: Literal["bills", "accounts", "goals"]
+    id: str
+    name: str
+    value: int | Decimal
+    unit: str
+
+
+class IntegrationItemsOut(BaseModel):
+    items: list[IntegrationItemOut]
 
 
 class IntegrationSettingsOut(BaseModel):

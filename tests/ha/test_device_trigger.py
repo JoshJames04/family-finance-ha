@@ -8,34 +8,43 @@ from unittest.mock import AsyncMock
 
 import pytest
 import voluptuous as vol
-from custom_components.family_finance import device_trigger
-from custom_components.family_finance.const import CONF_HOUSEHOLD_ID, CONF_URL, DOMAIN
-from custom_components.family_finance.events import EVENT_BILL_OVERDUE, EVENT_PAYDAY
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.family_finance import device_trigger
+from custom_components.family_finance.const import CONF_HOUSEHOLD_ID, CONF_URL, DOMAIN
+from custom_components.family_finance.events import EVENT_BILL_OVERDUE, EVENT_PAYDAY
+
 _EXPECTED_TYPES = {
-    "bill_due", "bill_overdue", "sync_failed", "goal_milestone",
-    "low_balance", "notification_pending", "payday", "payslip_review",
+    "bill_due",
+    "bill_overdue",
+    "sync_failed",
+    "goal_milestone",
+    "low_balance",
+    "notification_pending",
+    "payday",
+    "payslip_review",
 }
 
 
 async def _setup_device(hass: HomeAssistant) -> dr.DeviceEntry:
     entry = MockConfigEntry(
-        domain=DOMAIN, title="Family Finance",
-        data={CONF_URL: "http://ff.local:8099", CONF_HOUSEHOLD_ID: 1})
+        domain=DOMAIN,
+        title="Family Finance",
+        data={CONF_URL: "http://ff.local:8099", CONF_HOUSEHOLD_ID: 1},
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    device = dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, entry.entry_id)})
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
     assert device is not None
     return device
 
 
 async def test_get_triggers_offers_all_events(
-        hass: HomeAssistant, mock_api: AsyncMock) -> None:
+    hass: HomeAssistant, mock_api: AsyncMock
+) -> None:
     device = await _setup_device(hass)
     triggers = await device_trigger.async_get_triggers(hass, device.id)
     assert {t["type"] for t in triggers} == _EXPECTED_TYPES
@@ -46,56 +55,127 @@ async def test_get_triggers_offers_all_events(
 
 
 async def test_foreign_device_gets_nothing(
-        hass: HomeAssistant, mock_api: AsyncMock) -> None:
+    hass: HomeAssistant, mock_api: AsyncMock
+) -> None:
     await _setup_device(hass)
     other = MockConfigEntry(domain="other_domain", title="Other")
     other.add_to_hass(hass)
     registry = dr.async_get(hass)
     foreign = registry.async_get_or_create(
-        config_entry_id=other.entry_id,
-        identifiers={("other_domain", "x")})
-    assert await device_trigger.async_get_triggers(
-        hass, foreign.id) == []
-    assert await device_trigger.async_get_triggers(
-        hass, "no-such-device") == []
+        config_entry_id=other.entry_id, identifiers={("other_domain", "x")}
+    )
+    assert await device_trigger.async_get_triggers(hass, foreign.id) == []
+    assert await device_trigger.async_get_triggers(hass, "no-such-device") == []
 
 
 async def test_attach_fires_mapped_event(
-        hass: HomeAssistant, mock_api: AsyncMock) -> None:
+    hass: HomeAssistant, mock_api: AsyncMock
+) -> None:
     device = await _setup_device(hass)
     triggers = await device_trigger.async_get_triggers(hass, device.id)
     config = next(t for t in triggers if t["type"] == "bill_overdue")
     action = AsyncMock()
     remove = await device_trigger.async_attach_trigger(
-        hass, config, action,
-        {"domain": "automation", "name": "test",
-         "home_assistant_start": False, "variables": {},
-         "trigger_data": {}})
-    hass.bus.async_fire(EVENT_BILL_OVERDUE, {"overdue_count": 2})
+        hass,
+        config,
+        action,
+        {
+            "domain": "automation",
+            "name": "test",
+            "home_assistant_start": False,
+            "variables": {},
+            "trigger_data": {},
+        },
+    )
+    hass.bus.async_fire(
+        EVENT_BILL_OVERDUE,
+        {
+            "overdue_count": 2,
+            "config_entry_id": next(
+                value for domain, value in device.identifiers if domain == DOMAIN
+            ),
+        },
+    )
     await hass.async_block_till_done()
     action.assert_awaited_once()
-    remove()   # teardown: unsubscribes cleanly
+    remove()  # teardown: unsubscribes cleanly
 
 
-async def test_attach_payday_fires(
-        hass: HomeAssistant, mock_api: AsyncMock) -> None:
+async def test_attach_payday_fires(hass: HomeAssistant, mock_api: AsyncMock) -> None:
     device = await _setup_device(hass)
-    config = {"platform": "device", "domain": DOMAIN,
-              "device_id": device.id, "type": "payday"}
+    config = {
+        "platform": "device",
+        "domain": DOMAIN,
+        "device_id": device.id,
+        "type": "payday",
+    }
     action = AsyncMock()
     await device_trigger.async_attach_trigger(
-        hass, config, action,
-        {"domain": "automation", "name": "test",
-         "home_assistant_start": False, "variables": {},
-         "trigger_data": {}})
-    hass.bus.async_fire(EVENT_PAYDAY, {
-        "reached": "2026-11-14", "next_payday": "2026-11-28"})
+        hass,
+        config,
+        action,
+        {
+            "domain": "automation",
+            "name": "test",
+            "home_assistant_start": False,
+            "variables": {},
+            "trigger_data": {},
+        },
+    )
+    hass.bus.async_fire(
+        EVENT_PAYDAY,
+        {
+            "reached": "2026-11-14",
+            "next_payday": "2026-11-28",
+            "config_entry_id": next(
+                value for domain, value in device.identifiers if domain == DOMAIN
+            ),
+        },
+    )
     await hass.async_block_till_done()
     action.assert_awaited_once()
 
 
 async def test_schema_rejects_unknown_type() -> None:
     with pytest.raises(vol.Invalid):
-        device_trigger.TRIGGER_SCHEMA({
-            "platform": "device", "domain": DOMAIN,
-            "device_id": "x", "type": "not_a_trigger"})
+        device_trigger.TRIGGER_SCHEMA(
+            {
+                "platform": "device",
+                "domain": DOMAIN,
+                "device_id": "x",
+                "type": "not_a_trigger",
+            }
+        )
+
+
+async def test_entry_scoped_trigger_ignores_another_household(hass, mock_api):
+    device = await _setup_device(hass)
+    entry_id = next(value for domain, value in device.identifiers if domain == DOMAIN)
+    action = AsyncMock()
+    await device_trigger.async_attach_trigger(
+        hass,
+        {
+            "platform": "device",
+            "domain": DOMAIN,
+            "device_id": device.id,
+            "type": "bill_due",
+        },
+        action,
+        {
+            "domain": "automation",
+            "name": "scope",
+            "home_assistant_start": False,
+            "variables": {},
+            "trigger_data": {},
+        },
+    )
+    from custom_components.family_finance.events import EVENT_BILL_DUE
+
+    hass.bus.async_fire(
+        EVENT_BILL_DUE, {"config_entry_id": "other-entry", "bills_due": 2}
+    )
+    await hass.async_block_till_done()
+    action.assert_not_called()
+    hass.bus.async_fire(EVENT_BILL_DUE, {"config_entry_id": entry_id, "bills_due": 2})
+    await hass.async_block_till_done()
+    action.assert_awaited_once()

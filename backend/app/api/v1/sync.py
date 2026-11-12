@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import rbac
 from app.domain import sync as sync_domain
 from app.domain.sync import SyncError
 from app.persistence.models import (
@@ -20,15 +21,17 @@ from app.persistence.models import (
     MergeStatus,
     SyncCursor,
     SyncRun,
+    UserProfile,
 )
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 
 def _account(session: Session, household_id: int,
-             account_id: int) -> Account:
+             account_id: int, profile: UserProfile | None = None) -> Account:
     a = session.get(Account, account_id)
-    if a is None or a.household_id != household_id:
+    if (a is None or a.household_id != household_id
+            or not rbac.visible(a.owner_profile_id, profile)):
         raise HTTPException(404, f"account {account_id} not found")
     return a
 
@@ -36,10 +39,10 @@ def _account(session: Session, household_id: int,
 @router.get("/accounts/{account_id}/cursor",
             response_model=list[schemas.SyncCursorOut])
 def cursor_state(
-    account_id: int, household: HouseholdDep, session: SessionDep,
+    account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
 ) -> list[schemas.SyncCursorOut]:
     """Resumable position + last error per feed source."""
-    a = _account(session, household.id, account_id)
+    a = _account(session, household.id, account_id, profile)
     rows = session.scalars(
         select(SyncCursor)
         .where(SyncCursor.account_id == a.id)
@@ -50,9 +53,9 @@ def cursor_state(
 @router.get("/accounts/{account_id}/runs",
             response_model=list[schemas.SyncRunOut])
 def run_history(
-    account_id: int, household: HouseholdDep, session: SessionDep,
+    account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
 ) -> list[schemas.SyncRunOut]:
-    a = _account(session, household.id, account_id)
+    a = _account(session, household.id, account_id, profile)
     rows = session.scalars(
         select(SyncRun)
         .where(SyncRun.account_id == a.id)
