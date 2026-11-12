@@ -308,3 +308,10 @@ First observation seeds existing financial state quietly. Expected payday lead
 windows use employment/date occurrence deduplication, not summary count movement.
 Financial and snapshot rollback is atomic. Shared automation/report energy budgets
 and shared budget event flow exclude private plans/accounts before aggregation.
+Automatic categorisation, suggestions, provider mapping, owned movement
+classification, transfer pairing and refund-credit linking skip reconciled rows
+and rows inside locked periods. A refund can still reference a reconciled
+purchase because the purchase is unchanged. Canonical occurrence settlement
+inherits its source category, then applies provider/rule fallbacks to that one
+editable row, before reconciliation freezes it. Existing user categories and
+protected historical rows remain unchanged.

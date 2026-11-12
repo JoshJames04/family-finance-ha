@@ -24,6 +24,11 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.periods import (
+    PeriodLockedError,
+    ReconciledImmutableError,
+    assert_editable,
+)
 from app.domain.refunds import link_refund, refundable_balance
 from app.persistence.models import (
     Account,
@@ -43,6 +48,17 @@ from app.persistence.models import (
     TransactionStatus,
     Transfer,
 )
+
+
+def transaction_editable(session: Session, transaction: Transaction) -> bool:
+    """Batch passes skip protected rows; unexpected failures still propagate."""
+    if transaction.status == TransactionStatus.void:
+        return False
+    try:
+        assert_editable(session, transaction)
+    except (PeriodLockedError, ReconciledImmutableError):
+        return False
+    return True
 
 
 def _matches(rule: CategorisationRule, payee: str) -> bool:
@@ -85,7 +101,8 @@ class ApplyResult:
 
 def apply_rules(session: Session, household_id: int,
                 since: date | None = None, *,
-                account_ids: list[int] | None = None) -> ApplyResult:
+                account_ids: list[int] | None = None,
+                transaction_ids: list[int] | None = None) -> ApplyResult:
     """Suggest/apply categories on uncategorised transactions."""
     stmt = (
         select(Transaction)
@@ -93,12 +110,16 @@ def apply_rules(session: Session, household_id: int,
         .where(Account.household_id == household_id,
                Transaction.category_id.is_(None),
                Transaction.status != TransactionStatus.void))
+    if transaction_ids is not None:
+        stmt = stmt.where(Transaction.id.in_(transaction_ids))
     if account_ids is not None:
         stmt = stmt.where(Transaction.account_id.in_(account_ids))
     if since is not None:
         stmt = stmt.where(Transaction.date >= since)
     applied = suggested = unmatched = 0
     for t in session.scalars(stmt):
+        if not transaction_editable(session, t):
+            continue
         rule = match_rule(session, household_id, t.payee,
                           account_id=t.account_id, amount_pence=t.amount_pence)
         if rule is None:
@@ -120,6 +141,23 @@ _MATCH_CATEGORY_SOURCES = {
 }
 
 
+def inherit_movement_category(session: Session, movement: ExpectedMovement,
+                              transaction: Transaction) -> bool:
+    """Inherit a confirmed source category before canonical reconciliation freezes the row."""
+    if transaction.category_id is not None or not transaction_editable(session, transaction):
+        return False
+    model = _MATCH_CATEGORY_SOURCES.get(movement.source_type)
+    source = session.get(model, movement.source_id) if model is not None else None
+    category_id = getattr(source, "category_id", None)
+    if category_id is None:
+        return False
+    transaction.category_id = category_id
+    transaction.suggested_category_id = None
+    learn(session, movement.household_id, transaction.payee, category_id,
+          account_id=transaction.account_id)
+    return True
+
+
 def inherit_match_categories(session: Session, household_id: int
                              ) -> int:
     """Copy the matched source's category onto uncategorised
@@ -131,8 +169,8 @@ def inherit_match_categories(session: Session, household_id: int
     sets ``category_id`` where rules may only suggest). Covers both
     manual and scored-auto matches: the reconcile scorer never
     auto-accepts an ambiguous match. Idempotent — it only touches
-    ``category_id IS NULL`` rows, so it backfills history on every
-    post-sync pass without churning user-set categories."""
+    editable ``category_id IS NULL`` rows, preserving reconciled
+    history, locked periods and user-set categories."""
     n = 0
     rows = session.execute(
         select(ExpectedMatch, ExpectedMovement, Transaction)
@@ -144,25 +182,14 @@ def inherit_match_categories(session: Session, household_id: int
         .where(Account.household_id == household_id,
                Transaction.category_id.is_(None))).all()
     for _match, mv, tx in rows:
-        model = _MATCH_CATEGORY_SOURCES.get(mv.source_type)
-        if model is None:
-            continue
-        src = session.get(model, mv.source_id)
-        cid = getattr(src, "category_id", None) if src else None
-        if cid is not None:
-            tx.category_id = cid
-            n += 1
-            # Teach the association (issue #453): a tx that IS a known
-            # bill occurrence earns a payee→category rule so future
-            # payments from the same payee at least arrive suggested,
-            # even if amount/date drift breaks the reconcile match.
-            learn(session, household_id, tx.payee, cid, account_id=tx.account_id)
+        n += inherit_movement_category(session, mv, tx)
     session.flush()
     return n
 
 
 def apply_provider_map(session: Session, household_id: int, *,
-                       account_ids: list[int] | None = None) -> int:
+                       account_ids: list[int] | None = None,
+                       transaction_ids: list[int] | None = None) -> int:
     """Provider-enum → household category, user-authored at Settings
     (issue #453). Auto-applies to uncategorised transactions carrying
     ``provider_category`` — an explicit mapping is user intent, not a
@@ -180,14 +207,20 @@ def apply_provider_map(session: Session, household_id: int, *,
                    select(ProviderCategoryMap).where(
                        ProviderCategoryMap.household_id == household_id))}
     applied = 0
-    rows = session.scalars(
+    stmt = (
         select(Transaction)
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household_id,
                Transaction.category_id.is_(None),
                Transaction.provider_category.isnot(None),
                Transaction.status != TransactionStatus.void))
-    for tx in rows:
+    if transaction_ids is not None:
+        stmt = stmt.where(Transaction.id.in_(transaction_ids))
+    if account_ids is not None:
+        stmt = stmt.where(Transaction.account_id.in_(account_ids))
+    for tx in session.scalars(stmt):
+        if not transaction_editable(session, tx):
+            continue
         if account_ids is not None and tx.account_id not in account_ids:
             continue
         pc = tx.provider_category
@@ -277,6 +310,8 @@ def classify_owned_movements(session: Session, household_id: int) -> int:
             Account.household_id == household_id,
             Transaction.category_id.is_(None),
             Transaction.status != TransactionStatus.void)):
+        if not transaction_editable(session, tx):
+            continue
         destinations = names.get(tx.payee.strip().casefold(), [])
         target = _transfer_target(session, household_id, tx)
         if target is not None:
@@ -335,6 +370,8 @@ def auto_pair_transfers(session: Session, household_id: int,
             c = candidates[0]
             if sum(supported(other, c) for other in debits) != 1:
                 continue
+            if not transaction_editable(session, d) or not transaction_editable(session, c):
+                continue
             tr = Transfer(household_id=household_id)
             session.add(tr)
             session.flush()
@@ -368,6 +405,8 @@ def auto_link_refunds(session: Session, household_id: int,
         stmt = stmt.where(Transaction.date >= since)
     linked = 0
     for t in session.scalars(stmt):
+        if not transaction_editable(session, t):
+            continue
         category = session.get(Category, t.category_id) if t.category_id else None
         if category is not None and category.name == "Internal Transfers":
             continue

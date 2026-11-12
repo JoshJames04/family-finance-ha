@@ -58,6 +58,11 @@ def settle_occurrence(
     match = contributions._link(
         session, movement, txn,
         min(abs(txn.amount_pence), outstanding), manual=manual)
+    from app.domain import categorise
+    categorise.inherit_movement_category(session, movement, txn)
+    if txn.category_id is None:
+        categorise.apply_provider_map(session, movement.household_id, transaction_ids=[txn.id])
+        categorise.apply_rules(session, movement.household_id, transaction_ids=[txn.id])
     outbox.emit(
         session, movement.household_id, "movement.settled",
         entity_kind=movement.source_type.value,
