@@ -39,8 +39,11 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 
 def actor_header(
+    request: Request,
     x_actor_id: Annotated[str | None, Header()] = None,
 ) -> str:
+    if getattr(request.state, "service_authenticated", False):
+        return "ha-service"
     return x_actor_id or "anonymous"
 
 
@@ -60,6 +63,10 @@ def resolve_profile(
     identity may resolve (spoof hole, issue #29)."""
     pid = getattr(request.state, "profile_id", None)
     if pid is None and request.app.state.settings.ingress:
+        if getattr(request.state, "service_authenticated", False):
+            return None
+        if session.scalar(select(UserProfile.id).limit(1)) is not None:
+            raise HTTPException(401, "ingress identity required")
         return None
     if pid is None:
         if x_profile_id is None:

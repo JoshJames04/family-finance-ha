@@ -55,7 +55,8 @@ def _matches(rule: CategorisationRule, payee: str) -> bool:
     return rule.pattern.casefold() in payee.casefold()
 
 
-def match_rule(session: Session, household_id: int, payee: str
+def match_rule(session: Session, household_id: int, payee: str,
+               *, account_id: int | None = None, amount_pence: int | None = None
                ) -> CategorisationRule | None:
     """First enabled matching rule: priority asc, then the most-
     confirmed rule wins a tie — learning earns precedence."""
@@ -64,9 +65,13 @@ def match_rule(session: Session, household_id: int, payee: str
         .where(CategorisationRule.household_id == household_id,
                CategorisationRule.enabled.is_(True))
         .order_by(CategorisationRule.priority,
+                  CategorisationRule.account_id.is_(None),
+                  CategorisationRule.amount_pence.is_(None),
                   CategorisationRule.times_confirmed.desc(),
                   CategorisationRule.id))
-    return next((r for r in rules if _matches(r, payee)), None)
+    return next((r for r in rules if _matches(r, payee)
+                 and (r.account_id is None or r.account_id == account_id)
+                 and (r.amount_pence is None or r.amount_pence == amount_pence)), None)
 
 
 @dataclass(frozen=True)
@@ -89,7 +94,8 @@ def apply_rules(session: Session, household_id: int,
         stmt = stmt.where(Transaction.date >= since)
     applied = suggested = unmatched = 0
     for t in session.scalars(stmt):
-        rule = match_rule(session, household_id, t.payee)
+        rule = match_rule(session, household_id, t.payee,
+                          account_id=t.account_id, amount_pence=t.amount_pence)
         if rule is None:
             unmatched += 1
         elif rule.auto_apply:
@@ -201,7 +207,10 @@ def learn(session: Session, household_id: int, payee: str,
         select(CategorisationRule).where(
             CategorisationRule.household_id == household_id,
             CategorisationRule.pattern == payee,
-            CategorisationRule.match_type == MatchType.exact))
+            CategorisationRule.match_type == MatchType.exact,
+            CategorisationRule.account_id.is_(None),
+            CategorisationRule.amount_pence.is_(None),
+            CategorisationRule.source == RuleSource.learned))
     if rule is None:
         rule = CategorisationRule(
             household_id=household_id, pattern=payee,
@@ -213,6 +222,48 @@ def learn(session: Session, household_id: int, payee: str,
     rule.times_confirmed = (rule.times_confirmed or 0) + 1
     session.flush()
     return rule
+
+
+def _transfer_target(session: Session, household_id: int, tx: Transaction) -> int | None:
+    rule = match_rule(session, household_id, tx.payee,
+                      account_id=tx.account_id, amount_pence=tx.amount_pence)
+    if rule is not None and rule.source == RuleSource.manual and rule.auto_apply:
+        return rule.transfer_account_id
+    return None
+
+
+def classify_owned_movements(session: Session, household_id: int) -> int:
+    """Known owned-account counterparties are internal movements.
+
+    Preserve authored categories and counterparty text. Name matches must be
+    unique and refer to another household account; no fuzzy person matching.
+    """
+    accounts = list(session.scalars(select(Account).where(
+        Account.household_id == household_id)))
+    names: dict[str, list[int]] = {}
+    for account in accounts:
+        names.setdefault(account.name.strip().casefold(), []).append(account.id)
+    category_id = session.scalar(select(Category.id).where(
+        Category.household_id == household_id,
+        Category.name == "Internal Transfers"))
+    if category_id is None:
+        return 0
+    count = 0
+    for tx in session.scalars(select(Transaction).join(Account).where(
+            Account.household_id == household_id,
+            Transaction.category_id.is_(None),
+            Transaction.status != TransactionStatus.void)):
+        destinations = names.get(tx.payee.strip().casefold(), [])
+        target = _transfer_target(session, household_id, tx)
+        if target is not None:
+            destinations = [target]
+        if tx.transfer_id is not None or (
+                len(destinations) == 1 and destinations[0] != tx.account_id):
+            tx.category_id = category_id
+            tx.suggested_category_id = None
+            count += 1
+    session.flush()
+    return count
 
 
 def auto_pair_transfers(session: Session, household_id: int,
@@ -231,12 +282,29 @@ def auto_pair_transfers(session: Session, household_id: int,
     groups: dict[tuple[date, int], list[Transaction]] = {}
     for t in session.scalars(stmt):
         groups.setdefault((t.date, abs(t.amount_pence)), []).append(t)
+    accounts = {a.id: a for a in session.scalars(
+        select(Account).where(Account.household_id == household_id))}
     pairs = 0
     for (_, _), legs in groups.items():
         debits = [t for t in legs if t.amount_pence < 0]
         credits = [t for t in legs if t.amount_pence > 0]
-        for d, c in zip(debits, credits, strict=False):
-            if d.account_id == c.account_id:
+        def supported(d: Transaction, c: Transaction) -> bool:
+            if (d.account_id == c.account_id
+                    or accounts[d.account_id].currency != accounts[c.account_id].currency):
+                return False
+            reciprocal = (
+                d.payee.strip().casefold() == accounts[c.account_id].name.strip().casefold()
+                and c.payee.strip().casefold() == accounts[d.account_id].name.strip().casefold())
+            aliases = (_transfer_target(session, household_id, d) == c.account_id
+                       and _transfer_target(session, household_id, c) == d.account_id)
+            return reciprocal or aliases
+
+        for d in debits:
+            candidates = [c for c in credits if supported(d, c)]
+            if len(candidates) != 1:
+                continue
+            c = candidates[0]
+            if sum(supported(other, c) for other in debits) != 1:
                 continue
             tr = Transfer(household_id=household_id)
             session.add(tr)
@@ -265,6 +333,9 @@ def auto_link_refunds(session: Session, household_id: int,
         stmt = stmt.where(Transaction.date >= since)
     linked = 0
     for t in session.scalars(stmt):
+        category = session.get(Category, t.category_id) if t.category_id else None
+        if category is not None and category.name == "Internal Transfers":
+            continue
         original = session.scalar(
             select(Transaction)
             .where(Transaction.account_id == t.account_id,

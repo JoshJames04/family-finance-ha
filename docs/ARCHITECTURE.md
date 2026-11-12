@@ -270,3 +270,19 @@ Deleting a budget template removes its copied-line source and clears optional
 provenance pointers; previously applied budget lines are retained. Tariff deletion
 removes the selected effective-dated rate and leaves readings intact. Both DELETE
 routes are household scoped, audited, and reject viewer mutations.
+Bank categorisation policies are applied after each ingest. Explicit rules may be
+restricted by `account_id` and signed `amount_pence`; leave `auto_apply` false for
+suggestions. A confirmed correction continues to teach suggestions only. An
+exact, account-scoped rule may declare `transfer_account_id` to identify an owned
+account alias without changing the bank counterparty name. Alias targets must be
+a different account in the same household. Use an ordinary category rule for
+person-to-person transfers; do not declare that counterparty as an owned account.
+Merchant names shared by subscriptions and small purchases need separate amount
+and account scopes. There is no global Apple amount rule.
+
+Owned account-name movements receive Internal Transfers only when uncategorised.
+Automatic pairing additionally requires unique reciprocal account names or
+explicit reciprocal owned-account aliases, equal opposite amounts, the same date
+and currency, and different accounts. Ambiguous or unrelated equal amounts stay
+unpaired. Existing authored categories are retained. Historical links are not
+silently rewritten by this migration.

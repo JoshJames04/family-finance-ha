@@ -14,9 +14,9 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, AdminDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, AdminDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import outbox
-from app.persistence.models import IntegrationEvent
+from app.persistence.models import IntegrationEvent, Role
 
 router = APIRouter(prefix="/integration", tags=["integration"])
 
@@ -30,16 +30,21 @@ def _out(ev: IntegrationEvent, detailed: bool) -> schemas.IntegrationEventOut:
 
 
 @router.get("/events", response_model=schemas.IntegrationFeedOut)
-def events(household: HouseholdDep, session: SessionDep,
+def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = None,
            after: Annotated[int, Query(ge=0)] = 0,
            limit: Annotated[int, Query(ge=1, le=500)] = 100,
+           latest: Annotated[bool, Query()] = False,
            ) -> schemas.IntegrationFeedOut:
     """Ordered event drain — HA polls from its persisted cursor."""
+    if latest:
+        return schemas.IntegrationFeedOut(events=[], next_cursor=outbox.latest_visible_cursor(
+            session, household.id, profile.id if profile and profile.role != Role.viewer else None))
     detailed = outbox.detail_enabled(session)
     rows, cursor = outbox.feed(session, household.id,
                                after=after, limit=limit)
     return schemas.IntegrationFeedOut(
-        events=[_out(e, detailed) for e in rows],
+        events=[_out(e, detailed) for e in rows
+                if outbox.event_visible(session, e, profile.id if profile else None)],
         next_cursor=cursor)
 
 

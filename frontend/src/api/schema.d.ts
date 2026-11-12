@@ -4377,6 +4377,12 @@ export interface components {
             match_type: string;
             /** Category Id */
             category_id: number;
+            /** Account Id */
+            account_id?: number | null;
+            /** Transfer Account Id */
+            transfer_account_id?: number | null;
+            /** Amount Pence */
+            amount_pence?: number | null;
             /**
              * Priority
              * @default 100
@@ -4400,6 +4406,12 @@ export interface components {
             match_type: string;
             /** Category Id */
             category_id: number;
+            /** Account Id */
+            account_id?: number | null;
+            /** Transfer Account Id */
+            transfer_account_id?: number | null;
+            /** Amount Pence */
+            amount_pence?: number | null;
             /** Priority */
             priority: number;
             /** Auto Apply */
@@ -9564,6 +9576,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12025,6 +12038,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -13751,6 +13765,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
             };
             path?: never;
@@ -13782,6 +13797,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13818,6 +13834,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13850,6 +13867,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13890,6 +13908,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13926,6 +13945,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -13958,6 +13978,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
             };
             path?: never;
@@ -13989,6 +14010,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14023,6 +14045,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "x-profile-id"?: number | null;
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
             };
@@ -14063,8 +14086,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
+                "x-household-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -14095,8 +14118,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
+                "x-household-id"?: number | null;
             };
             path?: never;
             cookie?: never;

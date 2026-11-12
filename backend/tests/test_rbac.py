@@ -112,6 +112,7 @@ class TestApiLifecycle:
         p1 = client.post("/api/v1/profiles", json={
             "display_name": "Mum", "role": "admin"}, headers=h
         ).json()
+        h = {**h, "X-Profile-Id": str(p1["id"])}
         p2 = client.post("/api/v1/profiles", json={
             "display_name": "Kid", "role": "member"}, headers=h
         ).json()
@@ -135,6 +136,7 @@ class TestApiLifecycle:
         admin = client.post("/api/v1/profiles", json={
             "display_name": "Admin", "role": "admin"},
             headers=h).json()
+        h = {**h, "X-Profile-Id": str(admin["id"])}
         member = client.post("/api/v1/profiles", json={
             "display_name": "Member", "role": "member"},
             headers=h).json()
@@ -160,6 +162,7 @@ class TestApiLifecycle:
         admin = client.post("/api/v1/profiles", json={
             "display_name": "Admin", "role": "admin"},
             headers=h).json()
+        h = {**h, "X-Profile-Id": str(admin["id"])}
         real = client.post("/api/v1/profiles", json={
             "display_name": "Alice", "role": "member"},
             headers=h).json()

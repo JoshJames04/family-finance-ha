@@ -84,7 +84,7 @@ class TestIngressTrust:
                 "X-Remote-User-Display-Name": "Dad"})
             assert r.status_code == 200
             assert r.json()["role"] == "admin"
-            h = c.get("/api/v1/households").json()
+            h = c.get("/api/v1/households", headers={"X-Remote-User-Id": "ha-123"}).json()
             assert h["total"] == 1
 
     def test_second_ingress_user_is_member(self, tmp_path: Path,
@@ -202,7 +202,8 @@ class TestStandaloneSessions:
         with TestClient(app) as c, TestClient(app) as admin_c:
             p = _seed_profile(c, password="pw")
             dad = admin_c.post("/api/v1/profiles", json={
-                "display_name": "Dad", "role": "admin"}).json()
+                "display_name": "Dad", "role": "admin"},
+                headers={"X-Profile-Id": str(p["id"])}).json()
             assert c.post("/api/v1/auth/login", json={
                 "username": "Mum", "password": "pw"}).status_code == 200
             assert c.get("/api/v1/auth/me").status_code == 200
@@ -218,7 +219,8 @@ class TestStandaloneSessions:
         with TestClient(app) as c, TestClient(app) as admin_c:
             admin = _seed_profile(admin_c, name="Boss")
             p = admin_c.post("/api/v1/profiles", json={
-                "display_name": "Kid", "role": "member"}).json()
+                "display_name": "Kid", "role": "member"},
+                headers={"X-Profile-Id": str(admin["id"])}).json()
             with Session(c.app.state.engine) as s:
                 s.get(UserProfile, p["id"]).password_hash = (
                     security.hash_password("pw"))

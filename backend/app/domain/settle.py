@@ -64,6 +64,7 @@ def settle_occurrence(
         entity_id=movement.source_id,
         payload={
             "label": movement.label,
+            "account_id": movement.account_id,
             "expected_date": movement.expected_date.isoformat(),
             "amount_pence": movement.amount_pence,
             "matched_pence_outstanding": outstanding - match
@@ -128,6 +129,7 @@ def post_sync(session: Session, household_id: int, *,
 
     today = today or date.today()
     pairs = categorise.auto_pair_transfers(session, household_id)
+    categorise.classify_owned_movements(session, household_id)
     refunds = categorise.auto_link_refunds(session, household_id)
     transfer_matches = contributions.auto_match(
         session, household_id, today=today)
@@ -161,6 +163,7 @@ def post_sync(session: Session, household_id: int, *,
                 entity_id=mv.source_id,
                 payload={
                     "label": mv.label,
+                    "account_id": mv.account_id,
                     "expected_date": mv.expected_date.isoformat(),
                     "amount_pence": mv.amount_pence,
                     "count": item.age_days},

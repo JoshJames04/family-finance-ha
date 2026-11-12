@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api import schemas
@@ -17,7 +17,7 @@ from app.api.deps import (
     ProfileDep,
     SessionDep,
 )
-from app.domain import deliver
+from app.domain import deliver, rbac
 from app.domain import notifications as notify
 from app.domain.notifications import NotificationError
 from app.persistence.models import (
@@ -25,34 +25,54 @@ from app.persistence.models import (
     NotificationEvent,
     NotificationKind,
     NotificationRule,
+    Role,
+    UserProfile,
 )
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+def _write_guard(request: Request, profile: ProfileDep) -> None:
+    denied = (profile is None and request.app.state.settings.ingress) or not rbac.write_allowed(
+        None, profile)
+    if request.method in {"POST", "PATCH", "PUT", "DELETE"} and denied:
+        raise HTTPException(403, "notification write permission required")
 
 
-def _rule(session: Session, household_id: int, rule_id: int
+router = APIRouter(prefix="/notifications", tags=["notifications"],
+                   dependencies=[Depends(_write_guard)])
+
+
+def _rule(session: Session, household_id: int, rule_id: int,
+          profile: UserProfile | None = None
           ) -> NotificationRule:
     r = session.get(NotificationRule, rule_id)
-    if r is None or r.household_id != household_id:
+    if (r is None or r.household_id != household_id
+            or (profile is not None and profile.role != Role.admin
+                and r.target_profile_id not in {None, profile.id})):
         raise HTTPException(404, f"rule {rule_id} not found")
     return r
 
 
-def _event(session: Session, household_id: int, event_id: int
+def _event(session: Session, household_id: int, event_id: int,
+           profile: UserProfile | None = None
            ) -> NotificationEvent:
     e = session.get(NotificationEvent, event_id)
-    if (e is None or e.rule.household_id != household_id):
+    if (e is None or e.rule.household_id != household_id
+            or (profile is not None and profile.role != Role.admin
+                and e.rule.target_profile_id not in {None, profile.id})):
         raise HTTPException(404, f"event {event_id} not found")
     return e
 
 
 @router.get("/rules", response_model=list[schemas.NotificationRuleOut])
 def list_rules(
-    household: HouseholdDep, session: SessionDep,
+    household: HouseholdDep, session: SessionDep, profile: ProfileDep,
 ) -> list[schemas.NotificationRuleOut]:
     rows = session.scalars(
         select(NotificationRule)
-        .where(NotificationRule.household_id == household.id)
+        .where(NotificationRule.household_id == household.id,
+               or_(NotificationRule.target_profile_id.is_(None),
+                   NotificationRule.target_profile_id == (
+                       profile.id if profile and profile.role != Role.viewer else None)))
         .order_by(NotificationRule.name))
     return [schemas.NotificationRuleOut.model_validate(r)
             for r in rows]
@@ -62,8 +82,11 @@ def list_rules(
              status_code=201)
 def create_rule(
     body: schemas.NotificationRuleIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.NotificationRuleOut:
+    if (profile is not None and profile.role != Role.admin
+            and body.target_profile_id not in {None, profile.id}):
+        raise HTTPException(403, "cannot target another member")
     r = notify.create_rule(
         session, household.id, name=body.name,
         kind=NotificationKind(body.kind), params=body.params,
@@ -80,9 +103,9 @@ def create_rule(
               response_model=schemas.NotificationRuleOut)
 def toggle_rule(
     rule_id: int, body: dict[str, object], household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.NotificationRuleOut:
-    r = _rule(session, household.id, rule_id)
+    r = _rule(session, household.id, rule_id, profile)
     if "enabled" in body:
         r.enabled = bool(body["enabled"])
     emit(session, household.id, actor, "update",
@@ -93,9 +116,9 @@ def toggle_rule(
 @router.delete("/rules/{rule_id}", status_code=204)
 def delete_rule(
     rule_id: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep,
+    actor: ActorDep, profile: ProfileDep,
 ) -> None:
-    r = _rule(session, household.id, rule_id)
+    r = _rule(session, household.id, rule_id, profile)
     emit(session, household.id, actor, "delete",
          "notification_rule", r.id)
     session.delete(r)
@@ -105,12 +128,12 @@ def delete_rule(
              response_model=dict)
 def evaluate_rule(
     rule_id: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep,
+    actor: ActorDep, profile: ProfileDep,
 ) -> dict[str, int]:
     """Run the trigger scan now — returns newly-raised event count.
     Re-evaluating the same underlying data can never double-raise
     (dedup_key is unique per rule)."""
-    r = _rule(session, household.id, rule_id)
+    r = _rule(session, household.id, rule_id, profile)
     n = notify.evaluate(session, r)
     emit(session, household.id, actor, "evaluate",
          "notification_rule", r.id, {"raised": n})
@@ -136,13 +159,16 @@ def dispatch(
 @router.get("/events",
             response_model=list[schemas.NotificationEventOut])
 def list_events(
-    household: HouseholdDep, session: SessionDep,
+    household: HouseholdDep, session: SessionDep, profile: ProfileDep,
 ) -> list[schemas.NotificationEventOut]:
     rows = session.scalars(
         select(NotificationEvent)
         .join(NotificationRule,
               NotificationEvent.rule_id == NotificationRule.id)
-        .where(NotificationRule.household_id == household.id)
+        .where(NotificationRule.household_id == household.id,
+               or_(NotificationRule.target_profile_id.is_(None),
+                   NotificationRule.target_profile_id == (
+                       profile.id if profile and profile.role != Role.viewer else None)))
         .order_by(NotificationEvent.id.desc()).limit(200))
     return [schemas.NotificationEventOut.model_validate(e)
             for e in rows]
@@ -152,9 +178,9 @@ def list_events(
              response_model=schemas.NotificationEventOut)
 def ack_event(
     event_id: int, household: HouseholdDep, session: SessionDep,
-    actor: ActorDep,
+    actor: ActorDep, profile: ProfileDep,
 ) -> schemas.NotificationEventOut:
-    e = _event(session, household.id, event_id)
+    e = _event(session, household.id, event_id, profile)
     notify.ack(session, e)
     emit(session, household.id, actor, "ack",
          "notification_event", e.id)
@@ -165,9 +191,9 @@ def ack_event(
              response_model=schemas.NotificationEventOut)
 def snooze_event(
     event_id: int, body: dict[str, object], household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.NotificationEventOut:
-    e = _event(session, household.id, event_id)
+    e = _event(session, household.id, event_id, profile)
     try:
         notify.snooze(
             session, e, datetime.fromisoformat(str(body["until"])))
@@ -191,6 +217,9 @@ class _UrllibNotifier:
         import json as _json
         import urllib.request
         svc = service or "notify"
+        import re
+        if re.fullmatch(r"[a-z0-9_]+", svc) is None:
+            raise ValueError("invalid notification service")
         req = urllib.request.Request(
             f"{self._url}/api/services/notify/{svc}",
             data=_json.dumps(
@@ -236,8 +265,12 @@ def list_deliveries(
 ) -> list[schemas.NotificationDeliveryOut]:
     """Delivery monitoring — failed rows surface their error."""
     rows = session.scalars(
-        select(NotificationDelivery).where(
-            NotificationDelivery.household_id == household.id)
+        select(NotificationDelivery).join(NotificationRule,
+            NotificationDelivery.rule_id == NotificationRule.id).where(
+            NotificationDelivery.household_id == household.id,
+            or_(NotificationRule.target_profile_id.is_(None),
+                NotificationRule.target_profile_id == (
+                    profile.id if profile and profile.role != Role.viewer else None)))
         .order_by(NotificationDelivery.id.desc()).limit(200)).all()
     return [schemas.NotificationDeliveryOut.model_validate(d)
             for d in rows]

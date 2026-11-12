@@ -43,6 +43,21 @@ def _category(session: Session, household_id: int,
         raise HTTPException(422, f"category {category_id} not found")
 
 
+def _transfer_policy(rule: CategorisationRule) -> None:
+    if rule.transfer_account_id is not None and (
+            rule.account_id is None or rule.account_id == rule.transfer_account_id
+            or rule.match_type != MatchType.exact):
+        raise HTTPException(422, "owned transfer aliases need distinct accounts and exact payee")
+
+
+def _account_scope(session: Session, household_id: int, value: object) -> None:
+    if value is None:
+        return
+    account = session.get(Account, int(str(value)))
+    if account is None or account.household_id != household_id:
+        raise HTTPException(422, "account not found")
+
+
 @router.get("/rules",
             response_model=list[schemas.CategorisationRuleOut])
 def list_rules(
@@ -63,11 +78,16 @@ def create_rule(
     session: SessionDep, actor: ActorDep,
 ) -> schemas.CategorisationRuleOut:
     _category(session, household.id, body.category_id)
+    _account_scope(session, household.id, body.account_id)
+    _account_scope(session, household.id, body.transfer_account_id)
     r = CategorisationRule(
         household_id=household.id, pattern=body.pattern,
         match_type=MatchType(body.match_type),
         category_id=body.category_id, priority=body.priority,
-        auto_apply=body.auto_apply, source=RuleSource.manual)
+        auto_apply=body.auto_apply, source=RuleSource.manual,
+        account_id=body.account_id, amount_pence=body.amount_pence,
+        transfer_account_id=body.transfer_account_id)
+    _transfer_policy(r)
     session.add(r)
     session.flush()
     emit(session, household.id, actor, "create",
@@ -83,11 +103,14 @@ def patch_rule(
 ) -> schemas.CategorisationRuleOut:
     r = _get(session, household.id, rule_id)
     for k in ("pattern", "priority", "auto_apply", "enabled",
-              "category_id"):
+              "category_id", "account_id", "amount_pence", "transfer_account_id"):
         if k in body:
             if k == "category_id":
                 _category(session, household.id, int(str(body[k])))
+            if k in {"account_id", "transfer_account_id"}:
+                _account_scope(session, household.id, body[k])
             setattr(r, k, body[k])
+    _transfer_policy(r)
     session.flush()
     emit(session, household.id, actor, "update",
          "categorisation_rule", r.id, dict(body))

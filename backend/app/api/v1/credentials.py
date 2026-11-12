@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
+from app.api.deps import ActorDep, AdminDep, HouseholdDep, SessionDep
 from app.domain import vault
 from app.domain.vault import Keyring, VaultError
 from app.persistence.models import VaultEntry
@@ -32,7 +32,7 @@ RingDep = Annotated[Keyring, Depends(_keyring)]
 
 @router.get("", response_model=list[schemas.CredentialRefOut])
 def list_refs(
-    household: HouseholdDep, session: SessionDep,
+    household: HouseholdDep, session: SessionDep, _admin: AdminDep,
 ) -> list[schemas.CredentialRefOut]:
     rows = session.scalars(
         select(VaultEntry)
@@ -45,7 +45,7 @@ def list_refs(
              status_code=201)
 def store(
     body: schemas.CredentialStoreIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep, ring: RingDep,
+    session: SessionDep, actor: ActorDep, ring: RingDep, _admin: AdminDep,
 ) -> schemas.CredentialRefOut:
     try:
         e = vault.store(session, household.id, body.ref,
@@ -59,7 +59,7 @@ def store(
 
 @router.delete("/{entry_id}", status_code=204)
 def purge(entry_id: int, household: HouseholdDep,
-          session: SessionDep, actor: ActorDep) -> None:
+          session: SessionDep, actor: ActorDep, _admin: AdminDep) -> None:
     e = session.get(VaultEntry, entry_id)
     if e is None or e.household_id != household.id:
         raise HTTPException(404, f"credential {entry_id} not found")

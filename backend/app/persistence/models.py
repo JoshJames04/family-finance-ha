@@ -1770,6 +1770,9 @@ class CategorisationRule(TimestampMixin, Base):
         Enum(MatchType), default=MatchType.contains, nullable=False)
     category_id: Mapped[int] = mapped_column(
         ForeignKey("category.id"), nullable=False)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("account.id"), nullable=True)
+    transfer_account_id: Mapped[int | None] = mapped_column(ForeignKey("account.id"), nullable=True)
+    amount_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=100,
                                           nullable=False)
     auto_apply: Mapped[bool] = mapped_column(Boolean, default=False,

@@ -1571,6 +1571,9 @@ class CategorisationRuleIn(BaseModel):
     match_type: str = Field(default="contains",
                             pattern="^(contains|exact|regex)$")
     category_id: int
+    account_id: int | None = None
+    transfer_account_id: int | None = None
+    amount_pence: int | None = None
     priority: int = 100
     auto_apply: bool = False
 
@@ -1582,6 +1585,9 @@ class CategorisationRuleOut(BaseModel):
     pattern: str
     match_type: str
     category_id: int
+    account_id: int | None = None
+    transfer_account_id: int | None = None
+    amount_pence: int | None = None
     priority: int
     auto_apply: bool
     times_confirmed: int
