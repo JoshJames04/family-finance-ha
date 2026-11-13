@@ -25,6 +25,20 @@ def external_after_confirmed(amounts: Subquery, internal_categories: Select[Any]
     Window ROWS handles duplicate category legs without multiplying their pence.
     """
     source, dest, own = aliased(Account), aliased(Account), aliased(Account)
+    source_id = func.coalesce(ExpectedMovement.transfer_source_account_id,
+                              TransferRule.source_account_id)
+    dest_id = func.coalesce(ExpectedMovement.transfer_dest_account_id,
+                            TransferRule.dest_account_id)
+    # Legacy matched rows deliberately survive rule deletion. With neither
+    # endpoint retained, they still prove internal movement, not its attribution.
+    orphan = and_(TransferRule.id.is_(None),
+                  ExpectedMovement.transfer_source_account_id.is_(None),
+                  ExpectedMovement.transfer_dest_account_id.is_(None))
+    known = and_(
+        or_(TransferRule.id.is_(None), TransferRule.household_id == own.household_id),
+        source.household_id == own.household_id, dest.household_id == own.household_id,
+        or_(and_(Transaction.account_id == dest.id, Transaction.amount_pence > 0),
+            and_(Transaction.account_id == source.id, Transaction.amount_pence < 0)))
     confirmed = (select(
         ExpectedMatch.transaction_id,
         func.min(func.abs(Transaction.amount_pence),
@@ -32,20 +46,19 @@ def external_after_confirmed(amounts: Subquery, internal_categories: Select[Any]
         .join(Transaction, Transaction.id == ExpectedMatch.transaction_id)
         .join(own, own.id == Transaction.account_id)
         .join(ExpectedMovement, ExpectedMovement.id == ExpectedMatch.movement_id)
-        .join(TransferRule, TransferRule.id == ExpectedMovement.source_id)
-        .join(source, source.id == TransferRule.source_account_id)
-        .join(dest, dest.id == TransferRule.dest_account_id)
+        .outerjoin(TransferRule, TransferRule.id == ExpectedMovement.source_id)
+        .outerjoin(source, source.id == source_id)
+        .outerjoin(dest, dest.id == dest_id)
         .where(
             ExpectedMatch.manual.is_(True), ExpectedMatch.matched_pence > 0,
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,
             ExpectedMovement.account_id == Transaction.account_id,
             ExpectedMovement.household_id == own.household_id,
-            TransferRule.household_id == own.household_id,
-            source.household_id == own.household_id, dest.household_id == own.household_id,
+            or_(orphan, known),
             Transaction.transfer_id.is_(None), Transaction.refund_of_id.is_(None),
-            or_(and_(Transaction.account_id == dest.id, Transaction.amount_pence > 0,
+            or_(and_(Transaction.amount_pence > 0,
                      ExpectedMovement.amount_pence > 0),
-                and_(Transaction.account_id == source.id, Transaction.amount_pence < 0,
+                and_(Transaction.amount_pence < 0,
                      ExpectedMovement.amount_pence < 0)))
         .group_by(ExpectedMatch.transaction_id, Transaction.amount_pence).subquery())
     internal = case((amounts.c.category_id.in_(internal_categories), 1), else_=0)

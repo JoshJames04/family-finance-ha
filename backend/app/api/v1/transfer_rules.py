@@ -6,7 +6,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.api import schemas
@@ -175,6 +175,14 @@ def delete_rule(
     ``expected_match`` FKs to them and real money already met the
     obligation. Pause is the softer option (PATCH ``active=false``)."""
     r = _get(session, household.id, rid)
+    session.execute(update(ExpectedMovement).where(
+        ExpectedMovement.household_id == household.id,
+        ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+        ExpectedMovement.source_id == r.id,
+        ExpectedMovement.transfer_source_account_id.is_(None),
+        ExpectedMovement.transfer_dest_account_id.is_(None),
+    ).values(transfer_source_account_id=r.source_account_id,
+             transfer_dest_account_id=r.dest_account_id))
     session.execute(
         delete(ExpectedMovement).where(
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,

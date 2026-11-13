@@ -6,7 +6,7 @@
 
 **Architecture:** Derive effective reporting windows separately from stored monthly plan dates. Reuse existing actuals calculations with explicit bounds, and add scoped funding detail/stock. Frontend personal views opt into pay cycles while Shared/All stay calendar based.
 
-**Tech Stack:** Existing Python/FastAPI/SQLAlchemy and React/TypeScript; no new dependencies or schema migration.
+**Tech Stack:** Existing Python/FastAPI/SQLAlchemy and React/TypeScript; no new dependencies. Additive migration 0070 retains transfer confirmation endpoints when scheduling rules are deleted.
 
 **Spec:** `docs/superpowers/specs/2026-11-13-pay-cycle-budgets.md`.
 

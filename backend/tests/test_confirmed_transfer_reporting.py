@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 from sqlalchemy import select
 
+from app.api.v1.transfer_rules import delete_rule
 from app.domain.reporting import external_category_amounts
 from app.persistence.models import (
     Account,
@@ -148,3 +149,72 @@ def test_multiple_confirmations_sum_and_never_widen_account_scope(session, house
     query = external_category_amounts(Account.id == evidence[0].id)
     assert list(session.execute(select(query))) == []
     assert not session.new and not session.dirty
+
+
+@pytest.mark.parametrize("amount, expected", [(150, [25]), (-150, [-25])])
+def test_rule_deletion_retains_confirmed_economic_history(
+        session, household, evidence, amount, expected):
+    tx, movement, match = confirmed(session, household, evidence, amount)
+    assert amounts(session, tx) == expected
+    rule_id = evidence[4].id
+    delete_rule(rule_id, household, session, "synthetic-test")
+    session.flush()
+    session.expire_all()
+    assert session.get(TransferRule, rule_id) is None
+    assert session.get(ExpectedMovement, movement.id) is not None
+    assert session.get(ExpectedMatch, match.id) is not None
+    assert amounts(session, tx) == expected
+    assert amounts(session, tx, classify_confirmed=False) == [amount]
+
+
+@pytest.mark.parametrize("invalid", ["automatic", "refund", "wrong_account", "wrong_sign",
+                                     "foreign_movement", "wrong_source"])
+def test_deleted_rule_retains_evidence_guards(session, household, evidence, invalid):
+    tx, movement, match = confirmed(session, household, evidence, 150)
+    session.delete(evidence[4])
+    session.flush()
+    if invalid == "automatic":
+        match.manual = False
+    elif invalid == "refund":
+        tx.refund_of_id = tx.id
+    elif invalid == "wrong_account":
+        movement.account_id = evidence[0].id
+    elif invalid == "wrong_sign":
+        movement.amount_pence = -125
+    elif invalid == "foreign_movement":
+        foreign = Household(name="Foreign history")
+        session.add(foreign)
+        session.flush()
+        movement.household_id = foreign.id
+    elif invalid == "wrong_source":
+        movement.source_type = "manual"
+    session.flush()
+    assert amounts(session, tx) == [150]
+
+
+def test_already_deleted_rule_preserves_mixed_signs_and_internal_first(
+        session, household, evidence):
+    internal, external = evidence[2:4]
+    tx, _, _ = confirmed(session, household, evidence, -150,
+                         [(internal, -50), (external, -150), (external, 50)])
+    session.delete(evidence[4])
+    session.flush()
+    session.expire_all()
+    assert amounts(session, tx) == [-75, 50]
+
+@pytest.mark.parametrize("invalid", ["wrong_role", "foreign_source", "foreign_dest"])
+def test_deleted_rule_snapshot_still_validates_counterpart(session, household, evidence, invalid):
+    tx, movement, _ = confirmed(session, household, evidence, 150)
+    movement.transfer_source_account_id = evidence[0].id
+    movement.transfer_dest_account_id = evidence[1].id
+    session.delete(evidence[4])
+    if invalid == "wrong_role":
+        movement.transfer_source_account_id, movement.transfer_dest_account_id = (
+            movement.transfer_dest_account_id, movement.transfer_source_account_id)
+    else:
+        foreign = Household(name="Foreign counterpart")
+        session.add(foreign)
+        session.flush()
+        evidence[0 if invalid == "foreign_source" else 1].household_id = foreign.id
+    session.flush()
+    assert amounts(session, tx) == [150]

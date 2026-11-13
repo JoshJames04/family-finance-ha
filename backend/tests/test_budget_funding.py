@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 
+from app.api.v1.transfer_rules import delete_rule
 from app.domain.budget_funding import budget_funding
 from app.persistence.models import (
     Account,
@@ -20,6 +21,46 @@ from app.persistence.models import (
 
 START = date(2025, 4, 1)
 END = date(2025, 4, 30)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("amount", [500, -500])
+def test_deleted_rule_preserves_funding_history(session, household, scope, legacy, amount):
+    member, personal, shared, _, budget = scope
+    source, dest = (personal, shared) if amount > 0 else (shared, personal)
+    rule = TransferRule(household_id=household.id, name="Contribution",
+                        source_account_id=source.id, dest_account_id=dest.id,
+                        amount_spec='{"kind":"fixed","pence":500}',
+                        frequency="monthly", day_of_month=1, start_date=START)
+    session.add(rule)
+    session.flush()
+    movement = ExpectedMovement(household_id=household.id, account_id=shared.id,
+                                expected_date=START, amount_pence=amount, label="Contribution",
+                                confidence="scheduled", source_type="transfer_rule",
+                                source_id=rule.id)
+    session.add(movement)
+    session.flush()
+    transaction = txn(session, shared, amount)
+    session.add(ExpectedMatch(movement_id=movement.id, transaction_id=transaction.id,
+                              matched_pence=300, manual=True))
+    session.flush()
+    before = budget_funding(session, budget, [shared.id], start=START, end=END)
+    if legacy:
+        session.delete(rule)
+        session.flush()
+    else:
+        delete_rule(rule.id, household, session, "synthetic-test")
+    session.expire_all()
+    after = budget_funding(session, budget, [shared.id], start=START, end=END)
+    assert after["external_income_pence"] == before["external_income_pence"]
+    assert after["income_items"] == before["income_items"]
+    if legacy:
+        assert after["contributions_pence"] == 0
+        assert after["unattributed_internal_pence"] == (300 if amount > 0 else -300)
+    else:
+        assert after == before
+        assert after["contributions_pence"] == (300 if amount > 0 else -300)
+        assert all(i["contributor_profile_id"] is None for i in after["contribution_items"])
 
 
 @pytest.fixture()

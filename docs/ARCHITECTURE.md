@@ -391,4 +391,8 @@ nonvoid ledger leg before the period. Opening transactions are counted once;
 account opening metadata is not added again. Future windows cap this snapshot
 at today and expose `opening_as_of`. The stock is never included in received
 income or silently added to approved spending. GETs derive all views without
-rewriting historical plans, statuses or ledger data; no migration is required.
+rewriting historical plans, statuses or ledger data. Migration 0070 adds nullable
+endpoint snapshots to expected movements. Deleting a scheduling rule preserves
+its confirmed contribution history through those snapshots. Older deleted rules
+without endpoints still provide internal-transfer evidence; their funding stays
+unattributed rather than guessing a contributor.
