@@ -211,15 +211,16 @@ def _account_ids(session: Session, household_id: int,
 
 
 def _actuals(session: Session, b: Budget,
-             account_ids: list[int]) -> schemas.BudgetActuals:
-    totals = dom.actuals_for_budget(session, b, account_ids)
+             account_ids: list[int], *, include_private: bool = False) -> schemas.BudgetActuals:
+    totals = dom.actuals_for_budget(session, b, account_ids, include_private=include_private)
     lines = {line.id: dom.line_analysis(totals[line.id], line)
              for line in b.lines}
-    rem_pence, rem_count = dom.bills_remaining(session, b, account_ids)
+    rem_pence, rem_count = dom.bills_remaining(
+        session, b, account_ids, include_private=include_private)
     return schemas.BudgetActuals.model_validate({
         "budget_id": b.id, "totals": totals, "lines": lines,
         "bills_remaining_pence": rem_pence, "bills_remaining_count": rem_count,
-        **dom.spending_summary(session, b, account_ids)})
+        **dom.spending_summary(session, b, account_ids, include_private=include_private)})
 
 
 @router.get("/reports/combined", response_model=schemas.BudgetCombined)
@@ -256,12 +257,8 @@ def combined_budget(
             merged.revised_pence = (merged.revised_pence or 0) + line.effective_pence
     combined.lines = list(groups.values())
     account_ids = _account_ids(session, household.id, profile)
-    # With no shared plan, include only the owners represented in this period.
-    if None not in by_owner:
-        account_ids = list(session.scalars(select(Account.id).where(
-            Account.id.in_(account_ids), Account.owner_profile_id.in_(by_owner))))
     return schemas.BudgetCombined(detail=_detail(session, combined),
-        actuals=_actuals(session, combined, account_ids))
+        actuals=_actuals(session, combined, account_ids, include_private=True))
 
 
 

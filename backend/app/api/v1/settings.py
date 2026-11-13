@@ -26,10 +26,11 @@ from app.api.deps import (
     SessionDep,
     require_admin,
 )
-from app.domain import appconfig
+from app.domain import appconfig, banks
 from app.persistence.models import (
     BankAccountMapping,
     BankConnection,
+    ConnStatus,
     MappingStatus,
     SyncCursor,
     SyncRun,
@@ -43,12 +44,12 @@ def _next_due(cursor: SyncCursor | None, now: datetime,
               interval_seconds: float) -> datetime | None:
     """Mirror of the scheduler's due rule: queued refresh and active
     backoff outrank the plain cadence estimate."""
-    if cursor is None or cursor.last_success_at is None:
-        return now
-    if cursor.refresh_requested:
+    if cursor is None:
         return now
     if cursor.retry_at is not None and cursor.retry_at > now:
         return cursor.retry_at
+    if cursor.last_success_at is None or cursor.refresh_requested:
+        return now
     return cursor.last_success_at + timedelta(seconds=interval_seconds)
 
 
@@ -71,6 +72,7 @@ def _status(request: Request, session: Session, household_id: int,
 
     statuses: list[schemas.ConnectionSyncStatusOut] = []
     for c in conns:
+        connection_retry = banks.connection_retry_at(session, c, now=now)
         mapped = by_conn.get(c.id)
         linked: list[BankAccountMapping | None] = (
             list(mapped) if mapped else [None])
@@ -80,6 +82,12 @@ def _status(request: Request, session: Session, household_id: int,
                     SyncCursor.account_id == lm.account_id,
                     SyncCursor.source == TransactionSource.starling))
                 if lm is not None and lm.account_id is not None else None)
+            retry_at = cursor.retry_at if cursor else None
+            if connection_retry is not None:
+                retry_at = max(retry_at, connection_retry) if retry_at else connection_retry
+            next_due = _next_due(cursor, now, interval_seconds) if lm is not None else None
+            if connection_retry is not None:
+                next_due = max(next_due, connection_retry) if next_due else connection_retry
             last_attempt = (
                 session.scalar(select(func.max(SyncRun.started_at)).where(
                     SyncRun.account_id == lm.account_id,
@@ -90,15 +98,17 @@ def _status(request: Request, session: Session, household_id: int,
                 provider=c.provider.value,
                 status=c.status.value,
                 last_error=c.last_error,
+                sync_status=cursor.status.value if cursor else None,
+                sync_error=cursor.error if cursor else None,
                 account_id=lm.account_id if lm is not None else None,
                 last_attempted_at=last_attempt,
                 last_success_at=(
                     cursor.last_success_at if cursor else None),
                 refresh_queued=(
                     cursor.refresh_requested if cursor else False),
-                retry_at=cursor.retry_at if cursor else None,
-                next_due_at=_next_due(cursor, now, interval_seconds)
-                if lm is not None else None))
+                retry_at=retry_at,
+                next_due_at=next_due if c.status in (
+                    ConnStatus.connected, ConnStatus.degraded) else None))
     return schemas.BankingSyncSettingsOut(
         interval_minutes=interval,
         source=source,

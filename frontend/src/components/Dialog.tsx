@@ -3,7 +3,7 @@
  * outside-click dismissal, scroll lock and focus return come from the
  * primitive — the accessibility contract of issue #127 for free.
  */
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Dialog as D } from "radix-ui";
 import { X } from "lucide-react";
 import { cn } from "../lib/cn";
@@ -25,11 +25,23 @@ export function Dialog({
   footer?: ReactNode;
   className?: string;
 }) {
+  const opener = useRef<HTMLElement | null>(null);
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
         <D.Overlay className="ff-overlay fixed inset-0 z-50 bg-[var(--overlay)] backdrop-blur-[2px]" />
         <D.Content
+          onOpenAutoFocus={() => {
+            const active = document.activeElement;
+            opener.current = active instanceof HTMLElement && active !== document.body
+              ? active : null;
+          }}
+          onCloseAutoFocus={(event) => {
+            if (opener.current?.isConnected) {
+              event.preventDefault();
+              opener.current.focus();
+            }
+          }}
           className={cn(
             "fixed top-1/2 left-1/2 z-50 flex max-h-[min(90vh,720px)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col",
             "rounded-2xl border border-border bg-surface shadow-2xl",
@@ -49,7 +61,7 @@ export function Dialog({
             </div>
             <D.Close
               aria-label="Close"
-              className="-mr-1.5 rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 hover:text-fg"
+              className="-mr-1.5 grid min-h-11 min-w-11 place-items-center rounded-md p-1.5 text-fg-subtle hover:bg-surface-2 hover:text-fg"
             >
               <X className="size-4" />
             </D.Close>

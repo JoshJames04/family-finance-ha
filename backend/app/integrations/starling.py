@@ -22,7 +22,12 @@ from app.domain.banks import (
     TokenInvalid,
     ValidatorUnavailable,
 )
-from app.domain.discovery import BankClient, DiscoveredAccount
+from app.domain.discovery import (
+    BankClient,
+    DiscoveredAccount,
+    DiscoveryListing,
+    SpacesUnavailable,
+)
 from app.domain.sync import (
     FeedItem,
     FeedPage,
@@ -44,6 +49,14 @@ class UpstreamError(ConnError):
         self.retry_after = retry_after
 
 
+class TokenHttpError(TokenInvalid):
+    """Authentication failure retaining its provider HTTP status."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"HTTP {status}")
+        self.status = status
+
+
 def _get(token: str, path: str) -> dict[str, object]:
     req = urllib.request.Request(
         f"{API_BASE}{path}",
@@ -54,7 +67,7 @@ def _get(token: str, path: str) -> dict[str, object]:
             return data
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
-            raise TokenInvalid(f"HTTP {e.code}") from e
+            raise TokenHttpError(e.code) from e
         retry = None
         try:
             retry = float(e.headers.get("Retry-After", "") or "nan")
@@ -75,6 +88,7 @@ class StarlingClient:
         # spaces listing avoids re-fetching it once per space balance
         # inside a single /sync (issue #316 — rate-limit pressure).
         self._spaces_cache: dict[str, list[DiscoveredAccount]] = {}
+        self.unavailable_space_accounts: set[str] = set()
 
     def validate_token(self, token: str) -> TokenInfo:
         data = _get(token, "/api/v2/identity/token")
@@ -84,18 +98,24 @@ class StarlingClient:
                 scopes, list) else frozenset())
 
     def accounts(self, token: str) -> list[DiscoveredAccount]:
+        self.unavailable_space_accounts.clear()
+        self._spaces_cache.clear()
         data = _get(token, "/api/v2/accounts")
-        rows = data.get("accounts", [])
-        if not isinstance(rows, list):
-            return []
-        out = [
+        rows = data.get("accounts") if isinstance(data, dict) else None
+        if not isinstance(rows, list) or any(
+                not isinstance(a, dict) or not isinstance(a.get("accountUid"), str)
+                or not a["accountUid"].strip()
+                or not isinstance(a.get("defaultCategory"), str)
+                or not a["defaultCategory"].strip() for a in rows):
+            raise UpstreamError(502, "malformed accounts listing")
+        out = DiscoveryListing(
             DiscoveredAccount(
                 external_uid=str(a["accountUid"]),
                 label=str(a.get("name") or "Starling account"),
                 kind="account",
                 category_uid=str(a["defaultCategory"])
                 if a.get("defaultCategory") else None)
-            for a in rows if isinstance(a, dict)]
+            for a in rows if isinstance(a, dict))
         # Spaces are categories, not accounts — /accounts never lists
         # them. Their spaceUid doubles as the feed categoryUid, so a
         # space maps and syncs exactly like an account row.
@@ -105,8 +125,12 @@ class StarlingClient:
             uid = str(a["accountUid"])
             try:
                 spaces = self.spaces(token, uid)
-            except UpstreamError:
-                continue  # token lacks space:read — degrade, don't fail
+            except UpstreamError as e:
+                if e.status != 403:
+                    raise  # incomplete discovery must not close existing spaces
+                out.unavailable_space_accounts.add(uid)
+                self.unavailable_space_accounts.add(uid)
+                continue  # token lacks space:read — preserve account discovery
             out.extend(spaces)
         return out
 
@@ -119,17 +143,27 @@ class StarlingClient:
         cached = self._spaces_cache.get(account_uid)
         if cached is not None:
             return cached
-        data = _get(token, f"/api/v2/account/{account_uid}/spaces")
+        try:
+            data = _get(token, f"/api/v2/account/{account_uid}/spaces")
+        except TokenHttpError as e:
+            if e.status != 403:
+                raise
+            raise UpstreamError(403, "token lacks Spaces read permission") from e
+        if not isinstance(data, dict) or not any(
+                key in data for key in ("savingsGoals", "spendingSpaces")):
+            raise UpstreamError(502, "malformed Spaces listing")
         out = []
         for key in ("savingsGoals", "spendingSpaces"):
             rows = data.get(key, [])
             if not isinstance(rows, list):
-                continue
+                raise UpstreamError(502, "malformed Spaces listing")
             for s in rows:
                 if not isinstance(s, dict):
-                    continue
+                    raise UpstreamError(502, "malformed Spaces listing")
                 uid = s.get("savingsGoalUid") or s.get("spaceUid")
-                if not uid or s.get("state") not in (None, "ACTIVE"):
+                if not isinstance(uid, str) or not uid.strip():
+                    raise UpstreamError(502, "malformed Spaces listing")
+                if s.get("state") not in (None, "ACTIVE"):
                     continue
                 bal = s.get("balance") or s.get("totalSaved") or {}
                 pence = (int(str(bal["minorUnits"]))
@@ -149,11 +183,19 @@ class StarlingClient:
         """Whole-account balance via /accounts/{uid}/balance, or a
         space's balance when ``category_uid`` names one."""
         if category_uid is not None:
-            for s in self.spaces(token, external_uid):
+            try:
+                spaces = self.spaces(token, external_uid)
+            except UpstreamError as e:
+                if e.status != 403:
+                    raise
+                self.unavailable_space_accounts.add(external_uid)
+                raise SpacesUnavailable("token lacks Spaces read permission") from e
+            for s in spaces:
                 if s.category_uid == category_uid:
                     if s.balance_pence is not None:
                         return s.balance_pence
                     raise UpstreamError(502, "space carries no balance")
+            raise UpstreamError(502, "space absent from provider listing — rediscover accounts")
         data = _get(
             token, f"/api/v2/accounts/{external_uid}/balance")
         # effectiveBalance (cleared + pending unsettled) is what the
@@ -220,6 +262,7 @@ BACKFILL_DAYS = 90  # initial changesSince window when no cursor
 def starling_fetch(client: BankClient, token: str,
                    external_uid: str, category_uid: str, *,
                    historical_since: date | None = None,
+                   on_error: Callable[[int | None, str, float | None], object] | None = None,
                    ) -> Callable[[SyncCursor], Iterator[FeedPage]]:
     """Adapt the client to the sync engine's ``fetch`` protocol:
     cursor ``last_ref`` is the changesSince watermark — absent → a
@@ -235,10 +278,15 @@ def starling_fetch(client: BankClient, token: str,
         try:
             items = client.feed_items(token, external_uid,
                                       category_uid, since)
-        except UpstreamError as e:
-            if e.status == 429:
+        except ConnError as e:
+            status = getattr(e, "status", 401 if isinstance(e, TokenInvalid) else None)
+            message = ("provider unavailable — check network/DNS"
+                       if isinstance(e, ValidatorUnavailable) else str(e))
+            if on_error is not None:
+                on_error(status, message, e.retry_after if isinstance(e, UpstreamError) else None)
+            if isinstance(e, UpstreamError) and e.status == 429:
                 raise RateLimited(
                     str(e), retry_after=e.retry_after) from e
-            raise SyncError(str(e)) from e
+            raise SyncError(message) from e
         yield FeedPage(items, cursor_ref=watermark)
     return fetch

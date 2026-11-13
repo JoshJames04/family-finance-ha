@@ -86,6 +86,7 @@ it("safe-to-spend labels the chosen account and makes absent payday account-spec
 it("budget summary never presents missing actuals as zero", async () => {
   stub(url => url.includes("/actuals") ? response({detail: "Actuals unavailable"}, 400) : url.includes("expected-movements") ? response([]) : undefined);
   render(<MemoryRouter><Budget /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("radio", { name: "Shared" }));
   await screen.findAllByRole("alert");
   expect(screen.queryByText("Spent so far")).toBeNull();
   expect(screen.queryByText("Income received")).toBeNull();

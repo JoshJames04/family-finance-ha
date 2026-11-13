@@ -935,6 +935,8 @@ class ExpectedMovementOut(BaseModel):
     confidence: Confidence
     source_type: ExpectedSource
     source_id: int
+    outstanding_pence: int = 0
+    dismissed_at: datetime | None = None
 
 
 class FixedSpecIn(BaseModel):
@@ -1691,6 +1693,8 @@ class ConnectionSyncStatusOut(BaseModel):
     provider: str
     status: str
     last_error: str | None
+    sync_status: str | None = None
+    sync_error: str | None = None
     account_id: int | None
     last_attempted_at: datetime | None
     last_success_at: datetime | None

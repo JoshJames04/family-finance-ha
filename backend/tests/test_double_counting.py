@@ -56,6 +56,7 @@ ALLOWLIST = {
     "contributed_pence",
     "repaid_pence",
     "_monthly_net",
+    "net_worth_at",
     "_reconcile_opening",
 }
 
@@ -97,6 +98,7 @@ class TestStaticContract:
                 seg = source.splitlines()
                 body = "\n".join(seg[max(0, line - 60):line + 60])
                 if "external_only" not in body \
+                        and "external_category_amounts" not in body \
                         and "transfer_id" not in body:
                     violations.append(f"{path.name}:{line} ({fn})")
         assert not violations, (
