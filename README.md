@@ -144,3 +144,19 @@ Employer payday settings include an optional payroll cutoff day (1–31); leave 
 blank to retain calendar-month earning periods. Category pickers sort by name and
 native option colours follow the selected light/dark theme and system selection
 palette.
+
+Personal monthly budgets now offer a **pay-cycle view**: November's plan uses
+the adjusted October payday through the day before November's adjusted payday.
+The exact dates are shown below the plan month. This applies to historical plans
+without changing transaction dates, approved amounts or revisions. Select the
+employment that anchors the cycle when more than one monthly payday is available,
+or choose a fixed monthly payday before employment/salary setup is complete.
+Missing or ambiguous configuration shows a calendar fallback warning. Payroll
+overtime cutoffs remain separate from the spending cycle.
+
+**Shared** and **All** stay on calendar months. Shared shows verified net
+contributions into joint accounts, with other external income separate. All
+counts household external income once, excluding internal contributions.
+Expand received-income/contribution details to see actual money outside the
+manual **Income plan**. **Opening funds** are separate ledger balances through
+the stated date; future periods show currently known funds, not future receipts.

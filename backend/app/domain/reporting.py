@@ -9,8 +9,13 @@ actually earned or spent.
 Budget, report, monthly flow and spending forecast aggregates use
 ``external_category_amounts``: linked transfers are excluded, and unpaired
 effective legs explicitly categorised ``Internal Transfers`` are excluded.
+Manually confirmed transfer-rule matches also remove their verified portion,
+consuming same-direction internal legs first to retain external fees/receipts.
 Each split leg is classified separately so an external fee remains spending.
-The ordinary ``Transfer`` category and suggested categories are external.
+The ordinary ``Transfer`` category and suggested categories are external by
+themselves. A valid manual transfer-rule confirmation additionally identifies
+its internal portion, consuming same-direction internal legs first and retaining
+external fees/receipts. All economic aggregates share that classification.
 ``income_leg`` excludes explicit refunds from receipts; ``expense_leg`` keeps
 outflows plus explicit refund credits, so their signed total nets only refunds.
 ``external_only`` is the legacy paired-transfer guard; it cannot replace the
@@ -32,6 +37,7 @@ Deliberate exceptions (each documented where it lives):
   money still owned by the household (same basis as
   ``net_worth_at``/``current_balance``).
 - ``analytics.net_worth_at`` — owned balance stock includes every ledger leg.
+- ``budget_funding._opening_funds`` — opening stock includes all prior ledger legs.
 
 ``tests/test_double_counting.py`` statically enforces the aggregate guard:
 every ``func.sum(Transaction.amount_pence)`` site must either call
@@ -45,6 +51,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.sql.expression import ColumnElement, Subquery
 
 from app.domain import splits
+from app.domain.confirmed_transfers import external_after_confirmed
 from app.persistence.models import Category, Transaction, TransactionStatus
 
 
@@ -53,13 +60,21 @@ def internal_category_ids() -> Select[Any]:
     return select(Category.id).where(Category.name == "Internal Transfers")
 
 
-def external_category_amounts(*wheres: ColumnElement[bool]) -> Subquery:
-    """External effective legs, retaining fees split from an internal movement."""
+def external_category_amounts(
+    *wheres: ColumnElement[bool], classify_confirmed: bool = True,
+) -> Subquery:
+    """External effective legs, retaining fees split from an internal movement.
+
+    Funding attribution can request raw external legs and consume confirmed
+    matches itself; economic reporting uses the classified default.
+    """
     amounts = splits.effective_category_amounts(
         *wheres, Transaction.transfer_id.is_(None),
         Transaction.status != TransactionStatus.void,
         ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
         | Transaction.external_ref.is_(None))
+    if classify_confirmed:
+        return external_after_confirmed(amounts, internal_category_ids())
     return select(amounts).where(or_(
         amounts.c.category_id.is_(None),
         amounts.c.category_id.not_in(internal_category_ids()))).subquery()

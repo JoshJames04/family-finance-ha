@@ -7,7 +7,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Lock, Pencil, Target } from "lucide-react";
 import { api } from "../api/client";
-import { useApi } from "../api/useApi";
+import { useApi, useMeProfileId } from "../api/useApi";
 import {
   pickBudgetFor, useBudgetDetail, useBudgets, useCategories, useReady,
   type Budget as BudgetT, type LineAnalysis,
@@ -25,7 +25,7 @@ import { IconTile, PageHeader, Progress, Segmented, Stat } from "../components/D
 import { EmptyState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import {
-  formatDayMonth, formatMonthName, formatMonthOf, formatPence,
+  formatDayMonth, formatDayMonthYear, formatMonthName, formatMonthOf, formatPence,
   formatPercent, formatWeekdayDayMonth, parseISODate,
 } from "../lib/format";
 
@@ -118,6 +118,7 @@ function useCollapsedSections(budgetId: number | null): [Record<string, boolean>
 
 export function Budget() {
   const ready = useReady();
+  const meProfileId = useMeProfileId();
   const budgets = useBudgets();
   const categories = useCategories();
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
@@ -143,7 +144,8 @@ export function Budget() {
   const selectedBudget = items.find((b) => b.id === budgetId);
   const id = scope === "all" || (selectedBudget && ownerKey(selectedBudget) === scope)
     ? budgetId : null;
-  const single = useBudgetDetail(id, rev);
+  const personal = scope !== "all" && scope !== "shared";
+  const single = useBudgetDetail(id, rev, personal ? "pay_cycle" : "calendar");
   const aggregate = scope === "all";
   const combinedRequest = useApi(
     () => api.get("/api/v1/budgets/reports/combined", { query: {
@@ -159,16 +161,17 @@ export function Budget() {
   const actuals = aggregate ? { ...combinedState, data: combined?.actuals ?? null } : single.actuals;
   const analyses = (actuals.data?.lines ?? {}) as unknown as Record<string, LineAnalysis>;
   const period = detail.data && (!aggregate || combined)
-    ? { from: detail.data.start_date, to: detail.data.end_date }
+    ? { from: detail.data.period?.start ?? detail.data.start_date,
+        to: detail.data.period?.end ?? detail.data.end_date }
     : null;
   const movementRequest = useApi(
     () => api.get("/api/v1/expected-movements",
-      { query: { start: period!.from, end: period!.to, budget_id: aggregate ? undefined : id! } }).then((items) => ({ budgetId: id, aggregate, items })),
+      { query: { start: period!.from, end: period!.to, budget_id: aggregate ? undefined : id! } }).then((items) => ({ budgetId: id, aggregate, from: period!.from, to: period!.to, items })),
     period !== null, [period?.from, period?.to, id, aggregate]);
   const movements = {
     ...movementRequest,
-    data: movementRequest.data?.budgetId === id && movementRequest.data.aggregate === aggregate ? movementRequest.data.items : null,
-    loading: movementRequest.loading || ((movementRequest.data?.budgetId !== id || movementRequest.data?.aggregate !== aggregate) && !movementRequest.error),
+    data: movementRequest.data?.budgetId === id && movementRequest.data.aggregate === aggregate && movementRequest.data.from === period?.from && movementRequest.data.to === period?.to ? movementRequest.data.items : null,
+    loading: movementRequest.loading || ((movementRequest.data?.budgetId !== id || movementRequest.data?.aggregate !== aggregate || movementRequest.data?.from !== period?.from || movementRequest.data?.to !== period?.to) && !movementRequest.error),
   };
   const locked = detail.data
     ? detail.data.status === "locked" || detail.data.read_only
@@ -219,7 +222,9 @@ export function Budget() {
   const plannedOut = sum("expense", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
   const actualOut = actuals.data?.spent_pence ?? sum("expense", (_l, a) => a?.actual_pence ?? 0);
   const plannedIn = sum("income", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
-  const actualIn = actuals.data?.income_received_pence ?? sum("income", (_l, a) => a?.actual_pence ?? 0);
+  const externalIncome = actuals.data?.external_income_pence ?? actuals.data?.income_received_pence ?? sum("income", (_l, a) => a?.actual_pence ?? 0);
+  const sharedFunding = scope === "shared" && actuals.data?.contributions_pence !== undefined;
+  const actualIn = sharedFunding ? actuals.data!.contributions_pence : externalIncome;
   const salaryForecasts = (movements.data ?? []).filter((m) =>
     m.amount_pence > 0 && m.outstanding_pence > 0 && m.dismissed_at == null
     && (m.source_type === "employment" || m.source_type === "payroll_run"));
@@ -227,7 +232,7 @@ export function Budget() {
 
   const sides: Array<{ key: "income" | "expense"; label: string }> = [
     { key: "expense", label: "Expenses" },
-    { key: "income", label: "Income" },
+    { key: "income", label: "Income plan" },
   ];
 
   return (
@@ -334,9 +339,17 @@ export function Budget() {
                       </span>
                     )}
                     <span className="ml-auto text-[12.5px] text-fg-subtle">
-                      {formatDayMonth(d.start_date)} – {formatDayMonth(d.end_date)}
+                      {d.period?.basis === "pay_cycle" ? "Pay cycle: " : ""}
+                      {formatDayMonthYear(period?.from ?? d.start_date)} – {formatDayMonthYear(period?.to ?? d.end_date)}
                     </span>
                   </div>
+
+                  {d.period?.warning && <p role="status" className="mb-4 rounded-xl border border-border bg-surface p-4 text-sm">{d.period.warning}</p>}
+                  {personal && d.owner_profile_id != null && (
+                    <PayCycleSource key={d.owner_profile_id} ownerId={d.owner_profile_id}
+                      editable={meProfileId === d.owner_profile_id || profiles.data?.items.some(p => p.id === meProfileId && p.role === "admin") === true}
+                      onSaved={() => setRev(r => r + 1)} />
+                  )}
 
                   {/* #415: five distinct measures — planned (fixed
                       for the period), spent (real transactions),
@@ -359,7 +372,10 @@ export function Budget() {
                           label: "Bills remaining", value: <Money pence={billsPence} />,
                           hint: billsCount === 1 ? "1 scheduled bill unpaid" : `${billsCount ?? 0} scheduled bills unpaid`,
                         }] : []),
-                        { label: "Income received", value: <Money pence={actualIn} />, hint: plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : undefined },
+                        { label: sharedFunding ? "Net contributions" : "Income received", value: <Money pence={actualIn} />, hint: !sharedFunding && plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : sharedFunding ? "verified personal funding, net of withdrawals" : undefined },
+                        ...(sharedFunding ? [{ label: "Other external income", value: <Money pence={externalIncome} />, hint: "separate from contributions" }] : []),
+                        ...(actuals.data?.opening_funds_pence !== undefined ? [{ label: "Opening funds", value: <Money pence={actuals.data.opening_funds_pence} />, hint: actuals.data.opening_as_of ? `Balance through ${formatDayMonthYear(actuals.data.opening_as_of)}; separate from spending plan` : "ledger balance before this period; separate from spending plan" }] : []),
+                        ...(scope === "shared" && actuals.data?.unattributed_internal_pence ? [{ label: "Unattributed internal movements", value: <Money pence={actuals.data.unattributed_internal_pence} />, hint: "source unknown; excluded from verified contributions" }] : []),
                         ...(salaryForecasts.length ? [{ label: "Planned salary (forecast)",
                           value: <Money pence={plannedSalary} />, hint: "expected pay; separate from manual income plan" }] : []),
                       ];
@@ -369,6 +385,17 @@ export function Budget() {
                     ))}
                   </div>}
                   </DataView>
+
+                  {(actuals.data?.income_items ?? []).length > 0 && (
+                    <FundingDetails title={sharedFunding ? "Other external income details" : "Received income details"}
+                      caption="Received income" items={actuals.data!.income_items} total={externalIncome}
+                      categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} ownerLabel={id => ownerLabel(String(id))} />
+                  )}
+                  {sharedFunding && (actuals.data?.contribution_items ?? []).length > 0 && (
+                    <FundingDetails title="Contribution details" caption="Contributions"
+                      items={actuals.data!.contribution_items} total={actualIn} contributions
+                      categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} ownerLabel={id => ownerLabel(String(id))} />
+                  )}
 
                   {actuals.data?.as_of && (
                     <details className="mb-4 rounded-xl border border-border bg-surface p-4">
@@ -588,7 +615,7 @@ export function Budget() {
                    * here, period-scoped to the viewed month (issue
                    * #297). */}
                   <div className="mt-4">
-                    <SharedPot period={{ start: d.start_date, end: d.end_date }} />
+                    <SharedPot period={{ start: period?.from ?? d.start_date, end: period?.to ?? d.end_date }} />
                   </div>
                 </>
               )}
@@ -607,6 +634,72 @@ export function Budget() {
       )}
     </div>
   );
+}
+
+type FundingItem = components["schemas"]["BudgetFundingItem"];
+
+function FundingDetails({ title, caption, items, total, contributions, categoryName, ownerLabel }: {
+  title: string; caption: string; items: FundingItem[]; total: number; contributions?: boolean;
+  categoryName: (id: number) => string; ownerLabel: (id: number) => string;
+}) {
+  return <details open className="mb-4 rounded-xl border border-border bg-surface p-4">
+    <summary className="min-h-11 cursor-pointer text-sm font-medium">{title}</summary>
+    <p className="mb-2 text-sm text-fg-muted">Received transactions, including categories outside the manual plan. Forecast pay is shown separately.</p>
+    <div className="max-h-72 overflow-auto">
+      <table className="w-full min-w-[540px] text-left text-sm" aria-label={caption}>
+        <thead><tr><th>Date</th><th>Transaction / payee</th><th>{contributions ? "Contributor" : "Category"}</th><th className="text-right">Amount</th></tr></thead>
+        <tbody>{items.map((item, index) => <tr key={`${item.transaction_id}:${index}`} className="border-t border-border">
+          <td className="py-2">{formatDayMonthYear(item.date)}</td>
+          <td>#{item.transaction_id} · {item.payee}</td>
+          <td>{contributions ? item.contributor_profile_id == null ? "Unknown contributor" : ownerLabel(item.contributor_profile_id) : item.category_id == null ? "Uncategorised" : categoryName(item.category_id)}</td>
+          <td className="text-right"><Money pence={item.amount_pence} /></td>
+        </tr>)}</tbody>
+        <tfoot><tr><th colSpan={3}>Total {caption.toLowerCase()}</th><td className="text-right"><Money pence={total} /></td></tr></tfoot>
+      </table>
+    </div>
+  </details>;
+}
+
+function PayCycleSource({ ownerId, editable, onSaved }: { ownerId: number; editable: boolean; onSaved: () => void }) {
+  const source = useApi(() => api.get("/api/v1/budgets/pay-cycle-settings", { query: { owner_profile_id: ownerId } }), true, [ownerId]);
+  const [selection, setSelection] = useState<string | null>(null);
+  const [dayInput, setDayInput] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value = selection ?? (source.data?.employment_id != null ? String(source.data.employment_id) : source.data?.payday_day != null ? "fixed" : "");
+  const day = dayInput ?? (source.data?.payday_day == null ? "" : String(source.data.payday_day));
+  const parsedDay = Number(day);
+  const validDay = Number.isInteger(parsedDay) && parsedDay >= 1 && parsedDay <= 31;
+  const save = async () => {
+    if (value === "fixed" && !validDay) return;
+    setSaving(true); setError(null);
+    try {
+      await api.put("/api/v1/budgets/pay-cycle-settings", { body: value === "fixed"
+        ? { owner_profile_id: ownerId, employment_id: null, payday_day: parsedDay }
+        : { owner_profile_id: ownerId, employment_id: value === "" ? null : Number(value) } });
+      source.refetch(); onSaved(); toast.success("Pay-cycle source saved");
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to save pay-cycle source"); }
+    finally { setSaving(false); }
+  };
+  return <div className="mb-4 rounded-xl border border-border bg-surface p-4">
+    <DataView state={source} empty="No pay-cycle sources available">
+      {data => <div className="flex flex-wrap items-end gap-3">
+        <Field label="Pay-cycle source" className="min-w-0 flex-1" hint="Automatic requires one monthly employment source. You can also set a fixed monthly payday.">
+          {id => <Select id={id} aria-label="Pay-cycle source" value={value} onChange={e => setSelection(e.target.value)} disabled={!editable || saving} className="min-h-11">
+            <option value="">Automatic</option>
+            <option value="fixed">Fixed monthly payday</option>
+            {(data.options ?? []).map(option => <option key={option.employment_id} value={option.employment_id}>{option.employer}</option>)}
+          </Select>}
+        </Field>
+        {value === "fixed" && <Field label="Monthly payday" className="min-w-0 flex-1" hint="Saturday or Sunday paydays move to the previous Friday.">
+          {id => <Input id={id} aria-label="Monthly payday" type="number" min={1} max={31} step={1}
+            value={day} onChange={e => setDayInput(e.target.value)} disabled={!editable || saving} className="min-h-11" />}
+        </Field>}
+        {editable && <Button className="min-h-11" disabled={saving || source.loading || (value === "fixed" && !validDay)} onClick={() => void save()}>{saving ? "Saving…" : "Save source"}</Button>}
+      </div>}
+    </DataView>
+    {error && <p role="alert" className="mt-2 text-sm text-negative">{error}</p>}
+  </div>;
 }
 
 /** Revision form — the API requires a reason; the UI enforces it the

@@ -363,9 +363,41 @@ class BudgetOut(BaseModel):
     status: BudgetStatus
 
 
+class BudgetPeriodWindow(BaseModel):
+    start: date
+    end: date
+    basis: Literal["calendar", "pay_cycle"]
+    employment_id: int | None = None
+    warning: str | None = None
+
+
+class PayCycleOption(BaseModel):
+    employment_id: int
+    employer: str
+
+
+class PayCycleSettings(BaseModel):
+    employment_id: int | None = None
+    payday_day: int | None = None
+    options: list[PayCycleOption]
+
+
+class PayCycleSettingsIn(BaseModel):
+    owner_profile_id: int
+    employment_id: int | None = None
+    payday_day: int | None = Field(default=None, ge=1, le=31)
+
+    @model_validator(mode="after")
+    def one_source(self) -> PayCycleSettingsIn:
+        if self.employment_id is not None and self.payday_day is not None:
+            raise ValueError("choose an employment or a fixed payday, not both")
+        return self
+
+
 class BudgetDetail(BudgetOut):
     lines: list[BudgetLineOut]
     read_only: bool
+    period: BudgetPeriodWindow | None = None
 
 
 class BudgetSpendItem(BaseModel):
@@ -375,8 +407,26 @@ class BudgetSpendItem(BaseModel):
     amount_pence: int  # signed spend: refunds are negative
 
 
+class BudgetFundingItem(BaseModel):
+    transaction_id: int
+    date: date
+    account_id: int
+    payee: str
+    category_id: int | None = None
+    amount_pence: int
+    contributor_profile_id: int | None = None
+
+
 class BudgetActuals(BaseModel):
     budget_id: int
+    period: BudgetPeriodWindow | None = None
+    opening_funds_pence: int = 0
+    opening_as_of: date | None = None
+    external_income_pence: int = 0
+    contributions_pence: int = 0
+    unattributed_internal_pence: int = 0
+    income_items: list[BudgetFundingItem] = []
+    contribution_items: list[BudgetFundingItem] = []
     as_of: date | None = None
     spent_pence: int = 0
     budget_covered_pence: int = 0

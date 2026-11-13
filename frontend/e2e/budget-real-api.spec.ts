@@ -86,7 +86,8 @@ test("real Budget scopes preserve periods and reconcile external spending", asyn
   await page.getByRole("radio", { name: "Shared", exact: true }).click();
   await expect(stat("Planned spending").getByText("£100.00", { exact: true })).toBeVisible();
   await expect(stat("Spent so far").getByText("£10.00", { exact: true })).toBeVisible();
-  await expect(stat("Income received").getByText("£0.00", { exact: true })).toBeVisible();
+  await expect(stat("Net contributions").getByText("-£700.00", { exact: true })).toBeVisible();
+  await expect(stat("Other external income").getByText("£0.00", { exact: true })).toBeVisible();
   await page.getByRole("radio", { name: "Budget test admin", exact: true }).click();
   await expect(stat("Planned spending").getByText("£200.00", { exact: true })).toBeVisible();
   await expect(stat("Spent so far").getByText("£20.00", { exact: true })).toBeVisible();
