@@ -350,3 +350,52 @@ purchase because the purchase is unchanged. Canonical occurrence settlement
 inherits its source category, then applies provider/rule fallbacks to that one
 editable row, before reconciliation freezes it. Existing user categories and
 protected historical rows remain unchanged.
+
+## Personal pay-cycle Budget views
+
+Budget records retain their nominal plan dates and lifecycle. Single-budget
+detail/actuals accept `basis=pay_cycle`; the default remains calendar-based for
+existing dashboard/report consumers. The personal Budget page opts in, while
+Shared and All remain calendar views. A returned period object carries effective
+dates, anchor employment and configuration warnings. All downstream actuals,
+bills and expected-movement queries use that effective range.
+
+`budget_periods` reuses payroll payday parsing and adjustment rules. Each monthly
+boundary independently selects the employment applicable on that adjusted
+payday, preserving continuity through job changes. Explicit per-member anchors
+are validated and stored under scoped `budget_pay_cycle:<household>:<member>`
+AppMeta keys. Ambiguous, stale or missing monthly sources produce a visible
+calendar fallback. Weekly/nightly jobs cannot silently repeat a whole monthly
+plan. Existing holiday-table coverage and payday policy remain authoritative.
+Members can instead select a fixed monthly payday independently of employment;
+this uses scoped `budget_pay_cycle_day:<household>:<member>` AppMeta state and
+does not create a job or salary forecast. Manual and employment selections clear
+one another, and Automatic clears both. Explicit employment selection applies
+within that employment's date coverage; unique known former jobs retain their
+historical payday rules.
+
+`budget_funding` itemizes effective external receipts, including categories absent
+from the plan. Verified personal/shared boundaries and confirmed contribution
+matches provide signed shared contributions; shared-space movements do not.
+Unidentified movement and inaccessible source attribution remain explicit.
+Manual matches consume only same-direction effective split legs; confirmed
+internal portions use the shared `confirmed_transfers` economic classifier across
+Budget actuals, monthly reports, analytics and forecast history. Its SQL window
+consumes already-internal legs first; unmatched external fees/receipts stay
+economic flow. Funding attribution requests raw legs to explain the same confirmed
+portions without changing ledger records. Forecast residuals remain
+separate from actual income, preventing double counting after matching.
+
+Opening funds are balance stock across authorized scoped accounts, using every
+nonvoid ledger leg before the period. Opening transactions are counted once;
+account opening metadata is not added again. Future windows cap this snapshot
+at today and expose `opening_as_of`. The stock is never included in received
+income or silently added to approved spending. GETs derive all views without
+rewriting historical plans, statuses or ledger data. Migration 0070 adds nullable
+endpoint snapshots to expected movements. Deleting a scheduling rule preserves
+its confirmed contribution history through those snapshots. Account edits freeze
+the original endpoints before changing a rule. Endpoint changes return 409 when
+future movements already have matches: a separate rule must represent the new
+accounts, avoiding reinterpretation of a partly fulfilled obligation. Older deleted rules
+without endpoints still provide internal-transfer evidence; their funding stays
+unattributed rather than guessing a contributor.

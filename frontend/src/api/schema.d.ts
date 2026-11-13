@@ -217,6 +217,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/budgets/pay-cycle-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Pay Cycle Settings */
+        get: operations["get_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_get"];
+        /** Set Pay Cycle Settings */
+        put: operations["set_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/budgets/{budget_id}": {
         parameters: {
             query?: never;
@@ -4033,6 +4051,39 @@ export interface components {
         BudgetActuals: {
             /** Budget Id */
             budget_id: number;
+            period?: components["schemas"]["BudgetPeriodWindow"] | null;
+            /**
+             * Opening Funds Pence
+             * @default 0
+             */
+            opening_funds_pence: number;
+            /** Opening As Of */
+            opening_as_of?: string | null;
+            /**
+             * External Income Pence
+             * @default 0
+             */
+            external_income_pence: number;
+            /**
+             * Contributions Pence
+             * @default 0
+             */
+            contributions_pence: number;
+            /**
+             * Unattributed Internal Pence
+             * @default 0
+             */
+            unattributed_internal_pence: number;
+            /**
+             * Income Items
+             * @default []
+             */
+            income_items: components["schemas"]["BudgetFundingItem"][];
+            /**
+             * Contribution Items
+             * @default []
+             */
+            contribution_items: components["schemas"]["BudgetFundingItem"][];
             /** As Of */
             as_of?: string | null;
             /**
@@ -4118,6 +4169,27 @@ export interface components {
             lines: components["schemas"]["BudgetLineOut"][];
             /** Read Only */
             read_only: boolean;
+            period?: components["schemas"]["BudgetPeriodWindow"] | null;
+        };
+        /** BudgetFundingItem */
+        BudgetFundingItem: {
+            /** Transaction Id */
+            transaction_id: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Account Id */
+            account_id: number;
+            /** Payee */
+            payee: string;
+            /** Category Id */
+            category_id?: number | null;
+            /** Amount Pence */
+            amount_pence: number;
+            /** Contributor Profile Id */
+            contributor_profile_id?: number | null;
         };
         /** BudgetIn */
         BudgetIn: {
@@ -4218,6 +4290,28 @@ export interface components {
          * @enum {string}
          */
         BudgetPeriodType: "monthly" | "annual" | "custom";
+        /** BudgetPeriodWindow */
+        BudgetPeriodWindow: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "calendar" | "pay_cycle";
+            /** Employment Id */
+            employment_id?: number | null;
+            /** Warning */
+            warning?: string | null;
+        };
         /** BudgetReport */
         BudgetReport: {
             /** Budget Id */
@@ -6116,6 +6210,31 @@ export interface components {
         PairRefundOut: {
             /** Linked */
             linked: number;
+        };
+        /** PayCycleOption */
+        PayCycleOption: {
+            /** Employment Id */
+            employment_id: number;
+            /** Employer */
+            employer: string;
+        };
+        /** PayCycleSettings */
+        PayCycleSettings: {
+            /** Employment Id */
+            employment_id?: number | null;
+            /** Payday Day */
+            payday_day?: number | null;
+            /** Options */
+            options: components["schemas"]["PayCycleOption"][];
+        };
+        /** PayCycleSettingsIn */
+        PayCycleSettingsIn: {
+            /** Owner Profile Id */
+            owner_profile_id: number;
+            /** Employment Id */
+            employment_id?: number | null;
+            /** Payday Day */
+            payday_day?: number | null;
         };
         /** PaydayDeltaOut */
         PaydayDeltaOut: {
@@ -8040,9 +8159,82 @@ export interface operations {
             };
         };
     };
-    get_budget_api_v1_budgets__budget_id__get: {
+    get_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_get: {
+        parameters: {
+            query: {
+                owner_profile_id: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayCycleSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_put: {
         parameters: {
             query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayCycleSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayCycleSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_budget_api_v1_budgets__budget_id__get: {
+        parameters: {
+            query?: {
+                basis?: "calendar" | "pay_cycle";
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
@@ -8264,7 +8456,9 @@ export interface operations {
     };
     budget_actuals_api_v1_budgets__budget_id__actuals_get: {
         parameters: {
-            query?: never;
+            query?: {
+                basis?: "calendar" | "pay_cycle";
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;

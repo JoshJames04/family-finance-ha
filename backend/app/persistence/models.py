@@ -1017,6 +1017,9 @@ class ExpectedMovement(Base):
     source_type: Mapped[ExpectedSource] = mapped_column(
         Enum(ExpectedSource), nullable=False)
     source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Retain confirmed transfer endpoints when its scheduling rule is deleted.
+    transfer_source_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transfer_dest_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dismissed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -1052,6 +1055,7 @@ class TransferRule(TimestampMixin, Base):
                         name="ck_transfer_rule_day"),
         CheckConstraint("end_date IS NULL OR end_date >= start_date",
                         name="ck_transfer_rule_range"),
+        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

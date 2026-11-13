@@ -248,3 +248,33 @@ All central request-session dependencies now use function scope, committing
 before headers are sent. FastAPI's minimum is 0.121.1 to support that scope.
 CSV exports are materialized and file downloads resolve their paths before
 returning; neither uses the request session while streaming response bytes.
+
+### Historical personal cycles and calendar household funding (#482–#484)
+
+Personal monthly budgets derive payday windows without altering their stored
+month, plan amounts, revisions or status. Consecutive adjusted payday boundaries
+also follow historical employment changes. Shared and All use calendar periods
+and their own account scopes. Source settings require owner/admin permissions;
+read-only period/funding calculations do not write configuration or ledger data.
+
+Received-income detail includes unplanned and uncategorised receipts rather than
+only the manual Income plan, and opens by default. Shared shows verified signed contributions and other
+external income separately. A confirmed partial withdrawal leaves an external
+fee in the spending bridge; mixed-sign split legs opposite to the matched flow
+are not consumed. Opening ledger stock has its own as-of date and excludes future
+rows, even when the selected plan starts in the future.
+
+The real API browser fixture creates a disposable historical household: personal
+November uses 28 October–27 November, while Shared/All retain 1–30 November. It
+checks exact dates, salary outside the plan, opening stock, expense bridge and
+verified member contributions. Synthetic evidence:
+
+![Synthetic historical personal cycle](images/paycycle-personal-real-api.png)
+
+![Synthetic calendar Shared contributions](images/paycycle-shared-real-api.png)
+
+Confirmed manual transfer portions use one economic SQL classifier (#485), so
+calendar All Budget and calendar reports agree even before a bank leg is paired.
+The classifier retains duplicate split legs, consumes only same-direction pence,
+and leaves unmatched fees and opposite-direction receipts intact. Funding source
+attribution uses the corresponding raw legs without reclassifying them twice.

@@ -98,7 +98,7 @@ it.each([false, true])("shows salary forecasts separately from received and manu
   const received = screen.getByText("Income received").parentElement!.parentElement!;
   expect(received.textContent).toContain("£123.00");
   if (manualIncome) expect(received.textContent).toContain("of £2,500.00 planned");
-  const income = screen.getByRole("heading", { name: "Income" }).closest("section")!;
+  const income = screen.getByRole("heading", { name: "Income plan" }).closest("section")!;
   const expected = within(income).getByRole("list", { name: "Expected salary" });
   expect(within(expected).getByText("Employer forecast")).toBeTruthy();
   expect(within(expected).getByText("Payroll forecast")).toBeTruthy();

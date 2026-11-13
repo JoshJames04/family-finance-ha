@@ -50,6 +50,7 @@ DOMAIN = Path(__file__).parents[1] / "app" / "domain"
 # either side of a month boundary (same basis as net_worth_at).
 # _reconcile_opening restamps openings so ledger == provider balance;
 # it must match current_balance's all-legs basis to be correct.
+# _opening_funds is ledger stock strictly before a budget's displayed window.
 ALLOWLIST = {
     "current_balance",
     "refundable_balance",
@@ -58,6 +59,7 @@ ALLOWLIST = {
     "_monthly_net",
     "net_worth_at",
     "_reconcile_opening",
+    "_opening_funds",
 }
 
 
