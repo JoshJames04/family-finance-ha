@@ -393,6 +393,9 @@ at today and expose `opening_as_of`. The stock is never included in received
 income or silently added to approved spending. GETs derive all views without
 rewriting historical plans, statuses or ledger data. Migration 0070 adds nullable
 endpoint snapshots to expected movements. Deleting a scheduling rule preserves
-its confirmed contribution history through those snapshots. Older deleted rules
+its confirmed contribution history through those snapshots. Account edits freeze
+the original endpoints before changing a rule. Endpoint changes return 409 when
+future movements already have matches: a separate rule must represent the new
+accounts, avoiding reinterpretation of a partly fulfilled obligation. Older deleted rules
 without endpoints still provide internal-transfer evidence; their funding stays
 unattributed rather than guessing a contributor.

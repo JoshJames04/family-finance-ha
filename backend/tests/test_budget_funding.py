@@ -1,9 +1,11 @@
 """Received funding and opening stock use the same authorized ledger scope."""
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from fastapi import HTTPException
 
-from app.api.v1.transfer_rules import delete_rule
+from app.api import schemas
+from app.api.v1.transfer_rules import delete_rule, update_rule
 from app.domain.budget_funding import budget_funding
 from app.persistence.models import (
     Account,
@@ -61,6 +63,55 @@ def test_deleted_rule_preserves_funding_history(session, household, scope, legac
         assert after == before
         assert after["contributions_pence"] == (300 if amount > 0 else -300)
         assert all(i["contributor_profile_id"] is None for i in after["contribution_items"])
+
+
+@pytest.mark.parametrize("endpoint", ["source_account_id", "dest_account_id",
+                                     "swap_future", "source_future"])
+def test_endpoint_edit_then_delete_preserves_original_funding(
+        session, household, scope, endpoint):
+    _, personal, shared, space, budget = scope
+    rule = TransferRule(household_id=household.id, name="Contribution",
+                        source_account_id=personal.id, dest_account_id=shared.id,
+                        amount_spec='{"kind":"fixed","pence":500}',
+                        frequency="monthly", day_of_month=1, start_date=START)
+    session.add(rule)
+    session.flush()
+    movement = ExpectedMovement(household_id=household.id, account_id=shared.id,
+                                expected_date=START, amount_pence=500, label="Contribution",
+                                confidence="scheduled", source_type="transfer_rule",
+                                source_id=rule.id)
+    session.add(movement)
+    session.flush()
+    transaction = txn(session, shared, 500)
+    session.add(ExpectedMatch(movement_id=movement.id, transaction_id=transaction.id,
+                              matched_pence=300, manual=True))
+    changes = {endpoint: space.id}
+    if endpoint.endswith("_future"):
+        movement.expected_date = date.today() + timedelta(days=1)
+        rule.day_of_month = movement.expected_date.day
+        changes = ({"source_account_id": shared.id, "dest_account_id": personal.id}
+                   if endpoint == "swap_future" else {"source_account_id": space.id})
+    session.flush()
+    before = budget_funding(session, budget, [personal.id, shared.id], start=START, end=END)
+    if endpoint.endswith("_future"):
+        with pytest.raises(HTTPException) as caught:
+            update_rule(rule.id, schemas.TransferRulePatch(**changes),
+                        household, session, "synthetic-test")
+        assert caught.value.status_code == 409
+        assert (rule.source_account_id, rule.dest_account_id) == (personal.id, shared.id)
+        assert movement.amount_pence == 500
+        assert budget_funding(session, budget, [personal.id, shared.id],
+                              start=START, end=END) == before
+        return
+    update_rule(rule.id, schemas.TransferRulePatch(**changes),
+                household, session, "synthetic-test")
+    session.expire_all()
+    assert budget_funding(session, budget, [personal.id, shared.id],
+                          start=START, end=END) == before
+    delete_rule(rule.id, household, session, "synthetic-test")
+    session.expire_all()
+    assert budget_funding(session, budget, [personal.id, shared.id],
+                          start=START, end=END) == before
 
 
 @pytest.fixture()
