@@ -62,7 +62,13 @@ is never hard-deleted.
 - **salary_revision** — effective date, annual salary, notes.
 - **overtime_entry** — date, hours, multiplier (1.5×/2×/custom), day type
   (weekday/Saturday/Sunday/bank holiday), status (`draft`|`submitted`|
-  `approved`), payroll period ref.
+  `approved`|`rejected`), employment and snapshotted hourly rate. Work dates
+  determine payroll attribution using the employment's existing cutoff.
+  Monday–Sunday sheets are derived views using ISO week-year, not persisted
+  records; all historic entries participate without a backfill. An opaque
+  revision combines content, status and the mutation timestamp for atomic
+  weekly confirmation. Existing timestamp fields use microseconds for new
+  entries and strictly advance on overtime mutations; no migration is needed.
 - **payroll_run** — period, gross, deductions breakdown (PAYE/NI/SL/pension),
   net, forecast vs payslip actual, reconciliation state.
 - **tax_rule_set** — versioned UK parameters (thresholds, bands, rates,

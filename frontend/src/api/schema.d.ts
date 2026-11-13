@@ -1227,6 +1227,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/overtime-weeks/{week_start}/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Overtime Week Transition */
+        post: operations["overtime_week_transition_api_v1_employments__emp_id__overtime_weeks__week_start___action__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/overtime-entries/{entry_id}/{action}": {
         parameters: {
             query?: never;
@@ -6023,6 +6040,8 @@ export interface components {
             pay_pence: number;
             /** Notes */
             notes: string | null;
+            /** Revision */
+            revision: string;
         };
         /** OvertimePatch */
         OvertimePatch: {
@@ -6041,6 +6060,38 @@ export interface components {
          * @enum {string}
          */
         OvertimeStatus: "draft" | "submitted" | "approved" | "rejected";
+        /** OvertimeWeekEntryIn */
+        OvertimeWeekEntryIn: {
+            /** Id */
+            id: number;
+            /** Revision */
+            revision: string;
+        };
+        /** OvertimeWeekIn */
+        OvertimeWeekIn: {
+            /** Entries */
+            entries: components["schemas"]["OvertimeWeekEntryIn"][];
+        };
+        /** OvertimeWeekOut */
+        OvertimeWeekOut: {
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+            /**
+             * Week End
+             * Format: date
+             */
+            week_end: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "submit" | "approve" | "reject";
+            /** Updated Count */
+            updated_count: number;
+        };
         /** Page[AccountOut] */
         Page_AccountOut_: {
             /** Items */
@@ -10840,6 +10891,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OvertimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overtime_week_transition_api_v1_employments__emp_id__overtime_weeks__week_start___action__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                week_start: string;
+                action: "submit" | "approve" | "reject";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OvertimeWeekIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OvertimeWeekOut"];
                 };
             };
             /** @description Validation Error */

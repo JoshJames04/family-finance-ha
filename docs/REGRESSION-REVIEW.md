@@ -4,6 +4,27 @@ This change follows the v1.4.1 reports and the historical issue audit.
 Tests use synthetic data. Production data, bank credentials and snapshots
 are excluded from the repository.
 
+## Weekly overtime (#487)
+
+Coverage includes derived grouping of all historical work dates, Monday/Sunday
+bounds, ISO week-year/week 53, DST and leap dates, one/seven populated days and
+multiple entries on one day. Weekly actions retain mixed statuses and individual
+exceptions, requiring a confirmed complete eligible set and content revisions.
+Tests cover stale edits/moves/deletions/new entries, repeat/status-cycle replay,
+same-second deleted/recreated IDs, and concurrent individual edits/inserts.
+
+Atomic rollback tests fail a later transition or audit after an earlier one has
+run and verify that neither entries nor audits partially persist. Scope tests
+cover other employments/households, members, viewers and service identities.
+Accepted higher-precision historic hours must remain processable without rewriting
+their stored values; POST/PATCH revisions agree with an immediate GET. Payroll
+tests preserve configured cutoff attribution and already-generated snapshots.
+
+Frontend tests cover exact hour/pay totals, summaries, eligible confirmation,
+cancel, busy/double-click protection, recoverable failures and refresh-required
+409s. Real API/browser tests exercise all weekly actions, an individual exception,
+a newly added draft and an edit during confirmation, on desktop and narrow mobile.
+
 ## Recovery and data provenance
 
 Transient API failures show an error after the initial retry burst, then

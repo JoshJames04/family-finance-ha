@@ -399,3 +399,33 @@ future movements already have matches: a separate rule must represent the new
 accounts, avoiding reinterpretation of a partly fulfilled obligation. Older deleted rules
 without endpoints still provide internal-transfer evidence; their funding stays
 unattributed rather than guessing a contributor.
+
+## Weekly overtime sheets
+
+The Overtime page derives Monday–Sunday groups from each entry's work date for
+the selected employment. ISO week numbers use the ISO week-year, including
+cross-year/week-53 history. The week header shows dates, hours, snapshotted pay
+and status counts. There is no separate persisted week state or history rewrite.
+
+Weekly submit processes drafts; weekly approve/reject processes submitted entries.
+Other entries remain unchanged, and all individual actions remain available.
+A confirmation captures the complete eligible set of IDs and opaque revisions.
+Revisions include content, status and mutation timestamps, so edited drafts and
+status cycles cannot silently reuse an earlier confirmation. Creation timestamps
+retain microseconds to distinguish same-second deleted/recreated IDs; mutating
+an entry strictly advances its timestamp. POST/PATCH refresh the persisted
+representation before returning a revision, including legacy accepted precision.
+
+The employment-scoped weekly endpoint uses the existing authorization boundary.
+It reserves the SQLite writer before reading the eligible set, preserving every
+employment field while preventing membership/content interleaving. Existing
+individual mutating reads share that reservation. Conditional transitions and
+per-entry audit events with week bounds share one transaction/savepoint. Stale
+membership, revisions, repeat requests and concurrent changes return a refreshable
+409 with no partial transitions or audit events. An API/input failure remains an
+error; the UI does not show it as an empty week or silently retry a stale claim.
+
+Grouping and status transitions preserve work dates, rate/multiplier snapshots,
+payroll-cutoff attribution and already-generated payroll components. Approved-only
+payroll behaviour is unchanged, including weeks crossing a cutoff or year. This
+workflow records submission/approval in the app; it does not send manager emails.
