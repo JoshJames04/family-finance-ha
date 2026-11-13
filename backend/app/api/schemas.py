@@ -855,6 +855,30 @@ class OvertimeOut(BaseModel):
     hourly_rate_pence: int
     pay_pence: int
     notes: str | None
+    revision: str
+
+
+class OvertimeWeekEntryIn(BaseModel):
+    id: Annotated[int, Field(strict=True, gt=0)]
+    revision: str = Field(min_length=1, max_length=256)
+
+
+class OvertimeWeekIn(BaseModel):
+    entries: list[OvertimeWeekEntryIn] = Field(min_length=1)
+
+    @field_validator("entries")
+    @classmethod
+    def unique_ids(cls, entries: list[OvertimeWeekEntryIn]) -> list[OvertimeWeekEntryIn]:
+        if len({entry.id for entry in entries}) != len(entries):
+            raise ValueError("overtime entry IDs must be unique")
+        return entries
+
+
+class OvertimeWeekOut(BaseModel):
+    week_start: date_t
+    week_end: date_t
+    action: Literal["submit", "approve", "reject"]
+    updated_count: int
 
 
 class PayrollRunIn(BaseModel):
