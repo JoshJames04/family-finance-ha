@@ -18,14 +18,16 @@ backwards-compatible-feature rule selects 1.5.0.
 - [x] Scheduled dependency routing/assignment (#508) and sole-Josh code ownership
       with current-head approval, without activating automatic merging (#510).
 
-The notes candidate contains the remaining dependency commits so its source
-matches these descriptions. Merge their individual reviewed PRs first, then
-merge the notes PR; this does not authorise skipping their CI or approvals.
+The joint candidate combines the remaining Lucide dependency update from #507
+with the release notes from #513, based on the current #505 jsdom candidate.
+Merge #505 first, then review and merge the joint candidate as one complete
+diff with passing CI and Josh's current-head approval. The original #507 and
+#513 remain open for traceability; do not merge them separately afterward.
 
 ## Before promoting develop to main
 
-- [ ] Merge the reviewed dependency PRs #506, #505 and #507 in that order, then
-      the final release-notes PR, into develop.
+- [ ] Merge the reviewed #505 candidate, then the joint #507/#513 candidate,
+      into develop. #506 is already integrated.
 - [ ] Reconcile the changelog and release closing keywords against the actual
       final aggregate diff; do not claim an unmerged fix is included.
 - [ ] Full required CI and native Codex review pass on the exact release head.
