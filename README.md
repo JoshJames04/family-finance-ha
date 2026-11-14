@@ -114,7 +114,7 @@ python scripts/dev.py seed        # load synthetic fixture data
 cd backend && pip install -e '.[dev]' && pytest
 ```
 
-Frontend development and CI use Node.js 22.22.2 or later in the 22.x line, which meets the jsdom 31 minimum. Keep `@types/node` on the 22.x API line to match that runtime; older local Node 22 patches must be updated.
+Frontend CI and production asset builds use Node.js 22.22.2 or later in the 22.x line. Docker Compose frontend development uses Node.js 24.15.0 or later in the 24.x line. These minimums meet jsdom 31 requirements. Keep `@types/node` on the 22.x API line so shared tooling stays within the production build runtime API; update older local Node patches.
 
 Layout: `backend/` (FastAPI), `frontend/` (Vite + React + TS), `addon/` (HA
 app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
