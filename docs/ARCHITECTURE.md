@@ -493,3 +493,10 @@ itself makes no queue promise or write: its caller determines whether a consumer
 exists. Manual clients already surface the problem response as an error rather
 than showing a queued success; Settings regression tests cover both retry
 messages. These changes do not enable scheduling on any installation.
+
+Settings acknowledges an HTTP200 manual refresh as a processed request and
+points to the refreshed account status, since a synchronous response may contain
+completed or failed feed runs. It does not label every successful HTTP request
+queued. Historical refresh flags show `Manual refresh needed` while the worker
+is disabled, with no automatic run promise; enabled workers retain the queued
+badge and next-run display.

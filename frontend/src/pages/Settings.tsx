@@ -486,7 +486,7 @@ export function BankingSyncPanel() {
   const syncNow = (cid: number) => {
     setBusyId(cid);
     api.post("/api/v1/banking/connections/{cid}/sync", { path: { cid } })
-      .then(() => toast.success("Manual sync queued"))
+      .then(() => toast.info("Sync request processed. Check the account status below."))
       .catch((e: Error) => toast.error(e.message))
       .finally(() => { setBusyId(null); refresh(); });
   };
@@ -543,13 +543,15 @@ export function BankingSyncPanel() {
                         {c.status}
                       </Badge>
                       {c.sync_status === "failed" && <Badge tone="error">Sync failed</Badge>}
-                      {c.refresh_queued && <Badge tone="info">queued</Badge>}
+                      {c.refresh_queued && <Badge tone="info">
+                        {s.scheduler_enabled === false ? "Manual refresh needed" : "queued"}
+                      </Badge>}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-fg-subtle">
                       <span>Last ok {c.last_success_at ? formatDateTime(c.last_success_at) : "never"}</span>
                       {c.retry_at ? (
                         <span>Retry after {formatDateTime(c.retry_at)}</span>
-                      ) : c.next_due_at ? (
+                      ) : s.scheduler_enabled !== false && c.next_due_at ? (
                         <span>
                           {c.refresh_queued ? "Runs" : "Next"} {formatDateTime(c.next_due_at)}
                         </span>

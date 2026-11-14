@@ -83,3 +83,51 @@ it.each([
   expect(success).not.toHaveBeenCalled();
   expect(screen.queryByText("queued", { exact: true })).toBeNull();
 });
+
+it.each([true, false])("labels historical queue flags using worker availability: %s", async (enabled) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const body = String(input).endsWith("/settings/banking") ? {
+      interval_minutes: 15, source: "default", editable: true, scheduler_enabled: enabled,
+      connections: [{ connection_id: 1, provider: "starling", status: "connected",
+        account_id: 3, sync_status: "completed", sync_error: null, last_error: null,
+        last_success_at: null, refresh_queued: true, retry_at: null,
+        next_due_at: "2026-11-14T15:30:00Z" }],
+    } : { items: [] };
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  });
+  render(<BankingSyncPanel />);
+  if (enabled) {
+    expect(await screen.findByText("queued", { exact: true })).toBeDefined();
+    expect(screen.getByText(/^Runs /)).toBeDefined();
+    expect(screen.queryByText("Manual refresh needed")).toBeNull();
+  } else {
+    expect(await screen.findByText("Manual refresh needed")).toBeDefined();
+    expect(screen.queryByText("queued", { exact: true })).toBeNull();
+    expect(screen.queryByText(/^Runs /)).toBeNull();
+    expect(screen.queryByText(/^Next /)).toBeNull();
+  }
+});
+
+it.each(["completed", "failed"])("reports a processed manual request without claiming a queue: %s", async (status) => {
+  const info = vi.spyOn(toast, "info").mockReturnValue("processed-info");
+  const success = vi.spyOn(toast, "success").mockReturnValue("processed-success");
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (init?.method === "POST" && String(input).endsWith("/connections/1/sync")) {
+      return new Response(JSON.stringify({ runs: [{ status, inserted: 0 }] }),
+        { headers: { "Content-Type": "application/json" } });
+    }
+    const body = String(input).endsWith("/settings/banking") ? {
+      interval_minutes: 15, source: "default", editable: true, scheduler_enabled: false,
+      connections: [{ connection_id: 1, provider: "starling", status: "connected",
+        account_id: 3, sync_status: status, sync_error: null, last_error: null,
+        last_success_at: null, refresh_queued: false, retry_at: null, next_due_at: null }],
+    } : { items: [] };
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  });
+  render(<BankingSyncPanel />);
+  await userEvent.setup().click(await screen.findByRole("button", { name: "Sync now for connection 1" }));
+  await waitFor(() => expect(info).toHaveBeenCalledWith(
+    "Sync request processed. Check the account status below."));
+  expect(success).not.toHaveBeenCalled();
+  expect(screen.queryByText("queued", { exact: true })).toBeNull();
+});
