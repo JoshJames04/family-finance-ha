@@ -159,3 +159,37 @@ def test_projection_api_agrees_with_budget_and_preserves_private_scope(tmp_path)
         with Session(client.app.state.engine) as session:
             assert list(session.scalars(select(ExpectedMovement.amount_pence))) == [10000] * 3
             assert list(session.scalars(select(ExpectedMatch.matched_pence))) == [4000] * 3
+
+
+@pytest.mark.parametrize("kind", ["projection", "scenario"])
+def test_forecast_read_query_count_does_not_grow_per_movement(session, account, kind):
+    """A long horizon uses batch match totals, rather than a SELECT per bill."""
+    what_if = scenario.create_scenario(session, account.household_id, "Synthetic")
+
+    def add(start, end):
+        for offset in range(start, end):
+            matched(session, account, received=4000,
+                    due=TODAY + timedelta(days=offset + 1))
+
+    def count_queries():
+        statements = []
+
+        def observe(connection, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith(("SELECT", "WITH")):
+                statements.append(statement)
+
+        event.listen(session.get_bind(), "before_cursor_execute", observe)
+        try:
+            if kind == "projection":
+                projection.project(session, account, 731, from_date=TODAY)
+            else:
+                scenario.run(session, what_if, account, 731, from_date=TODAY)
+        finally:
+            event.remove(session.get_bind(), "before_cursor_execute", observe)
+        return len(statements)
+
+    add(0, 5)
+    small = count_queries()
+    add(5, 80)
+    large = count_queries()
+    assert large <= small + 2, (small, large)

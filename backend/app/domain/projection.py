@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.accounts import active_accounts, current_balance
-from app.domain.contributions import status
+from app.domain.contributions import matched_totals
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -70,8 +70,10 @@ def _movement_rows(session: Session, account_id: int, start: date,
             ExpectedMovement.amount_pence > 0)
     rows = []
     with session.no_autoflush:
-        for movement in session.scalars(stmt):
-            remaining = status(session, movement).outstanding_pence
+        movements = list(session.scalars(stmt))
+        totals = matched_totals(session, [movement.id for movement in movements])
+        for movement in movements:
+            remaining = max(0, abs(movement.amount_pence) - totals[movement.id])
             if remaining:
                 rows.append((movement.id, movement.expected_date,
                              remaining if movement.amount_pence > 0 else -remaining))

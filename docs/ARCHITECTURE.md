@@ -308,6 +308,11 @@ balance only. Next payday and scenario payday comparison dates exclude satisfied
 and dismissed salary movements. Scenario edits operate on the remaining amount;
 their payday anchors still come from the baseline. These reads preserve stored
 amounts, match rows, account visibility and the existing future-date bounds.
+Matched amounts are loaded in one grouped read for each selected movement set,
+including zeroes, rather than a query per movement. The shared evidence query
+follows only relevant payment/correction families while allocating all claims on
+those live payments consistently. Query-growth regressions count both SELECT
+and WITH/recursive reads for projections and scenarios.
 
 Deleting a budget template removes its copied-line source and clears optional
 provenance pointers; previously applied budget lines are retained. Tariff deletion
