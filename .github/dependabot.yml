@@ -2,6 +2,8 @@ version: 2
 updates:
   - package-ecosystem: pip
     directory: /backend
+    target-branch: develop
+    assignees: [JoshJames04]
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -9,6 +11,11 @@ updates:
 
   - package-ecosystem: npm
     directory: /frontend
+    target-branch: develop
+    assignees: [JoshJames04]
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -16,6 +23,8 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
+    assignees: [JoshJames04]
     schedule:
       interval: weekly
     labels: [area:devops, priority:p2]

@@ -14,6 +14,19 @@ implemented; remaining gap rows are hardening options.
 
 ## 2. The end-to-end path
 
+Scheduled Dependabot version updates for Python, npm and GitHub Actions target
+`develop` and are assigned to `JoshJames04`, following the same review/CI and
+release path as other changes. Dependabot reads this configuration from the
+default branch, so routing changes become active after the release reaches
+`main`. GitHub's automatic security-update PRs still target the default branch;
+`target-branch` does not redirect them. Review those explicitly through the
+approved integration/release process. See the
+[Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch-).
+
+Scheduled npm updates keep `@types/node` on the application's Node 22 API line;
+its major upgrades require a deliberate runtime/toolchain change. Patch and
+minor typings updates remain enabled.
+
 ```
 feature PR ──► develop ──► release PR develop→main ──► tag vX.Y.Z
      │              │              │                    │
@@ -88,3 +101,16 @@ The pipeline is sufficient to ship: the only manual acts are
 `tag-on-main` then tags `v{version}`, `release.yml` publishes, and
 the Supervisor offers the update. Two deliberate steps between
 "code on develop" and "Update available in Home Assistant".
+
+## Docker action runtime and validation
+
+Docker action major versions that use Node 24 require Actions Runner
+2.327.1 or later. Image and release jobs use GitHub-hosted
+`ubuntu-latest` runners; this action runtime is separate from the
+application's Node 22 frontend toolchain.
+
+The PR `image` check builds and smoke-tests native and arm64 images
+without publishing. It exercises QEMU setup and the build/load path,
+but does not exercise GHCR login, registry push or the release-only
+multi-architecture publication. Those remain part of the owner-approved
+release path; a green PR check does not validate publishing credentials.
