@@ -715,6 +715,26 @@ function BudgetSections({ sections, categoryName }: {
       const planned = (side: "income" | "expense") => detail?.lines
         .filter(line => line.side === side)
         .reduce((sum, line) => sum + (line.effective_pence ?? line.revised_pence ?? line.original_pence), 0);
+      const rows = new Map<string, { category: number | null; side: "income" | "expense"; planned: number | null; actual: number }>();
+      const rowFor = (side: "income" | "expense", category: number | null) => {
+        const key = `${side}:${category ?? "uncategorised"}`;
+        let row = rows.get(key);
+        if (!row) {
+          row = { category, side, planned: null, actual: 0 };
+          rows.set(key, row);
+        }
+        return row;
+      };
+      for (const line of detail?.lines ?? []) {
+        const row = rowFor(line.side, line.category_id);
+        row.planned = (row.planned ?? 0) + (line.effective_pence ?? line.revised_pence ?? line.original_pence);
+      }
+      // These signed, as-of ledger legs explain the headlines. Full-period
+      // per-line totals cannot include categories missing from the plan.
+      for (const item of actuals.spend_items ?? []) rowFor("expense", item.category_id ?? null).actual += item.amount_pence;
+      for (const item of actuals.income_items ?? []) rowFor("income", item.category_id ?? null).actual += item.amount_pence;
+      const actualTotal = (side: "income" | "expense") => [...rows.values()]
+        .filter(row => row.side === side).reduce((sum, row) => sum + row.actual, 0);
       return <Panel key={owner ?? "shared"} title={`${section.name} budget`}
         aria-label={`${section.name} budget`} headingLevel={3}
         description={period ? `${formatDayMonthYear(period.start)} – ${formatDayMonthYear(period.end)} · calendar view · read-only` : "Calendar view · read-only"}>
@@ -726,15 +746,19 @@ function BudgetSections({ sections, categoryName }: {
           <div><dt className="text-fg-muted">{owner == null ? "Other external income" : "Income received"}</dt><dd><Money pence={actuals.external_income_pence ?? actuals.income_received_pence ?? 0} /></dd></div>
           {owner == null && <div><dt className="text-fg-muted">Net contributions</dt><dd><Money pence={actuals.contributions_pence ?? 0} /></dd></div>}
         </dl>
-        {detail && detail.lines.length > 0 && <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[440px] text-left text-sm" aria-label={`${section.name} budget lines`}>
-            <thead><tr><th>Category</th><th>Plan</th><th className="text-right">Planned</th><th className="text-right">Actual</th></tr></thead>
-            <tbody>{detail.lines.map(line => <tr key={line.id} className="border-t border-border">
-              <th scope="row" className="py-2 font-normal">{categoryName(line.category_id)}</th>
-              <td>{line.side === "income" ? "Income" : "Expense"}</td>
-              <td className="text-right"><Money pence={line.effective_pence ?? line.revised_pence ?? line.original_pence} /></td>
-              <td className="text-right"><Money pence={actuals.totals[String(line.id)] ?? 0} /></td>
+        {rows.size > 0 && <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-left text-sm" aria-label={`${section.name} budget lines`}>
+            <thead><tr><th className="pr-2">Category</th><th className="pr-2">Plan</th><th className="pr-2 text-right">Planned</th><th className="text-right">Actual so far</th></tr></thead>
+            <tbody>{[...rows].map(([key, row]) => <tr key={key} className="border-t border-border">
+              <th scope="row" className="py-2 pr-2 font-normal">{row.category == null ? "Uncategorised" : categoryName(row.category)}</th>
+              <td className="pr-2">{row.side === "income" ? "Income" : "Expense"}</td>
+              <td className="pr-2 text-right">{row.planned == null ? <span aria-label="Unplanned">—</span> : <Money pence={row.planned} />}</td>
+              <td className="text-right"><Money pence={row.actual} /></td>
             </tr>)}</tbody>
+            <tfoot>
+              <tr><th colSpan={3}>Total spent so far</th><td className="text-right"><Money pence={actualTotal("expense")} /></td></tr>
+              <tr><th colSpan={3}>Total external income</th><td className="text-right"><Money pence={actualTotal("income")} /></td></tr>
+            </tfoot>
           </table>
         </div>}
       </Panel>;

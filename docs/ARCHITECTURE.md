@@ -411,6 +411,13 @@ personal page uses payday cycles. A null detail means no plan, distinct from a
 zero-valued plan; its account actuals remain included. Section details are marked
 read-only without changing persisted plan locks or amounts. Section sums never
 replace the All account-union calculation.
+Section category rows combine plan lines with the signed as-of `spend_items`
+and external `income_items`. Unplanned and uncategorised categories remain
+visible even without a plan. Each category is separate for income and expense;
+refunds reduce its spending and split legs contribute once. An absent planned
+amount is shown as unplanned, distinct from zero. Per-side actual footers explain
+the section headlines; full-period per-line actuals do not replace these as-of
+legs. Shared contributions remain a separate funding measure.
 
 Opening funds are balance stock across authorized scoped accounts, using every
 nonvoid ledger leg before the period. Opening transactions are counted once;

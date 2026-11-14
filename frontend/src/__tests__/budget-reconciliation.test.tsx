@@ -17,7 +17,13 @@ const income = [
   { transaction_id: 78, date: "2026-11-02", account_id: 1, payee: "Split receipt", category_id: 2, amount_pence: 2001 },
   { transaction_id: 78, date: "2026-11-02", account_id: 1, payee: "Split receipt", category_id: null, amount_pence: 2999 },
 ];
+const spend = [
+  { transaction_id: 81, date: "2026-11-02", category_id: null, amount_pence: 100 },
+  { transaction_id: 82, date: "2026-11-03", category_id: 2, amount_pence: 200 },
+  { transaction_id: 83, date: "2026-11-04", category_id: null, amount_pence: 300 },
+];
 const actuals = { budget_id: 0, totals: {}, lines: {}, spent_pence: 600, as_of: "2026-11-14",
+  spend_items: spend,
   external_income_pence: 15001, income_received_pence: 15001, income_items: income,
   opening_funds_pence: 0, contributions_pence: 8900,
   contribution_items: [{ transaction_id: 79, date: "2026-11-02", account_id: 2, payee: "Contribution", category_id: null, amount_pence: 8900, contributor_profile_id: 7 }],
@@ -34,14 +40,14 @@ function fixture(nextStatus = 200) {
     let body: unknown = { items: [], total: 0 };
     if (url.pathname.endsWith("/households")) body = { items: [{ id: 1, name: "Synthetic" }], total: 1 };
     else if (url.pathname.endsWith("/profiles")) body = { items: [{ id: 7, display_name: "Member A", role: "admin", is_active: true }], total: 1 };
-    else if (url.pathname.endsWith("/categories")) body = { items: [{ id: 1, name: "Salary" }, { id: 2, name: "Expense only" }], total: 2 };
+    else if (url.pathname.endsWith("/categories")) body = { items: [{ id: 1, name: "Salary" }, { id: 2, name: "Expense only" }, { id: 3, name: "Unplanned spend" }, { id: 4, name: "Zero plan" }], total: 4 };
     else if (url.pathname.endsWith("/reports/combined")) {
       if (december && nextStatus !== 200) return Promise.resolve(new Response(JSON.stringify({ detail: "December budgets unavailable" }), { status: nextStatus, headers: { "Content-Type": "application/json" } }));
       body = { detail: { ...detail, id: 0, read_only: true, start_date: period.start, end_date: period.end }, actuals,
         sections: [
-          { owner_profile_id: null, name: "Shared", detail: { ...detail, lines: [], read_only: true }, actuals: { ...actuals, period, spent_pence: 100, external_income_pence: 0, income_received_pence: 0 } },
-          { owner_profile_id: 7, name: december ? "December member" : "Member A", detail: { ...detail, lines, read_only: true }, actuals: { ...actuals, period, spent_pence: 200, totals: { "11": 10001, "12": 200 } } },
-          { owner_profile_id: 8, name: "Member B", detail: null, actuals: { ...actuals, period, spent_pence: 300, external_income_pence: 0, income_received_pence: 0 } },
+          { owner_profile_id: null, name: "Shared", detail: { ...detail, lines: [], read_only: true }, actuals: { ...actuals, period, spent_pence: 100, spend_items: [spend[0]], external_income_pence: 0, income_received_pence: 0, income_items: [] } },
+          { owner_profile_id: 7, name: december ? "December member" : "Member A", detail: { ...detail, lines, read_only: true }, actuals: { ...actuals, period, spent_pence: 200, spend_items: [spend[1]], totals: { "11": 10001, "12": 200 } } },
+          { owner_profile_id: 8, name: "Member B", detail: null, actuals: { ...actuals, period, spent_pence: 300, spend_items: [spend[2]], external_income_pence: 0, income_received_pence: 0, income_items: [] } },
         ],
       };
     } else if (url.pathname.endsWith("/budgets")) body = { items: [...budgets, { ...budgets[0], id: 3, start_date: "2026-12-01", end_date: "2026-12-31" }], total: 3 };
@@ -130,8 +136,11 @@ function ownerCoverageFixture(sharedPlanned: boolean, legacy = false) {
     body.actuals = { ...body.actuals, income_items: [...memberIncome, ...sharedIncome, ...missingPlanIncome], external_income_pence: 1530, income_received_pence: 1530 };
     body.sections[0].detail.lines = sharedPlanned ? [lines[0]] : [];
     body.sections[0].actuals.income_items = sharedIncome;
+    body.sections[0].actuals.external_income_pence = body.sections[0].actuals.income_received_pence = 307;
     body.sections[1].actuals.income_items = memberIncome;
+    body.sections[1].actuals.external_income_pence = body.sections[1].actuals.income_received_pence = 1020;
     body.sections[2].actuals.income_items = missingPlanIncome;
+    body.sections[2].actuals.external_income_pence = body.sections[2].actuals.income_received_pence = 203;
     if (legacy) delete body.sections;
     return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
   });
@@ -157,4 +166,81 @@ it("retains income-category coverage for legacy combined replies without section
   expect(within(table).getByText("In income plan").closest("tr")!.textContent).toContain("£10.27");
   expect(within(table).getByText("Outside income plan").closest("tr")!.textContent).toContain("£5.03");
   expect(within(table).queryByText("Mixed coverage")).toBeNull();
+});
+
+function sectionFixture(index: number, update: (section: { detail: { lines: unknown[] } | null; actuals: Record<string, unknown> }) => void) {
+  fixture();
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const response = await original(input, init);
+    if (!String(input).includes("/reports/combined")) return response;
+    const body = await response.json();
+    update(body.sections[index]);
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  });
+}
+
+it("itemises missing-plan spending and receipts by side including uncategorised activity", async () => {
+  sectionFixture(2, section => {
+    section.actuals = { ...section.actuals, spent_pence: 200, external_income_pence: 400,
+      income_received_pence: 400,
+      spend_items: [{ ...spend[0], category_id: 3, amount_pence: 120 }, { ...spend[1], category_id: null, amount_pence: 80 }],
+      income_items: [{ ...income[0], amount_pence: 305 }, { ...income[1], category_id: null, amount_pence: 95 }],
+    };
+  });
+  await openNovember();
+  const section = await screen.findByRole("region", { name: "Member B budget" });
+  const table = within(section).getByRole("table", { name: "Member B budget lines" });
+  const rows = within(table).getAllByRole("row").slice(1, -2);
+  expect(rows).toHaveLength(4);
+  expect(rows.every(row => row.children[2]!.textContent === "—")).toBe(true);
+  expect(within(table).getAllByText("Uncategorised")).toHaveLength(2);
+  expect(within(table).getByText("Unplanned spend").closest("tr")!.textContent).toContain("£1.20");
+  expect(within(table).getByText("Salary").closest("tr")!.textContent).toContain("£3.05");
+  expect(within(table).getByText("Total spent so far").closest("tr")!.textContent).toContain("£2.00");
+  expect(within(table).getByText("Total external income").closest("tr")!.textContent).toContain("£4.00");
+});
+
+it("section actuals reconcile signed split spending and refunds separately from same-category income", async () => {
+  sectionFixture(1, section => {
+    section.detail!.lines = [...lines, { ...lines[1], id: 13, category_id: 4, original_pence: 0, effective_pence: 0 }];
+    section.actuals = { ...section.actuals, spent_pence: 376, external_income_pence: 200,
+      income_received_pence: 200, totals: { "11": 9999, "12": 9999 },
+      spend_items: [{ ...spend[0], transaction_id: 601, category_id: 2, amount_pence: 300 },
+        { ...spend[0], transaction_id: 601, category_id: 3, amount_pence: 101 },
+        { ...spend[1], category_id: 2, amount_pence: -75 },
+        { ...spend[2], category_id: null, amount_pence: 50 }],
+      income_items: [{ ...income[0], category_id: 2, amount_pence: 80 },
+        { ...income[1], category_id: 1, amount_pence: 100 },
+        { ...income[2], category_id: null, amount_pence: 20 }],
+    };
+  });
+  await openNovember();
+  const section = await screen.findByRole("region", { name: "Member A budget" });
+  const table = within(section).getByRole("table", { name: "Member A budget lines" });
+  const sameCategory = within(table).getAllByText("Expense only").map(cell => cell.closest("tr")!);
+  expect(sameCategory).toHaveLength(2);
+  expect(sameCategory.find(row => row.children[1]!.textContent === "Expense")!.children[3]!.textContent).toBe("£2.25");
+  expect(sameCategory.find(row => row.children[1]!.textContent === "Income")!.children[3]!.textContent).toBe("£0.80");
+  expect(within(table).getByText("Zero plan").closest("tr")!.children[2]!.textContent).toBe("£0.00");
+  expect(within(table).getByText("Unplanned spend").closest("tr")!.children[2]!.textContent).toBe("—");
+  expect(within(table).getByText("Total spent so far").closest("tr")!.textContent).toContain("£3.76");
+  expect(within(table).getByText("Total external income").closest("tr")!.textContent).toContain("£2.00");
+});
+
+it("keeps a net refund negative and shared contributions outside economic category income", async () => {
+  sectionFixture(0, section => {
+    section.actuals = { ...section.actuals, spent_pence: -50, external_income_pence: 100,
+      income_received_pence: 100, contributions_pence: 500,
+      spend_items: [{ ...spend[0], amount_pence: -50 }],
+      income_items: [{ ...income[0], amount_pence: 100 }],
+    };
+  });
+  await openNovember();
+  const section = await screen.findByRole("region", { name: "Shared budget" });
+  const table = within(section).getByRole("table", { name: "Shared budget lines" });
+  expect(within(table).getByText("Total spent so far").closest("tr")!.textContent).toContain("-£0.50");
+  expect(within(table).getByText("Total external income").closest("tr")!.textContent).toContain("£1.00");
+  expect(table.textContent).not.toContain("£5.00");
+  expect(section.textContent).toContain("Net contributions£5.00");
 });

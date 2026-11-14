@@ -17,6 +17,10 @@ authorized account owners, Shared once. A missing plan has null detail while its
 scoped actuals remain visible; a genuine zero plan retains detail. Include exact
 dates and per-category planned/received/spent figures so sections can reconcile
 to individual calendar views without summing personal payday-cycle actuals.
+Section categories are the union of plan lines and authoritative as-of expense
+and receipt legs, including missing-plan and uncategorised activity. Income and
+expense remain separate even for the same category; signed refunds reduce spend,
+split legs count once, and missing planned amounts differ from explicit zeroes.
 
 Additive `BudgetCombined.sections` entries contain owner_profile_id, name,
 optional detail and actuals. Existing detail/actuals remain compatible. Preserve

@@ -34,3 +34,10 @@ alone and the full bounded-worker run passed. Parent owns full CI/publication.
 - [x] Follow-up verification: 214 frontend tests and four synthetic browser tests
   passed; production build passed. Visually inspect and commit synthetic desktop
   and mobile screenshots under `docs/images` for PR evidence.
+
+- [x] Native PR #498 review: union plan categories with signed as-of spending
+  and income items in each section, including missing plans and uncategorised
+  activity. Distinguish absent plans from zero and retain income/expense sides.
+  Three regressions failed before the fix; 217 frontend tests, TypeScript/build
+  and four desktop/mobile browser checks passed afterward. Refresh synthetic
+  screenshots showing unplanned/refund/split categories and exact side totals.

@@ -11,6 +11,14 @@ for (const width of [375, 1280]) test(`income drills and calendar owner sections
     { id: 11, category_id: 1, side: "income", original_pence: 10000, effective_pence: 10000 },
     { id: 12, category_id: 2, side: "expense", original_pence: 2000, effective_pence: 2000 },
   ];
+  const sharedSpend = [{ transaction_id: 81, date: "2026-11-02", category_id: null, amount_pence: 100 }];
+  const memberSpend = [
+    { transaction_id: 82, date: "2026-11-03", category_id: 2, amount_pence: 300 },
+    { transaction_id: 82, date: "2026-11-03", category_id: 3, amount_pence: 101 },
+    { transaction_id: 84, date: "2026-11-04", category_id: 2, amount_pence: -251 },
+    { transaction_id: 85, date: "2026-11-05", category_id: null, amount_pence: 50 },
+  ];
+  const missingPlanSpend = [{ transaction_id: 83, date: "2026-11-04", category_id: null, amount_pence: 300 }];
   await page.route("**/api/v1/**", async route => {
     const path = new URL(route.request().url()).pathname;
     const personal = path.includes("/budgets/2");
@@ -20,6 +28,7 @@ for (const width of [375, 1280]) test(`income drills and calendar owner sections
     const received = { transaction_id: 77, date: personal ? "2026-10-30" : "2026-11-03",
       account_id: 1, payee: "Synthetic received salary", category_id: 1, amount_pence: 10001 };
     const actuals = { budget_id: 0, totals: {}, lines: {}, spent_pence: 600,
+      as_of: "2026-11-14", spend_items: [...sharedSpend, ...memberSpend, ...missingPlanSpend],
       external_income_pence: 15001, income_received_pence: 15001, income_items: [received,
         { ...received, transaction_id: 78, date: "2026-11-04", payee: "Synthetic split receipt", category_id: 2, amount_pence: 2001 },
         { ...received, transaction_id: 78, date: "2026-11-04", payee: "Synthetic split receipt", category_id: null, amount_pence: 2999 }],
@@ -32,14 +41,14 @@ for (const width of [375, 1280]) test(`income drills and calendar owner sections
     let json: unknown = { items: [], total: 0 };
     if (path.endsWith("/households")) json = { items: [{ id: 1, name: "Synthetic" }], total: 1 };
     else if (path.endsWith("/profiles")) json = { items: [{ id: 7, display_name: "Member A", role: "admin", is_active: true }], total: 1 };
-    else if (path.endsWith("/categories")) json = { items: [{ id: 1, name: "Salary" }, { id: 2, name: "Expense only" }], total: 2 };
+    else if (path.endsWith("/categories")) json = { items: [{ id: 1, name: "Salary" }, { id: 2, name: "Expense only" }, { id: 3, name: "Unplanned spend" }], total: 3 };
     else if (path.endsWith("/accounts")) json = { items: [{ id: 1, name: "Synthetic account", owner_profile_id: 7, archived: false }], total: 1 };
     else if (path.endsWith("/reports/combined")) json = { detail,
       actuals: { ...actuals, external_income_pence: 15204, income_received_pence: 15204,
         income_items: [...actuals.income_items, unplannedMemberReceipt] }, sections: [
-      { owner_profile_id: null, name: "Shared", detail: { ...detail, lines: [] }, actuals: { ...actuals, period, spent_pence: 100, external_income_pence: 0, income_received_pence: 0, income_items: [] } },
-      { owner_profile_id: 7, name: "Member A", detail, actuals: { ...actuals, period, spent_pence: 200, totals: { "11": 10001, "12": 200 } } },
-      { owner_profile_id: 8, name: "Member B", detail: null, actuals: { ...actuals, period, spent_pence: 300, external_income_pence: 203, income_received_pence: 203, income_items: [unplannedMemberReceipt] } },
+      { owner_profile_id: null, name: "Shared", detail: { ...detail, lines: [] }, actuals: { ...actuals, period, spent_pence: 100, spend_items: sharedSpend, external_income_pence: 0, income_received_pence: 0, income_items: [] } },
+      { owner_profile_id: 7, name: "Member A", detail, actuals: { ...actuals, period, spent_pence: 200, spend_items: memberSpend, totals: { "11": 10001, "12": 200 } } },
+      { owner_profile_id: 8, name: "Member B", detail: null, actuals: { ...actuals, period, spent_pence: 300, spend_items: missingPlanSpend, external_income_pence: 203, income_received_pence: 203, income_items: [unplannedMemberReceipt] } },
     ] };
     else if (path.endsWith("/budgets")) json = { items: budgets, total: 2 };
     else if (path.endsWith("/actuals")) json = actuals;
@@ -55,6 +64,14 @@ for (const width of [375, 1280]) test(`income drills and calendar owner sections
   await expect(page.getByRole("region", { name: "Member A budget", exact: true })).toContainText("1 Nov 2026 – 30 Nov 2026");
   await expect(page.getByRole("region", { name: "Member B budget", exact: true })).toContainText("No plan for this period");
   await expect(page.getByRole("region", { name: "Member B budget", exact: true })).toContainText("£3.00");
+  const missingLines = page.getByRole("table", { name: "Member B budget lines", exact: true });
+  await expect(missingLines.locator("tbody tr")).toHaveCount(2);
+  await expect(missingLines.locator("tfoot")).toContainText("£3.00");
+  await expect(missingLines.locator("tfoot")).toContainText("£2.03");
+  const memberLines = page.getByRole("table", { name: "Member A budget lines", exact: true });
+  await expect(memberLines).toContainText("Unplanned spend");
+  await expect(memberLines.locator("tfoot")).toContainText("£2.00");
+  await expect(memberLines.locator("tfoot")).toContainText("£150.01");
   const allCategories = page.getByRole("table", { name: "Income by category", exact: true });
   await expect(allCategories).toContainText("Mixed coverage");
   await expect(allCategories.locator("tfoot")).toContainText("£100.01");
