@@ -1,0 +1,4 @@
+# Route bot-authored and external contributions to the repository owner.
+# Sole-maintainer policy: human approval and code-owner review are not mandatory.
+# Before requiring owners on Josh-authored PRs, add a trusted eligible co-owner.
+* @JoshJames04

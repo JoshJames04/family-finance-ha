@@ -160,3 +160,38 @@ counts household external income once, excluding internal contributions.
 Expand received-income/contribution details to see actual money outside the
 manual **Income plan**. **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+
+## Pull request review controls
+
+Branch protection settings were applied separately on 14 November 2026 and
+read back from GitHub. Ownership and workflow changes in this PR take effect
+only after review and merge. Repository settings and this file are separate
+controls; verify the effective settings rather than relying on documentation.
+
+Changes to shared integration and release branches must arrive through a pull
+request with resolved conversations and the required CI checks. Under the explicitly
+approved sole-maintainer policy, required approval count is zero and required
+code-owner approval is disabled. Administrators remain subject to the PR and CI
+requirements. Direct pushes, force pushes and branch deletion are
+blocked by the configured GitHub rules. Publishing bots have no review bypass.
+
+CODEOWNERS routes reviews; the file alone does not enforce approval. The final
+matching pattern applies, and any one eligible owner on that pattern can approve.
+GitHub does not allow a PR author to approve their own PR. A bot identity does
+not replace independent human scrutiny of the work it publishes.
+
+Josh is currently the only collaborator. Review requests still route to Josh,
+but the approved sole-maintainer exception does not mandate independent approval.
+Before enabling independent code-owner approval, add a trusted collaborator with
+write access and add them to the applicable CODEOWNERS entries.
+Native Codex review remains supplemental and does not establish human approval.
+
+Shared deployment and infrastructure-apply jobs require separate approval
+through the environment used by the job, with self-review and administrator
+bypass disabled. A PR approval does not authorise a deployment. No workflow is
+dispatched and no deployment is performed by this configuration PR.
+
+The administrator rollout must read back effective branch rules and environment
+protections after applying them. Repository settings are separate from this PR:
+pending configuration, missing checks or failed checks must be reported rather
+than treated as enforced or passing. Do not disable controls to clear a failure.
