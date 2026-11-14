@@ -53,7 +53,7 @@ class RateLimited(Exception):
 
 
 class SyncBusy(Exception):
-    """Another trigger owns this account/source; intent remains queued."""
+    """Another trigger owns this account/source; the caller decides retry policy."""
 
 
 class SyncError(Exception):
@@ -183,9 +183,7 @@ def sync_account(
 ) -> SyncRun:
     with claim(session, f"account:{account.id}:{source.value}") as acquired:
         if not acquired:
-            cursor_for(session, account.id, source).refresh_requested = True
-            session.commit()
-            raise SyncBusy("sync already running — refresh queued")
+            raise SyncBusy("sync already running")
         return _sync_account(session, account, source, fetch)
 
 

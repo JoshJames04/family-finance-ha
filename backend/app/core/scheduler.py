@@ -195,6 +195,8 @@ def _sync_tick(session: Session, *, claims: ExitStack,
                 _starling_fetch(client, token, m,
                                 on_error=partial(bankdom.record_api_error, session, conn)))
         except syncdom.SyncBusy:
+            cursor.refresh_requested = True
+            session.commit()
             refresh_succeeded.discard(conn.id)
             continue
         if run.status == SyncStatus.completed:

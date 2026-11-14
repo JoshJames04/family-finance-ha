@@ -476,3 +476,20 @@ history; the explicit opening-repair flag is used by the completed-feed path.
 Retry deadlines use the same validator in connection-error callbacks and feed
 handling. Finite hints too large for a datetime use the normal fallback rather
 than raising an overflow or parking a feed at year9999.
+
+### Manual retry when automatic work is disabled
+
+A manual sync cannot promise queued work if the actual scheduler is disabled,
+even when a positive tick interval remains configured. Connection/account
+contention returns HTTP409 with instructions to retry after the active run.
+Provider/per-feed backoff returns HTTP409 with its persisted retry deadline,
+without provider calls, cursor advancement, a fabricated failed run, or a new
+manual queue flag. This also applies when a provider embargo arrives partway
+through a manual request. Existing provider-failure state is retained.
+
+With a worker enabled, contending and backoff requests retain the existing queue
+contract and due scheduled work drains it normally. The domain SyncBusy signal
+itself makes no queue promise or write: its caller determines whether a consumer
+exists. Manual clients already surface the problem response as an error rather
+than showing a queued success; Settings regression tests cover both retry
+messages. These changes do not enable scheduling on any installation.

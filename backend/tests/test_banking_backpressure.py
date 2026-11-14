@@ -19,7 +19,7 @@ from tests.test_banking_live142 import linked
 
 def request():
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
-        settings=Settings(sync_interval_minutes=30))))
+        settings=Settings(sync_interval_minutes=30), scheduler_enabled=True)))
 
 
 @pytest.mark.parametrize("manual", [False, True])

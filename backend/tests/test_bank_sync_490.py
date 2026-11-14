@@ -58,9 +58,12 @@ class Client:
         return [sync.FeedItem("new", date.today(), -500, "Synthetic new")]
 
 
-def manual(s, household_id, connection_id, client):
+def manual(s, household_id, connection_id, client, *, scheduler_enabled=None):
+    req = request()
+    if scheduler_enabled is not None:
+        req.app.state.scheduler_enabled = scheduler_enabled
     return bankapi.sync_transactions(connection_id, s.get(Household, household_id),
-                                     s, "synthetic", None, client, request())
+                                     s, "synthetic", None, client, req)
 
 
 @pytest.mark.parametrize("trigger", ["manual", "scheduled"])
@@ -97,7 +100,7 @@ def test_active_manual_sync_queues_concurrent_trigger_without_provider_calls(
     try:
         with factory() as s:
             if trigger == "manual":
-                result = manual(s, hid, cid, client)
+                result = manual(s, hid, cid, client, scheduler_enabled=True)
                 assert [run["status"] for run in result["runs"]] == ["queued"]
             else:
                 assert scheduler.sync_tick(s, client=client, token_for=lambda *_: "synthetic") == 0
@@ -475,3 +478,165 @@ def test_huge_finite_provider_retry_does_not_escape_error_callback(
     assert cursor.status is SyncStatus.failed and cursor.last_ref is None
     assert conn.status is ConnStatus.degraded
     assert now + timedelta(seconds=50) <= cursor.retry_at <= now + timedelta(seconds=70)
+
+@pytest.mark.parametrize("disabled_reason", ["tick_zero", "startup_disabled"])
+def test_public_overlap_when_scheduler_disabled_returns_retryable_error_without_queue(
+        tmp_path, monkeypatch, disabled_reason):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    settings = Settings.load({"FF_DATA_DIR": str(tmp_path),
+                              "FF_SCHEDULER_TICK_SECONDS": "0",
+                              "FF_BACKUP_INTERVAL_HOURS": "0"})
+    app = create_app(settings)
+    entered, release = threading.Event(), threading.Event()
+    errors = []
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+
+    class Blocking(Client):
+        def feed_items(self, *args):
+            entered.set()
+            assert release.wait(15)
+            return super().feed_items(*args)
+
+    class NoProvider(Client):
+        def accounts(self, *args):
+            pytest.fail("contended request called provider discovery")
+
+        def balance(self, *args):
+            pytest.fail("contended request called provider balance")
+
+        def feed_items(self, *args):
+            pytest.fail("contended request called provider feed")
+
+    app.state.bank_client = NoProvider()
+    with TestClient(app) as public:
+        # Positive configured cadence with an absent worker also forbids queueing.
+        # Updating this fixture's setting never starts a background loop.
+        if disabled_reason == "startup_disabled":
+            app.state.settings.scheduler_tick_seconds = 60
+        assert app.state.scheduler_enabled is False
+        with Session(app.state.engine) as s:
+            household = Household(name="Synthetic disabled sync")
+            s.add(household)
+            s.flush()
+            account, conn, _ = linked(s, household)
+            hid, aid, cid = household.id, account.id, conn.id
+            s.commit()
+        factory = sessionmaker(bind=app.state.engine)
+
+        def first():
+            try:
+                with factory() as s:
+                    manual(s, hid, cid, Blocking())
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=first)
+        thread.start()
+        assert entered.wait(10)
+        try:
+            response = public.post(f"/api/v1/banking/connections/{cid}/sync",
+                                   headers={"X-Household-Id": str(hid)})
+            assert response.status_code == 409, response.text
+            assert "retry" in response.json()["title"]
+            with factory() as s:
+                cursor = sync.cursor_for(s, aid, SRC)
+                assert cursor.status is SyncStatus.running
+                assert cursor.refresh_requested is False
+                assert cursor.last_ref is None
+                assert s.scalar(select(func.count()).select_from(SyncRun)) == 1
+        finally:
+            release.set()
+            thread.join(15)
+        assert not thread.is_alive() and errors == []
+        with factory() as s:
+            cursor = sync.cursor_for(s, aid, SRC)
+            assert cursor.status is SyncStatus.completed
+            assert cursor.refresh_requested is False
+            assert s.scalar(select(func.count()).select_from(SyncRun)) == 1
+
+
+def test_direct_busy_account_reports_contention_without_promising_a_queue(session, household):
+    from app.domain.sync_lock import claim
+
+    account, _, _ = linked(session, household)
+    cursor = sync.cursor_for(session, account.id, SRC)
+    session.commit()
+    with claim(session, f"account:{account.id}:{SRC.value}") as acquired:
+        assert acquired
+        with pytest.raises(sync.SyncBusy):
+            sync.sync_account(session, account, SRC, lambda _: iter(()))
+    assert cursor.refresh_requested is False
+    assert session.scalar(select(func.count()).select_from(SyncRun)) == 0
+
+@pytest.mark.parametrize("disabled_reason", ["tick_zero", "startup_disabled"])
+@pytest.mark.parametrize("backoff_scope", ["feed", "provider"])
+def test_public_backoff_without_worker_returns_deadline_without_queue(
+        tmp_path, monkeypatch, disabled_reason, backoff_scope):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    app = create_app(Settings.load({"FF_DATA_DIR": str(tmp_path),
+        "FF_SCHEDULER_TICK_SECONDS": "0", "FF_BACKUP_INTERVAL_HOURS": "0"}))
+    provider = Client()
+    app.state.bank_client = provider
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+    with TestClient(app) as public:
+        if disabled_reason == "startup_disabled":
+            app.state.settings.scheduler_tick_seconds = 60
+        assert app.state.scheduler_enabled is False
+        with Session(app.state.engine) as s:
+            household = Household(name="Synthetic deferred sync")
+            s.add(household)
+            s.flush()
+            account, conn, _ = linked(s, household)
+            cursor = sync.cursor_for(s, account.id, SRC)
+            if backoff_scope == "provider":
+                bankapi.banks.record_api_error(s, conn, 429, "synthetic limit", retry_after=600)
+            else:
+                cursor.status = SyncStatus.failed
+                cursor.retry_at = datetime.now() + timedelta(minutes=5)
+            cursor.refresh_requested = False
+            s.commit()
+            hid, aid, cid, deadline = household.id, account.id, conn.id, cursor.retry_at
+        response = public.post(f"/api/v1/banking/connections/{cid}/sync",
+                               headers={"X-Household-Id": str(hid)})
+        assert response.status_code == 409, response.text
+        assert "retry" in response.json()["title"].lower()
+        assert deadline.isoformat() in response.json()["title"]
+        assert provider.calls == []
+        with Session(app.state.engine) as s:
+            cursor = sync.cursor_for(s, aid, SRC)
+            assert cursor.retry_at == deadline and cursor.refresh_requested is False
+            assert cursor.status is SyncStatus.failed
+            assert s.scalar(select(func.count()).select_from(SyncRun)) == 0
+
+def test_disabled_worker_rejects_queue_if_provider_limit_arrives_mid_manual_sync(
+        session, household, monkeypatch):
+    from fastapi import HTTPException
+
+    _, conn, _ = linked(session, household)
+    _, _, second = linked(session, household, "2")
+    second.connection_id = conn.id
+    session.commit()
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+    feeds = []
+
+    class Limited(Client):
+        def accounts(self, token):
+            return [discovery.DiscoveredAccount(str(i), f"Account {i}",
+                category_uid=f"category-{i}") for i in (1, 2)]
+
+        def feed_items(self, token, uid, *args):
+            feeds.append(uid)
+            raise starling.UpstreamError(429, retry_after=600)
+
+    with pytest.raises(HTTPException) as error:
+        manual(session, household.id, conn.id, Limited())
+    assert error.value.status_code == 409
+    assert "Retry after" in error.value.detail
+    assert feeds == ["1"]
+    assert session.scalar(select(func.count()).select_from(SyncRun)) == 1

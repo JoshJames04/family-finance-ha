@@ -298,6 +298,19 @@ def sync_balances(
     return {"synced": n}
 
 
+def _require_queue_worker(request: Request, *, retry_at: datetime | None = None) -> None:
+    settings = request.app.state.settings
+    if not bool(getattr(request.app.state, "scheduler_enabled",
+                        settings.scheduler_tick_seconds > 0)):
+        if retry_at is not None:
+            raise HTTPException(
+                409, "automatic sync is disabled; refresh was not queued. "
+                f"Retry after {retry_at.isoformat()}")
+        raise HTTPException(
+            409, "sync already running; automatic sync is disabled, "
+            "so retry after the active sync finishes")
+
+
 @router.post("/connections/{cid}/sync")
 def sync_transactions(
     cid: int, household: HouseholdDep, session: SessionDep,
@@ -315,6 +328,7 @@ def sync_transactions(
         if historical_since is not None:
             require_admin(request, session)
             raise HTTPException(409, "sync already running; retry historical refresh later")
+        _require_queue_worker(request)
         results = []
         for mapping in session.scalars(select(BankAccountMapping).where(
                 BankAccountMapping.connection_id == c.id,
@@ -361,6 +375,8 @@ def _sync_transactions(
         raise HTTPException(
             409, f"historical refresh was not queued; retry with historical_since "
             f"after {retry_at}")
+    if retry_at is not None:
+        _require_queue_worker(request, retry_at=retry_at)
     try:
         token = banks.token(session, c, ring)
     except ConnError as e:
@@ -415,6 +431,7 @@ def _sync_transactions(
                 session, acct.id, TransactionSource.starling):
             cursor = sync_domain.cursor_for(
                 session, acct.id, TransactionSource.starling)
+            _require_queue_worker(request, retry_at=cursor.retry_at)
             results.append({"mapping_id": m.id, "status": "queued",
                             "inserted": 0, "deduped": 0,
                             "merge_candidates": 0,
@@ -428,6 +445,13 @@ def _sync_transactions(
                                historical_since=historical_since,
                                on_error=partial(banks.record_api_error, session, c)))
         except sync_domain.SyncBusy:
+            if historical_since is not None:
+                raise HTTPException(
+                    409, "sync already running; retry historical refresh later") from None
+            _require_queue_worker(request)
+            sync_domain.cursor_for(session, acct.id,
+                                   TransactionSource.starling).refresh_requested = True
+            session.commit()
             results.append({"mapping_id": m.id, "status": "queued", "inserted": 0,
                             "deduped": 0, "merge_candidates": 0, "error": None})
             continue

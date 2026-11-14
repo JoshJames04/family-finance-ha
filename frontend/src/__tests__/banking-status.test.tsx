@@ -1,5 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { BankingSyncPanel } from "../pages/Settings";
 
 vi.mock("../api/hooks", () => ({ useReady: () => true }));
@@ -53,4 +55,31 @@ it("shows manual retry timing while automatic scheduling is disabled", async () 
   expect(await screen.findByText(/Retry after/)).toBeDefined();
   expect(screen.getByText(/Automatic sync is disabled/)).toBeDefined();
   expect(screen.queryByText(/^Next /)).toBeNull();
+});
+
+it.each([
+  "sync already running; automatic sync is disabled, so retry after the active sync finishes",
+  "automatic sync is disabled; refresh was not queued. Retry after 2026-11-14T15:30:00",
+])("shows retryable manual failure without a queued success: %s", async (message) => {
+  const error = vi.spyOn(toast, "error").mockReturnValue("retry-error");
+  const success = vi.spyOn(toast, "success").mockReturnValue("retry-success");
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (init?.method === "POST" && String(input).endsWith("/connections/1/sync")) {
+      return new Response(JSON.stringify({ type: "about:blank", title: message, status: 409 }),
+        { status: 409, headers: { "Content-Type": "application/problem+json" } });
+    }
+    const body = String(input).endsWith("/settings/banking") ? {
+      interval_minutes: 15, source: "default", editable: true, scheduler_enabled: false,
+      connections: [{ connection_id: 1, provider: "starling", status: "connected",
+        account_id: 3, sync_status: "completed", sync_error: null, last_error: null,
+        last_success_at: null, refresh_queued: false, retry_at: null, next_due_at: null }],
+    } : { items: [] };
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  });
+  render(<BankingSyncPanel />);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Sync now for connection 1" }));
+  await waitFor(() => expect(error).toHaveBeenCalledWith(`409 ${message}`));
+  expect(success).not.toHaveBeenCalled();
+  expect(screen.queryByText("queued", { exact: true })).toBeNull();
 });
