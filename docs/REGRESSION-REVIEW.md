@@ -1,5 +1,38 @@
 # Historical regression review
 
+## Dashboard preference recovery (#492)
+
+Dashboard validates local and remote layout shapes before using them. Missing,
+malformed and obsolete fields recover without throwing or automatically writing
+defaults to the profile. Recognized widget order and explicitly hidden widgets,
+including a deliberately all-hidden layout, remain respected.
+
+Standalone preferences wait for member identity resolution. Browser snapshots
+and unsaved tab drafts are scoped to household and member; ingress uses the
+trusted `auth/me` member, with the session mount as a startup boundary. A valid
+remote layout wins over a browser snapshot. Failed PUTs keep an explicitly
+unsaved draft through route navigation and reload, with Retry saving layout and
+Revert layout actions. A successful response is required before showing saved.
+The tab draft disappears when the tab's session storage is cleared.
+If tab storage is blocked, the dashboard remains usable and a failed save
+explicitly warns that the draft could not be retained across navigation.
+
+Customisation controls are disabled while a PUT is pending. Active writes share
+a per-resource lock across route remounts and are removed from the registry on
+completion; late replies cannot replace another member's layout. This prevents
+overlapping writes initiated by this document. Concurrent edits from independent
+tabs/devices, or an old server request continuing after a complete page reload,
+still follow the existing last-write-wins endpoint contract; this change adds no
+server revision protocol. Retry resends the same idempotent layout PUT.
+
+Component regressions cover actual Dashboard mounts, malformed shapes, hidden
+intent, failed saves, retry/revert, resource changes, delayed replies and pending
+remounts. The production-bundle browser fixture uses only synthetic intercepted
+APIs on an isolated static server; it verifies malformed storage boot and a
+rejected save through Transactions, Bills, Budget, Dashboard and reload before a
+successful retry. It does not establish released Home Assistant/iOS acceptance
+for #414 or #460.
+
 This change follows the v1.4.1 reports and the historical issue audit.
 Tests use synthetic data. Production data, bank credentials and snapshots
 are excluded from the repository.

@@ -57,6 +57,9 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   energy-cost awareness.
 - **Reporting** — monthly/annual reports, trends, net worth, explainable
   forecasts and data export.
+- **Dashboard customisation** — widget order and visibility persist per member.
+  Failed saves remain clearly marked as unsaved, with Retry and Revert; drafts
+  survive navigation and reload in the same browser tab.
 
 ## Architecture at a glance
 
