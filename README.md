@@ -114,7 +114,7 @@ python scripts/dev.py seed        # load synthetic fixture data
 cd backend && pip install -e '.[dev]' && pytest
 ```
 
-Frontend tests require Node.js 22.22.2 or later in the 22.x line for jsdom 31. Docker and CI use the current Node 22 image; older local Node 22 patches must be updated.
+Frontend development and CI use Node.js 22.22.2 or later in the 22.x line, which meets the jsdom 31 minimum. Keep `@types/node` on the 22.x API line to match that runtime; older local Node 22 patches must be updated.
 
 Layout: `backend/` (FastAPI), `frontend/` (Vite + React + TS), `addon/` (HA
 app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
