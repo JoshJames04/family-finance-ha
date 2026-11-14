@@ -404,6 +404,39 @@ economic flow. Funding attribution requests raw legs to explain the same confirm
 portions without changing ledger records. Forecast residuals remain
 separate from actual income, preventing double counting after matching.
 
+Received-income detail links each effective leg to its original transaction ID.
+Category totals and income-plan versus outside-plan subtotals use integer pence
+from the same economic receipt items as the headline; expense-only planned
+categories do not count as income coverage. Split receipt legs remain distinct,
+and contribution details do not reuse income-category subtotals.
+In All, coverage joins each receipt's transaction/category key to its authorized
+owner section and that section's income-plan categories. Another owner's plan
+cannot cover the receipt, and missing plans cover none. A category can therefore
+show mixed coverage while exact in-plan/outside-plan subtotals still reconcile.
+Legacy combined replies without sections retain category-based coverage.
+
+Synthetic browser evidence (generated only from routed synthetic API fixtures):
+[All desktop](images/budget-reconciliation-all-desktop.png),
+[All mobile](images/budget-reconciliation-all-mobile.png),
+[personal income desktop](images/budget-reconciliation-income-desktop.png) and
+[personal income mobile](images/budget-reconciliation-income-mobile.png).
+
+The combined Budget response preserves `detail` and independent account-union
+`actuals`, and adds `sections` with owner ID/name, optional plan detail and scoped
+actuals. Shared appears once; private sections require visible plans or authorized
+owned accounts. Every section uses the requested calendar bounds even when its
+personal page uses payday cycles. A null detail means no plan, distinct from a
+zero-valued plan; its account actuals remain included. Section details are marked
+read-only without changing persisted plan locks or amounts. Section sums never
+replace the All account-union calculation.
+Section category rows combine plan lines with the signed as-of `spend_items`
+and external `income_items`. Unplanned and uncategorised categories remain
+visible even without a plan. Each category is separate for income and expense;
+refunds reduce its spending and split legs contribute once. An absent planned
+amount is shown as unplanned, distinct from zero. Per-side actual footers explain
+the section headlines; full-period per-line actuals do not replace these as-of
+legs. Shared contributions remain a separate funding measure.
+
 Opening funds are balance stock across authorized scoped accounts, using every
 nonvoid ledger leg before the period. Opening transactions are counted once;
 account opening metadata is not added again. Future windows cap this snapshot

@@ -153,6 +153,10 @@ budget names/variances, use the same authorised account and budget sets as direc
 reads. Budget headlines and the All view apply account visibility before financial
 aggregation; the itemised reconciliation bridge cannot expose another member's
 private ledger. Shared plans do not grant access to private account rows.
+Combined Budget sections apply the same visible budget and authorized account
+sets before owner labels, plan details or actuals are returned. A missing personal
+plan does not widen account visibility; its section includes only already
+authorized owned accounts and retains calendar bounds.
 Profile creation uses the same administrator gate as profile management once an
 active administrator exists. Credential reference listing, storage and deletion
 require administrator access. Notification mutations reject viewers and missing

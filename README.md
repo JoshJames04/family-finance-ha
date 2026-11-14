@@ -166,5 +166,10 @@ overtime cutoffs remain separate from the spending cycle.
 contributions into joint accounts, with other external income separate. All
 counts household external income once, excluding internal contributions.
 Expand received-income/contribution details to see actual money outside the
-manual **Income plan**. **Opening funds** are separate ledger balances through
+manual **Income plan**, open its transaction and reconcile category totals to
+the in-plan and outside-plan income subtotals. All also shows read-only member
+and Shared sections for the same calendar dates. Missing plans are labelled;
+their authorized account actuals still contribute to All. Section category tables
+include receipts and spending outside the plan, with separate actual totals.
+**Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.

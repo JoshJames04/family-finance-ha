@@ -4,6 +4,7 @@
  * side panel for the selected period — the money picture at a glance,
  * not a spreadsheet wall. */
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Lock, Pencil, Target } from "lucide-react";
 import { api } from "../api/client";
@@ -386,9 +387,16 @@ export function Budget() {
                   </div>}
                   </DataView>
 
+                  {aggregate && combined?.sections && (
+                    <BudgetSections sections={combined.sections}
+                      categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} />
+                  )}
+
                   {(actuals.data?.income_items ?? []).length > 0 && (
                     <FundingDetails title={sharedFunding ? "Other external income details" : "Received income details"}
                       caption="Received income" items={actuals.data!.income_items} total={externalIncome}
+                      incomePlanCategories={new Set(d.lines.filter(line => line.side === "income").map(line => line.category_id))}
+                      incomeSections={aggregate ? combined?.sections : undefined}
                       categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} ownerLabel={id => ownerLabel(String(id))} />
                   )}
                   {sharedFunding && (actuals.data?.contribution_items ?? []).length > 0 && (
@@ -638,10 +646,31 @@ export function Budget() {
 
 type FundingItem = components["schemas"]["BudgetFundingItem"];
 
-function FundingDetails({ title, caption, items, total, contributions, categoryName, ownerLabel }: {
+function FundingDetails({ title, caption, items, total, contributions, incomePlanCategories, incomeSections, categoryName, ownerLabel }: {
   title: string; caption: string; items: FundingItem[]; total: number; contributions?: boolean;
+  incomePlanCategories?: ReadonlySet<number>;
+  incomeSections?: components["schemas"]["BudgetCombinedSection"][];
   categoryName: (id: number) => string; ownerLabel: (id: number) => string;
 }) {
+  const key = (item: FundingItem) => `${item.transaction_id}:${item.category_id ?? "uncategorised"}`;
+  const plannedItems = incomeSections?.length ? new Set(incomeSections.flatMap(section => {
+    const planned = new Set(section.detail?.lines.filter(line => line.side === "income")
+      .map(line => line.category_id) ?? []);
+    return (section.actuals.income_items ?? [])
+      .filter(item => item.category_id != null && planned.has(item.category_id)).map(key);
+  })) : undefined;
+  const categories = new Map<number | null, { amount: number; planned: number }>();
+  for (const item of items) {
+    const category = item.category_id ?? null;
+    const covered = plannedItems ? plannedItems.has(key(item))
+      : category !== null && incomePlanCategories?.has(category);
+    const group = categories.get(category) ?? { amount: 0, planned: 0 };
+    group.amount += item.amount_pence;
+    group.planned += covered ? item.amount_pence : 0;
+    categories.set(category, group);
+  }
+  const planned = [...categories.values()].reduce((sum, group) => sum + group.planned, 0);
+  const outside = items.reduce((sum, item) => sum + item.amount_pence, 0) - planned;
   return <details open className="mb-4 rounded-xl border border-border bg-surface p-4">
     <summary className="min-h-11 cursor-pointer text-sm font-medium">{title}</summary>
     <p className="mb-2 text-sm text-fg-muted">Received transactions, including categories outside the manual plan. Forecast pay is shown separately.</p>
@@ -650,14 +679,91 @@ function FundingDetails({ title, caption, items, total, contributions, categoryN
         <thead><tr><th>Date</th><th>Transaction / payee</th><th>{contributions ? "Contributor" : "Category"}</th><th className="text-right">Amount</th></tr></thead>
         <tbody>{items.map((item, index) => <tr key={`${item.transaction_id}:${index}`} className="border-t border-border">
           <td className="py-2">{formatDayMonthYear(item.date)}</td>
-          <td>#{item.transaction_id} · {item.payee}</td>
+          <td><Link className="inline-flex min-h-11 items-center underline underline-offset-2 hover:text-accent" to={`/transactions?transaction_id=${item.transaction_id}`}>#{item.transaction_id} · {item.payee}</Link></td>
           <td>{contributions ? item.contributor_profile_id == null ? "Unknown contributor" : ownerLabel(item.contributor_profile_id) : item.category_id == null ? "Uncategorised" : categoryName(item.category_id)}</td>
           <td className="text-right"><Money pence={item.amount_pence} /></td>
         </tr>)}</tbody>
         <tfoot><tr><th colSpan={3}>Total {caption.toLowerCase()}</th><td className="text-right"><Money pence={total} /></td></tr></tfoot>
       </table>
     </div>
+    {!contributions && <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-left text-sm" aria-label="Income by category">
+        <thead><tr><th className="pr-2">Category</th><th className="pr-2">Income plan coverage</th><th className="text-right">Received</th></tr></thead>
+        <tbody>{[...categories].map(([category, group]) => <tr key={category ?? "uncategorised"} className="border-t border-border">
+          <th scope="row" className="py-2 pr-2 font-normal">{category === null ? "Uncategorised" : categoryName(category)}</th>
+          <td className="pr-2">{group.planned === 0 ? "Unplanned category" : group.planned === group.amount ? "Planned category" : "Mixed coverage"}</td>
+          <td className="text-right"><Money pence={group.amount} /></td>
+        </tr>)}</tbody>
+        <tfoot>
+          <tr><th colSpan={2}>In income plan</th><td className="text-right"><Money pence={planned} /></td></tr>
+          <tr><th colSpan={2}>Outside income plan</th><td className="text-right"><Money pence={outside} /></td></tr>
+          <tr><th colSpan={2}>Total received income</th><td className="text-right"><Money pence={total} /></td></tr>
+        </tfoot>
+      </table>
+    </div>}
   </details>;
+}
+
+function BudgetSections({ sections, categoryName }: {
+  sections: components["schemas"]["BudgetCombinedSection"][];
+  categoryName: (id: number) => string;
+}) {
+  return <div className="mb-4 grid gap-4">
+    {sections.map(section => {
+      const { detail, actuals, owner_profile_id: owner } = section;
+      const period = actuals.period;
+      const planned = (side: "income" | "expense") => detail?.lines
+        .filter(line => line.side === side)
+        .reduce((sum, line) => sum + (line.effective_pence ?? line.revised_pence ?? line.original_pence), 0);
+      const rows = new Map<string, { category: number | null; side: "income" | "expense"; planned: number | null; actual: number }>();
+      const rowFor = (side: "income" | "expense", category: number | null) => {
+        const key = `${side}:${category ?? "uncategorised"}`;
+        let row = rows.get(key);
+        if (!row) {
+          row = { category, side, planned: null, actual: 0 };
+          rows.set(key, row);
+        }
+        return row;
+      };
+      for (const line of detail?.lines ?? []) {
+        const row = rowFor(line.side, line.category_id);
+        row.planned = (row.planned ?? 0) + (line.effective_pence ?? line.revised_pence ?? line.original_pence);
+      }
+      // These signed, as-of ledger legs explain the headlines. Full-period
+      // per-line totals cannot include categories missing from the plan.
+      for (const item of actuals.spend_items ?? []) rowFor("expense", item.category_id ?? null).actual += item.amount_pence;
+      for (const item of actuals.income_items ?? []) rowFor("income", item.category_id ?? null).actual += item.amount_pence;
+      const actualTotal = (side: "income" | "expense") => [...rows.values()]
+        .filter(row => row.side === side).reduce((sum, row) => sum + row.actual, 0);
+      return <Panel key={owner ?? "shared"} title={`${section.name} budget`}
+        aria-label={`${section.name} budget`} headingLevel={3}
+        description={period ? `${formatDayMonthYear(period.start)} – ${formatDayMonthYear(period.end)} · calendar view · read-only` : "Calendar view · read-only"}>
+        {!detail && <p className="mb-3 text-sm text-fg-muted">No plan for this period. Actuals are still included.</p>}
+        <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div><dt className="text-fg-muted">Planned spending</dt><dd>{detail ? <Money pence={planned("expense") ?? 0} /> : "—"}</dd></div>
+          <div><dt className="text-fg-muted">Planned income</dt><dd>{detail ? <Money pence={planned("income") ?? 0} /> : "—"}</dd></div>
+          <div><dt className="text-fg-muted">Spent so far</dt><dd><Money pence={actuals.spent_pence ?? 0} /></dd></div>
+          <div><dt className="text-fg-muted">{owner == null ? "Other external income" : "Income received"}</dt><dd><Money pence={actuals.external_income_pence ?? actuals.income_received_pence ?? 0} /></dd></div>
+          {owner == null && <div><dt className="text-fg-muted">Net contributions</dt><dd><Money pence={actuals.contributions_pence ?? 0} /></dd></div>}
+        </dl>
+        {rows.size > 0 && <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-left text-sm" aria-label={`${section.name} budget lines`}>
+            <thead><tr><th className="pr-2">Category</th><th className="pr-2">Plan</th><th className="pr-2 text-right">Planned</th><th className="text-right">Actual so far</th></tr></thead>
+            <tbody>{[...rows].map(([key, row]) => <tr key={key} className="border-t border-border">
+              <th scope="row" className="py-2 pr-2 font-normal">{row.category == null ? "Uncategorised" : categoryName(row.category)}</th>
+              <td className="pr-2">{row.side === "income" ? "Income" : "Expense"}</td>
+              <td className="pr-2 text-right">{row.planned == null ? <span aria-label="Unplanned">—</span> : <Money pence={row.planned} />}</td>
+              <td className="text-right"><Money pence={row.actual} /></td>
+            </tr>)}</tbody>
+            <tfoot>
+              <tr><th colSpan={3}>Total spent so far</th><td className="text-right"><Money pence={actualTotal("expense")} /></td></tr>
+              <tr><th colSpan={3}>Total external income</th><td className="text-right"><Money pence={actualTotal("income")} /></td></tr>
+            </tfoot>
+          </table>
+        </div>}
+      </Panel>;
+    })}
+  </div>;
 }
 
 function PayCycleSource({ ownerId, editable, onSaved }: { ownerId: number; editable: boolean; onSaved: () => void }) {

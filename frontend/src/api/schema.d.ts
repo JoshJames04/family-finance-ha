@@ -4161,6 +4161,20 @@ export interface components {
         BudgetCombined: {
             detail: components["schemas"]["BudgetDetail"];
             actuals: components["schemas"]["BudgetActuals"];
+            /**
+             * Sections
+             * @default []
+             */
+            sections: components["schemas"]["BudgetCombinedSection"][];
+        };
+        /** BudgetCombinedSection */
+        BudgetCombinedSection: {
+            /** Owner Profile Id */
+            owner_profile_id: number | null;
+            /** Name */
+            name: string;
+            detail?: components["schemas"]["BudgetDetail"] | null;
+            actuals: components["schemas"]["BudgetActuals"];
         };
         /** BudgetDetail */
         BudgetDetail: {
