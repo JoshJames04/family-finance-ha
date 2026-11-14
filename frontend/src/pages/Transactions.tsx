@@ -27,6 +27,7 @@ import { Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import { formatDate, formatSmartDate } from "../lib/format";
 import { useShell } from "../shell/ShellContext";
+import { appUrl } from "../ingress";
 
 type Txn = components["schemas"]["TransactionOut"];
 type Category = components["schemas"]["CategoryOut"];
@@ -42,8 +43,22 @@ const ROW_PX = 56;
 const PAGE_SIZE = 200;
 const OVERSCAN = 8;
 
-interface Filters { q: string; status: string; category_id: string }
+interface Filters {
+  q: string; status: string; category_id: string;
+  date_from?: string; date_to?: string; owner_profile_id?: string;
+  shared_only?: string; account_id?: string; direction?: string;
+  internal?: string; budget_side?: string; uncategorised?: string;
+  exclude_void?: string; exclude_opening?: string;
+}
 const EMPTY: Filters = { q: "", status: "", category_id: "" };
+const URL_FILTER_KEYS = ["q", "status", "category_id", "date_from", "date_to",
+  "owner_profile_id", "shared_only", "account_id", "direction", "internal",
+  "budget_side", "uncategorised", "exclude_void", "exclude_opening"];
+
+function filtersFromSearch(search: string): Filters {
+  return { ...EMPTY, ...Object.fromEntries([...new URLSearchParams(search)]
+    .filter(([key]) => URL_FILTER_KEYS.includes(key))) };
+}
 
 function loadSaved(): Record<string, Filters> {
   try {
@@ -78,18 +93,19 @@ export function Transactions() {
   const categories = useCategories();
   const accounts = useAccounts();
   const [searchParams, setSearchParams] = useSearchParams();
-  const urlQuery = searchParams.get("q") ?? "";
+  const urlFilters = new URLSearchParams([...searchParams]
+    .filter(([key]) => URL_FILTER_KEYS.includes(key))).toString();
   const transactionId = Number(searchParams.get("transaction_id"));
   const hasTarget = Number.isSafeInteger(transactionId) && transactionId > 0;
   const target = useApi(() => api.get("/api/v1/transactions/{txn_id}", {
     path: { txn_id: transactionId },
   }), ready && hasTarget, [transactionId, dataVersion]);
-  const [filters, setFiltersRaw] = useState<Filters>(() => ({ ...EMPTY, q: urlQuery }));
+  const [filters, setFiltersRaw] = useState<Filters>(() => filtersFromSearch(urlFilters));
   useEffect(() => {
-    setFiltersRaw((current) => ({ ...current, q: urlQuery }));
+    setFiltersRaw(filtersFromSearch(urlFilters));
     setLoaded([]);
     setPage(1);
-  }, [urlQuery]);
+  }, [urlFilters]);
   const [saved, setSaved] = useState<Record<string, Filters>>(loadSaved);
   const [saving, setSaving] = useState(false);
   const [rev, setRev] = useState(0);
@@ -111,6 +127,17 @@ export function Transactions() {
         status: (filters.status || undefined) as Status | undefined,
         category_id: filters.category_id
           ? Number(filters.category_id) : undefined,
+        date_from: filters.date_from || undefined,
+        date_to: filters.date_to || undefined,
+        owner_profile_id: filters.owner_profile_id ? Number(filters.owner_profile_id) : undefined,
+        shared_only: filters.shared_only ? filters.shared_only === "true" : undefined,
+        account_id: filters.account_id ? Number(filters.account_id) : undefined,
+        direction: (filters.direction || undefined) as "income" | "expense" | undefined,
+        internal: (filters.internal || undefined) as "only" | "exclude" | undefined,
+        budget_side: (filters.budget_side || undefined) as "expense" | "income" | undefined,
+        uncategorised: filters.uncategorised === "true" ? true : undefined,
+        exclude_void: filters.exclude_void ? filters.exclude_void === "true" : undefined,
+        exclude_opening: filters.exclude_opening ? filters.exclude_opening === "true" : undefined,
         page,
         size: PAGE_SIZE,
       },
@@ -137,10 +164,17 @@ export function Transactions() {
   const multiAccount = (accounts.data?.items.length ?? 0) > 1;
   const accountName = (id: number) =>
     accounts.data?.items.find((a) => a.id === id)?.name ?? "";
-  const active = filters.q || filters.status || filters.category_id;
+  const active = Object.values(filters).some(Boolean);
 
   const refresh = () => { setPage(1); setRev((r) => r + 1); };
-  const setFilters = (f: Filters) => { setPage(1); setFiltersRaw(f); };
+  const setFilters = (f: Filters) => {
+    const next = new URLSearchParams(searchParams);
+    for (const key of URL_FILTER_KEYS) next.delete(key);
+    for (const [key, value] of Object.entries(f)) {
+      if (URL_FILTER_KEYS.includes(key) && value) next.set(key, value);
+    }
+    setSearchParams(next, { replace: true });
+  };
   /** Inline edits patch the row in place — no refetch, scroll kept. */
   const patch = (id: number, body: object) =>
     api.patch("/api/v1/transactions/{txn_id}",
@@ -189,7 +223,7 @@ export function Transactions() {
         actions={
           <>
             <a
-              href="./api/v1/transactions/export.csv"
+              href={appUrl("/api/v1/transactions/export.csv")}
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
             >
               <Download /> Export
@@ -282,12 +316,15 @@ export function Transactions() {
           </Select>
           <Select
             aria-label="Category"
-            value={filters.category_id}
+            value={filters.uncategorised === "true" ? "uncategorised" : filters.category_id}
             wrapperClassName="w-[calc(50%-4px)] sm:w-48"
-            onChange={(e) => setFilters({ ...filters, category_id: e.target.value })}
+            onChange={(e) => setFilters({ ...filters,
+              category_id: e.target.value === "uncategorised" ? "" : e.target.value,
+              uncategorised: e.target.value === "uncategorised" ? "true" : undefined })}
           >
             <option value="">All categories</option>
-            {cats.map((c: Category) => (
+            {[...cats, { id: "uncategorised", name: "Uncategorised" }]
+              .sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </Select>

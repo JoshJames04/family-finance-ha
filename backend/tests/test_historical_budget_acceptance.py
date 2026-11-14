@@ -257,7 +257,11 @@ def test_spent_headline_preserves_net_refund_sign(session, household):
     session.flush()
     tx(session, a, c, -5000)
     tx(session, a, other, -1000)
-    tx(session, a, other, 2000)
+    prior = tx(session, a, other, -2000, budget.start_date - timedelta(days=1))
+    refund = tx(session, a, other, 2000)
+    from app.domain import refunds
+
+    refunds.link_refund(session, refund, prior)
     displayed = budgets.spending_summary(session, budget)["spent_pence"]
     assert displayed == 4000, (
         "A net-refund category must reduce spending, not become positive spend"
@@ -302,9 +306,12 @@ def test_spending_summary_exposes_itemised_bridge_and_coverage(session, househol
 
 
 def test_report_variance_drill_keeps_owner_and_refund_sign(session, household):
+    from app.domain import refunds
+
     a, b, c, other, budget, line = fixture(session, household)
-    tx(session, a, c, -3000)
-    tx(session, a, c, 1000)
+    original = tx(session, a, c, -3000)
+    refund = tx(session, a, c, 1000)
+    refunds.link_refund(session, refund, original)
     tx(session, b, c, -9000)
     report = reports.build_report(session, household.id, budget.start_date, budget.end_date)
     figure = next(

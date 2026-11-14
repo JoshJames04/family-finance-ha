@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain.recurring import advance
-from app.domain.reporting import external_only
+from app.domain.reporting import external_category_amounts
 from app.persistence.models import (
     Account,
     AmountKind,
@@ -122,14 +122,14 @@ def evaluate(session: Session, rule: TransferRule,
         return spec.pence
     if spec.kind is AmountKind.income_pct:
         since = _period_before(rule, on)
-        income = session.execute(external_only(
-            select(func.coalesce(func.sum(
-                Transaction.amount_pence), 0)).where(
+        amounts = external_category_amounts(
             Transaction.account_id == rule.source_account_id,
             Transaction.status != TransactionStatus.void,
-            Transaction.amount_pence > 0,
             Transaction.date >= since,
-            Transaction.date < on))).scalar_one()
+            Transaction.date < on)
+        income = session.execute(select(func.coalesce(func.sum(
+            amounts.c.amount_pence), 0)).where(
+                amounts.c.amount_pence > 0, amounts.c.refund_of_id.is_(None))).scalar_one()
         assert spec.bps is not None
         return int(income) * spec.bps // 10000
     # budget_line: covering approved budget's effective line

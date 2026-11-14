@@ -4,10 +4,11 @@
  * side panel for the selected period — the money picture at a glance,
  * not a spreadsheet wall. */
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Lock, Pencil, Target } from "lucide-react";
 import { api } from "../api/client";
-import { useApi } from "../api/useApi";
+import { useApi, useMeProfileId } from "../api/useApi";
 import {
   pickBudgetFor, useBudgetDetail, useBudgets, useCategories, useReady,
   type Budget as BudgetT, type LineAnalysis,
@@ -25,7 +26,7 @@ import { IconTile, PageHeader, Progress, Segmented, Stat } from "../components/D
 import { EmptyState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import {
-  formatDayMonth, formatMonthName, formatMonthOf, formatPence,
+  formatDayMonth, formatDayMonthYear, formatMonthName, formatMonthOf, formatPence,
   formatPercent, formatWeekdayDayMonth, parseISODate,
 } from "../lib/format";
 
@@ -118,6 +119,7 @@ function useCollapsedSections(budgetId: number | null): [Record<string, boolean>
 
 export function Budget() {
   const ready = useReady();
+  const meProfileId = useMeProfileId();
   const budgets = useBudgets();
   const categories = useCategories();
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
@@ -138,10 +140,14 @@ export function Budget() {
     setBudgetId((today ?? latestPast ?? items[0])!.id);
   }, [items, budgetId]);
 
-  const id = budgetId;
-  const selectedBudget = items.find((b) => b.id === id);
-  const single = useBudgetDetail(id, rev);
-  const aggregate = scope === "all" && new Set(items.map(ownerKey)).size > 1;
+  // Keep a calendar representative when an owner has no budget in that
+  // period. Scope changes must not silently select a historical month.
+  const selectedBudget = items.find((b) => b.id === budgetId);
+  const id = scope === "all" || (selectedBudget && ownerKey(selectedBudget) === scope)
+    ? budgetId : null;
+  const personal = scope !== "all" && scope !== "shared";
+  const single = useBudgetDetail(id, rev, personal ? "pay_cycle" : "calendar");
+  const aggregate = scope === "all";
   const combinedRequest = useApi(
     () => api.get("/api/v1/budgets/reports/combined", { query: {
       start: selectedBudget!.start_date, end: selectedBudget!.end_date,
@@ -150,20 +156,23 @@ export function Budget() {
   const combined = combinedRequest.data?.id === id ? combinedRequest.data.value : null;
   const combinedState = { ...combinedRequest,
     loading: combinedRequest.loading || (!combined && !combinedRequest.error) };
-  const detail = aggregate ? { ...combinedState, data: combined?.detail ?? null } : single.detail;
+  const detail = id === null && selectedBudget
+    ? { ...single.detail, data: null, loading: false, error: null }
+    : aggregate ? { ...combinedState, data: combined?.detail ?? null } : single.detail;
   const actuals = aggregate ? { ...combinedState, data: combined?.actuals ?? null } : single.actuals;
   const analyses = (actuals.data?.lines ?? {}) as unknown as Record<string, LineAnalysis>;
   const period = detail.data && (!aggregate || combined)
-    ? { from: detail.data.start_date, to: detail.data.end_date }
+    ? { from: detail.data.period?.start ?? detail.data.start_date,
+        to: detail.data.period?.end ?? detail.data.end_date }
     : null;
   const movementRequest = useApi(
     () => api.get("/api/v1/expected-movements",
-      { query: { start: period!.from, end: period!.to, budget_id: aggregate ? undefined : id! } }).then((items) => ({ budgetId: id, aggregate, items })),
+      { query: { start: period!.from, end: period!.to, budget_id: aggregate ? undefined : id! } }).then((items) => ({ budgetId: id, aggregate, from: period!.from, to: period!.to, items })),
     period !== null, [period?.from, period?.to, id, aggregate]);
   const movements = {
     ...movementRequest,
-    data: movementRequest.data?.budgetId === id && movementRequest.data.aggregate === aggregate ? movementRequest.data.items : null,
-    loading: movementRequest.loading || ((movementRequest.data?.budgetId !== id || movementRequest.data?.aggregate !== aggregate) && !movementRequest.error),
+    data: movementRequest.data?.budgetId === id && movementRequest.data.aggregate === aggregate && movementRequest.data.from === period?.from && movementRequest.data.to === period?.to ? movementRequest.data.items : null,
+    loading: movementRequest.loading || ((movementRequest.data?.budgetId !== id || movementRequest.data?.aggregate !== aggregate || movementRequest.data?.from !== period?.from || movementRequest.data?.to !== period?.to) && !movementRequest.error),
   };
   const locked = detail.data
     ? detail.data.status === "locked" || detail.data.read_only
@@ -172,21 +181,27 @@ export function Budget() {
 
   /* ---- period navigation ---- */
   const owners = useMemo(() => [...new Set(items.map(ownerKey))], [items]);
-  const owner = scope === "all" ? "all" : selectedBudget ? ownerKey(selectedBudget) : scope;
+  const owner = scope;
   const ownerItems = owner === "all"
     ? [...new Map([...items].reverse().map(b => [`${b.start_date}:${b.end_date}`, b])).values()]
       .map(b => selectedBudget && b.start_date === selectedBudget.start_date
         && b.end_date === selectedBudget.end_date ? selectedBudget : b)
     : items.filter((b) => ownerKey(b) === owner);
-  const years = [...new Set(ownerItems.map((b) => parseISODate(b.start_date).getFullYear()))].sort();
-  const year = selectedBudget ? parseISODate(selectedBudget.start_date).getFullYear() : years[0];
+  const year = selectedBudget ? parseISODate(selectedBudget.start_date).getFullYear() : undefined;
+  const years = [...new Set([
+    ...ownerItems.map((b) => parseISODate(b.start_date).getFullYear()),
+    ...(year === undefined ? [] : [year]),
+  ])].sort();
   const byMonth = new Map<number, BudgetT>();
   for (const b of ownerItems) {
     const d = parseISODate(b.start_date);
     if (d.getFullYear() === year) byMonth.set(d.getMonth(), b);
   }
   const chrono = [...ownerItems].sort((a, b) => a.start_date.localeCompare(b.start_date));
-  const pos = chrono.findIndex((b) => b.id === id);
+  const previous = selectedBudget
+    ? [...chrono].reverse().find((b) => b.start_date < selectedBudget.start_date) : undefined;
+  const next = selectedBudget
+    ? chrono.find((b) => b.start_date > selectedBudget.start_date) : undefined;
   const ownerLabel = (k: string) =>
     k === "all" ? "All" : k === "shared" ? "Shared"
       : profiles.data?.items.find((p) => String(p.id) === k)?.display_name ?? `Member ${k}`;
@@ -198,8 +213,7 @@ export function Budget() {
       const d = parseISODate(b.start_date);
       return d.getFullYear() === cur.getFullYear() && d.getMonth() === cur.getMonth();
     });
-    const next = same ?? pickBudgetFor(candidates) ?? candidates[0];
-    if (next) setBudgetId(next.id);
+    if (same) setBudgetId(same.id);
   };
 
   /* ---- totals ---- */
@@ -209,11 +223,17 @@ export function Budget() {
   const plannedOut = sum("expense", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
   const actualOut = actuals.data?.spent_pence ?? sum("expense", (_l, a) => a?.actual_pence ?? 0);
   const plannedIn = sum("income", (l, a) => a?.effective_pence ?? l.revised_pence ?? l.original_pence);
-  const actualIn = actuals.data?.income_received_pence ?? sum("income", (_l, a) => a?.actual_pence ?? 0);
+  const externalIncome = actuals.data?.external_income_pence ?? actuals.data?.income_received_pence ?? sum("income", (_l, a) => a?.actual_pence ?? 0);
+  const sharedFunding = scope === "shared" && actuals.data?.contributions_pence !== undefined;
+  const actualIn = sharedFunding ? actuals.data!.contributions_pence : externalIncome;
+  const salaryForecasts = (movements.data ?? []).filter((m) =>
+    m.amount_pence > 0 && m.outstanding_pence > 0 && m.dismissed_at == null
+    && (m.source_type === "employment" || m.source_type === "payroll_run"));
+  const plannedSalary = salaryForecasts.reduce((total, m) => total + m.outstanding_pence, 0);
 
   const sides: Array<{ key: "income" | "expense"; label: string }> = [
     { key: "expense", label: "Expenses" },
-    { key: "income", label: "Income" },
+    { key: "income", label: "Income plan" },
   ];
 
   return (
@@ -222,9 +242,10 @@ export function Budget() {
         title="Budget"
         description="Plan against actuals, month by month."
         actions={
-          owners.length > 1 ? (
+          owners.length > 0 ? (
             <Segmented
               label="Budget owner"
+              className="max-w-full flex-wrap [&_button]:h-auto [&_button]:min-h-11 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:wrap-anywhere [&_button]:whitespace-normal"
               value={owner}
               onChange={switchOwner}
               options={["all", ...owners].map((k) => ({ value: k, label: ownerLabel(k) }))}
@@ -244,8 +265,8 @@ export function Budget() {
           <>
             {/* Period picker */}
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-2 shadow-card">
-              <Button variant="ghost" size="icon" aria-label="Previous budget" disabled={pos <= 0}
-                onClick={() => setBudgetId(chrono[pos - 1]!.id)}>
+              <Button variant="ghost" size="icon" aria-label="Previous budget" disabled={!previous}
+                onClick={() => previous && setBudgetId(previous.id)}>
                 <ChevronLeft />
               </Button>
               <Select
@@ -255,6 +276,9 @@ export function Budget() {
                 wrapperClassName="w-44 sm:hidden"
                 onChange={(e) => setBudgetId(Number(e.target.value))}
               >
+                {id === null && selectedBudget && (
+                  <option value="">{formatMonthOf(selectedBudget.start_date)} — no budget</option>
+                )}
                 {[...ownerItems].sort((a, b) => b.start_date.localeCompare(a.start_date)).map((b) => (
                   <option key={b.id} value={b.id}>{formatMonthOf(b.start_date)}</option>
                 ))}
@@ -274,10 +298,10 @@ export function Budget() {
               >
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </Select>
-              <div className="scrollbar-thin hidden flex-1 gap-1 overflow-x-auto sm:flex" role="group" aria-label="Month">
+              <div className="hidden min-w-0 flex-1 grid-cols-6 gap-1 sm:grid xl:grid-cols-12" role="group" aria-label="Month">
                 {Array.from({ length: 12 }, (_, m) => {
                   const b = byMonth.get(m);
-                  const isSel = b && b.id === id;
+                  const isSel = selectedBudget && parseISODate(selectedBudget.start_date).getMonth() === m;
                   return (
                     <button
                       key={m}
@@ -295,13 +319,15 @@ export function Budget() {
                   );
                 })}
               </div>
-              <Button variant="ghost" size="icon" aria-label="Next budget" disabled={pos < 0 || pos >= chrono.length - 1}
-                onClick={() => setBudgetId(chrono[pos + 1]!.id)}>
+              <Button variant="ghost" size="icon" aria-label="Next budget" disabled={!next}
+                onClick={() => next && setBudgetId(next.id)}>
                 <ChevronRight />
               </Button>
             </div>
 
-            <DataView state={detail} empty="" loading={<Skeleton className="h-64 w-full rounded-xl" />}>
+            <DataView state={detail}
+              empty={selectedBudget ? `No budget for this owner in ${formatMonthOf(selectedBudget.start_date)}` : ""}
+              loading={<Skeleton className="h-64 w-full rounded-xl" />}>
               {(d) => (
                 <>
                   <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -314,9 +340,17 @@ export function Budget() {
                       </span>
                     )}
                     <span className="ml-auto text-[12.5px] text-fg-subtle">
-                      {formatDayMonth(d.start_date)} – {formatDayMonth(d.end_date)}
+                      {d.period?.basis === "pay_cycle" ? "Pay cycle: " : ""}
+                      {formatDayMonthYear(period?.from ?? d.start_date)} – {formatDayMonthYear(period?.to ?? d.end_date)}
                     </span>
                   </div>
+
+                  {d.period?.warning && <p role="status" className="mb-4 rounded-xl border border-border bg-surface p-4 text-sm">{d.period.warning}</p>}
+                  {personal && d.owner_profile_id != null && (
+                    <PayCycleSource key={d.owner_profile_id} ownerId={d.owner_profile_id}
+                      editable={meProfileId === d.owner_profile_id || profiles.data?.items.some(p => p.id === meProfileId && p.role === "admin") === true}
+                      onSaved={() => setRev(r => r + 1)} />
+                  )}
 
                   {/* #415: five distinct measures — planned (fixed
                       for the period), spent (real transactions),
@@ -324,7 +358,7 @@ export function Budget() {
                       bills remaining (unmatched scheduled occurrences),
                       income received. */}
                   <DataView state={actuals} empty="">
-                    {() => <div className="mb-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+                    {() => <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
                     {(() => {
                       const left = plannedOut - actualOut;
                       const billsPence = actuals.data?.bills_remaining_pence;
@@ -339,7 +373,12 @@ export function Budget() {
                           label: "Bills remaining", value: <Money pence={billsPence} />,
                           hint: billsCount === 1 ? "1 scheduled bill unpaid" : `${billsCount ?? 0} scheduled bills unpaid`,
                         }] : []),
-                        { label: "Income received", value: <Money pence={actualIn} />, hint: plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : undefined },
+                        { label: sharedFunding ? "Net contributions" : "Income received", value: <Money pence={actualIn} />, hint: !sharedFunding && plannedIn > 0 ? `of ${formatPence(plannedIn)} planned` : sharedFunding ? "verified personal funding, net of withdrawals" : undefined },
+                        ...(sharedFunding ? [{ label: "Other external income", value: <Money pence={externalIncome} />, hint: "separate from contributions" }] : []),
+                        ...(actuals.data?.opening_funds_pence !== undefined ? [{ label: "Opening funds", value: <Money pence={actuals.data.opening_funds_pence} />, hint: actuals.data.opening_as_of ? `Balance through ${formatDayMonthYear(actuals.data.opening_as_of)}; separate from spending plan` : "ledger balance before this period; separate from spending plan" }] : []),
+                        ...(scope === "shared" && actuals.data?.unattributed_internal_pence ? [{ label: "Unattributed internal movements", value: <Money pence={actuals.data.unattributed_internal_pence} />, hint: "source unknown; excluded from verified contributions" }] : []),
+                        ...(salaryForecasts.length ? [{ label: "Planned salary (forecast)",
+                          value: <Money pence={plannedSalary} />, hint: "expected pay; separate from manual income plan" }] : []),
                       ];
                     })().map((s) => (
                       <Stat key={s.label} label={s.label} value={s.value} hint={s.hint}
@@ -347,6 +386,24 @@ export function Budget() {
                     ))}
                   </div>}
                   </DataView>
+
+                  {aggregate && combined?.sections && (
+                    <BudgetSections sections={combined.sections}
+                      categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} />
+                  )}
+
+                  {(actuals.data?.income_items ?? []).length > 0 && (
+                    <FundingDetails title={sharedFunding ? "Other external income details" : "Received income details"}
+                      caption="Received income" items={actuals.data!.income_items} total={externalIncome}
+                      incomePlanCategories={new Set(d.lines.filter(line => line.side === "income").map(line => line.category_id))}
+                      incomeSections={aggregate ? combined?.sections : undefined}
+                      categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} ownerLabel={id => ownerLabel(String(id))} />
+                  )}
+                  {sharedFunding && (actuals.data?.contribution_items ?? []).length > 0 && (
+                    <FundingDetails title="Contribution details" caption="Contributions"
+                      items={actuals.data!.contribution_items} total={actualIn} contributions
+                      categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} ownerLabel={id => ownerLabel(String(id))} />
+                  )}
 
                   {actuals.data?.as_of && (
                     <details className="mb-4 rounded-xl border border-border bg-surface p-4">
@@ -381,7 +438,8 @@ export function Budget() {
                           <>
                             {sides.map((side) => {
                               const rows = d.lines.filter((l) => l.side === side.key);
-                              if (rows.length === 0) return null;
+                              const showSalary = side.key === "income" && salaryForecasts.length > 0;
+                              if (rows.length === 0 && !showSalary) return null;
                               const sections = groupLines(rows, categories.byId, analyses);
                               // Only show section furniture when real grouping
                               // exists — one ungrouped bucket renders flat.
@@ -457,7 +515,26 @@ export function Budget() {
                               return (
                                 <Panel key={side.key} title={side.label} flush
                                   description={`${rows.length} line${rows.length === 1 ? "" : "s"}`}>
-                                  <div className="overflow-x-auto">
+                                  {showSalary && (
+                                    <div className="border-b border-border p-4">
+                                      <h3 className="text-sm font-medium">Expected salary</h3>
+                                      <p className="mt-1 text-[12.5px] text-fg-muted">
+                                        Outstanding forecast pay for this period, not received income. Shown separately from manual budget lines, which may already include this salary.
+                                      </p>
+                                      <ul aria-label="Expected salary" className="mt-2 divide-y divide-border">
+                                        {salaryForecasts.map((m) => (
+                                          <li key={m.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                                            <div>
+                                              <p className="font-medium">{m.label}</p>
+                                              <p className="text-[12.5px] text-fg-subtle">{formatWeekdayDayMonth(m.expected_date)}</p>
+                                            </div>
+                                            <Money pence={m.outstanding_pence} />
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {rows.length > 0 && <div className="overflow-x-auto">
                                     <table className="ff-table ff-budget-table w-full min-w-[720px] border-collapse text-[13.5px]" aria-label={`${side.label} lines`}>
                                       <thead className="text-left text-[12px] text-fg-subtle">
                                         <tr className="h-9 border-b border-border">
@@ -503,11 +580,11 @@ export function Budget() {
                                         })}
                                       </tbody>
                                     </table>
-                                  </div>
+                                  </div>}
                                 </Panel>
                               );
                             })}
-                            {d.lines.length === 0 && (
+                            {d.lines.length === 0 && salaryForecasts.length === 0 && (
                               <Panel><EmptyState compact icon={Target} title="This budget has no lines yet" /></Panel>
                             )}
                           </>
@@ -546,7 +623,7 @@ export function Budget() {
                    * here, period-scoped to the viewed month (issue
                    * #297). */}
                   <div className="mt-4">
-                    <SharedPot period={{ start: d.start_date, end: d.end_date }} />
+                    <SharedPot period={{ start: period?.from ?? d.start_date, end: period?.to ?? d.end_date }} />
                   </div>
                 </>
               )}
@@ -565,6 +642,170 @@ export function Budget() {
       )}
     </div>
   );
+}
+
+type FundingItem = components["schemas"]["BudgetFundingItem"];
+
+function FundingDetails({ title, caption, items, total, contributions, incomePlanCategories, incomeSections, categoryName, ownerLabel }: {
+  title: string; caption: string; items: FundingItem[]; total: number; contributions?: boolean;
+  incomePlanCategories?: ReadonlySet<number>;
+  incomeSections?: components["schemas"]["BudgetCombinedSection"][];
+  categoryName: (id: number) => string; ownerLabel: (id: number) => string;
+}) {
+  const key = (item: FundingItem) => `${item.transaction_id}:${item.category_id ?? "uncategorised"}`;
+  const plannedItems = incomeSections?.length ? new Set(incomeSections.flatMap(section => {
+    const planned = new Set(section.detail?.lines.filter(line => line.side === "income")
+      .map(line => line.category_id) ?? []);
+    return (section.actuals.income_items ?? [])
+      .filter(item => item.category_id != null && planned.has(item.category_id)).map(key);
+  })) : undefined;
+  const categories = new Map<number | null, { amount: number; planned: number }>();
+  for (const item of items) {
+    const category = item.category_id ?? null;
+    const covered = plannedItems ? plannedItems.has(key(item))
+      : category !== null && incomePlanCategories?.has(category);
+    const group = categories.get(category) ?? { amount: 0, planned: 0 };
+    group.amount += item.amount_pence;
+    group.planned += covered ? item.amount_pence : 0;
+    categories.set(category, group);
+  }
+  const planned = [...categories.values()].reduce((sum, group) => sum + group.planned, 0);
+  const outside = items.reduce((sum, item) => sum + item.amount_pence, 0) - planned;
+  return <details open className="mb-4 rounded-xl border border-border bg-surface p-4">
+    <summary className="min-h-11 cursor-pointer text-sm font-medium">{title}</summary>
+    <p className="mb-2 text-sm text-fg-muted">Received transactions, including categories outside the manual plan. Forecast pay is shown separately.</p>
+    <div className="max-h-72 overflow-auto">
+      <table className="w-full min-w-[540px] text-left text-sm" aria-label={caption}>
+        <thead><tr><th>Date</th><th>Transaction / payee</th><th>{contributions ? "Contributor" : "Category"}</th><th className="text-right">Amount</th></tr></thead>
+        <tbody>{items.map((item, index) => <tr key={`${item.transaction_id}:${index}`} className="border-t border-border">
+          <td className="py-2">{formatDayMonthYear(item.date)}</td>
+          <td><Link className="inline-flex min-h-11 items-center underline underline-offset-2 hover:text-accent" to={`/transactions?transaction_id=${item.transaction_id}`}>#{item.transaction_id} · {item.payee}</Link></td>
+          <td>{contributions ? item.contributor_profile_id == null ? "Unknown contributor" : ownerLabel(item.contributor_profile_id) : item.category_id == null ? "Uncategorised" : categoryName(item.category_id)}</td>
+          <td className="text-right"><Money pence={item.amount_pence} /></td>
+        </tr>)}</tbody>
+        <tfoot><tr><th colSpan={3}>Total {caption.toLowerCase()}</th><td className="text-right"><Money pence={total} /></td></tr></tfoot>
+      </table>
+    </div>
+    {!contributions && <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-left text-sm" aria-label="Income by category">
+        <thead><tr><th className="pr-2">Category</th><th className="pr-2">Income plan coverage</th><th className="text-right">Received</th></tr></thead>
+        <tbody>{[...categories].map(([category, group]) => <tr key={category ?? "uncategorised"} className="border-t border-border">
+          <th scope="row" className="py-2 pr-2 font-normal">{category === null ? "Uncategorised" : categoryName(category)}</th>
+          <td className="pr-2">{group.planned === 0 ? "Unplanned category" : group.planned === group.amount ? "Planned category" : "Mixed coverage"}</td>
+          <td className="text-right"><Money pence={group.amount} /></td>
+        </tr>)}</tbody>
+        <tfoot>
+          <tr><th colSpan={2}>In income plan</th><td className="text-right"><Money pence={planned} /></td></tr>
+          <tr><th colSpan={2}>Outside income plan</th><td className="text-right"><Money pence={outside} /></td></tr>
+          <tr><th colSpan={2}>Total received income</th><td className="text-right"><Money pence={total} /></td></tr>
+        </tfoot>
+      </table>
+    </div>}
+  </details>;
+}
+
+function BudgetSections({ sections, categoryName }: {
+  sections: components["schemas"]["BudgetCombinedSection"][];
+  categoryName: (id: number) => string;
+}) {
+  return <div className="mb-4 grid gap-4">
+    {sections.map(section => {
+      const { detail, actuals, owner_profile_id: owner } = section;
+      const period = actuals.period;
+      const planned = (side: "income" | "expense") => detail?.lines
+        .filter(line => line.side === side)
+        .reduce((sum, line) => sum + (line.effective_pence ?? line.revised_pence ?? line.original_pence), 0);
+      const rows = new Map<string, { category: number | null; side: "income" | "expense"; planned: number | null; actual: number }>();
+      const rowFor = (side: "income" | "expense", category: number | null) => {
+        const key = `${side}:${category ?? "uncategorised"}`;
+        let row = rows.get(key);
+        if (!row) {
+          row = { category, side, planned: null, actual: 0 };
+          rows.set(key, row);
+        }
+        return row;
+      };
+      for (const line of detail?.lines ?? []) {
+        const row = rowFor(line.side, line.category_id);
+        row.planned = (row.planned ?? 0) + (line.effective_pence ?? line.revised_pence ?? line.original_pence);
+      }
+      // These signed, as-of ledger legs explain the headlines. Full-period
+      // per-line totals cannot include categories missing from the plan.
+      for (const item of actuals.spend_items ?? []) rowFor("expense", item.category_id ?? null).actual += item.amount_pence;
+      for (const item of actuals.income_items ?? []) rowFor("income", item.category_id ?? null).actual += item.amount_pence;
+      const actualTotal = (side: "income" | "expense") => [...rows.values()]
+        .filter(row => row.side === side).reduce((sum, row) => sum + row.actual, 0);
+      return <Panel key={owner ?? "shared"} title={`${section.name} budget`}
+        aria-label={`${section.name} budget`} headingLevel={3}
+        description={period ? `${formatDayMonthYear(period.start)} – ${formatDayMonthYear(period.end)} · calendar view · read-only` : "Calendar view · read-only"}>
+        {!detail && <p className="mb-3 text-sm text-fg-muted">No plan for this period. Actuals are still included.</p>}
+        <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div><dt className="text-fg-muted">Planned spending</dt><dd>{detail ? <Money pence={planned("expense") ?? 0} /> : "—"}</dd></div>
+          <div><dt className="text-fg-muted">Planned income</dt><dd>{detail ? <Money pence={planned("income") ?? 0} /> : "—"}</dd></div>
+          <div><dt className="text-fg-muted">Spent so far</dt><dd><Money pence={actuals.spent_pence ?? 0} /></dd></div>
+          <div><dt className="text-fg-muted">{owner == null ? "Other external income" : "Income received"}</dt><dd><Money pence={actuals.external_income_pence ?? actuals.income_received_pence ?? 0} /></dd></div>
+          {owner == null && <div><dt className="text-fg-muted">Net contributions</dt><dd><Money pence={actuals.contributions_pence ?? 0} /></dd></div>}
+        </dl>
+        {rows.size > 0 && <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-left text-sm" aria-label={`${section.name} budget lines`}>
+            <thead><tr><th className="pr-2">Category</th><th className="pr-2">Plan</th><th className="pr-2 text-right">Planned</th><th className="text-right">Actual so far</th></tr></thead>
+            <tbody>{[...rows].map(([key, row]) => <tr key={key} className="border-t border-border">
+              <th scope="row" className="py-2 pr-2 font-normal">{row.category == null ? "Uncategorised" : categoryName(row.category)}</th>
+              <td className="pr-2">{row.side === "income" ? "Income" : "Expense"}</td>
+              <td className="pr-2 text-right">{row.planned == null ? <span aria-label="Unplanned">—</span> : <Money pence={row.planned} />}</td>
+              <td className="text-right"><Money pence={row.actual} /></td>
+            </tr>)}</tbody>
+            <tfoot>
+              <tr><th colSpan={3}>Total spent so far</th><td className="text-right"><Money pence={actualTotal("expense")} /></td></tr>
+              <tr><th colSpan={3}>Total external income</th><td className="text-right"><Money pence={actualTotal("income")} /></td></tr>
+            </tfoot>
+          </table>
+        </div>}
+      </Panel>;
+    })}
+  </div>;
+}
+
+function PayCycleSource({ ownerId, editable, onSaved }: { ownerId: number; editable: boolean; onSaved: () => void }) {
+  const source = useApi(() => api.get("/api/v1/budgets/pay-cycle-settings", { query: { owner_profile_id: ownerId } }), true, [ownerId]);
+  const [selection, setSelection] = useState<string | null>(null);
+  const [dayInput, setDayInput] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value = selection ?? (source.data?.employment_id != null ? String(source.data.employment_id) : source.data?.payday_day != null ? "fixed" : "");
+  const day = dayInput ?? (source.data?.payday_day == null ? "" : String(source.data.payday_day));
+  const parsedDay = Number(day);
+  const validDay = Number.isInteger(parsedDay) && parsedDay >= 1 && parsedDay <= 31;
+  const save = async () => {
+    if (value === "fixed" && !validDay) return;
+    setSaving(true); setError(null);
+    try {
+      await api.put("/api/v1/budgets/pay-cycle-settings", { body: value === "fixed"
+        ? { owner_profile_id: ownerId, employment_id: null, payday_day: parsedDay }
+        : { owner_profile_id: ownerId, employment_id: value === "" ? null : Number(value) } });
+      source.refetch(); onSaved(); toast.success("Pay-cycle source saved");
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to save pay-cycle source"); }
+    finally { setSaving(false); }
+  };
+  return <div className="mb-4 rounded-xl border border-border bg-surface p-4">
+    <DataView state={source} empty="No pay-cycle sources available">
+      {data => <div className="flex flex-wrap items-end gap-3">
+        <Field label="Pay-cycle source" className="min-w-0 flex-1" hint="Automatic requires one monthly employment source. You can also set a fixed monthly payday.">
+          {id => <Select id={id} aria-label="Pay-cycle source" value={value} onChange={e => setSelection(e.target.value)} disabled={!editable || saving} className="min-h-11">
+            <option value="">Automatic</option>
+            <option value="fixed">Fixed monthly payday</option>
+            {(data.options ?? []).map(option => <option key={option.employment_id} value={option.employment_id}>{option.employer}</option>)}
+          </Select>}
+        </Field>
+        {value === "fixed" && <Field label="Monthly payday" className="min-w-0 flex-1" hint="Saturday or Sunday paydays move to the previous Friday.">
+          {id => <Input id={id} aria-label="Monthly payday" type="number" min={1} max={31} step={1}
+            value={day} onChange={e => setDayInput(e.target.value)} disabled={!editable || saving} className="min-h-11" />}
+        </Field>}
+        {editable && <Button className="min-h-11" disabled={saving || source.loading || (value === "fixed" && !validDay)} onClick={() => void save()}>{saving ? "Saving…" : "Save source"}</Button>}
+      </div>}
+    </DataView>
+    {error && <p role="alert" className="mt-2 text-sm text-negative">{error}</p>}
+  </div>;
 }
 
 /** Revision form — the API requires a reason; the UI enforces it the

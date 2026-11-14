@@ -183,6 +183,9 @@ class TestSeriesAndApi:
         hid = client.post("/api/v1/households",
                           json={"name": "A"}).json()["id"]
         h = {"X-Household-Id": str(hid)}
+        admin = client.post("/api/v1/profiles", headers=h, json={
+            "display_name": "Analytics admin", "role": "admin"}).json()
+        h["X-Profile-Id"] = str(admin["id"])
         aid = client.post("/api/v1/accounts", headers=h, json={
             "name": "A", "type": "joint", "opening_balance": 100_000,
             "opening_date": "2025-01-01"}).json()["id"]

@@ -10,12 +10,12 @@ later pay rise can't silently re-rate approved overtime.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import EllipsisType
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.domain.paydays import HolidayTable, load_holidays
@@ -89,13 +89,20 @@ def create_entry(
     rate = hourly_rate_pence(
         salary_at(session, employment.id, work_date),
         Decimal(str(employment.contracted_hours)))
+    created_at = datetime.now(UTC).replace(tzinfo=None)
     e = OvertimeEntry(
         employment_id=employment.id, work_date=work_date, hours=hours,
         multiplier_bps=mult, day_type=dt, hourly_rate_pence=rate,
-        notes=notes)
+        notes=notes, created_at=created_at, updated_at=created_at)
     session.add(e)
     session.flush()
     return e
+
+
+def _revision_time(entry: OvertimeEntry) -> datetime:
+    """Advance even if two mutations see the same clock value."""
+    return max(datetime.now(UTC).replace(tzinfo=None),
+               entry.updated_at + timedelta(microseconds=1))
 
 
 def _transition(entry: OvertimeEntry, to: OvertimeStatus) -> None:
@@ -103,6 +110,7 @@ def _transition(entry: OvertimeEntry, to: OvertimeStatus) -> None:
         raise PayrollError(
             f"overtime {entry.id}: cannot move {entry.status} → {to}")
     entry.status = to
+    entry.updated_at = _revision_time(entry)
 
 
 def submit(entry: OvertimeEntry) -> None:
@@ -119,6 +127,64 @@ def reject(entry: OvertimeEntry) -> None:
 
 def rework(entry: OvertimeEntry) -> None:
     _transition(entry, OvertimeStatus.draft)
+
+
+def lock_entries(session: Session, employment_id: int) -> None:
+    """Reserve SQLite's writer before reading entries for a mutation.
+
+    A no-op employment update keeps all values, including updated_at. Both
+    weekly and individual actions use this reservation so a waiting edit sees
+    the latest status and correctly returns a submitted entry to draft.
+    """
+    session.execute(update(Employment).where(Employment.id == employment_id).values(
+        id=Employment.id, updated_at=Employment.updated_at).execution_options(
+            synchronize_session=False))
+
+
+def transition_week(
+    session: Session, employment_id: int, week_start: date,
+    action: str, revisions: dict[int, str],
+) -> list[OvertimeEntry]:
+    """Transition the complete eligible week from a confirmed content snapshot.
+
+    SQLite serializes writers. Acquire that reservation *before* reading the
+    eligible set, including when authorization has already performed SELECTs.
+    The no-op update preserves every employment value, including updated_at.
+    Conditional entry writes additionally protect the captured content/status.
+    The caller owns the transaction, including its associated audit events.
+    """
+    target = {"submit": OvertimeStatus.submitted, "approve": OvertimeStatus.approved,
+              "reject": OvertimeStatus.rejected}[action]
+    source = OvertimeStatus.draft if action == "submit" else OvertimeStatus.submitted
+    lock_entries(session, employment_id)
+    entries = list(session.scalars(select(OvertimeEntry).where(
+        OvertimeEntry.employment_id == employment_id,
+        OvertimeEntry.work_date >= week_start,
+        OvertimeEntry.work_date <= week_start + timedelta(days=6),
+        OvertimeEntry.status == source).order_by(OvertimeEntry.id).execution_options(
+            populate_existing=True)))
+    if not entries or {entry.id: entry.revision for entry in entries} != revisions:
+        raise PayrollError("overtime week changed; refresh and confirm again")
+    for entry in entries:
+        if target not in _ALLOWED[entry.status]:
+            raise PayrollError("overtime week changed; refresh and confirm again")
+        # Hours are protected by the locked revision. SQLite can retain 2.555
+        # while Numeric(5, 2) loads 2.56, making SQL hours equality incorrect.
+        updated_id = session.scalar(update(OvertimeEntry).where(
+            OvertimeEntry.id == entry.id,
+            OvertimeEntry.employment_id == employment_id,
+            OvertimeEntry.work_date == entry.work_date,
+            OvertimeEntry.multiplier_bps == entry.multiplier_bps,
+            OvertimeEntry.day_type == entry.day_type,
+            OvertimeEntry.status == source,
+            OvertimeEntry.hourly_rate_pence == entry.hourly_rate_pence,
+            OvertimeEntry.notes == entry.notes,
+        ).values(status=target, updated_at=_revision_time(entry)).returning(
+            OvertimeEntry.id).execution_options(synchronize_session=False))
+        if updated_id != entry.id:
+            raise PayrollError("overtime week changed; refresh and confirm again")
+        session.refresh(entry)
+    return entries
 
 
 def update_entry(
@@ -160,6 +226,7 @@ def update_entry(
         entry.notes = notes
     if entry.status is not OvertimeStatus.draft:
         entry.status = OvertimeStatus.draft
+    entry.updated_at = _revision_time(entry)
     session.flush()
     return entry
 

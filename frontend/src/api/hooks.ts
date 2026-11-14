@@ -94,26 +94,26 @@ export interface LineAnalysis {
   original_accuracy_pct: number;
 }
 
-export function useBudgetDetail(id: number | null, rev = 0) {
+export function useBudgetDetail(id: number | null, rev = 0, basis: "calendar" | "pay_cycle" = "calendar") {
   const detailRequest = useApi(
-    () => api.get("/api/v1/budgets/{budget_id}", { path: { budget_id: id! } })
-      .then((value) => ({ id, value })),
-    id !== null, [id, rev]);
+    () => api.get("/api/v1/budgets/{budget_id}", { path: { budget_id: id! }, query: { basis } })
+      .then((value) => ({ id, basis, value })),
+    id !== null, [id, rev, basis]);
   const actualsRequest = useApi(
-    () => api.get("/api/v1/budgets/{budget_id}/actuals", { path: { budget_id: id! } })
-      .then((value) => ({ id, value })),
-    id !== null, [id, rev]);
+    () => api.get("/api/v1/budgets/{budget_id}/actuals", { path: { budget_id: id! }, query: { basis } })
+      .then((value) => ({ id, basis, value })),
+    id !== null, [id, rev, basis]);
   // Retain stale values only for the same budget; another owner/period's
   // completed response cannot be relabelled while the new one is pending.
   const detail = {
     ...detailRequest,
-    data: detailRequest.data?.id === id ? detailRequest.data.value : null,
-    loading: detailRequest.loading || (detailRequest.data?.id !== id && !detailRequest.error),
+    data: detailRequest.data?.id === id && detailRequest.data.basis === basis ? detailRequest.data.value : null,
+    loading: detailRequest.loading || ((detailRequest.data?.id !== id || detailRequest.data?.basis !== basis) && !detailRequest.error),
   };
   const actuals = {
     ...actualsRequest,
-    data: actualsRequest.data?.id === id ? actualsRequest.data.value : null,
-    loading: actualsRequest.loading || (actualsRequest.data?.id !== id && !actualsRequest.error),
+    data: actualsRequest.data?.id === id && actualsRequest.data.basis === basis ? actualsRequest.data.value : null,
+    loading: actualsRequest.loading || ((actualsRequest.data?.id !== id || actualsRequest.data?.basis !== basis) && !actualsRequest.error),
   };
   const analyses = (actuals.data?.lines ?? {}) as unknown as Record<string, LineAnalysis>;
   return { detail, actuals, analyses };
