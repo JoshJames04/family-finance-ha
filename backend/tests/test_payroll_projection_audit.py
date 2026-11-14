@@ -421,6 +421,7 @@ def test_unchanged_scheduler_ticks_keep_forecast_ids(session, household, tmp_pat
 
 
 def test_real_run_reuses_matched_employment_projection(session, household):
+    from app.domain import projection
     from app.persistence.models import ExpectedMatch, Transaction
 
     e, a, _ = employment(session, household)
@@ -468,6 +469,13 @@ def test_real_run_reuses_matched_employment_projection(session, household):
     assert rows[0].id == movement_id
     assert rows[0].source_id == correction.id
     assert match.movement_id == movement_id
+
+    # Received salary stays in the ledger after estimate/run/correction replacement.
+    assert match.matched_pence >= rows[0].amount_pence
+    forecast = projection.project(session, a, 35, from_date=TODAY)
+    assert forecast.start_balance_pence == txn.amount_pence
+    assert sum(day.movements_pence for day in forecast.days) == 0
+    assert forecast.next_payday is None
 
 
 def test_dismissal_survives_real_run_supersession(session, household):

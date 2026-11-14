@@ -8,6 +8,8 @@ at API boundaries.
 from __future__ import annotations
 
 import enum
+import hashlib
+import json
 from datetime import date, datetime
 from datetime import date as date_t
 from decimal import ROUND_HALF_UP, Decimal
@@ -779,6 +781,16 @@ class OvertimeEntry(TimestampMixin, Base):
     employment: Mapped[Employment] = relationship()
 
     @property
+    def revision(self) -> str:
+        """Content/status snapshot, stable across ORM numeric representations."""
+        content = [self.id, self.employment_id, self.work_date.isoformat(),
+                   str(Decimal(str(self.hours)).quantize(Decimal("0.01"))),
+                   self.multiplier_bps, self.day_type.value, self.status.value,
+                   self.hourly_rate_pence, self.notes,
+                   self.updated_at.isoformat(timespec="microseconds")]
+        return hashlib.sha256(json.dumps(content, ensure_ascii=True).encode()).hexdigest()
+
+    @property
     def pay_pence(self) -> int:
         return int(Decimal(str(self.hours)) * self.hourly_rate_pence
                    * self.multiplier_bps // Decimal(10_000))
@@ -1017,6 +1029,9 @@ class ExpectedMovement(Base):
     source_type: Mapped[ExpectedSource] = mapped_column(
         Enum(ExpectedSource), nullable=False)
     source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Retain confirmed transfer endpoints when its scheduling rule is deleted.
+    transfer_source_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transfer_dest_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dismissed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -1052,6 +1067,7 @@ class TransferRule(TimestampMixin, Base):
                         name="ck_transfer_rule_day"),
         CheckConstraint("end_date IS NULL OR end_date >= start_date",
                         name="ck_transfer_rule_range"),
+        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

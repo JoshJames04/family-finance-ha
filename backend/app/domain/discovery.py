@@ -12,20 +12,25 @@ remains the source of truth for reporting).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain import sync as syncdom
 from app.domain.accounts import OPENING_PAYEE
 from app.domain.sync import FeedItem
 from app.persistence.models import (
     Account,
     BankAccountMapping,
     BankConnection,
+    ConnStatus,
     MappingStatus,
+    SyncCursor,
+    SyncStatus,
     Transaction,
     TransactionSource,
     TransactionStatus,
@@ -36,6 +41,10 @@ class DiscoveryError(ValueError):
     pass
 
 
+class SpacesUnavailable(DiscoveryError):
+    """Optional Spaces permissions do not invalidate the main account."""
+
+
 @dataclass(frozen=True)
 class DiscoveredAccount:
     external_uid: str
@@ -43,6 +52,14 @@ class DiscoveredAccount:
     kind: str = "account"          # account | space | pot
     balance_pence: int | None = None
     category_uid: str | None = None  # feed category (defaultCategory)
+
+
+class DiscoveryListing(list[DiscoveredAccount]):
+    """List-compatible discovery with explicitly unavailable Spaces parents."""
+
+    def __init__(self, accounts: Iterable[DiscoveredAccount] = ()) -> None:
+        super().__init__(accounts)
+        self.unavailable_space_accounts: set[str] = set()
 
 
 class BankClient(Protocol):
@@ -58,6 +75,31 @@ class BankClient(Protocol):
                    ) -> list[FeedItem]: ...
 
 
+def unavailable_spaces(client: BankClient) -> set[str]:
+    """Optional provider permission gaps for its latest complete account scan."""
+    return set(getattr(client, "unavailable_space_accounts", ()))
+
+
+def defer_unavailable_spaces(session: Session, conn: BankConnection,
+                             parents: set[str], interval_seconds: float, *,
+                             now: datetime | None = None) -> None:
+    """Retry optional permission gaps at normal cadence without claiming success."""
+    retry_at = (now or datetime.now()) + timedelta(seconds=interval_seconds)
+    for mapping in session.scalars(select(BankAccountMapping).where(
+            BankAccountMapping.connection_id == conn.id,
+            BankAccountMapping.status == MappingStatus.linked,
+            BankAccountMapping.external_kind == "space",
+            BankAccountMapping.external_uid.in_(parents),
+            BankAccountMapping.account_id.is_not(None))):
+        assert mapping.account_id is not None
+        cursor = syncdom.cursor_for(session, mapping.account_id, TransactionSource.starling)
+        cursor.status = SyncStatus.failed
+        cursor.error = "Spaces unavailable — check Spaces read permission"
+        cursor.retry_at = max(cursor.retry_at, retry_at) if cursor.retry_at else retry_at
+        cursor.refresh_requested = True
+    session.flush()
+
+
 def discover(session: Session, conn: BankConnection,
              client: BankClient, token: str) -> list[BankAccountMapping]:
     """Upsert discovered accounts; return the connection's mapping
@@ -66,8 +108,13 @@ def discover(session: Session, conn: BankConnection,
     category_uid): a space shares its parent account's uid but owns
     its feed category."""
     session.commit()  # release any caller's writer before provider I/O
-    seen = {(d.external_uid, d.category_uid or ""): d
-            for d in client.accounts(token)}
+    listing = client.accounts(token)
+    unavailable_spaces = (listing.unavailable_space_accounts
+                          if isinstance(listing, DiscoveryListing) else set())
+    if unavailable_spaces:
+        conn.status = ConnStatus.degraded
+        conn.last_error = "Spaces unavailable — check Spaces read permission"
+    seen = {(d.external_uid, d.category_uid or ""): d for d in listing}
     rows = list(session.scalars(select(BankAccountMapping).where(
         BankAccountMapping.connection_id == conn.id)))
     by_uid = {(m.external_uid, m.external_category_uid): m
@@ -104,7 +151,9 @@ def discover(session: Session, conn: BankConnection,
             m.balance_at = datetime.now()
     for m in rows:
         if ((m.external_uid, m.external_category_uid) not in seen
-                and m.status != MappingStatus.closed):
+                and m.status != MappingStatus.closed
+                and not (m.external_kind == "space"
+                         and m.external_uid in unavailable_spaces)):
             m.status = MappingStatus.closed     # gone provider-side
     session.flush()
     return rows
@@ -135,25 +184,74 @@ def unignore(session: Session, mapping: BankAccountMapping) -> None:
 
 
 def sync_balances(session: Session, conn: BankConnection,
-                  client: BankClient, token: str) -> int:
+                  client: BankClient, token: str, *,
+                  reconcile_opening: bool = False,
+                  account_ids: set[int] | None = None,
+                  fresh: bool = False) -> int:
     """Refresh provider balances on linked mappings. Point-in-time
     read only — never fabricates ledger transactions."""
     session.commit()  # discovery/caller changes cannot span HTTP
     rows = session.scalars(select(BankAccountMapping).where(
         BankAccountMapping.connection_id == conn.id,
         BankAccountMapping.status == MappingStatus.linked)).all()
+    if account_ids is not None:
+        rows = [m for m in rows if m.account_id in account_ids]
+    if fresh:
+        invalidate = getattr(client, "invalidate_balances", None)
+        if callable(invalidate):
+            invalidate()
     balances = []
+    denied_spaces = unavailable_spaces(client)
     for m in rows:
+        if m.external_kind == "space" and m.external_uid in denied_spaces:
+            continue
         cat = (m.external_category_uid or None
                if m.external_kind == "space" else None)
-        balances.append((m, client.balance(token, m.external_uid, cat)))
-    for m, balance in balances:
+        previous_balance = m.balance_pence
+        try:
+            balance = client.balance(token, m.external_uid, cat)
+        except SpacesUnavailable:
+            denied_spaces.add(m.external_uid)
+            conn.status = ConnStatus.degraded
+            conn.last_error = "Spaces unavailable — check Spaces read permission"
+            continue
+        balances.append((m, balance, previous_balance))
+    for m, balance, previous_balance in balances:
         m.balance_pence = balance
         m.balance_at = datetime.now()
-        if m.account_id is not None:
+        # Changing stock can include activity not captured by the completed feed.
+        # Equality reduces that timing risk; it is not proof of provider atomicity.
+        if (reconcile_opening and m.account_id is not None
+                and previous_balance is not None and previous_balance == balance):
             _reconcile_opening(session, m.account_id, m.balance_pence)
     session.flush()
-    return len(rows)
+    return len(balances)
+
+
+def reconcile_synced_balances(session: Session, conn: BankConnection,
+                              client: BankClient, token: str,
+                              account_ids: set[int], *,
+                              interval_seconds: float = 240 * 60) -> int:
+    """Refresh only completed feeds requiring the existing pre-opening repair.
+
+    Ordinary incremental sync needs no extra balance request or opening rewrite.
+    A discovery-time Spaces cache is too old to repair newly ingested history.
+    """
+    repair_ids = set(session.scalars(select(Account.id).join(
+        Transaction, Transaction.account_id == Account.id).join(
+        SyncCursor, SyncCursor.account_id == Account.id).where(
+            Account.id.in_(account_ids), Transaction.date < Account.opening_date,
+            Transaction.status != TransactionStatus.void,
+            SyncCursor.source == TransactionSource.starling,
+            SyncCursor.status == SyncStatus.completed).distinct()))
+    if not repair_ids:
+        return 0
+    count = sync_balances(session, conn, client, token, reconcile_opening=True,
+                          account_ids=repair_ids, fresh=True)
+    denied = unavailable_spaces(client)
+    if denied:
+        defer_unavailable_spaces(session, conn, denied, interval_seconds)
+    return count
 
 
 def _reconcile_opening(session: Session, account_id: int,

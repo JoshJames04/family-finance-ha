@@ -16,7 +16,7 @@ import { cn } from "../lib/cn";
 import { Button } from "../components/Button";
 import { Sheet } from "../components/Dialog";
 import { useApi, useHouseholds } from "../api/useApi";
-import { api } from "../api/client";
+import { api, getHouseholdId } from "../api/client";
 import { useReview } from "../api/useReview";
 import { useTheme } from "../theme/useTheme";
 import { CommandPalette } from "./CommandPalette";
@@ -153,7 +153,8 @@ export function AppShell() {
     return () => observer.disconnect();
   }, [location.pathname, location.search, location.hash]);
   const households = useHouseholds();
-  const household = households.data?.[0]?.name;
+  const household = (households.data?.find((h) => h.id === getHouseholdId())
+    ?? households.data?.[0])?.name;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const burgerRef = useRef<HTMLButtonElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);

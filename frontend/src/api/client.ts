@@ -1,10 +1,9 @@
 /**
  * Typed API client — every call is checked end-to-end against the
- * generated OpenAPI schema (`./schema.d.ts`). Base URL resolves
- * relative to `document.baseURI`, so requests stay under the Home
- * Assistant ingress prefix automatically.
+ * generated OpenAPI schema (`./schema.d.ts`). Requests are anchored
+ * to the app mount, including the Home Assistant ingress token.
  */
-import { isIngress } from "../ingress";
+import { appUrl, isIngress } from "../ingress";
 import type { paths } from "./schema";
 
 /** Paths that support a given HTTP method. */
@@ -148,8 +147,7 @@ export async function request<
   const pid = isIngress() ? null : getProfileId();
   if (pid !== null) headers["X-Profile-Id"] = String(pid);
 
-  // Leading "." resolves relative to baseURI → ingress-safe.
-  const res = await fetch(`.${url}`, {
+  const res = await fetch(appUrl(url), {
     method: method.toUpperCase(),
     headers,
     body: init?.body === undefined ? undefined : JSON.stringify(init.body),
@@ -186,7 +184,7 @@ export const api = {
     for (const [k, v] of Object.entries(fields ?? {}))
       form.append(k, v);
     form.append("file", file);
-    const res = await fetch(`.${path}`, { method: "POST", headers, body: form });
+    const res = await fetch(appUrl(path), { method: "POST", headers, body: form });
     if (!res.ok) throw await parseError(res);
     return res.json() as Promise<unknown>;
   },
@@ -196,7 +194,7 @@ export const api = {
     const pid = isIngress() ? null : getProfileId();
     if (hid !== null) headers["X-Household-Id"] = String(hid);
     if (pid !== null) headers["X-Profile-Id"] = String(pid);
-    const res = await fetch(`.${path}`, { headers });
+    const res = await fetch(appUrl(path), { headers });
     if (!res.ok) throw await parseError(res);
     return res.blob();
   },
