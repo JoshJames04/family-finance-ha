@@ -203,3 +203,38 @@ class TestRuleSetYearBackfill:
             ("2026/27", 0, None),        # gross_only — left NULL
             ("2030/31", 1, None),        # ambiguous — left NULL
         ]
+
+
+def test_transfer_rule_ids_never_reuse_retained_history(cfg: Config) -> None:
+    command.upgrade(cfg, "0069_scoped_categories")
+    with _eng(cfg).begin() as conn:
+        _seed_core(conn)
+        conn.execute(text(
+            "INSERT INTO account (household_id, name, type, currency,"
+            " opening_balance_pence, opening_date, archived)"
+            " VALUES (1, 'Destination', 'joint', 'GBP', 0, '2026-01-01', 0)"))
+        conn.execute(text(
+            "INSERT INTO expected_movement (household_id, account_id,"
+            " expected_date, amount_pence, label, confidence, source_type, source_id)"
+            " VALUES (1, 2, '2026-01-01', 100, 'Retained', 'scheduled', 'transfer_rule', 99)"))
+        conn.execute(text(
+            "INSERT INTO transfer_rule (id, household_id, name, source_account_id,"
+            " dest_account_id, amount_spec, frequency, day_of_month, start_date)"
+            " VALUES (7, 1, 'Existing', 1, 2, '{}', 'monthly', 1, '2026-01-01')"))
+    command.upgrade(cfg, "head")
+    for previous in (99, 100):
+        with _eng(cfg).begin() as conn:
+            conn.execute(text("DELETE FROM transfer_rule"))
+            conn.execute(text(
+                "INSERT INTO transfer_rule (household_id, name, source_account_id,"
+                " dest_account_id, amount_spec, frequency, day_of_month, start_date)"
+                " VALUES (1, 'Replacement', 1, 2, '{}', 'monthly', 1, '2026-01-01')"))
+            assert conn.execute(text("SELECT id FROM transfer_rule")).scalar_one() == previous + 1
+            assert conn.execute(text(
+                "SELECT source_id FROM expected_movement WHERE label='Retained'"
+            )).scalar_one() == 99
+            assert not conn.execute(text("PRAGMA foreign_key_check")).all()
+    command.downgrade(cfg, "-1")
+    command.upgrade(cfg, "head")
+    with _eng(cfg).connect() as conn:
+        assert conn.execute(text("SELECT id FROM transfer_rule")).scalar_one() == 101

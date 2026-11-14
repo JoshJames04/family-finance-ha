@@ -101,6 +101,10 @@ def effective_category_amounts(*wheres: ColumnElement[bool]) -> Subquery:
     """
     unsplit = (
         select(
+            Transaction.id.label("transaction_id"),
+            Transaction.date.label("date"),
+            Transaction.transfer_id.label("transfer_id"),
+            Transaction.refund_of_id.label("refund_of_id"),
             Transaction.category_id.label("category_id"),
             Transaction.amount_pence.label("amount_pence"))
         .join(Account, Transaction.account_id == Account.id)
@@ -110,6 +114,10 @@ def effective_category_amounts(*wheres: ColumnElement[bool]) -> Subquery:
             *wheres))
     split = (
         select(
+            Transaction.id.label("transaction_id"),
+            Transaction.date.label("date"),
+            Transaction.transfer_id.label("transfer_id"),
+            Transaction.refund_of_id.label("refund_of_id"),
             TransactionSplit.category_id.label("category_id"),
             TransactionSplit.amount_pence.label("amount_pence"))
         .join(

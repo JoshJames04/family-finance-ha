@@ -7,7 +7,7 @@ import "./theme/index.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter basename={ingressBasename()}>
+    <BrowserRouter basename={`${ingressBasename().replace(/\/$/, "")}/`}>
       <App />
     </BrowserRouter>
   </StrictMode>

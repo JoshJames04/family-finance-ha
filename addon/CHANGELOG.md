@@ -1,5 +1,24 @@
 # Changelog — Family Finance add-on
 
+## 1.5.0
+
+- Personal and historical Budget plans follow adjusted payday-to-payday windows;
+  Shared and All keep calendar months. Received income and verified contributions
+  remain separate from opening funds and manual income-plan lines.
+- Overtime, including historical entries, is grouped into Monday–Sunday weekly
+  sheets with weekly submit/approve/reject and individual actions.
+- Preserve confirmed internal-transfer portions consistently across Budget,
+  reports, analytics and forecasts, including deleted transfer-rule history.
+- Back up before upgrading: startup applies migration
+  `0070_transfer_confirmation_history`. Verify backup restoration and rehearse
+  migration on a copy before deploying.
+- Release preparation: forecast/matching, banking, Dashboard preference and
+  Budget-detail follow-up PRs must be integrated and their final checks completed
+  before promotion. Finalize these notes against the actual release diff.
+- Actual HA/provider/mobile acceptance, private categorisation configuration and
+  sixteen recovered workbook-comment mappings remain tracked work. This update
+  does not claim those operational checks or private data changes are complete.
+
 ## 1.4.2
 
 - Fix dashboard outage recovery, Budget MTD totals and default All navigation.

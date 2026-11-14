@@ -49,7 +49,8 @@ def settle_occurrence(
 
     Idempotent — a leg already linked anywhere, or a movement with no
     outstanding amount, is a no-op. Returns the match row or None."""
-    if txn.id in contributions._used_legs(session):
+    contributions.assert_payment_eligible(session, movement, txn)
+    if txn.id in contributions._used_legs(session, household_id=movement.household_id):
         return None
     outstanding = contributions.status(session, movement
                                        ).outstanding_pence

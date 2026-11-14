@@ -4,7 +4,7 @@ import csv
 import io
 import re
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
@@ -19,6 +19,11 @@ from app.domain import transactions as txn_domain
 from app.domain.money import Money
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
+from app.domain.reporting import (
+    expense_leg,
+    income_leg,
+    internal_category_ids,
+)
 from app.domain.splits import SplitError
 from app.domain.transactions import CorrectionError
 from app.persistence.models import (
@@ -66,17 +71,18 @@ def list_transactions(
     profile: ProfileDep,
     account_id: Annotated[int | None, Query()] = None,
     category_id: Annotated[int | None, Query()] = None,
+    uncategorised: bool = False,
     owner_profile_id: Annotated[int | None, Query()] = None,
+    shared_only: bool = False,
+    budget_side: Literal["expense", "income"] | None = None,
     exclude_void: bool = False,
     exclude_opening: bool = False,
     status: Annotated[str | None, Query()] = None,
     date_from: Annotated[date | None, Query()] = None,
     date_to: Annotated[date | None, Query()] = None,
     q: Annotated[str | None, Query(max_length=200)] = None,
-    direction: Annotated[str | None, Query(
-        pattern="^(income|expense)$")] = None,
-    internal: Annotated[str | None, Query(
-        pattern="^(only|exclude)$")] = None,
+    direction: Literal["income", "expense"] | None = None,
+    internal: Literal["only", "exclude"] | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> schemas.Page[schemas.TransactionOut]:
@@ -95,6 +101,8 @@ def list_transactions(
             | (Account.owner_profile_id == profile.id))
     if owner_profile_id is not None:
         stmt = stmt.where(Account.owner_profile_id == owner_profile_id)
+    if shared_only:
+        stmt = stmt.where(Account.owner_profile_id.is_(None))
     if exclude_void:
         stmt = stmt.where(Transaction.status != TransactionStatus.void)
     if exclude_opening:
@@ -103,8 +111,6 @@ def list_transactions(
             | Transaction.external_ref.is_(None))
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
-    if category_id is not None:
-        stmt = stmt.where(Transaction.category_id == category_id)
     if status is not None:
         stmt = stmt.where(Transaction.status == status)
     if date_from is not None:
@@ -125,14 +131,30 @@ def list_transactions(
             matches.append(Transaction.amount_pence == pence if numeric.startswith(("-", "+"))
                            else func.abs(Transaction.amount_pence) == pence)
         stmt = stmt.where(or_(*matches))
-    if direction == "income":
-        stmt = stmt.where(Transaction.amount_pence > 0)
-    elif direction == "expense":
-        stmt = stmt.where(Transaction.amount_pence < 0)
-    if internal == "only":
-        stmt = stmt.where(Transaction.transfer_id.isnot(None))
-    elif internal == "exclude":
-        stmt = stmt.where(Transaction.transfer_id.is_(None))
+    if (direction is not None or internal is not None or category_id is not None or uncategorised
+            or budget_side is not None):
+        effective = splits.effective_category_amounts()
+        eligible = select(effective.c.transaction_id)
+        if internal == "only":
+            eligible = eligible.where(or_(effective.c.transfer_id.is_not(None),
+                effective.c.category_id.in_(internal_category_ids())))
+        elif internal == "exclude":
+            eligible = eligible.where(effective.c.transfer_id.is_(None), or_(
+                effective.c.category_id.is_(None),
+                effective.c.category_id.not_in(internal_category_ids())))
+        if category_id is not None:
+            eligible = eligible.where(effective.c.category_id == category_id)
+        if uncategorised:
+            eligible = eligible.where(effective.c.category_id.is_(None))
+        if direction == "income":
+            eligible = eligible.where(effective.c.amount_pence > 0)
+        elif direction == "expense":
+            eligible = eligible.where(effective.c.amount_pence < 0)
+        if budget_side == "expense":
+            eligible = eligible.where(expense_leg(effective))
+        elif budget_side == "income":
+            eligible = eligible.where(income_leg(effective))
+        stmt = stmt.where(Transaction.id.in_(eligible))
     total = int(session.execute(
         select(func.count()).select_from(stmt.subquery())
     ).scalar_one())

@@ -20,7 +20,7 @@ from app.persistence.session import get_session
 
 
 def resolve_household(
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[Session, Depends(get_session, scope="function")],
     x_household_id: Annotated[int | None, Header()] = None,
 ) -> Household:
     if x_household_id is not None:
@@ -35,7 +35,8 @@ def resolve_household(
 
 
 HouseholdDep = Annotated[Household, Depends(resolve_household)]
-SessionDep = Annotated[Session, Depends(get_session)]
+# Commit or roll back before response headers can report success.
+SessionDep = Annotated[Session, Depends(get_session, scope="function")]
 
 
 def actor_header(
@@ -52,7 +53,7 @@ ActorDep = Annotated[str, Depends(actor_header)]
 
 def resolve_profile(
     request: Request,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[Session, Depends(get_session, scope="function")],
     household: HouseholdDep,
     x_profile_id: Annotated[int | None, Header()] = None,
 ) -> UserProfile | None:
@@ -85,7 +86,7 @@ ProfileDep = Annotated["UserProfile | None", Depends(resolve_profile)]
 
 def require_admin(
     request: Request,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[Session, Depends(get_session, scope="function")],
 ) -> None:
     """Admin gate: the resolved profile's role, or the legacy
     ``X-Admin-Token`` header matching ``FF_ADMIN_TOKEN``. Identity
