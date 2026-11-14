@@ -53,7 +53,6 @@ DOMAIN = Path(__file__).parents[1] / "app" / "domain"
 # _opening_funds is ledger stock strictly before a budget's displayed window.
 ALLOWLIST = {
     "current_balance",
-    "refundable_balance",
     "contributed_pence",
     "repaid_pence",
     "_monthly_net",

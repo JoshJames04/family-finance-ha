@@ -301,6 +301,24 @@ the selected period and account scope. Forecast salary remains separate from
 manual plan totals and received ledger income; fully matched salary adds no
 remaining forecast income.
 
+Account projections and scenario baselines use that same matching status for
+every expected movement, retaining its sign and flooring the remaining magnitude
+at zero. Already received salary and already paid liabilities remain in ledger
+balance only. Next payday and scenario payday comparison dates exclude satisfied
+and dismissed salary movements. Scenario edits operate on the remaining amount;
+their payday anchors still come from the baseline. These reads preserve stored
+amounts, match rows, account visibility and the existing future-date bounds.
+Matched amounts are loaded in one grouped read for each selected movement set,
+including zeroes, rather than a query per movement. The shared evidence query
+follows only relevant payment/correction families while allocating all claims on
+those live payments consistently. Query-growth regressions count both SELECT
+and WITH/recursive reads for projections and scenarios.
+Reconciliation excludes allocated live payment aliases and fully satisfied or
+foreign-household targets before scoring. A no-op settlement cannot create a
+matched reconciliation or change transaction status. Stale allocation/scope
+confirmation conflicts fail before writes; valid same-target evidence and the
+existing absent-live-target historical snapshot review remain supported.
+
 Deleting a budget template removes its copied-line source and clears optional
 provenance pointers; previously applied budget lines are retained. Tariff deletion
 removes the selected effective-dated rate and leaves readings intact. Both DELETE

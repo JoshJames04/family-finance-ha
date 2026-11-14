@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased
 
+from app.domain.expected_matches import eligible_matches
 from app.domain.reporting import (
     external_category_amounts,
     income_leg,
@@ -15,7 +16,6 @@ from app.domain.reporting import (
 from app.persistence.models import (
     Account,
     Budget,
-    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Transaction,
@@ -108,24 +108,25 @@ def budget_funding(
     confirmed: dict[int, tuple[int, int | None, bool]] = {}
     orphaned: set[int] = set()
     source_account, dest_account = aliased(Account), aliased(Account)
-    matches = session.execute(select(ExpectedMatch, ExpectedMovement, TransferRule,
-        source_account, dest_account).join(
-            ExpectedMovement, ExpectedMatch.movement_id == ExpectedMovement.id).join(
+    eligible = eligible_matches(transaction_ids=list(rows))
+    matches = session.execute(select(eligible.c.transaction_id, eligible.c.matched_pence,
+        ExpectedMovement, TransferRule, source_account, dest_account).select_from(eligible).join(
+            ExpectedMovement, eligible.c.movement_id == ExpectedMovement.id).join(
             TransferRule, ExpectedMovement.source_id == TransferRule.id, isouter=True).outerjoin(
             source_account, func.coalesce(ExpectedMovement.transfer_source_account_id,
                                          TransferRule.source_account_id) == source_account.id
         ).outerjoin(
             dest_account, func.coalesce(ExpectedMovement.transfer_dest_account_id,
                                        TransferRule.dest_account_id) == dest_account.id).where(
-            ExpectedMatch.transaction_id.in_(rows), ExpectedMatch.manual.is_(True),
+            eligible.c.transaction_id.in_(rows), eligible.c.manual.is_(True),
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,
             ExpectedMovement.household_id == budget.household_id))
-    for match, movement, _rule, source, dest in matches:
-        tx = rows[match.transaction_id]
+    for transaction_id, matched_pence, movement, _rule, source, dest in matches:
+        tx = rows[transaction_id]
         if (tx.transfer_id is not None or movement.account_id != tx.account_id
                 or tx.refund_of_id is not None):
             continue
-        if (match.matched_pence <= 0
+        if (matched_pence <= 0
                 or tx.amount_pence * movement.amount_pence <= 0):
             continue
         if (_rule is None and movement.transfer_source_account_id is None
@@ -133,7 +134,7 @@ def budget_funding(
             # Legacy deletion retained the confirmation but no counterparty.
             # Preserve its economics; report the funding as unattributed.
             previous = confirmed.get(tx.id, (0, None, False))[0]
-            confirmed[tx.id] = (min(abs(tx.amount_pence), previous + match.matched_pence),
+            confirmed[tx.id] = (min(abs(tx.amount_pence), previous + matched_pence),
                                 None, False)
             orphaned.add(tx.id)
             continue
@@ -152,7 +153,7 @@ def budget_funding(
         own = dest if inbound else source
         boundary = own.owner_profile_id is None and other.owner_profile_id is not None
         previous = confirmed.get(tx.id, (0, None, False))[0]
-        confirmed[tx.id] = (min(abs(tx.amount_pence), previous + match.matched_pence),
+        confirmed[tx.id] = (min(abs(tx.amount_pence), previous + matched_pence),
                             other.owner_profile_id if other.id in authorized else None,
                             boundary)
 

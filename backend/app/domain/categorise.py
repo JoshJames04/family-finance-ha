@@ -24,18 +24,18 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.expected_matches import eligible_matches
 from app.domain.periods import (
     PeriodLockedError,
     ReconciledImmutableError,
     assert_editable,
 )
-from app.domain.refunds import link_refund, refundable_balance
+from app.domain.refunds import RefundError, link_refund, refundable_balance
 from app.persistence.models import (
     Account,
     BankAccountMapping,
     CategorisationRule,
     Category,
-    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     MappingStatus,
@@ -163,7 +163,7 @@ def inherit_match_categories(session: Session, household_id: int
     """Copy the matched source's category onto uncategorised
     transactions (issue #452).
 
-    An ExpectedMatch already asserts the transaction *is* that
+    An eligible expected-payment match asserts the live transaction *is* that
     commitment/subscription occurrence — inheriting its category is a
     consequence of the match, not a silent guess (which is why this
     sets ``category_id`` where rules may only suggest). Covers both
@@ -172,16 +172,18 @@ def inherit_match_categories(session: Session, household_id: int
     editable ``category_id IS NULL`` rows, preserving reconciled
     history, locked periods and user-set categories."""
     n = 0
+    matches = eligible_matches(select(ExpectedMovement.id).where(
+        ExpectedMovement.household_id == household_id))
     rows = session.execute(
-        select(ExpectedMatch, ExpectedMovement, Transaction)
+        select(ExpectedMovement, Transaction).select_from(matches)
         .join(ExpectedMovement,
-              ExpectedMatch.movement_id == ExpectedMovement.id)
+              matches.c.movement_id == ExpectedMovement.id)
         .join(Transaction,
-              ExpectedMatch.transaction_id == Transaction.id)
+              matches.c.transaction_id == Transaction.id)
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household_id,
                Transaction.category_id.is_(None))).all()
-    for _match, mv, tx in rows:
+    for mv, tx in rows:
         n += inherit_movement_category(session, mv, tx)
     session.flush()
     return n
@@ -421,8 +423,11 @@ def auto_link_refunds(session: Session, household_id: int,
             .order_by(Transaction.date.desc(), Transaction.id.desc()))
         if original is None:
             continue
-        if t.amount_pence <= refundable_balance(session, original.id):
-            link_refund(session, t, original)
-            linked += 1
+        try:
+            if t.amount_pence <= refundable_balance(session, original.id):
+                link_refund(session, t, original)
+                linked += 1
+        except RefundError:
+            continue  # ambiguous legacy history needs review, not a failed sync
     session.flush()
     return linked

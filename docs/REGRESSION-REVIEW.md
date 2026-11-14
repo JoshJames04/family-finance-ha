@@ -4,6 +4,25 @@ This change follows the v1.4.1 reports and the historical issue audit.
 Tests use synthetic data. Production data, bank credentials and snapshots
 are excluded from the repository.
 
+## Legacy refund correction capacity
+
+Refund capacity resolves each correction family to one live payment. A live
+explicit purchase link remains authoritative after amount, date or account
+edits. Pre-upgrade NULL links inherit only through financially equivalent void
+predecessors to the nearest explicit purchase link. Linked descendants count
+once; terminal void refunds release capacity. Cyclic, ambiguous or unprovable
+legacy families require manual review and raise the existing refund conflict.
+Automatic refund linking skips such candidates and continues processing valid
+payments. These reads do not repair stored links or rewrite protected history.
+
+## Automatic reconciliation of legacy correction cycles
+
+Automatic reconciliation excludes cyclic correction families before scoring,
+using the same ancestry filter as automatic transfer matching. Self-cycles and
+multi-row cycles leave their stored rows untouched while unrelated valid
+payments still settle, including through the post-sync workflow. Explicit
+confirmation retains the settlement writer's conflict rejection.
+
 ## Weekly overtime (#487)
 
 Coverage includes derived grouping of all historical work dates, Monday/Sunday
@@ -299,3 +318,46 @@ calendar All Budget and calendar reports agree even before a bank leg is paired.
 The classifier retains duplicate split legs, consumes only same-direction pence,
 and leaves unmatched fees and opposite-direction receipts intact. Funding source
 attribution uses the corresponding raw legs without reclassifying them twice.
+
+## Valid expected-payment evidence (#494)
+
+Expected-payment totals use a shared, read-only SQL relation. Payments must be
+live, nonzero and on the expected household/account with the same direction.
+Salary expectations exclude explicitly linked purchase refunds; a legitimate
+manual refund expectation remains matchable. Historical claims are capped by
+the current payment amount and each live payment's capacity is allocated only
+once, including old links to both an original and its corrected replacement.
+
+Equivalent correction chains retain payment evidence without moving or rewriting
+the original match. Equivalence preserves account, date, signed amount, transfer
+and refund identity. A separate directed ancestry check, independent of payment
+status, requires a reachable correction root before accepting evidence. Self-loops
+and cycles with live replacements therefore fail closed; UNION deduplicates and
+terminates their bounded ancestor walks. Ambiguous live branches also fail closed.
+Manual/settlement writers reject cyclic ancestry before writes, and automatic
+matching excludes it. New corrections retain the original refund link. Reads
+resolve existing equivalent history, so
+there is no migration or automatic historical data repair.
+
+Batch totals seed only the requested payment families, include other claims on
+those same families before allocating capacity, then return the requested
+movement totals. This preserves subset consistency without scanning every
+unrelated household's correction history. Budget bills remaining and contribution
+lists use grouped totals. The batch helper also supplies forecast residuals.
+
+Budget funding, confirmed-transfer economic reporting, member contributions,
+category inheritance and due notifications use that effective evidence. Partial
+payments leave their unpaid residual visible; a void/invalid historical link
+cannot suppress a reminder. Member attribution requires unambiguous live
+counterparts within the household. New manual/settlement matches reject invalid
+payments before writing a match, category, schedule advance or outbox event;
+automatic transfer matching skips void transactions. Reconciliation excludes
+salary/refund candidates and zero amounts before scoring, so rejecting invalid
+evidence cannot abort an otherwise valid post-sync pass.
+
+Schedule regeneration, payroll canonicalization and transfer-rule deletion still
+retain raw match references to protect historical rows and their foreign keys.
+Their presence is audit retention, not proof of payment. No GET operation repairs
+or rewrites those rows. Synthetic regressions cover public API 409/no match write,
+void-after-link, partial caps, old/repeated corrections, correction aliases/cycles,
+refund semantics and Budget/report/member/category/notification agreement.

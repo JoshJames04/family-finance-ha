@@ -240,8 +240,9 @@ def bills_remaining(session: Session, budget: Budget,
                          ExpectedMovement.account_id.is_(None))
                      if budget.owner_profile_id is None
                      else ExpectedMovement.account_id.in_(account_ids))
-    residuals = [contributions.status(session, m).outstanding_pence
-                 for m in session.scalars(select(ExpectedMovement).where(*conds))]
+    movements = list(session.scalars(select(ExpectedMovement).where(*conds)))
+    totals = contributions.matched_totals(session, [m.id for m in movements])
+    residuals = [max(0, abs(m.amount_pence) - totals[m.id]) for m in movements]
     return sum(residuals), sum(value > 0 for value in residuals)
 
 

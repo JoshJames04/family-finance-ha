@@ -7,9 +7,9 @@ from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.expression import Subquery
 
+from app.domain.expected_matches import eligible_matches
 from app.persistence.models import (
     Account,
-    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Transaction,
@@ -39,18 +39,19 @@ def external_after_confirmed(amounts: Subquery, internal_categories: Select[Any]
         source.household_id == own.household_id, dest.household_id == own.household_id,
         or_(and_(Transaction.account_id == dest.id, Transaction.amount_pence > 0),
             and_(Transaction.account_id == source.id, Transaction.amount_pence < 0)))
+    matches = eligible_matches(transaction_ids=select(amounts.c.transaction_id))
     confirmed = (select(
-        ExpectedMatch.transaction_id,
+        matches.c.transaction_id,
         func.min(func.abs(Transaction.amount_pence),
-                 func.sum(ExpectedMatch.matched_pence)).label("confirmed_pence"))
-        .join(Transaction, Transaction.id == ExpectedMatch.transaction_id)
+                 func.sum(matches.c.matched_pence)).label("confirmed_pence")).select_from(matches)
+        .join(Transaction, Transaction.id == matches.c.transaction_id)
         .join(own, own.id == Transaction.account_id)
-        .join(ExpectedMovement, ExpectedMovement.id == ExpectedMatch.movement_id)
+        .join(ExpectedMovement, ExpectedMovement.id == matches.c.movement_id)
         .outerjoin(TransferRule, TransferRule.id == ExpectedMovement.source_id)
         .outerjoin(source, source.id == source_id)
         .outerjoin(dest, dest.id == dest_id)
         .where(
-            ExpectedMatch.manual.is_(True), ExpectedMatch.matched_pence > 0,
+            matches.c.manual.is_(True),
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,
             ExpectedMovement.account_id == Transaction.account_id,
             ExpectedMovement.household_id == own.household_id,
@@ -60,7 +61,7 @@ def external_after_confirmed(amounts: Subquery, internal_categories: Select[Any]
                      ExpectedMovement.amount_pence > 0),
                 and_(Transaction.amount_pence < 0,
                      ExpectedMovement.amount_pence < 0)))
-        .group_by(ExpectedMatch.transaction_id, Transaction.amount_pence).subquery())
+        .group_by(matches.c.transaction_id, Transaction.amount_pence).subquery())
     internal = case((amounts.c.category_id.in_(internal_categories), 1), else_=0)
     same_direction = amounts.c.amount_pence * Transaction.amount_pence > 0
     legs = (select(
