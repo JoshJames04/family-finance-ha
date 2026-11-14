@@ -313,6 +313,11 @@ including zeroes, rather than a query per movement. The shared evidence query
 follows only relevant payment/correction families while allocating all claims on
 those live payments consistently. Query-growth regressions count both SELECT
 and WITH/recursive reads for projections and scenarios.
+Reconciliation excludes allocated live payment aliases and fully satisfied or
+foreign-household targets before scoring. A no-op settlement cannot create a
+matched reconciliation or change transaction status. Stale allocation/scope
+confirmation conflicts fail before writes; valid same-target evidence and the
+existing absent-live-target historical snapshot review remain supported.
 
 Deleting a budget template removes its copied-line source and clears optional
 provenance pointers; previously applied budget lines are retained. Tariff deletion
