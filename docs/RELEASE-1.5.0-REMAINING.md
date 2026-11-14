@@ -1,4 +1,4 @@
-# Release 1.5.0 preparation and remaining acceptance
+# Release 1.5.0 candidate and remaining acceptance
 
 This is a release-preparation checklist. It does not authorise merging, tagging,
 publishing, live deployment or private data/configuration changes.
@@ -7,13 +7,25 @@ The previous 1.4.2 patch-version exception applied only to that batch. This batc
 adds payday Budget windows and weekly overtime, so the repository's ordinary
 backwards-compatible-feature rule selects 1.5.0.
 
+## Implementation included in this candidate
+
+- [x] Forecast/matching correction (#491, #494; PR #493).
+- [x] Dashboard preference recovery (#492; PR #495).
+- [x] Bank-sync ownership, queue/retry and balance-repair correction (#490).
+- [x] Budget receipt reconciliation and owner-labelled All sections (#483, #466).
+- [x] Frontend dependency updates with a common Node 22 production API and
+      verified Node 24 Compose development; Docker action upgrades.
+- [x] Scheduled dependency routing/assignment (#508) and sole-Josh code ownership
+      with current-head approval, without activating automatic merging (#510).
+
+The notes candidate contains the remaining dependency commits so its source
+matches these descriptions. Merge their individual reviewed PRs first, then
+merge the notes PR; this does not authorise skipping their CI or approvals.
+
 ## Before promoting develop to main
 
-- [ ] Integrate the reviewed forecast/matching correction (#491, #494; PR #493).
-- [ ] Integrate Dashboard preference recovery (#492; PR #495).
-- [ ] Integrate the reviewed bank-sync correction (#490).
-- [ ] Integrate Budget receipt reconciliation and owner-labelled All sections
-      (#483, #466).
+- [ ] Merge the reviewed dependency PRs #506, #505 and #507 in that order, then
+      the final release-notes PR, into develop.
 - [ ] Reconcile the changelog and release closing keywords against the actual
       final aggregate diff; do not claim an unmerged fix is included.
 - [ ] Full required CI and native Codex review pass on the exact release head.
