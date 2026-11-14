@@ -37,6 +37,8 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   paid into.
 - **UK payroll** — salary history, overtime (configurable multipliers), PAYE,
   National Insurance, student loans, pension and payslip reconciliation.
+  Overtime is grouped into Monday–Sunday weekly sheets, including historical
+  entries, with week-level submit/approve/reject and individual entry actions.
 - **Banking** — secure, read-only Starling Bank synchronisation with duplicate
   detection, automatic categorisation and reconciliation. Categories resolve
   automatically: matched bills inherit their commitment's category, the

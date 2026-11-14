@@ -8,6 +8,8 @@ at API boundaries.
 from __future__ import annotations
 
 import enum
+import hashlib
+import json
 from datetime import date, datetime
 from datetime import date as date_t
 from decimal import ROUND_HALF_UP, Decimal
@@ -777,6 +779,16 @@ class OvertimeEntry(TimestampMixin, Base):
                                               nullable=True)
 
     employment: Mapped[Employment] = relationship()
+
+    @property
+    def revision(self) -> str:
+        """Content/status snapshot, stable across ORM numeric representations."""
+        content = [self.id, self.employment_id, self.work_date.isoformat(),
+                   str(Decimal(str(self.hours)).quantize(Decimal("0.01"))),
+                   self.multiplier_bps, self.day_type.value, self.status.value,
+                   self.hourly_rate_pence, self.notes,
+                   self.updated_at.isoformat(timespec="microseconds")]
+        return hashlib.sha256(json.dumps(content, ensure_ascii=True).encode()).hexdigest()
 
     @property
     def pay_pence(self) -> int:
