@@ -100,7 +100,7 @@ export function Dashboard() {
   const allowed = (w: { roles?: Role[] }) =>
     // Standalone (no resolved profile) is a single operator — see
     // everything; members get role-gated widgets.
-    !w.roles || role == null || w.roles.includes(role);
+    !w.roles || role === null || (role !== undefined && w.roles.includes(role));
 
   const visible = layout?.order
     .map(widgetById)

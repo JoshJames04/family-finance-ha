@@ -10,8 +10,31 @@ vi.mock("../widgets/registry", () => {
   const widgets = ["accounts", "upcoming"].map(id => ({ id,
     title: id === "accounts" ? "Accounts" : "Upcoming", span: 1,
     Component: () => <h2>{id === "accounts" ? "Accounts" : "Upcoming"}</h2> }));
-  return { DEFAULT_ORDER: ["accounts", "upcoming"], WIDGETS: widgets,
+  widgets.push({ id: "system", title: "System status", span: 1,
+    roles: ["admin"], Component: () => <h2>System status</h2> } as typeof widgets[number]);
+  return { DEFAULT_ORDER: ["accounts", "upcoming", "system"], WIDGETS: widgets,
     widgetById: (id: string) => widgets.find(w => w.id === id) };
+});
+
+it.each(["member", "viewer", "admin"])("retained drafts wait for %s role before mounting restricted widgets", async role => {
+  setHouseholdId(1); setProfileId(1);
+  sessionStorage.setItem("ff.dashboard.draft.1:1", JSON.stringify({
+    order: ["system", "accounts", "upcoming"], hidden: [],
+  }));
+  let complete!: (response: Response) => void;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+    if (String(input).endsWith("/profiles")) return profiles();
+    if (String(input).includes("/profiles/me/dashboard")) {
+      return new Promise<Response>(resolve => { complete = resolve; });
+    }
+    return json({ items: [{ id: 1, name: "Synthetic household" }] });
+  });
+  mount();
+  await waitFor(() => expect(complete).toBeTypeOf("function"));
+  expect(screen.queryByRole("heading", { name: "System status" })).toBeNull();
+  await act(async () => { complete(json({ role, layout: initial })); });
+  if (role === "admin") await screen.findByRole("heading", { name: "System status" });
+  else expect(screen.queryByRole("heading", { name: "System status" })).toBeNull();
 });
 
 class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {

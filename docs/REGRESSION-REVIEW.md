@@ -2,6 +2,10 @@
 
 ## Dashboard preference recovery (#492)
 
+Role-restricted widgets remain unmounted while member identity/role is unresolved,
+even when a retained tab draft supplies a layout immediately. Only explicit
+standalone mode or an allowed resolved role can mount those widgets.
+
 Dashboard validates local and remote layout shapes before using them. Missing,
 malformed and obsolete fields recover without throwing or automatically writing
 defaults to the profile. Recognized widget order and explicitly hidden widgets,
