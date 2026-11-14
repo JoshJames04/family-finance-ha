@@ -311,9 +311,13 @@ once, including old links to both an original and its corrected replacement.
 
 Equivalent correction chains retain payment evidence without moving or rewriting
 the original match. Equivalence preserves account, date, signed amount, transfer
-and refund identity. Recursive UNION deduplicates paths and terminates corrupt
-cycles; ambiguous live replacement branches fail closed. New corrections also
-retain the original refund link. Reads resolve existing equivalent history, so
+and refund identity. A separate directed ancestry check, independent of payment
+status, requires a reachable correction root before accepting evidence. Self-loops
+and cycles with live replacements therefore fail closed; UNION deduplicates and
+terminates their bounded ancestor walks. Ambiguous live branches also fail closed.
+Manual/settlement writers reject cyclic ancestry before writes, and automatic
+matching excludes it. New corrections retain the original refund link. Reads
+resolve existing equivalent history, so
 there is no migration or automatic historical data repair.
 
 Batch totals seed only the requested payment families, include other claims on

@@ -428,3 +428,202 @@ def test_unassigned_expectation_cannot_count_an_account_payment_or_be_manually_m
         contributions.confirm(session, movement, tx)
     assert session.get(ExpectedMatch, stored.id) is stored
     assert session.scalar(select(func.count()).select_from(ExpectedMatch)) == 1
+
+
+@pytest.mark.parametrize("anchor", ["original", "replacement", "self"])
+def test_live_correction_cycle_cannot_supply_historical_evidence(session, payment, anchor):
+    _, movement, original = payment
+    if anchor == "self":
+        original.corrects_id = original.id
+        selected = original
+    else:
+        original.status = TransactionStatus.reconciled
+        replacement = transactions.correct(session, original, "Synthetic")
+        original.corrects_id = replacement.id
+        selected = original if anchor == "original" else replacement
+    stored = link(session, movement, selected)
+    statements = []
+    def observe(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        assert contributions.matched_total(session, movement.id) == 0
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert len(statements) == 1
+    assert statements[0].lstrip().upper().startswith(("WITH", "SELECT"))
+    assert session.get(ExpectedMatch, stored.id) is stored
+    assert not session.new and not session.dirty and not session.deleted
+
+
+@pytest.mark.parametrize("writer", ["manual", "settle"])
+@pytest.mark.parametrize("shape", ["direct", "alias", "self"])
+def test_cyclic_payment_is_rejected_before_any_write(session, payment, writer, shape):
+    _, movement, original = payment
+    if shape == "self":
+        current = original
+        current.corrects_id = current.id
+    else:
+        original.status = TransactionStatus.reconciled
+        current = transactions.correct(session, original, "Synthetic")
+        original.corrects_id = current.id
+    if shape == "alias":
+        link(session, movement, original)
+    session.flush()
+    statements = []
+    def observe(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        with pytest.raises(contributions.MatchError, match="cycl"):
+            if writer == "manual":
+                contributions.confirm(session, movement, current)
+            else:
+                settle.settle_occurrence(session, movement, current, manual=True)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert all(s.lstrip().upper().startswith(("WITH", "SELECT")) for s in statements)
+    assert session.scalar(select(func.count()).select_from(ExpectedMatch)) == (shape == "alias")
+    assert not session.new and not session.dirty and not session.deleted
+
+
+@pytest.mark.parametrize("count", [0, 1, 3])
+def test_acyclic_payment_still_accepts_manual_match_after_corrections(session, payment, count):
+    _, movement, current = payment
+    for _ in range(count):
+        current.status = TransactionStatus.reconciled
+        current = transactions.correct(session, current, "Synthetic")
+    contributions.confirm(session, movement, current)
+    assert contributions.matched_total(session, movement.id) == 1000
+
+
+def test_live_cycle_match_api_returns_409_and_keeps_database_unchanged(tmp_path):
+    app = create_app(Settings.load({"FF_DATA_DIR": str(tmp_path)}))
+    with TestClient(app) as client:
+        hid = client.post("/api/v1/households", json={"name": "Synthetic"}).json()["id"]
+        headers = {"X-Household-Id": str(hid)}
+        aid = client.post("/api/v1/accounts", headers=headers, json={
+            "name": "Synthetic", "type": "joint", "opening_balance": 0,
+            "opening_date": DAY.isoformat()}).json()["id"]
+        movement = client.post("/api/v1/expected-movements", headers=headers, json={
+            "account_id": aid, "expected_date": DAY.isoformat(), "amount": 1000,
+            "label": "Synthetic"}).json()
+        with sessionmaker(bind=app.state.engine)() as seed:
+            original = Transaction(account_id=aid, date=DAY, amount_pence=1000,
+                payee="Synthetic", source="manual", status=TransactionStatus.reconciled)
+            seed.add(original)
+            seed.flush()
+            replacement = transactions.correct(seed, original, "Synthetic")
+            original.corrects_id = replacement.id
+            replacement_id = replacement.id
+            seed.commit()
+        response = client.post(f"/api/v1/expected-movements/{movement['id']}/matches",
+                               headers=headers, json={"transaction_id": replacement_id})
+        assert response.status_code == 409
+        with sessionmaker(bind=app.state.engine)() as independent:
+            assert independent.scalar(select(func.count()).select_from(ExpectedMatch)) == 0
+
+
+def test_cyclic_auto_match_candidates_are_skipped_without_writes(session, household, payment):
+    _, movement, tx = payment
+    movement.source_type = ExpectedSource.transfer_rule
+    transfer = Transfer(household_id=household.id)
+    session.add(transfer)
+    session.flush()
+    tx.transfer_id = transfer.id
+    tx.corrects_id = tx.id
+    session.flush()
+    statements = []
+    def observe(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        assert contributions.auto_match(session, household.id, today=DAY) == 0
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert all(s.lstrip().upper().startswith(("WITH", "SELECT")) for s in statements)
+    assert session.scalar(select(func.count()).select_from(ExpectedMatch)) == 0
+
+
+def test_cyclic_evidence_does_not_hide_unrelated_valid_payment(session, household, payment):
+    account, invalid, tx = payment
+    tx.corrects_id = tx.id
+    link(session, invalid, tx)
+    valid = ExpectedMovement(household_id=household.id, account_id=account.id,
+        expected_date=DAY, amount_pence=1000, label="Valid", confidence="scheduled",
+        source_type="manual", source_id=2)
+    receipt = Transaction(account_id=account.id, date=DAY, amount_pence=1000,
+                           payee="Synthetic valid", source="manual")
+    session.add_all([valid, receipt])
+    session.flush()
+    link(session, valid, receipt, 400)
+    assert contributions.matched_totals(session, [invalid.id, valid.id]) == {
+        invalid.id: 0, valid.id: 400}
+    assert contributions.matched_total(session, valid.id) == 400
+
+
+def test_edited_acyclic_replacement_can_be_directly_confirmed_without_carrying_old_alias(
+        session, payment):
+    _, movement, original = payment
+    stored = link(session, movement, original)
+    original.status = TransactionStatus.reconciled
+    current = transactions.correct(session, original, "Synthetic")
+    current.amount_pence = 700  # explicit edit of the pending replacement
+    session.flush()
+    assert contributions.matched_total(session, movement.id) == 0
+    confirmed = contributions.confirm(session, movement, current)
+    assert confirmed.transaction_id == current.id
+    assert stored.transaction_id == original.id
+    assert contributions.matched_total(session, movement.id) == 700
+
+
+def test_dangling_parent_legacy_live_payment_remains_directly_matchable():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.persistence.models import Base
+
+    # A separate in-memory legacy fixture intentionally lacks FK enforcement;
+    # the normal migrated test engine and its constraints remain unchanged.
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            household = Household(name="Synthetic legacy")
+            session.add(household)
+            session.flush()
+            account = Account(household_id=household.id, name="Synthetic", type="joint",
+                              opening_date=DAY)
+            session.add(account)
+            session.flush()
+            movement = ExpectedMovement(household_id=household.id, account_id=account.id,
+                expected_date=DAY, amount_pence=1000, label="Synthetic", confidence="scheduled",
+                source_type="manual", source_id=1)
+            tx = Transaction(account_id=account.id, date=DAY, amount_pence=1000,
+                payee="Synthetic", source="manual", corrects_id=999999)
+            session.add_all([movement, tx])
+            session.flush()
+            contributions.confirm(session, movement, tx)
+            assert contributions.matched_total(session, movement.id) == 1000
+    finally:
+        engine.dispose()
+
+
+def test_cycle_validation_crosses_non_equivalent_account_edges(session, household, payment):
+    _, movement, original = payment
+    other = Account(household_id=household.id, name="Changed destination", type="joint",
+                    opening_date=DAY)
+    session.add(other)
+    session.flush()
+    original.status = TransactionStatus.reconciled
+    current = transactions.correct(session, original, "Synthetic")
+    current.account_id = movement.account_id = other.id
+    original.corrects_id = current.id
+    session.flush()
+    with pytest.raises(contributions.MatchError, match="cycl"):
+        contributions.confirm(session, movement, current)
+    assert session.scalar(select(func.count()).select_from(ExpectedMatch)) == 0
+    assert not session.new and not session.dirty and not session.deleted

@@ -23,7 +23,11 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain.expected_matches import SALARY_SOURCES, eligible_matches
+from app.domain.expected_matches import (
+    SALARY_SOURCES,
+    acyclic_transaction_ids,
+    eligible_matches,
+)
 from app.persistence.models import (
     ExpectedMatch,
     ExpectedMovement,
@@ -121,6 +125,8 @@ def assert_payment_eligible(session: Session, movement: ExpectedMovement,
     if session.scalar(select(Account.household_id).where(
             Account.id == tx.account_id)) != movement.household_id:
         raise MatchError("transaction household does not match the movement")
+    if session.scalar(acyclic_transaction_ids([tx.id]).limit(1)) is None:
+        raise MatchError("cyclic transaction corrections cannot satisfy expected movements")
 
 
 def _link(session: Session, movement: ExpectedMovement,
@@ -177,8 +183,7 @@ def auto_match(session: Session, household_id: int, *,
         if need <= 0:
             continue
         window = timedelta(days=window_days)
-        candidates = session.execute(
-            select(Transaction).where(
+        candidates_query = (select(Transaction).where(
                 Transaction.account_id == mv.account_id,
                 Transaction.status != TransactionStatus.void,
                 Transaction.transfer_id.is_not(None),
@@ -187,7 +192,10 @@ def auto_match(session: Session, household_id: int, *,
                 Transaction.amount_pence > 0
                 if mv.amount_pence > 0 else
                 Transaction.amount_pence < 0)
-            .order_by(Transaction.date)).scalars().all()
+            .order_by(Transaction.date))
+        candidates = session.scalars(candidates_query.where(Transaction.id.in_(
+            acyclic_transaction_ids(candidates_query.with_only_columns(
+                Transaction.id).order_by(None))))).all()
         for tx in sorted(
                 candidates,
                 key=lambda t: abs(
