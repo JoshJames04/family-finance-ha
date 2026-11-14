@@ -34,7 +34,8 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   payday intelligence and overdraft risk warnings. Salary is projected from
   the employment's payday rule — no run needed — using effective salary/tax
   configuration and regular deductions, into the account it is
-  paid into.
+  paid into. Account and scenario forecasts include only outstanding amounts
+  after matching; received salary and paid bills are not projected again.
 - **UK payroll** — salary history, overtime (configurable multipliers), PAYE,
   National Insurance, student loans, pension and payslip reconciliation.
   Overtime is grouped into Monday–Sunday weekly sheets, including historical

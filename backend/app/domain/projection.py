@@ -1,12 +1,12 @@
 """Issue #74 — per-account daily projection + safe-to-spend.
 
-Projection = cleared ledger balance + Σ expected movements per day,
+Projection = ledger balance + Σ signed outstanding movements per day,
 for ``days`` ahead. Deterministic: same ledger + same movement
 stream → identical series.
 
 Safe-to-spend = cleared balance − committed obligations *until the
 next payday*. A payday is the next positive expected movement of
-``payroll_run`` source strictly after ``from_date``; obligations
+``payroll_run`` or ``employment`` source strictly after ``from_date``; obligations
 dated on or before it are committed against the current balance
 (money due on payday itself must be covered — wages may not have
 cleared). With no payroll expected, the whole horizon counts.
@@ -18,10 +18,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.accounts import active_accounts, current_balance
+from app.domain.contributions import status
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -54,18 +55,27 @@ class Projection:
 
 
 def _movement_rows(session: Session, account_id: int, start: date,
-                   end: date) -> list[tuple[int, date, int]]:
-    """Live expected movements in (start, end] as (id, date, pence)
+                   end: date, *, payday_only: bool = False) -> list[tuple[int, date, int]]:
+    """Outstanding movements in (start, end] as (id, date, signed pence)
     rows — the level scenario ops need to address individual items."""
     stmt = (
-        select(ExpectedMovement.id,
-               ExpectedMovement.expected_date,
-               ExpectedMovement.amount_pence)
+        select(ExpectedMovement)
         .where(ExpectedMovement.account_id == account_id,
                ExpectedMovement.expected_date > start,
                ExpectedMovement.expected_date <= end,
                ExpectedMovement.dismissed_at.is_(None)))
-    return [(int(r[0]), r[1], int(r[2])) for r in session.execute(stmt)]
+    if payday_only:
+        stmt = stmt.where(ExpectedMovement.source_type.in_(
+            [ExpectedSource.payroll_run, ExpectedSource.employment]),
+            ExpectedMovement.amount_pence > 0)
+    rows = []
+    with session.no_autoflush:
+        for movement in session.scalars(stmt):
+            remaining = status(session, movement).outstanding_pence
+            if remaining:
+                rows.append((movement.id, movement.expected_date,
+                             remaining if movement.amount_pence > 0 else -remaining))
+    return rows
 
 
 def _aggregate(rows: list[tuple[date, int]]
@@ -124,19 +134,17 @@ def _assemble(account: Account, balance: int,
     )
 
 
+def _payday_dates(session: Session, account_id: int, start: date,
+                  end: date) -> list[date]:
+    """Baseline outstanding payroll dates; scenario operations never redefine them."""
+    return sorted(d for _, d, _ in _movement_rows(
+        session, account_id, start, end, payday_only=True))
+
+
 def _next_payday(session: Session, account_id: int, today: date,
                  horizon_end: date) -> date | None:
-    """Earliest expected payroll inflow strictly after ``today``."""
-    return session.execute(
-        select(func.min(ExpectedMovement.expected_date))
-        .where(ExpectedMovement.account_id == account_id,
-               ExpectedMovement.source_type.in_(
-                   [ExpectedSource.payroll_run,
-                    ExpectedSource.employment]),
-               ExpectedMovement.amount_pence > 0,
-               ExpectedMovement.expected_date > today,
-               ExpectedMovement.expected_date <= horizon_end,
-               ExpectedMovement.dismissed_at.is_(None))).scalar_one()
+    """Earliest outstanding payroll inflow strictly after ``today``."""
+    return min(_payday_dates(session, account_id, today, horizon_end), default=None)
 
 
 def project(session: Session, account: Account, days: int,

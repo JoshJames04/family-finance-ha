@@ -301,6 +301,14 @@ the selected period and account scope. Forecast salary remains separate from
 manual plan totals and received ledger income; fully matched salary adds no
 remaining forecast income.
 
+Account projections and scenario baselines use that same matching status for
+every expected movement, retaining its sign and flooring the remaining magnitude
+at zero. Already received salary and already paid liabilities remain in ledger
+balance only. Next payday and scenario payday comparison dates exclude satisfied
+and dismissed salary movements. Scenario edits operate on the remaining amount;
+their payday anchors still come from the baseline. These reads preserve stored
+amounts, match rows, account visibility and the existing future-date bounds.
+
 Deleting a budget template removes its copied-line source and clears optional
 provenance pointers; previously applied budget lines are retained. Tariff deletion
 removes the selected effective-dated rate and leaves readings intact. Both DELETE
