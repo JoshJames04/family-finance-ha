@@ -1,0 +1,3 @@
+# Sole required owner for every changed file on develop.
+# Adding other owners changes the bot auto-merge approval security model.
+* @JoshJames04
