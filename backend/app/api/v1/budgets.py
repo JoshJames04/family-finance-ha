@@ -311,8 +311,29 @@ def combined_budget(
             merged.revised_pence = (merged.revised_pence or 0) + line.effective_pence
     combined.lines = list(groups.values())
     account_ids = _account_ids(session, household.id, profile)
+    # Plans alone cannot enumerate All's scopes: an authorized account may have
+    # calendar activity even when its owner has no plan for the selected month.
+    owners = {None} | set(by_owner) | set(session.scalars(select(Account.owner_profile_id).where(
+        Account.household_id == household.id, Account.id.in_(account_ids))))
+    names = {p.id: p.display_name for p in session.scalars(select(UserProfile).where(
+        UserProfile.household_id == household.id, UserProfile.id.in_(
+            [owner for owner in owners if owner is not None])))}
+    sections = []
+    for owner in sorted(owners, key=lambda value: (value is not None, value or 0)):
+        plan = by_owner.get(owner)
+        scope = plan if plan is not None else Budget(
+            id=0, household_id=household.id, owner_profile_id=owner,
+            name="Unplanned", period_type=combined.period_type, start_date=start,
+            end_date=end, status=BudgetStatus.locked, lines=[])
+        sections.append(schemas.BudgetCombinedSection(
+            owner_profile_id=owner,
+            name="Shared" if owner is None else names.get(owner, f"Member {owner}"),
+            detail=(_detail(session, plan).model_copy(update={"read_only": True})
+                    if plan is not None else None),
+            actuals=_actuals(session, scope, account_ids)))
     return schemas.BudgetCombined(detail=_detail(session, combined),
-        actuals=_actuals(session, combined, account_ids, include_private=True))
+        actuals=_actuals(session, combined, account_ids, include_private=True),
+        sections=sections)
 
 
 

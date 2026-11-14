@@ -386,6 +386,21 @@ economic flow. Funding attribution requests raw legs to explain the same confirm
 portions without changing ledger records. Forecast residuals remain
 separate from actual income, preventing double counting after matching.
 
+Received-income detail links each effective leg to its original transaction ID.
+Category totals and income-plan versus outside-plan subtotals use integer pence
+from the same economic receipt items as the headline; expense-only planned
+categories do not count as income coverage. Split receipt legs remain distinct,
+and contribution details do not reuse income-category subtotals.
+
+The combined Budget response preserves `detail` and independent account-union
+`actuals`, and adds `sections` with owner ID/name, optional plan detail and scoped
+actuals. Shared appears once; private sections require visible plans or authorized
+owned accounts. Every section uses the requested calendar bounds even when its
+personal page uses payday cycles. A null detail means no plan, distinct from a
+zero-valued plan; its account actuals remain included. Section details are marked
+read-only without changing persisted plan locks or amounts. Section sums never
+replace the All account-union calculation.
+
 Opening funds are balance stock across authorized scoped accounts, using every
 nonvoid ledger leg before the period. Opening transactions are counted once;
 account opening metadata is not added again. Future windows cap this snapshot

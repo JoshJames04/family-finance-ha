@@ -442,9 +442,17 @@ class BudgetActuals(BaseModel):
     bills_remaining_count: int = 0
 
 
+class BudgetCombinedSection(BaseModel):
+    owner_profile_id: int | None
+    name: str
+    detail: BudgetDetail | None = None
+    actuals: BudgetActuals
+
+
 class BudgetCombined(BaseModel):
     detail: BudgetDetail
     actuals: BudgetActuals
+    sections: list[BudgetCombinedSection] = []
 
 
 class BudgetTemplateIn(BaseModel):
