@@ -34,6 +34,7 @@ from app.persistence.models import (
     MappingStatus,
     SyncCursor,
     SyncRun,
+    SyncStatus,
     TransactionSource,
 )
 
@@ -46,7 +47,8 @@ def _next_due(cursor: SyncCursor | None, now: datetime,
     backoff outrank the plain cadence estimate."""
     if cursor is None:
         return now
-    if cursor.retry_at is not None and cursor.retry_at > now:
+    if cursor.retry_at is not None and (cursor.retry_at > now
+                                        or cursor.status == SyncStatus.failed):
         return cursor.retry_at
     if cursor.last_success_at is None or cursor.refresh_requested:
         return now

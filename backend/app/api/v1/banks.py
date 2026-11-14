@@ -318,6 +318,10 @@ def sync_transactions(
     historical_since: date | None = None,
 ) -> dict[str, object]:
     """Refresh linked feeds, queueing a request when another trigger owns them."""
+    if historical_since is not None:
+        require_admin(request, session)
+        if historical_since > date.today():
+            raise HTTPException(422, "historical_since must not be in the future")
     c = _conn(session, household.id, cid)
     with claim(session, f"connection:{c.id}") as acquired:
         if acquired:
@@ -326,7 +330,6 @@ def sync_transactions(
         if not banks.syncable(c):
             raise HTTPException(422, "connection is revoked — re-authenticate first")
         if historical_since is not None:
-            require_admin(request, session)
             raise HTTPException(409, "sync already running; retry historical refresh later")
         _require_queue_worker(request)
         results = []
@@ -354,10 +357,6 @@ def _sync_transactions(
     """Manual refresh — runs the incremental feed sync for every
     linked mapping. A revoked connection 422s (re-auth first);
     rate-limit/network failures surface per-account, resumable."""
-    if historical_since is not None:
-        require_admin(request, session)
-        if historical_since > date.today():
-            raise HTTPException(422, "historical_since must not be in the future")
     c = _conn(session, household.id, cid)
     if not banks.syncable(c):
         raise HTTPException(

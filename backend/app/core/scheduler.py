@@ -70,8 +70,11 @@ def _due(cursor: SyncCursor, now: datetime,
          interval_seconds: float) -> bool:
     """A cursor is due for a scheduled pull when its last good sync
     is older than the interval — never-synced is due too."""
-    if cursor.retry_at is not None and cursor.retry_at > now:
-        return False
+    if cursor.retry_at is not None:
+        if cursor.retry_at > now:
+            return False
+        if cursor.status == SyncStatus.failed:
+            return True
     if cursor.last_success_at is None:
         return True
     elapsed = (now - cursor.last_success_at).total_seconds()

@@ -500,3 +500,13 @@ completed or failed feed runs. It does not label every successful HTTP request
 queued. Historical refresh flags show `Manual refresh needed` while the worker
 is disabled, with no automatic run promise; enabled workers retain the queued
 badge and next-run display.
+
+Historical feed replay checks administrator permission before resolving a bank
+connection or taking sync ownership, including unknown connection ids. The
+normal historical date validation also precedes connection lookup.
+
+A failed cursor with a persisted retry deadline becomes due when that deadline
+expires, even if its last successful refresh was recent and no manual queue flag
+exists. A restart preserves that eligibility. Settings reports the same retry
+deadline instead of falling back to the four-hour successful-sync cadence;
+completed cursors retain their normal cadence.

@@ -640,3 +640,52 @@ def test_disabled_worker_rejects_queue_if_provider_limit_arrives_mid_manual_sync
     assert "Retry after" in error.value.detail
     assert feeds == ["1"]
     assert session.scalar(select(func.count()).select_from(SyncRun)) == 1
+
+@pytest.mark.parametrize("restart", [False, True])
+def test_recent_success_failed_manual_retries_at_deadline_without_queue_flag(
+        session, household, monkeypatch, restart):
+    from contextlib import nullcontext
+
+    account, conn, _ = linked(session, household)
+    cursor = sync.cursor_for(session, account.id, SRC)
+    cursor.last_success_at = datetime.now() - timedelta(minutes=1)
+    cursor.last_ref = "last-good-checkpoint"
+    session.commit()
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+
+    class Unavailable(Client):
+        def feed_items(self, *args):
+            raise ValidatorUnavailable("synthetic DNS failure")
+
+    manual(session, household.id, conn.id, Unavailable())
+    assert cursor.status is SyncStatus.failed
+    assert cursor.refresh_requested is False
+    deadline = cursor.retry_at
+    assert deadline is not None
+    session.commit()
+    factory = sessionmaker(bind=session.get_bind())
+    with factory() if restart else nullcontext(session) as worker:
+        persisted = sync.cursor_for(worker, account.id, SRC)
+        assert persisted.status is SyncStatus.failed
+        assert persisted.retry_at == deadline and persisted.refresh_requested is False
+        provider = Client()
+        assert scheduler.sync_tick(worker, client=provider, token_for=lambda *_: "synthetic",
+            now=deadline - timedelta(seconds=1), interval_seconds=4 * 3600) == 0
+        assert provider.calls == []
+        assert scheduler.sync_tick(worker, client=provider, token_for=lambda *_: "synthetic",
+            now=deadline, interval_seconds=4 * 3600) == 1
+        assert provider.calls.count("feed") == 1
+        assert persisted.status is SyncStatus.completed and persisted.retry_at is None
+
+
+@pytest.mark.parametrize("status", [SyncStatus.failed, SyncStatus.completed])
+def test_settings_next_due_keeps_failed_retry_deadline_after_expiry(status):
+    from app.api.v1.settings import _next_due
+
+    now = datetime.now()
+    last_success = now - timedelta(minutes=1)
+    deadline = now - timedelta(seconds=1)
+    cursor = SimpleNamespace(status=status, last_success_at=last_success,
+                             retry_at=deadline, refresh_requested=False)
+    expected = deadline if status is SyncStatus.failed else last_success + timedelta(hours=4)
+    assert _next_due(cursor, now, 4 * 3600) == expected
