@@ -114,6 +114,8 @@ python scripts/dev.py seed        # load synthetic fixture data
 cd backend && pip install -e '.[dev]' && pytest
 ```
 
+Frontend development and CI use Node.js 22; keep `@types/node` on the 22.x API line to match that runtime.
+
 Layout: `backend/` (FastAPI), `frontend/` (Vite + React + TS), `addon/` (HA
 app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
 `tests/` (shared synthetic fixtures).
