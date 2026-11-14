@@ -67,7 +67,9 @@ def test_unexpected_sync_failure_finalizes_run_and_preserves_only_completed_page
 @pytest.mark.parametrize("kind", ["unhandled", "explicit"])
 def test_server_error_counter_counts_each_failed_response_once(tmp_path, kind):
     app = create_app(Settings.load({
-        "FF_DATA_DIR": str(tmp_path), "FF_SCHEDULER_TICK_SECONDS": "0"}))
+        "FF_DATA_DIR": str(tmp_path), "FF_SCHEDULER_TICK_SECONDS": "0",
+        # A packaged SPA catch-all would precede this injected test-only route.
+        "FF_WEB_DIR": str(tmp_path / "no-web")}))
 
     @app.get("/review-failure")
     def fail():
