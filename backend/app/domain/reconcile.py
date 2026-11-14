@@ -19,7 +19,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import categorise, contributions, settle
-from app.domain.expected_matches import SALARY_SOURCES, eligible_matches
+from app.domain.expected_matches import (
+    SALARY_SOURCES,
+    acyclic_transaction_ids,
+    eligible_matches,
+)
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -120,8 +124,7 @@ def reconcile_account(session: Session, account: Account,
         else:
             dismissed_keys.add(key)
             dismissed_txns.add(r.transaction_id)
-    txns = session.scalars(
-        select(Transaction).where(
+    candidates_query = select(Transaction).where(
             Transaction.account_id == account.id,
             # pending = user-posted; cleared = settled bank feed rows
             # (issue #429 — Starling items arrive cleared, not pending)
@@ -136,7 +139,11 @@ def reconcile_account(session: Session, account: Account,
                 Reconciliation.transaction_id == Transaction.id,
                 Reconciliation.status != ReconStatus.dismissed
             ).exists(),
-        ).order_by(Transaction.date)).all()
+        ).order_by(Transaction.date)
+    # Invalid legacy correction chains must not abort settlement of other rows.
+    txns = session.scalars(candidates_query.where(Transaction.id.in_(
+        acyclic_transaction_ids(candidates_query.with_only_columns(
+            Transaction.id).order_by(None))))).all()
     # Resolve corrected aliases once for this account's scanned payments. An
     # already allocated live payment cannot become a new proposal elsewhere.
     used: set[int] = set()

@@ -15,6 +15,14 @@ legacy families require manual review and raise the existing refund conflict.
 Automatic refund linking skips such candidates and continues processing valid
 payments. These reads do not repair stored links or rewrite protected history.
 
+## Automatic reconciliation of legacy correction cycles
+
+Automatic reconciliation excludes cyclic correction families before scoring,
+using the same ancestry filter as automatic transfer matching. Self-cycles and
+multi-row cycles leave their stored rows untouched while unrelated valid
+payments still settle, including through the post-sync workflow. Explicit
+confirmation retains the settlement writer's conflict rejection.
+
 ## Weekly overtime (#487)
 
 Coverage includes derived grouping of all historical work dates, Monday/Sunday

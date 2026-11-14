@@ -219,3 +219,36 @@ def test_stale_payment_confirmation_api_is_409_and_preserves_pending_row(tmp_pat
             assert session.get(Reconciliation, rid).status == ReconStatus.pending
             assert session.get(Transaction, tid).status == TransactionStatus.cleared
             assert session.scalar(select(func.count()).select_from(ExpectedMatch)) == 1
+
+
+@pytest.mark.parametrize("runner", ["account", "post_sync"])
+@pytest.mark.parametrize("shape", ["self", "corrected_alias"])
+def test_automatic_reconcile_skips_cyclic_high_score_and_settles_valid_payment(
+        session, account, runner, shape):
+    corrupt_target = movement(session, account)
+    corrupt = payment(session, account)
+    if shape == "self":
+        corrupt.corrects_id = corrupt.id
+        corrupt_rows = [corrupt]
+    else:
+        corrupt.status = TransactionStatus.reconciled
+        current = transactions.correct(session, corrupt, "Synthetic cyclic legacy")
+        corrupt.corrects_id = current.id
+        corrupt_rows = [corrupt, current]
+    valid_target = movement(session, account, 2, "Unrelated", amount=2500)
+    valid = payment(session, account, 2500, "Unrelated")
+    session.flush()
+    before = [(row.id, row.corrects_id, row.status, row.category_id, row.amount_pence)
+              for row in corrupt_rows]
+    result = (reconcile.reconcile_account(session, account, DAY) if runner == "account"
+              else settle.post_sync(session, account.household_id, today=DAY))
+    assert result.matched == 1 and result.queued == 0
+    assert valid.status == TransactionStatus.reconciled
+    assert contributions.matched_total(session, valid_target.id) == 2500
+    assert contributions.matched_total(session, corrupt_target.id) == 0
+    assert [(row.id, row.corrects_id, row.status, row.category_id, row.amount_pence)
+            for row in corrupt_rows] == before
+    assert session.scalar(select(func.count()).select_from(Reconciliation).where(
+        Reconciliation.transaction_id.in_([row.id for row in corrupt_rows]))) == 0
+    assert session.scalar(select(func.count()).select_from(ExpectedMatch).where(
+        ExpectedMatch.transaction_id.in_([row.id for row in corrupt_rows]))) == 0

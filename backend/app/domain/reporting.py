@@ -28,8 +28,6 @@ Deliberate exceptions (each documented where it lives):
 - ``discovery._reconcile_opening`` — computes the opening so that
   ``current_balance`` equals the provider balance; it must sum on
   the same all-legs basis or the reconciled opening is wrong.
-- ``refunds.refundable_balance`` — scoped by ``refund_of_id``; transfer
-  legs never carry that column.
 - ``transfers.legs_balance`` — deliberately sums a transfer's own legs
   to prove they net to zero.
 - ``analytics._monthly_net`` — balance accumulation for materialised
