@@ -19,7 +19,7 @@ from tests.test_banking_live142 import linked
 
 def request():
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
-        settings=Settings(sync_interval_minutes=30))))
+        settings=Settings(sync_interval_minutes=30), scheduler_enabled=True)))
 
 
 @pytest.mark.parametrize("manual", [False, True])
@@ -374,9 +374,10 @@ def test_provider_cooldown_persists_before_any_account_is_linked(session, househ
     banks.record_api_error(session, conn, 429, "HTTP 429", retry_after=600)
     session.commit()
     assert banks.connection_retry_at(session, conn) >= before + timedelta(seconds=590)
-    row = _status(request(), session, household.id).connections[0]
+    state = _status(request(), session, household.id)
+    row = state.connections[0]
     assert row.retry_at >= before + timedelta(seconds=590)
-    assert row.next_due_at == row.retry_at
+    assert row.next_due_at == (row.retry_at if state.scheduler_enabled else None)
 
 
 @pytest.mark.parametrize("mode", ["rotate", "revive"])

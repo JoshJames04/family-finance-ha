@@ -29,6 +29,7 @@ from app.persistence.models import (
     BankConnection,
     ConnStatus,
     MappingStatus,
+    SyncCursor,
     SyncStatus,
     Transaction,
     TransactionSource,
@@ -183,13 +184,22 @@ def unignore(session: Session, mapping: BankAccountMapping) -> None:
 
 
 def sync_balances(session: Session, conn: BankConnection,
-                  client: BankClient, token: str) -> int:
+                  client: BankClient, token: str, *,
+                  reconcile_opening: bool = False,
+                  account_ids: set[int] | None = None,
+                  fresh: bool = False) -> int:
     """Refresh provider balances on linked mappings. Point-in-time
     read only — never fabricates ledger transactions."""
     session.commit()  # discovery/caller changes cannot span HTTP
     rows = session.scalars(select(BankAccountMapping).where(
         BankAccountMapping.connection_id == conn.id,
         BankAccountMapping.status == MappingStatus.linked)).all()
+    if account_ids is not None:
+        rows = [m for m in rows if m.account_id in account_ids]
+    if fresh:
+        invalidate = getattr(client, "invalidate_balances", None)
+        if callable(invalidate):
+            invalidate()
     balances = []
     denied_spaces = unavailable_spaces(client)
     for m in rows:
@@ -197,6 +207,7 @@ def sync_balances(session: Session, conn: BankConnection,
             continue
         cat = (m.external_category_uid or None
                if m.external_kind == "space" else None)
+        previous_balance = m.balance_pence
         try:
             balance = client.balance(token, m.external_uid, cat)
         except SpacesUnavailable:
@@ -204,14 +215,43 @@ def sync_balances(session: Session, conn: BankConnection,
             conn.status = ConnStatus.degraded
             conn.last_error = "Spaces unavailable — check Spaces read permission"
             continue
-        balances.append((m, balance))
-    for m, balance in balances:
+        balances.append((m, balance, previous_balance))
+    for m, balance, previous_balance in balances:
         m.balance_pence = balance
         m.balance_at = datetime.now()
-        if m.account_id is not None:
+        # Changing stock can include activity not captured by the completed feed.
+        # Equality reduces that timing risk; it is not proof of provider atomicity.
+        if (reconcile_opening and m.account_id is not None
+                and previous_balance is not None and previous_balance == balance):
             _reconcile_opening(session, m.account_id, m.balance_pence)
     session.flush()
     return len(balances)
+
+
+def reconcile_synced_balances(session: Session, conn: BankConnection,
+                              client: BankClient, token: str,
+                              account_ids: set[int], *,
+                              interval_seconds: float = 240 * 60) -> int:
+    """Refresh only completed feeds requiring the existing pre-opening repair.
+
+    Ordinary incremental sync needs no extra balance request or opening rewrite.
+    A discovery-time Spaces cache is too old to repair newly ingested history.
+    """
+    repair_ids = set(session.scalars(select(Account.id).join(
+        Transaction, Transaction.account_id == Account.id).join(
+        SyncCursor, SyncCursor.account_id == Account.id).where(
+            Account.id.in_(account_ids), Transaction.date < Account.opening_date,
+            Transaction.status != TransactionStatus.void,
+            SyncCursor.source == TransactionSource.starling,
+            SyncCursor.status == SyncStatus.completed).distinct()))
+    if not repair_ids:
+        return 0
+    count = sync_balances(session, conn, client, token, reconcile_opening=True,
+                          account_ids=repair_ids, fresh=True)
+    denied = unavailable_spaces(client)
+    if denied:
+        defer_unavailable_spaces(session, conn, denied, interval_seconds)
+    return count
 
 
 def _reconcile_opening(session: Session, account_id: int,

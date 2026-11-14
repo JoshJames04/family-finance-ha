@@ -3400,9 +3400,7 @@ export interface paths {
         put?: never;
         /**
          * Sync Transactions
-         * @description Manual refresh — runs the incremental feed sync for every
-         *     linked mapping. A revoked connection 422s (re-auth first);
-         *     rate-limit/network failures surface per-account, resumable.
+         * @description Refresh linked feeds, queueing a request when another trigger owns them.
          */
         post: operations["sync_transactions_api_v1_banking_connections__cid__sync_post"];
         delete?: never;
@@ -4029,6 +4027,8 @@ export interface components {
             max_minutes: number;
             /** Tick Seconds */
             tick_seconds: number;
+            /** Scheduler Enabled */
+            scheduler_enabled: boolean;
             /** Connections */
             connections: components["schemas"]["ConnectionSyncStatusOut"][];
         };

@@ -447,3 +447,106 @@ Grouping and status transitions preserve work dates, rate/multiplier snapshots,
 payroll-cutoff attribution and already-generated payroll components. Approved-only
 payroll behaviour is unchanged, including weeks crossing a cutoff or year. This
 workflow records submission/approval in the app; it does not send manager emails.
+
+### Bank sync ownership and balance repair (#490)
+
+Manual and scheduled syncs take nonblocking native advisory locks keyed by the
+SQLite database identity plus connection, then account/source. The account lock
+also covers direct feed calls. A contending trigger preserves a queued refresh
+without calling the provider or inventing a failed run. Linux uses `flock` and
+Windows uses a byte-range lock. The kernel releases ownership on process exit;
+a persisted `running` cursor can then resume from its committed checkpoint.
+Hashed lock files under the service's private temporary directory contain no
+financial data and must not be unlinked while the service is running. This
+coordinates workers in one service host/container; distributed replicas sharing
+SQLite are not supported. No SQLite write is held across provider HTTP.
+
+Discovery-time balances are snapshots. Their refresh does not repair the opening
+before ingestion. Only a completed feed with history predating its opening is
+eligible for the existing opening-history repair, using a newly fetched balance;
+Spaces reads explicitly invalidate the earlier discovery cache. Failed or partial
+feeds retain committed checkpoints and do not trigger that repair. Other ledger
+amounts/payees and reconciled historical movements remain unchanged. Ordinary
+feeds without pre-opening history incur no extra balance read.
+
+Transient feed/network failures persist a five-minute retry deadline. A positive
+finite provider `Retry-After` takes precedence; invalid rate-limit hints fall back
+to sixty seconds. Connection-wide provider429 cooldown remains distinct from
+per-feed transient retries, so healthy feeds can continue. Malformed feed
+listings fail without advancing a success watermark; an explicit empty list is
+valid. A failed fresh Spaces balance remains degraded rather than clearing a
+permission warning after feed-only success.
+
+Settings exposes the actual `scheduler_enabled` state and omits an automatic
+next-run time when the worker is disabled (including startup failure). Manual
+refresh remains available and its retry timing is still shown. Synthetic tests
+do not establish unattended live-provider acceptance for #416 or apply the
+private live policy tracked by #475.
+
+The provider feed and balance endpoints are separate reads, not an atomic bank
+snapshot. A fresh balance prevents cache staleness but cannot establish atomic
+agreement if bank activity arrives between those requests. Live acceptance must
+check identifiable post-sync reconciliation under that provider timing limit;
+the synthetic tests do not prove it away. Standalone balance refresh is
+snapshot-only by default and cannot rewrite an opening without completed feed
+history; the explicit opening-repair flag is used by the completed-feed path.
+
+Retry deadlines use the same validator in connection-error callbacks and feed
+handling. Finite hints too large for a datetime use the normal fallback rather
+than raising an overflow or parking a feed at year9999.
+
+### Manual retry when automatic work is disabled
+
+A manual sync cannot promise queued work if the actual scheduler is disabled,
+even when a positive tick interval remains configured. Connection/account
+contention returns HTTP409 with instructions to retry after the active run.
+Provider/per-feed backoff returns HTTP409 with its persisted retry deadline,
+without provider calls, cursor advancement, a fabricated failed run, or a new
+manual queue flag. This also applies when a provider embargo arrives partway
+through a manual request. Existing provider-failure state is retained.
+
+With a worker enabled, contending and backoff requests retain the existing queue
+contract and due scheduled work drains it normally. The domain SyncBusy signal
+itself makes no queue promise or write: its caller determines whether a consumer
+exists. Manual clients already surface the problem response as an error rather
+than showing a queued success; Settings regression tests cover both retry
+messages. These changes do not enable scheduling on any installation.
+
+Settings acknowledges an HTTP200 manual refresh as a processed request and
+points to the refreshed account status, since a synchronous response may contain
+completed or failed feed runs. It does not label every successful HTTP request
+queued. Historical refresh flags show `Manual refresh needed` while the worker
+is disabled, with no automatic run promise; enabled workers retain the queued
+badge and next-run display.
+
+Historical feed replay checks administrator permission before resolving a bank
+connection or taking sync ownership, including unknown connection ids. The
+normal historical date validation also precedes connection lookup.
+
+A failed cursor with a persisted retry deadline becomes due when that deadline
+expires, even if its last successful refresh was recent and no manual queue flag
+exists. A restart preserves that eligibility. Settings reports the same retry
+deadline instead of falling back to the four-hour successful-sync cadence;
+completed cursors retain their normal cadence.
+
+Opening repair also requires the immediately prior provider snapshot amount to
+match the newly fetched amount. If the balance changed, the fresh provider
+snapshot is still stored but the historical opening is retained until a
+subsequent complete feed has stable bracket amounts. Quiescent initial-history
+imports still establish their correct opening on the first completed run;
+changing Spaces snapshots wait for a later stable run instead of treating a
+stale discovery cache as proof.
+
+This is conservative timing-risk reduction, not an atomicity guarantee. Equal
+amounts can conceal offsetting activity across the reads: a captured debit and
+an uncaptured later credit can leave the provider balance unchanged and still
+make an opening adjustment unsafe. The provider endpoints supply no common
+snapshot watermark. That acceptance limitation remains explicit under #416;
+this guard does not establish unattended provider reconciliation or change the
+private live-policy work in #475.
+
+Starting an acquired feed attempt consumes existing refresh intent in the same
+commit that records the running cursor/run, before provider I/O. Completion does
+not clear that flag again: a new concurrent refresh requested during I/O remains
+queued for its own later run. A successful manual attempt therefore satisfies an
+older queued request without causing a redundant immediate scheduled pull.
