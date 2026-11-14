@@ -18,8 +18,8 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import categorise, settle
-from app.domain.expected_matches import SALARY_SOURCES
+from app.domain import categorise, contributions, settle
+from app.domain.expected_matches import SALARY_SOURCES, eligible_matches
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -137,24 +137,33 @@ def reconcile_account(session: Session, account: Account,
                 Reconciliation.status != ReconStatus.dismissed
             ).exists(),
         ).order_by(Transaction.date)).all()
+    # Resolve corrected aliases once for this account's scanned payments. An
+    # already allocated live payment cannot become a new proposal elsewhere.
+    used: set[int] = set()
+    if txns:
+        evidence = eligible_matches(transaction_ids=[txn.id for txn in txns])
+        used = set(session.scalars(select(evidence.c.transaction_id)))
     matched = queued = 0
     for txn in txns:
-        if not categorise.transaction_editable(session, txn):
+        if txn.id in used or not categorise.transaction_editable(session, txn):
             continue
         lo = date.fromordinal(txn.date.toordinal() - DATE_WINDOW)
         hi = date.fromordinal(txn.date.toordinal() + DATE_WINDOW)
-        candidates = [
-            (e, _score(txn, e))
-            for e in session.scalars(
+        possible = list(session.scalars(
                 select(ExpectedMovement).where(
                     ExpectedMovement.account_id == account.id,
+                    ExpectedMovement.household_id == account.household_id,
                     ExpectedMovement.expected_date.between(lo, hi),
                     ExpectedMovement.dismissed_at.is_(None),
                     ExpectedMovement.amount_pence != 0,
                     # sign must agree — income matches income
                     (ExpectedMovement.amount_pence < 0)
-                    == (txn.amount_pence < 0)))
-            if (e.source_type.value, e.source_id, e.expected_date)
+                    == (txn.amount_pence < 0))))
+        totals = contributions.matched_totals(session, [e.id for e in possible])
+        candidates = [
+            (e, _score(txn, e)) for e in possible
+            if totals[e.id] < abs(e.amount_pence)
+            and (e.source_type.value, e.source_id, e.expected_date)
             not in matched_keys
             and (e.source_type.value, e.source_id, e.expected_date)
             not in dismissed_keys
@@ -172,8 +181,7 @@ def reconcile_account(session: Session, account: Account,
         r = Reconciliation(
             household_id=account.household_id,
             account_id=account.id, transaction_id=txn.id,
-            status=ReconStatus.matched if auto
-            else ReconStatus.pending,
+            status=ReconStatus.pending,
             score=score,
             candidates={"ranked": [
                 {"label": e.label, "date": e.expected_date.isoformat(),
@@ -181,12 +189,15 @@ def reconcile_account(session: Session, account: Account,
                 for e, s in candidates[1:5]]})
         _snapshot(r, top, txn)
         if auto:
+            # A competing receipt may already have satisfied the expectation.
+            # Do not persist a matched snapshot when settlement did nothing.
+            if settle.settle_occurrence(session, top, txn, manual=False) is None:
+                continue
+            r.status = ReconStatus.matched
             r.resolved_at = datetime.now()
             matched_keys.add((top.source_type.value, top.source_id,
                               top.expected_date))
-            # canonical settlement: ExpectedMatch + schedule advance
-            # (issue #429 — a matched row alone left bills overdue)
-            settle.settle_occurrence(session, top, txn, manual=False)
+            used.add(txn.id)
             txn.status = TransactionStatus.reconciled
             matched += 1
         else:
@@ -203,25 +214,40 @@ def confirm(session: Session, r: Reconciliation) -> None:
     txn = session.get(Transaction, r.transaction_id)
     if txn is None:
         raise ReconError("transaction missing")
+    account = session.get(Account, r.account_id)
+    if (account is None or account.household_id != r.household_id
+            or txn.account_id != r.account_id):
+        raise contributions.MatchError("reconciliation payment scope has changed")
     if not categorise.transaction_editable(session, txn):
         raise ReconError("transaction is protected")
-    r.status = ReconStatus.matched
-    r.resolved_at = datetime.now()
     # settle the live movement the snapshot proposed (issue #429) —
     # it may have been rematerialised since the proposal queued, so
     # resolve by identity rather than holding a stale row
+    movement = None
     if r.expected_source_type is not None:
-        movement = session.scalars(
-            select(ExpectedMovement).where(
+        target = select(ExpectedMovement).where(
                 ExpectedMovement.source_type ==
                 ExpectedSource(r.expected_source_type),
                 ExpectedMovement.source_id == r.expected_source_id,
                 ExpectedMovement.expected_date == r.expected_date,
-                ExpectedMovement.account_id == r.account_id,
-                ExpectedMovement.dismissed_at.is_(None))).first()
-        if movement is not None:
-            settle.settle_occurrence(session, movement, txn,
-                                     manual=True)
+                ExpectedMovement.account_id == r.account_id)
+        movement = session.scalars(target.where(
+            ExpectedMovement.household_id == r.household_id,
+            ExpectedMovement.dismissed_at.is_(None))).first()
+        if movement is None and session.scalar(select(target.exists())):
+            raise contributions.MatchError("reconciliation target is no longer available")
+    evidence = eligible_matches(transaction_ids=[txn.id])
+    allocated = set(session.scalars(select(evidence.c.movement_id).where(
+        evidence.c.transaction_id == txn.id)))
+    if allocated and (movement is None or allocated != {movement.id}):
+        raise contributions.MatchError("reconciliation payment is allocated elsewhere")
+    if (movement is not None and not allocated
+            and settle.settle_occurrence(session, movement, txn, manual=True) is None):
+        raise contributions.MatchError("reconciliation target is already satisfied")
+    # Existing valid evidence for this same target is an idempotent confirmation.
+    # An absent live target retains the legacy snapshot-only review contract.
+    r.status = ReconStatus.matched
+    r.resolved_at = datetime.now()
     txn.status = TransactionStatus.reconciled
     session.flush()
 
