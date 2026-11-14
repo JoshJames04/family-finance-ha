@@ -14,6 +14,19 @@ implemented; remaining gap rows are hardening options.
 
 ## 2. The end-to-end path
 
+Scheduled Dependabot version updates for Python, npm and GitHub Actions target
+`develop` and are assigned to `JoshJames04`, following the same review/CI and
+release path as other changes. Dependabot reads this configuration from the
+default branch, so routing changes become active after the release reaches
+`main`. GitHub's automatic security-update PRs still target the default branch;
+`target-branch` does not redirect them. Review those explicitly through the
+approved integration/release process. See the
+[Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch-).
+
+Scheduled npm updates keep `@types/node` on the application's Node 22 API line;
+its major upgrades require a deliberate runtime/toolchain change. Patch and
+minor typings updates remain enabled.
+
 ```
 feature PR ──► develop ──► release PR develop→main ──► tag vX.Y.Z
      │              │              │                    │
