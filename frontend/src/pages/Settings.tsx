@@ -9,7 +9,7 @@ import {
   Plus, Sun, Tags, Upload, UserRound, Users,
 } from "lucide-react";
 import { api } from "../api/client";
-import { isIngress } from "../ingress";
+import { appUrl, isIngress } from "../ingress";
 import { useApi, useIdentity, useMeProfileId } from "../api/useApi";
 import { useReady } from "../api/hooks";
 import type { components } from "../api/schema";
@@ -276,7 +276,7 @@ export function Settings() {
             <HardDrive /> {backingUp ? "Backing up…" : "Back up now"}
           </Button>
             <a
-              href="./api/v1/transactions/export.csv"
+              href={appUrl("/api/v1/transactions/export.csv")}
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2 [&_svg]:size-4"
             >
               <Download /> Export transactions (CSV)
@@ -453,7 +453,7 @@ function intervalLabel(minutes: number): string {
 
 /** Banking & synchronisation (issue #431): persisted, admin-editable
  * Starling poll cadence + per-connection sync status. */
-function BankingSyncPanel() {
+export function BankingSyncPanel() {
   const ready = useReady();
   const isAdmin = useIsAdmin(ready);
   const [rev, setRev] = useState(0);
@@ -486,7 +486,7 @@ function BankingSyncPanel() {
   const syncNow = (cid: number) => {
     setBusyId(cid);
     api.post("/api/v1/banking/connections/{cid}/sync", { path: { cid } })
-      .then(() => toast.success("Manual sync queued"))
+      .then(() => toast.info("Sync request processed. Check the account status below."))
       .catch((e: Error) => toast.error(e.message))
       .finally(() => { setBusyId(null); refresh(); });
   };
@@ -494,10 +494,15 @@ function BankingSyncPanel() {
   return (
     <Panel
       title="Banking & synchronisation"
-      description="How often Family Finance checks the bank for new activity. Automatic sync runs in the background; Sync now is manual.">
+      description="How often Family Finance checks the bank for new activity. Sync now refreshes your linked accounts manually.">
       <DataView state={sync} empty="No banking status" emptyIcon={CalendarClock}>
         {(s) => (
           <div className="flex flex-col gap-4">
+            {s.scheduler_enabled === false && (
+              <p className="text-[12.5px] text-fg-subtle" role="status">
+                Automatic sync is disabled. Sync now is still available.
+              </p>
+            )}
             <div className="flex flex-wrap items-end gap-3">
               <Field label="Check for new bank activity every">{(id) => (
                 <Select id={id} value={current} disabled={!canEdit}
@@ -537,22 +542,30 @@ function BankingSyncPanel() {
                       <Badge tone={c.status === "connected" ? "success" : "warning"}>
                         {c.status}
                       </Badge>
-                      {c.refresh_queued && <Badge tone="info">queued</Badge>}
+                      {c.sync_status === "failed" && <Badge tone="error">Sync failed</Badge>}
+                      {c.refresh_queued && <Badge tone="info">
+                        {s.scheduler_enabled === false ? "Manual refresh needed" : "queued"}
+                      </Badge>}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-fg-subtle">
                       <span>Last ok {c.last_success_at ? formatDateTime(c.last_success_at) : "never"}</span>
-                      {c.next_due_at && (
+                      {c.retry_at ? (
+                        <span>Retry after {formatDateTime(c.retry_at)}</span>
+                      ) : s.scheduler_enabled !== false && c.next_due_at ? (
                         <span>
                           {c.refresh_queued ? "Runs" : "Next"} {formatDateTime(c.next_due_at)}
                         </span>
-                      )}
+                      ) : null}
                       <Button size="sm" variant="ghost"
-                        disabled={busyId === c.connection_id}
+                        disabled={busyId === c.connection_id || !["connected", "degraded"].includes(c.status)}
                         onClick={() => syncNow(c.connection_id)}
                         aria-label={`Sync now for connection ${c.connection_id}`}>
                         Sync now
                       </Button>
                     </span>
+                    {(c.sync_error || c.last_error) && <p className="w-full text-negative" role="status">
+                      {c.sync_error || c.last_error}
+                    </p>}
                   </li>
                 ))}
               </ul>

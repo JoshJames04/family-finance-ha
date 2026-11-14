@@ -219,9 +219,10 @@ export function SharedPot({ period }: {
       title={pot ? `Shared pot — ${pot.name}` : "Shared pot"}
       description="Who funds the shared accounts, and whether this month's share is in."
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {pots.length > 1 && (
             <Select aria-label="Shared pot" sizeVariant="sm"
+              className="min-h-11" wrapperClassName="w-full sm:w-52"
               value={pot?.id ?? ""}
               onChange={(e) => setPotId(Number(e.target.value))}>
               {pots.map((a) => (
@@ -229,15 +230,15 @@ export function SharedPot({ period }: {
               ))}
             </Select>
           )}
-          <Button variant="ghost" size="sm" onClick={autoMatch}>
+          <Button variant="ghost" size="sm" className="min-h-11" onClick={autoMatch}>
             <ArrowLeftRight /> Match payments
           </Button>
           {pot != null && (
-            <Button variant="secondary" size="sm" onClick={() => setAdjusting(true)}>
+            <Button variant="secondary" size="sm" className="min-h-11" onClick={() => setAdjusting(true)}>
               <SlidersHorizontal /> Adjust split
             </Button>
           )}
-          <Button variant="primary" size="sm" onClick={() => setEditing("new")}>
+          <Button variant="primary" size="sm" className="min-h-11" onClick={() => setEditing("new")}>
             <Plus /> Set a share
           </Button>
         </div>
@@ -260,9 +261,9 @@ export function SharedPot({ period }: {
             {pot != null && splitTotal > 0 && (
               <div className="mb-4">
                 <div className="mb-2 flex items-baseline justify-between">
-                  <p className="tnum text-[18px] font-semibold">
+                  <p className="tnum flex flex-wrap items-baseline gap-x-1.5 text-[18px] font-semibold">
                     <Money pence={splitTotal} />
-                    <span className="ml-1.5 text-[12px] font-normal text-fg-subtle">
+                    <span className="text-[12px] font-normal text-fg-subtle">
                       per month — repeats until you change it
                     </span>
                   </p>
@@ -277,24 +278,24 @@ export function SharedPot({ period }: {
                       style={{ width: `${(m.pence / splitTotal) * 100}%` }} />
                   ))}
                 </div>
-                <ul className="flex flex-wrap gap-x-6 gap-y-1">
+                <ul className="grid min-w-0 gap-3 sm:grid-cols-2">
                   {memberShare.map((m) => (
-                    <li key={m.profile.id} className="flex items-center gap-2">
+                    <li key={m.profile.id} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1">
                       <span className={cn("size-2.5 rounded-full",
                         toneFor(m.profile.display_name).split(" ")[0],
                         m.pence === 0 && "opacity-25")} />
-                      <span className="text-[13px] font-medium">
+                      <span className="min-w-0 wrap-anywhere text-[13px] font-medium">
                         {m.profile.display_name}
                         {m.profile.id === me && <span className="text-fg-subtle"> (you)</span>}
                       </span>
-                      <span className="tnum text-[13px]">
+                      <span className="tnum col-start-2 text-[13px]">
                         <Money pence={m.pence} />
                         <span className="ml-1 text-[12px] text-fg-subtle">
                           {Math.round(m.pence / splitTotal * 100)}%
                         </span>
                       </span>
                       {m.custom.length > 0 && (
-                        <Badge tone="info">{specLabel(m.custom[0]!.amount_spec)}</Badge>
+                        <span className="col-start-2"><Badge tone="info">{specLabel(m.custom[0]!.amount_spec)}</Badge></span>
                       )}
                     </li>
                   ))}
@@ -311,14 +312,14 @@ export function SharedPot({ period }: {
             <div className="grid gap-3 sm:grid-cols-2">
               {standings.map((m) => (
                 <div key={m.profile.id}
-                  className={cn("rounded-lg border border-border bg-surface-2/40 p-3.5",
+                  className={cn("min-w-0 rounded-lg border border-border bg-surface-2/40 p-3.5",
                     m.profile.id === me && "ring-1 ring-accent/40")}>
                   <div className="mb-2 flex items-center gap-2.5">
                     <span className={cn("grid size-8 shrink-0 place-items-center rounded-full text-[12px] font-semibold",
                       toneFor(m.profile.display_name).split(" ").slice(0, 2).join(" "))}>
                       {m.profile.display_name.slice(0, 1).toUpperCase()}
                     </span>
-                    <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium">
+                    <p className="min-w-0 flex-1 wrap-anywhere text-[13.5px] font-medium">
                       {m.profile.display_name}
                       {m.profile.id === me && <span className="ml-1 text-[12px] font-normal text-fg-subtle">(you)</span>}
                     </p>
@@ -328,8 +329,8 @@ export function SharedPot({ period }: {
                   </div>
                   {m.expected > 0 ? (
                     <>
-                      <div className="mb-1.5 flex items-baseline justify-between text-[12.5px]">
-                        <span className="text-fg-muted">
+                      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 text-[12.5px]">
+                        <span className="inline-flex flex-wrap items-baseline gap-x-1 text-fg-muted">
                           <Money pence={m.matched} /> of <Money pence={m.expected} />
                         </span>
                         {m.outstanding > 0 && (
@@ -340,7 +341,7 @@ export function SharedPot({ period }: {
                         label={`${m.profile.display_name} contribution`} />
                       {m.unpaid.length > 0 && (
                         <div className="mt-2 flex justify-end">
-                          <Button size="sm" variant="secondary"
+                          <Button size="sm" variant="secondary" className="min-h-11"
                             onClick={() => setMatching({
                               movement: m.unpaid[0]!,
                               member: m.profile.display_name,
@@ -352,7 +353,7 @@ export function SharedPot({ period }: {
                       )}
                     </>
                   ) : (
-                    <p className="text-[12.5px] text-fg-subtle">
+                    <p className="wrap-anywhere text-[12.5px] text-fg-subtle">
                       {m.rules.length > 0
                         ? "Nothing due this month."
                         : `No share set — use Set a share to add ${m.profile.display_name}'s.`}
@@ -388,9 +389,9 @@ export function SharedPot({ period }: {
                       return (
                         <li key={r.id} className={cn("flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5", !r.active && "opacity-60")}>
                           <IconTile icon={HandCoins} label={r.name} size="sm" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium">{r.name}</p>
-                            <p className="text-[12px] text-fg-subtle">
+                          <div className="min-w-0 flex-1 basis-48">
+                            <p className="wrap-anywhere text-[13px] font-medium">{r.name}</p>
+                            <p className="wrap-anywhere text-[12px] text-fg-subtle">
                               {ownerName} · {src?.name ?? "?"} → {dst?.name ?? "?"} ·
                               {" "}{r.frequency} · day {r.day_of_month}
                             </p>
@@ -575,7 +576,7 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
   };
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
+    <Dialog open className="wrap-anywhere [&_button]:min-h-11 [&_input]:min-h-11 [&_select]:min-h-11" onOpenChange={(o) => { if (!o) onClose(); }}
       title={`Adjust the ${pot.name} split`}
       description="How much goes into the pot each month, and who covers what. It repeats monthly until you change it."
       footer={<>
@@ -600,18 +601,18 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
         )}
         <ul className="grid gap-3">
           {shares.map((m) => (
-            <li key={m.profile.id} className="flex items-center gap-3">
+            <li key={m.profile.id} className="flex min-w-0 flex-wrap items-center gap-3">
               <span className={cn("grid size-8 shrink-0 place-items-center rounded-full text-[12px] font-semibold",
                 toneFor(m.profile.display_name).split(" ").slice(0, 2).join(" "))}>
                 {m.profile.display_name.slice(0, 1).toUpperCase()}
               </span>
-              <span className="w-20 truncate text-[13.5px] font-medium">
+              <span className="min-w-0 flex-1 basis-32 wrap-anywhere text-[13.5px] font-medium">
                 {m.profile.display_name}
               </span>
               {mode === "amount" ? (
                 <>
                   <Input aria-label={`${m.profile.display_name} share amount`}
-                    type="number" step="0.01" min="0" className="w-28"
+                    type="number" step="0.01" min="0" className="min-h-11 w-full sm:w-28"
                     placeholder="0.00"
                     value={amounts[m.profile.id] ?? ""}
                     onChange={(e) => setAmounts((a) => ({ ...a, [m.profile.id]: e.target.value }))} />
@@ -624,7 +625,7 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
               ) : (
                 <>
                   <Input aria-label={`${m.profile.display_name} share percent`}
-                    type="number" step="1" min="0" max="100" className="w-20"
+                    type="number" step="1" min="0" max="100" className="min-h-11 w-full sm:w-20"
                     value={pcts[m.profile.id] ?? ""}
                     onChange={(e) => setPct(m.profile.id, e.target.value)} />
                   <span className="text-[12.5px] text-fg-subtle">%</span>
@@ -718,7 +719,7 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
   };
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
+    <Dialog open className="wrap-anywhere [&_button]:min-h-11 [&_input]:min-h-11 [&_select]:min-h-11" onOpenChange={(o) => { if (!o) onClose(); }}
       title={isNew ? "Set a member's share" : `Edit ${rule!.name}`}
       description="A standing rule — it schedules the expected payment each period and this page tracks whether it lands."
       footer={<>
@@ -791,7 +792,7 @@ function MatchDialog({ movement, member, onClose, onDone }: {
     () => api.get("/api/v1/transactions", {
       query: {
         account_id: movement.account_id!,
-        direction: "in",
+        direction: "income",
         size: 50,
       },
     }), ready);
@@ -812,19 +813,19 @@ function MatchDialog({ movement, member, onClose, onDone }: {
   };
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
+    <Dialog open className="wrap-anywhere [&_button]:min-h-11 [&_input]:min-h-11 [&_select]:min-h-11" onOpenChange={(o) => { if (!o) onClose(); }}
       title={`Record ${member}'s payment`}
       description={<>Match a transfer into the shared account to <Money pence={movement.amount_pence} /> expected on {formatDayMonth(movement.expected_date)}.</>}
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" type="submit" form="ff-match" disabled={busy || !txnId}>
+        <Button variant="primary" type="submit" form="ff-match" className="min-h-11" disabled={busy || !txnId}>
           {busy ? "Recording…" : "Record payment"}
         </Button>
       </>}>
       <form id="ff-match" onSubmit={submit} className="grid gap-4">
         <Field label="Transfer transaction" hint="Incoming payments on the shared account.">
           {(id) => (
-            <Select id={id} required value={txnId} onChange={(e) => setTxnId(e.target.value)}>
+            <Select id={id} required className="min-h-11" value={txnId} onChange={(e) => setTxnId(e.target.value)}>
               <option value="" disabled>Choose…</option>
               {items.map((t: Txn) => (
                 <option key={t.id} value={t.id}>

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const API = "http://localhost:8099/api/v1";
+const API = process.env["FF_E2E_API"] ?? "http://localhost:8099/api/v1";
 
 /** The household the UI resolves — first in the list, matching
  * `useHouseholds` (fresh CI DB → the seeded one; reused dev backend →

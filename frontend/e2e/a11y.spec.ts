@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-const API = "http://localhost:8099/api/v1";
+const API = process.env["FF_E2E_API"] ?? "http://localhost:8099/api/v1";
 
 test.beforeAll(async ({ request }) => {
   const res = await request.post(`${API}/households`, {

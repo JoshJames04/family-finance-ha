@@ -52,7 +52,7 @@ function stubFetch(
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
         : url.includes("/reports/combined")
-          ? opts.combined
+          ? opts.combined ?? { detail: { ...detail, id: 0, read_only: true }, actuals: opts.actuals ?? ACTUALS }
         : url.includes("/actuals")
           ? (opts.actuals ?? ACTUALS)
           : url.includes("/api/v1/budgets/1")
@@ -113,6 +113,7 @@ describe("Budget", () => {
     stubFetch(calls);
     const user = userEvent.setup();
     render(<MemoryRouter><Budget /></MemoryRouter>);
+    await user.click(await screen.findByRole("radio", { name: "Shared" }));
     await user.click(await screen.findByLabelText("Adjust Food"));
     const reason = await screen.findByLabelText("Revision reason");
     const submit = screen.getByRole("button", { name: "Save revision" });
@@ -132,6 +133,7 @@ describe("Budget", () => {
   it("locked budget renders read-only (no revise affordance)", async () => {
     stubFetch([], { locked: true });
     render(<MemoryRouter><Budget /></MemoryRouter>);
+    await userEvent.click(await screen.findByRole("radio", { name: "Shared" }));
     await screen.findByText("locked — read-only");
     expect(screen.queryByLabelText("Adjust Food")).toBeNull();
   });

@@ -246,25 +246,78 @@ known values, and payroll-run failures expose Retry instead of claiming no runs.
 ### Budget and reporting acceptance boundaries
 
 `BudgetActuals` separates full-period per-line analysis from as-of expense flow.
+Expense lines include negative effective legs and net explicitly linked refunds;
+unrelated positive receipts never offset them. Income lines include positive
+nonrefund legs. Variance drills carry `budget_side` to select the same records.
 The headline includes non-void external outflows through the earlier of today and
-the period end. Positive entries in an expense category, and explicitly linked
-refunds, offset expense flow; remaining positive entries are income. An unlinked,
-uncategorised inflow remains income rather than being guessed to be a refund.
+the period end. Explicitly linked refunds offset expense flow; all other positive
+entries are receipts, regardless of category, plan membership or account scope.
+An unrelated debit in the same category cannot turn a receipt into a refund.
+Linked transfers and effective category legs explicitly classified as
+`Internal Transfers` do not contribute to economic flows, even before pairing.
+Mixed splits retain their external fee legs. The ordinary `Transfer` category
+remains external. This rule also applies to reports, monthly flow analytics and
+spending forecasts; account balances and net worth retain all ledger legs.
+Named report income, monthly income and income-percentage rules exclude linked
+refunds. Expense reports, monthly spending and category forecasts net explicit
+refunds against outflows without offsetting unrelated receipts. Anomaly detection
+continues to examine gross external outflows, retaining mixed-split fee amounts.
+Category anomaly comparisons use the current category's effective subtotal;
+payee comparisons retain the full external transaction subtotal. Uncategorised
+report drills send `uncategorised=true` so they cannot expand to all expenses.
+Monthly series derive fresh values from authorised raw ledger and loan records
+without writing on GET or depending on a manual cache rebuild; the explicit
+rebuild endpoint remains available for materialised-table compatibility.
+Report internal outflow totals sum negative internal effective legs, including
+confirmed unpaired movements. Internal movement counts include each paired
+transfer ID once and each unpaired internal transaction once; their drill covers
+both directions, while the internal outflow drill selects negative legs.
 Opening transactions (`system`, `open:<account-id>`) remain balance stock and are
 excluded from period flow. The returned itemised bridge uses effective split
 amounts and preserves uncategorised status without writing classifications.
 
-The read-only combined Budget endpoint selects one latest visible plan per owner
+Shared Budget actuals, unpaid obligations and budget-scoped expected movements
+use shared accounts (owner NULL); personal Budgets use the owner's accounts.
+Accountless household obligations remain shared. The read-only combined Budget
+endpoint selects one latest visible plan per owner
 for the exact period, adds their plan lines, and computes actuals and unpaid bill
 residuals over a union of authorised accounts. Shared and personal overlap cannot
 multiply a transaction or expected obligation. Alternative plan versions for the
 same owner/period do not multiply the plan. An owner view retains normal editing.
+All includes every authorised account even when an account's owner has no plan
+in the selected period; plan lines sum only the plans that actually exist.
 
 Monthly, annual and comparative reports apply the caller's account and budget
 visibility to both current and prior sections. Personal budget variances reuse the
 Budget actuals calculation, including the owner scope and signed category refunds.
-Transaction drills carry owner and non-void/opening/transfer exclusions. Account
+Shared Budget variance drills include `shared_only=true`; personal drills carry
+the owner filter. Transaction drills retain non-void/opening/transfer exclusions. Account
 balances and net worth continue to include opening stock.
+
+Expected movements retain their original scheduled amounts and expose
+`outstanding_pence` from contribution matching plus `dismissed_at`. Budget salary
+forecasts use the undismissed residual of employment/payroll-run movements within
+the selected period and account scope. Forecast salary remains separate from
+manual plan totals and received ledger income; fully matched salary adds no
+remaining forecast income.
+
+Account projections and scenario baselines use that same matching status for
+every expected movement, retaining its sign and flooring the remaining magnitude
+at zero. Already received salary and already paid liabilities remain in ledger
+balance only. Next payday and scenario payday comparison dates exclude satisfied
+and dismissed salary movements. Scenario edits operate on the remaining amount;
+their payday anchors still come from the baseline. These reads preserve stored
+amounts, match rows, account visibility and the existing future-date bounds.
+Matched amounts are loaded in one grouped read for each selected movement set,
+including zeroes, rather than a query per movement. The shared evidence query
+follows only relevant payment/correction families while allocating all claims on
+those live payments consistently. Query-growth regressions count both SELECT
+and WITH/recursive reads for projections and scenarios.
+Reconciliation excludes allocated live payment aliases and fully satisfied or
+foreign-household targets before scoring. A no-op settlement cannot create a
+matched reconciliation or change transaction status. Stale allocation/scope
+confirmation conflicts fail before writes; valid same-target evidence and the
+existing absent-live-target historical snapshot review remain supported.
 
 Deleting a budget template removes its copied-line source and clears optional
 provenance pointers; previously applied budget lines are retained. Tariff deletion
@@ -315,3 +368,218 @@ purchase because the purchase is unchanged. Canonical occurrence settlement
 inherits its source category, then applies provider/rule fallbacks to that one
 editable row, before reconciliation freezes it. Existing user categories and
 protected historical rows remain unchanged.
+
+## Personal pay-cycle Budget views
+
+Budget records retain their nominal plan dates and lifecycle. Single-budget
+detail/actuals accept `basis=pay_cycle`; the default remains calendar-based for
+existing dashboard/report consumers. The personal Budget page opts in, while
+Shared and All remain calendar views. A returned period object carries effective
+dates, anchor employment and configuration warnings. All downstream actuals,
+bills and expected-movement queries use that effective range.
+
+`budget_periods` reuses payroll payday parsing and adjustment rules. Each monthly
+boundary independently selects the employment applicable on that adjusted
+payday, preserving continuity through job changes. Explicit per-member anchors
+are validated and stored under scoped `budget_pay_cycle:<household>:<member>`
+AppMeta keys. Ambiguous, stale or missing monthly sources produce a visible
+calendar fallback. Weekly/nightly jobs cannot silently repeat a whole monthly
+plan. Existing holiday-table coverage and payday policy remain authoritative.
+Members can instead select a fixed monthly payday independently of employment;
+this uses scoped `budget_pay_cycle_day:<household>:<member>` AppMeta state and
+does not create a job or salary forecast. Manual and employment selections clear
+one another, and Automatic clears both. Explicit employment selection applies
+within that employment's date coverage; unique known former jobs retain their
+historical payday rules.
+
+`budget_funding` itemizes effective external receipts, including categories absent
+from the plan. Verified personal/shared boundaries and confirmed contribution
+matches provide signed shared contributions; shared-space movements do not.
+Unidentified movement and inaccessible source attribution remain explicit.
+Manual matches consume only same-direction effective split legs; confirmed
+internal portions use the shared `confirmed_transfers` economic classifier across
+Budget actuals, monthly reports, analytics and forecast history. Its SQL window
+consumes already-internal legs first; unmatched external fees/receipts stay
+economic flow. Funding attribution requests raw legs to explain the same confirmed
+portions without changing ledger records. Forecast residuals remain
+separate from actual income, preventing double counting after matching.
+
+Received-income detail links each effective leg to its original transaction ID.
+Category totals and income-plan versus outside-plan subtotals use integer pence
+from the same economic receipt items as the headline; expense-only planned
+categories do not count as income coverage. Split receipt legs remain distinct,
+and contribution details do not reuse income-category subtotals.
+In All, coverage joins each receipt's transaction/category key to its authorized
+owner section and that section's income-plan categories. Another owner's plan
+cannot cover the receipt, and missing plans cover none. A category can therefore
+show mixed coverage while exact in-plan/outside-plan subtotals still reconcile.
+Legacy combined replies without sections retain category-based coverage.
+
+Synthetic browser evidence (generated only from routed synthetic API fixtures):
+[All desktop](images/budget-reconciliation-all-desktop.png),
+[All mobile](images/budget-reconciliation-all-mobile.png),
+[personal income desktop](images/budget-reconciliation-income-desktop.png) and
+[personal income mobile](images/budget-reconciliation-income-mobile.png).
+
+The combined Budget response preserves `detail` and independent account-union
+`actuals`, and adds `sections` with owner ID/name, optional plan detail and scoped
+actuals. Shared appears once; private sections require visible plans or authorized
+owned accounts. Every section uses the requested calendar bounds even when its
+personal page uses payday cycles. A null detail means no plan, distinct from a
+zero-valued plan; its account actuals remain included. Section details are marked
+read-only without changing persisted plan locks or amounts. Section sums never
+replace the All account-union calculation.
+Section category rows combine plan lines with the signed as-of `spend_items`
+and external `income_items`. Unplanned and uncategorised categories remain
+visible even without a plan. Each category is separate for income and expense;
+refunds reduce its spending and split legs contribute once. An absent planned
+amount is shown as unplanned, distinct from zero. Per-side actual footers explain
+the section headlines; full-period per-line actuals do not replace these as-of
+legs. Shared contributions remain a separate funding measure.
+
+Opening funds are balance stock across authorized scoped accounts, using every
+nonvoid ledger leg before the period. Opening transactions are counted once;
+account opening metadata is not added again. Future windows cap this snapshot
+at today and expose `opening_as_of`. The stock is never included in received
+income or silently added to approved spending. GETs derive all views without
+rewriting historical plans, statuses or ledger data. Migration 0070 adds nullable
+endpoint snapshots to expected movements. Deleting a scheduling rule preserves
+its confirmed contribution history through those snapshots. Account edits freeze
+the original endpoints before changing a rule. Endpoint changes return 409 when
+future movements already have matches: a separate rule must represent the new
+accounts, avoiding reinterpretation of a partly fulfilled obligation. Older deleted rules
+without endpoints still provide internal-transfer evidence; their funding stays
+unattributed rather than guessing a contributor.
+
+## Weekly overtime sheets
+
+The Overtime page derives Monday–Sunday groups from each entry's work date for
+the selected employment. ISO week numbers use the ISO week-year, including
+cross-year/week-53 history. The week header shows dates, hours, snapshotted pay
+and status counts. There is no separate persisted week state or history rewrite.
+
+Weekly submit processes drafts; weekly approve/reject processes submitted entries.
+Other entries remain unchanged, and all individual actions remain available.
+A confirmation captures the complete eligible set of IDs and opaque revisions.
+Revisions include content, status and mutation timestamps, so edited drafts and
+status cycles cannot silently reuse an earlier confirmation. Creation timestamps
+retain microseconds to distinguish same-second deleted/recreated IDs; mutating
+an entry strictly advances its timestamp. POST/PATCH refresh the persisted
+representation before returning a revision, including legacy accepted precision.
+
+The employment-scoped weekly endpoint uses the existing authorization boundary.
+It reserves the SQLite writer before reading the eligible set, preserving every
+employment field while preventing membership/content interleaving. Existing
+individual mutating reads share that reservation. Conditional transitions and
+per-entry audit events with week bounds share one transaction/savepoint. Stale
+membership, revisions, repeat requests and concurrent changes return a refreshable
+409 with no partial transitions or audit events. An API/input failure remains an
+error; the UI does not show it as an empty week or silently retry a stale claim.
+
+Grouping and status transitions preserve work dates, rate/multiplier snapshots,
+payroll-cutoff attribution and already-generated payroll components. Approved-only
+payroll behaviour is unchanged, including weeks crossing a cutoff or year. This
+workflow records submission/approval in the app; it does not send manager emails.
+
+### Bank sync ownership and balance repair (#490)
+
+Manual and scheduled syncs take nonblocking native advisory locks keyed by the
+SQLite database identity plus connection, then account/source. The account lock
+also covers direct feed calls. A contending trigger preserves a queued refresh
+without calling the provider or inventing a failed run. Linux uses `flock` and
+Windows uses a byte-range lock. The kernel releases ownership on process exit;
+a persisted `running` cursor can then resume from its committed checkpoint.
+Hashed lock files under the service's private temporary directory contain no
+financial data and must not be unlinked while the service is running. This
+coordinates workers in one service host/container; distributed replicas sharing
+SQLite are not supported. No SQLite write is held across provider HTTP.
+
+Discovery-time balances are snapshots. Their refresh does not repair the opening
+before ingestion. Only a completed feed with history predating its opening is
+eligible for the existing opening-history repair, using a newly fetched balance;
+Spaces reads explicitly invalidate the earlier discovery cache. Failed or partial
+feeds retain committed checkpoints and do not trigger that repair. Other ledger
+amounts/payees and reconciled historical movements remain unchanged. Ordinary
+feeds without pre-opening history incur no extra balance read.
+
+Transient feed/network failures persist a five-minute retry deadline. A positive
+finite provider `Retry-After` takes precedence; invalid rate-limit hints fall back
+to sixty seconds. Connection-wide provider429 cooldown remains distinct from
+per-feed transient retries, so healthy feeds can continue. Malformed feed
+listings fail without advancing a success watermark; an explicit empty list is
+valid. A failed fresh Spaces balance remains degraded rather than clearing a
+permission warning after feed-only success.
+
+Settings exposes the actual `scheduler_enabled` state and omits an automatic
+next-run time when the worker is disabled (including startup failure). Manual
+refresh remains available and its retry timing is still shown. Synthetic tests
+do not establish unattended live-provider acceptance for #416 or apply the
+private live policy tracked by #475.
+
+The provider feed and balance endpoints are separate reads, not an atomic bank
+snapshot. A fresh balance prevents cache staleness but cannot establish atomic
+agreement if bank activity arrives between those requests. Live acceptance must
+check identifiable post-sync reconciliation under that provider timing limit;
+the synthetic tests do not prove it away. Standalone balance refresh is
+snapshot-only by default and cannot rewrite an opening without completed feed
+history; the explicit opening-repair flag is used by the completed-feed path.
+
+Retry deadlines use the same validator in connection-error callbacks and feed
+handling. Finite hints too large for a datetime use the normal fallback rather
+than raising an overflow or parking a feed at year9999.
+
+### Manual retry when automatic work is disabled
+
+A manual sync cannot promise queued work if the actual scheduler is disabled,
+even when a positive tick interval remains configured. Connection/account
+contention returns HTTP409 with instructions to retry after the active run.
+Provider/per-feed backoff returns HTTP409 with its persisted retry deadline,
+without provider calls, cursor advancement, a fabricated failed run, or a new
+manual queue flag. This also applies when a provider embargo arrives partway
+through a manual request. Existing provider-failure state is retained.
+
+With a worker enabled, contending and backoff requests retain the existing queue
+contract and due scheduled work drains it normally. The domain SyncBusy signal
+itself makes no queue promise or write: its caller determines whether a consumer
+exists. Manual clients already surface the problem response as an error rather
+than showing a queued success; Settings regression tests cover both retry
+messages. These changes do not enable scheduling on any installation.
+
+Settings acknowledges an HTTP200 manual refresh as a processed request and
+points to the refreshed account status, since a synchronous response may contain
+completed or failed feed runs. It does not label every successful HTTP request
+queued. Historical refresh flags show `Manual refresh needed` while the worker
+is disabled, with no automatic run promise; enabled workers retain the queued
+badge and next-run display.
+
+Historical feed replay checks administrator permission before resolving a bank
+connection or taking sync ownership, including unknown connection ids. The
+normal historical date validation also precedes connection lookup.
+
+A failed cursor with a persisted retry deadline becomes due when that deadline
+expires, even if its last successful refresh was recent and no manual queue flag
+exists. A restart preserves that eligibility. Settings reports the same retry
+deadline instead of falling back to the four-hour successful-sync cadence;
+completed cursors retain their normal cadence.
+
+Opening repair also requires the immediately prior provider snapshot amount to
+match the newly fetched amount. If the balance changed, the fresh provider
+snapshot is still stored but the historical opening is retained until a
+subsequent complete feed has stable bracket amounts. Quiescent initial-history
+imports still establish their correct opening on the first completed run;
+changing Spaces snapshots wait for a later stable run instead of treating a
+stale discovery cache as proof.
+
+This is conservative timing-risk reduction, not an atomicity guarantee. Equal
+amounts can conceal offsetting activity across the reads: a captured debit and
+an uncaptured later credit can leave the provider balance unchanged and still
+make an opening adjustment unsafe. The provider endpoints supply no common
+snapshot watermark. That acceptance limitation remains explicit under #416;
+this guard does not establish unattended provider reconciliation or change the
+private live-policy work in #475.
+
+Starting an acquired feed attempt consumes existing refresh intent in the same
+commit that records the running cursor/run, before provider I/O. Completion does
+not clear that flag again: a new concurrent refresh requested during I/O remains
+queued for its own later run. A successful manual attempt therefore satisfies an
+older queued request without causing a redundant immediate scheduled pull.
