@@ -165,7 +165,7 @@ function PaydayPicker({ value, onChange }: {
         )}</Field>
       )}
       {kind && kind !== "legacy" && (
-        <Field label="Payroll cutoff day" hint="Optional: final day of the earning period (1–31). Leave blank for calendar months.">{(id) => (
+        <Field label="Payroll cutoff day" hint="Final day of the earning period, including overtime. For example, 15 covers the previous month's 16th through this month's 15th. Leave blank for calendar months.">{(id) => (
           <Input id={id} type="number" min={1} max={31} value={parsed?.cutoff_day ?? ""}
             onChange={(e) => update({ cutoff_day: e.target.value ? Math.max(1, Math.min(31, Number(e.target.value))) : undefined })} />
         )}</Field>

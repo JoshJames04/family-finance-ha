@@ -38,18 +38,18 @@ export function Panel({
       {...rest}
     >
       {(title || actions) && (
-        <header className="flex min-h-12 items-center gap-3 border-b border-border px-4 py-2.5">
-          <div className="min-w-0 flex-1">
+        <header className="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
+          <div className="min-w-0 flex-1 basis-48">
             {title && (
-              <H className="truncate text-[14px] font-semibold tracking-tight text-fg">
+              <H className="wrap-anywhere text-[14px] font-semibold tracking-tight text-fg">
                 {title}
               </H>
             )}
             {description && (
-              <p className="truncate text-[12.5px] text-fg-subtle">{description}</p>
+              <p className="wrap-anywhere text-[12.5px] text-fg-subtle">{description}</p>
             )}
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+          {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">{actions}</div>}
         </header>
       )}
       <div className={cn("min-w-0 flex-1", !flush && "p-4", bodyClassName)}>{children}</div>

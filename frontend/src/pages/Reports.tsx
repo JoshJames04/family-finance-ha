@@ -175,7 +175,11 @@ export function Reports() {
                         <tr key={f.key} className="border-b border-border last:border-0 hover:bg-surface-2/60">
                           <td className="py-2.5 pl-4">
                             {f.drill?.endpoint === "/api/v1/transactions" ? (
-                              <Link to="/transactions" className="font-medium text-accent hover:underline">{f.label}</Link>
+                              <Link to={`/transactions?${new URLSearchParams(
+                                Object.entries(f.drill.params)
+                                  .filter(([, value]) => value != null)
+                                  .map(([key, value]) => [key, String(value)]),
+                              )}`} className="font-medium text-accent hover:underline">{f.label}</Link>
                             ) : (
                               <span className="font-medium">{f.label}</span>
                             )}
