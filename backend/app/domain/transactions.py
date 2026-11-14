@@ -79,6 +79,7 @@ def correct(session: Session, original: Transaction, reason: str,
         source=TransactionSource.manual,
         external_ref=None,
         transfer_id=original.transfer_id,
+        refund_of_id=original.refund_of_id,
         corrects_id=original.id)
     session.add(corrected)
     session.flush()

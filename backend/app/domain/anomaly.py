@@ -27,8 +27,9 @@ from statistics import median
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.expression import ColumnElement, Subquery
 
-from app.domain.reporting import external_only
+from app.domain.reporting import external_category_amounts
 from app.persistence.models import (
     Account,
     AnomalyFlag,
@@ -69,17 +70,23 @@ def _p95(values: list[int]) -> float:
 
 def _history(session: Session, account_id: int, payee: str | None,
              category_id: int | None, before: date) -> list[int]:
-    q = (select(Transaction.amount_pence)
-         .where(Transaction.account_id == account_id,
+    conditions = [Transaction.account_id == account_id,
                 Transaction.date < before,
-                Transaction.status != TransactionStatus.void,
-                Transaction.amount_pence < 0))
-    q = external_only(q)
+                Transaction.status != TransactionStatus.void]
     if payee is not None:
-        q = q.where(func.lower(Transaction.payee) == payee.lower())
+        conditions.append(func.lower(Transaction.payee) == payee.lower())
+    amounts = external_category_amounts(*conditions)
+    q = select(func.sum(-amounts.c.amount_pence)).where(amounts.c.amount_pence < 0)
     if category_id is not None:
-        q = q.where(Transaction.category_id == category_id)
-    return [abs(a) for a in session.scalars(q)]
+        q = q.where(amounts.c.category_id == category_id)
+    return [int(a) for a in session.scalars(q.group_by(amounts.c.transaction_id))]
+
+
+def _spend_totals(*conditions: ColumnElement[bool]) -> Subquery:
+    amounts = external_category_amounts(*conditions)
+    return select(amounts.c.transaction_id,
+                  func.sum(-amounts.c.amount_pence).label("spent_pence")).where(
+                      amounts.c.amount_pence < 0).group_by(amounts.c.transaction_id).subquery()
 
 
 def _suppressed_pairs(session: Session, account_id: int) -> set[str]:
@@ -121,19 +128,25 @@ def scan_account(session: Session, account: Account,
     lo = date.fromordinal(today.toordinal() - SCAN_DAYS)
     suppressed = _suppressed_pairs(session, account.id)
     existing = _existing(session, account.id)
-    txns = session.scalars(
-        external_only(select(Transaction).where(
+    amounts = _spend_totals(
             Transaction.account_id == account.id,
             Transaction.date >= lo, Transaction.date <= today,
-            Transaction.status != TransactionStatus.void,
-            Transaction.amount_pence < 0))
-        .order_by(Transaction.date)).all()
-    all_abs = [abs(a) for a in session.scalars(
-        external_only(select(Transaction.amount_pence).where(
-            Transaction.account_id == account.id,
-            Transaction.date < lo,
-            Transaction.status != TransactionStatus.void,
-            Transaction.amount_pence < 0)))]
+            Transaction.status != TransactionStatus.void)
+    records = session.execute(select(Transaction, amounts.c.spent_pence).join(
+        amounts, amounts.c.transaction_id == Transaction.id).order_by(Transaction.date)).all()
+    txns = [transaction for transaction, _ in records]
+    spent = {transaction.id: int(amount) for transaction, amount in records}
+    category_legs = external_category_amounts(
+        Transaction.account_id == account.id,
+        Transaction.date >= lo, Transaction.date <= today,
+        Transaction.status != TransactionStatus.void)
+    category_spent = {(transaction_id, category_id): int(amount)
+                      for transaction_id, category_id, amount in session.execute(select(
+                          category_legs.c.transaction_id, category_legs.c.category_id,
+                          func.sum(-category_legs.c.amount_pence)).where(
+                              category_legs.c.amount_pence < 0).group_by(
+                                  category_legs.c.transaction_id, category_legs.c.category_id))}
+    all_abs = _history(session, account.id, None, None, lo)
     payee_hist: dict[str, list[int]] = {}
     flagged = suppressed_n = 0
 
@@ -142,7 +155,7 @@ def scan_account(session: Session, account: Account,
                 in suppressed)
 
     for t in txns:
-        amt = abs(t.amount_pence)
+        amt = spent[t.id]
         payee = (t.payee or "").lower()
 
         # -- amount_outlier: within-payee MAD test
@@ -167,16 +180,17 @@ def scan_account(session: Session, account: Account,
         # -- category_outlier: same test within the category
         if t.category_id is not None and not suppresses(
                 AnomalyTrigger.category_outlier, t.payee):
+            category_amount = category_spent.get((t.id, t.category_id), 0)
             chist = _history(session, account.id, None,
                              t.category_id, t.date)
             if len(chist) >= MIN_SAMPLES:
                 med, sig = _robust_sigma(chist)
-                if (med > 0 and amt > med + K_SIGMA * sig
-                        and amt >= 2 * med):
+                if (med > 0 and category_amount > med + K_SIGMA * sig
+                        and category_amount >= 2 * med):
                     flagged += _flag(
                         session, account, t,
                         AnomalyTrigger.category_outlier,
-                        {"amount_pence": amt,
+                        {"amount_pence": category_amount,
                          "category_median": med,
                          "robust_sigma": round(sig, 2),
                          "threshold": round(med + K_SIGMA * sig, 2),
@@ -198,26 +212,21 @@ def scan_account(session: Session, account: Account,
 
     # -- burst: same-payee daily count spikes beyond prior max
     by_day: Counter[tuple[str, date]] = Counter()
-    for t in session.scalars(external_only(select(Transaction).where(
-            Transaction.account_id == account.id,
-            Transaction.date >= lo, Transaction.date <= today,
-            Transaction.status != TransactionStatus.void,
-            Transaction.amount_pence < 0))):
+    for t in txns:
         by_day[((t.payee or "").lower(), t.date)] += 1
     prior_max: dict[str, int] = {}
     for (payee, d), n in by_day.items():
         if n < 3 or not payee:
             continue
         if payee not in prior_max:
-            counts = session.scalars(
-                external_only(select(func.count()).where(
+            prior = _spend_totals(
                     Transaction.account_id == account.id,
                     func.lower(Transaction.payee) == payee,
                     Transaction.date < lo,
                     Transaction.status
-                    != TransactionStatus.void,
-                    Transaction.amount_pence < 0)
-                    .group_by(Transaction.date))).all()
+                    != TransactionStatus.void)
+            counts = session.scalars(select(func.count()).select_from(Transaction).join(
+                prior, prior.c.transaction_id == Transaction.id).group_by(Transaction.date)).all()
             prior_max[payee] = max(counts, default=0)
         if prior_max[payee] <= 1:
             day_txns = [t for t in txns

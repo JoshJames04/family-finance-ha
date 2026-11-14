@@ -255,7 +255,12 @@ class TestBalances:
             balances={"uid-1": 45228})
         rows = discovery.discover(session, conn, client, "pat-1")
         discovery.link(session, rows[0], acct)
+        # The snapshot-only phase establishes a real prior provider balance;
+        # it does not itself change historical stock.
         discovery.sync_balances(session, conn, client, "pat-1")
+        assert current_balance(session, acct.id) == 38000
+        assert acct.opening_balance_pence == 50000
+        discovery.sync_balances(session, conn, client, "pat-1", reconcile_opening=True)
         assert current_balance(session, acct.id) == 45228
         assert acct.opening_balance_pence == 57228
 

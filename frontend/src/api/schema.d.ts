@@ -217,6 +217,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/budgets/pay-cycle-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Pay Cycle Settings */
+        get: operations["get_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_get"];
+        /** Set Pay Cycle Settings */
+        put: operations["set_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/budgets/{budget_id}": {
         parameters: {
             query?: never;
@@ -1203,6 +1221,23 @@ export interface paths {
         put?: never;
         /** Create Overtime */
         post: operations["create_overtime_api_v1_employments__emp_id__overtime_entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/overtime-weeks/{week_start}/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Overtime Week Transition */
+        post: operations["overtime_week_transition_api_v1_employments__emp_id__overtime_weeks__week_start___action__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3365,9 +3400,7 @@ export interface paths {
         put?: never;
         /**
          * Sync Transactions
-         * @description Manual refresh — runs the incremental feed sync for every
-         *     linked mapping. A revoked connection 422s (re-auth first);
-         *     rate-limit/network failures surface per-account, resumable.
+         * @description Refresh linked feeds, queueing a request when another trigger owns them.
          */
         post: operations["sync_transactions_api_v1_banking_connections__cid__sync_post"];
         delete?: never;
@@ -3994,6 +4027,8 @@ export interface components {
             max_minutes: number;
             /** Tick Seconds */
             tick_seconds: number;
+            /** Scheduler Enabled */
+            scheduler_enabled: boolean;
             /** Connections */
             connections: components["schemas"]["ConnectionSyncStatusOut"][];
         };
@@ -4033,6 +4068,39 @@ export interface components {
         BudgetActuals: {
             /** Budget Id */
             budget_id: number;
+            period?: components["schemas"]["BudgetPeriodWindow"] | null;
+            /**
+             * Opening Funds Pence
+             * @default 0
+             */
+            opening_funds_pence: number;
+            /** Opening As Of */
+            opening_as_of?: string | null;
+            /**
+             * External Income Pence
+             * @default 0
+             */
+            external_income_pence: number;
+            /**
+             * Contributions Pence
+             * @default 0
+             */
+            contributions_pence: number;
+            /**
+             * Unattributed Internal Pence
+             * @default 0
+             */
+            unattributed_internal_pence: number;
+            /**
+             * Income Items
+             * @default []
+             */
+            income_items: components["schemas"]["BudgetFundingItem"][];
+            /**
+             * Contribution Items
+             * @default []
+             */
+            contribution_items: components["schemas"]["BudgetFundingItem"][];
             /** As Of */
             as_of?: string | null;
             /**
@@ -4093,6 +4161,20 @@ export interface components {
         BudgetCombined: {
             detail: components["schemas"]["BudgetDetail"];
             actuals: components["schemas"]["BudgetActuals"];
+            /**
+             * Sections
+             * @default []
+             */
+            sections: components["schemas"]["BudgetCombinedSection"][];
+        };
+        /** BudgetCombinedSection */
+        BudgetCombinedSection: {
+            /** Owner Profile Id */
+            owner_profile_id: number | null;
+            /** Name */
+            name: string;
+            detail?: components["schemas"]["BudgetDetail"] | null;
+            actuals: components["schemas"]["BudgetActuals"];
         };
         /** BudgetDetail */
         BudgetDetail: {
@@ -4118,6 +4200,27 @@ export interface components {
             lines: components["schemas"]["BudgetLineOut"][];
             /** Read Only */
             read_only: boolean;
+            period?: components["schemas"]["BudgetPeriodWindow"] | null;
+        };
+        /** BudgetFundingItem */
+        BudgetFundingItem: {
+            /** Transaction Id */
+            transaction_id: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Account Id */
+            account_id: number;
+            /** Payee */
+            payee: string;
+            /** Category Id */
+            category_id?: number | null;
+            /** Amount Pence */
+            amount_pence: number;
+            /** Contributor Profile Id */
+            contributor_profile_id?: number | null;
         };
         /** BudgetIn */
         BudgetIn: {
@@ -4218,6 +4321,28 @@ export interface components {
          * @enum {string}
          */
         BudgetPeriodType: "monthly" | "annual" | "custom";
+        /** BudgetPeriodWindow */
+        BudgetPeriodWindow: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "calendar" | "pay_cycle";
+            /** Employment Id */
+            employment_id?: number | null;
+            /** Warning */
+            warning?: string | null;
+        };
         /** BudgetReport */
         BudgetReport: {
             /** Budget Id */
@@ -4600,6 +4725,10 @@ export interface components {
             status: string;
             /** Last Error */
             last_error: string | null;
+            /** Sync Status */
+            sync_status?: string | null;
+            /** Sync Error */
+            sync_error?: string | null;
             /** Account Id */
             account_id: number | null;
             /** Last Attempted At */
@@ -5281,6 +5410,13 @@ export interface components {
             source_type: components["schemas"]["ExpectedSource"];
             /** Source Id */
             source_id: number;
+            /**
+             * Outstanding Pence
+             * @default 0
+             */
+            outstanding_pence: number;
+            /** Dismissed At */
+            dismissed_at?: string | null;
         };
         /**
          * ExpectedSource
@@ -5918,6 +6054,8 @@ export interface components {
             pay_pence: number;
             /** Notes */
             notes: string | null;
+            /** Revision */
+            revision: string;
         };
         /** OvertimePatch */
         OvertimePatch: {
@@ -5936,6 +6074,38 @@ export interface components {
          * @enum {string}
          */
         OvertimeStatus: "draft" | "submitted" | "approved" | "rejected";
+        /** OvertimeWeekEntryIn */
+        OvertimeWeekEntryIn: {
+            /** Id */
+            id: number;
+            /** Revision */
+            revision: string;
+        };
+        /** OvertimeWeekIn */
+        OvertimeWeekIn: {
+            /** Entries */
+            entries: components["schemas"]["OvertimeWeekEntryIn"][];
+        };
+        /** OvertimeWeekOut */
+        OvertimeWeekOut: {
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+            /**
+             * Week End
+             * Format: date
+             */
+            week_end: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "submit" | "approve" | "reject";
+            /** Updated Count */
+            updated_count: number;
+        };
         /** Page[AccountOut] */
         Page_AccountOut_: {
             /** Items */
@@ -6105,6 +6275,31 @@ export interface components {
         PairRefundOut: {
             /** Linked */
             linked: number;
+        };
+        /** PayCycleOption */
+        PayCycleOption: {
+            /** Employment Id */
+            employment_id: number;
+            /** Employer */
+            employer: string;
+        };
+        /** PayCycleSettings */
+        PayCycleSettings: {
+            /** Employment Id */
+            employment_id?: number | null;
+            /** Payday Day */
+            payday_day?: number | null;
+            /** Options */
+            options: components["schemas"]["PayCycleOption"][];
+        };
+        /** PayCycleSettingsIn */
+        PayCycleSettingsIn: {
+            /** Owner Profile Id */
+            owner_profile_id: number;
+            /** Employment Id */
+            employment_id?: number | null;
+            /** Payday Day */
+            payday_day?: number | null;
         };
         /** PaydayDeltaOut */
         PaydayDeltaOut: {
@@ -8029,9 +8224,82 @@ export interface operations {
             };
         };
     };
-    get_budget_api_v1_budgets__budget_id__get: {
+    get_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_get: {
+        parameters: {
+            query: {
+                owner_profile_id: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayCycleSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_pay_cycle_settings_api_v1_budgets_pay_cycle_settings_put: {
         parameters: {
             query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayCycleSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayCycleSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_budget_api_v1_budgets__budget_id__get: {
+        parameters: {
+            query?: {
+                basis?: "calendar" | "pay_cycle";
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
@@ -8253,7 +8521,9 @@ export interface operations {
     };
     budget_actuals_api_v1_budgets__budget_id__actuals_get: {
         parameters: {
-            query?: never;
+            query?: {
+                basis?: "calendar" | "pay_cycle";
+            };
             header?: {
                 "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
@@ -8932,15 +9202,18 @@ export interface operations {
             query?: {
                 account_id?: number | null;
                 category_id?: number | null;
+                uncategorised?: boolean;
                 owner_profile_id?: number | null;
+                shared_only?: boolean;
+                budget_side?: ("expense" | "income") | null;
                 exclude_void?: boolean;
                 exclude_opening?: boolean;
                 status?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
                 q?: string | null;
-                direction?: string | null;
-                internal?: string | null;
+                direction?: ("expense" | "income") | null;
+                internal?: ("only" | "exclude") | null;
                 page?: number;
                 size?: number;
             };
@@ -10632,6 +10905,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OvertimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overtime_week_transition_api_v1_employments__emp_id__overtime_weeks__week_start___action__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                week_start: string;
+                action: "submit" | "approve" | "reject";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OvertimeWeekIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OvertimeWeekOut"];
                 };
             };
             /** @description Validation Error */
@@ -12354,6 +12668,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12389,6 +12704,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12420,6 +12736,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -12454,6 +12771,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;

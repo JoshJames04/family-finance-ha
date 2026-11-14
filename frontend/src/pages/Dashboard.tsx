@@ -2,12 +2,13 @@
  * Widget order/hidden persist per member via /profiles/me/dashboard;
  * standalone mode (no profile) falls back to localStorage. Widgets
  * come from the registry — unavailable ones degrade cleanly. */
-import { Component, useEffect, useRef, useState } from "react";
+import { Component, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowRight, ArrowUp, Eye, EyeOff, Inbox, Plus, SlidersHorizontal } from "lucide-react";
-import { api } from "../api/client";
-import { useApi, useHouseholds } from "../api/useApi";
+import { getHouseholdId } from "../api/client";
+import { useHouseholds } from "../api/useApi";
+import { useDashboardPreferences } from "../api/useDashboardPreferences";
 import { useReview } from "../api/useReview";
 import type { components } from "../api/schema";
 import { Button } from "../components/Button";
@@ -17,25 +18,14 @@ import { ErrorState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import { formatLongDate } from "../lib/format";
 import { useShell } from "../shell/ShellContext";
-import { DEFAULT_ORDER, WIDGETS, widgetById } from "../widgets/registry";
+import { DEFAULT_ORDER, widgetById } from "../widgets/registry";
 
 type Role = components["schemas"]["Role"];
-interface Layout { order: string[]; hidden: string[] }
-
-const LS_KEY = "ff.dashboard";
 const SPAN: Record<1 | 2 | 3, string> = {
   1: "lg:col-span-1",
   2: "md:col-span-2 lg:col-span-2",
   3: "md:col-span-2 lg:col-span-3",
 };
-
-function loadLocal(): Layout {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw) as Layout;
-  } catch { /* fall through */ }
-  return { order: DEFAULT_ORDER, hidden: [] };
-}
 
 /** Per-widget error boundary — one failing widget degrades to a muted
  * card instead of taking the whole dashboard down (issue #123). */
@@ -56,13 +46,6 @@ class WidgetBoundary extends Component<
       )
       : this.props.children;
   }
-}
-
-function normalise(l: Layout): Layout {
-  const ids = new Set(WIDGETS.map((w) => w.id));
-  const order = [...new Set(
-    [...l.order, ...DEFAULT_ORDER].filter((id) => ids.has(id)))];
-  return { order, hidden: l.hidden.filter((id) => ids.has(id)) };
 }
 
 function greeting(d: Date): string {
@@ -90,41 +73,12 @@ function ReviewCallout() {
 
 export function Dashboard() {
   const households = useHouseholds();
+  const household = households.data?.find((h) => h.id === getHouseholdId()) ?? households.data?.[0];
   const ready = households.data !== null;
   const { openQuickAdd } = useShell();
-  const remote = useApi(
-    () => api.get("/api/v1/profiles/me/dashboard"), ready);
-  const [layout, setLayout] = useState<Layout | null>(null);
+  const preferences = useDashboardPreferences(ready, households.error);
+  const { layout, role, save } = preferences;
   const [customising, setCustomising] = useState(false);
-  const [role, setRole] = useState<Role | null>(null);
-
-  const hydratedRemote = useRef(false);
-
-  // Remote wins when a profile exists; standalone falls back to
-  // localStorage (issue #123: per-member persistence, clean degrade).
-  // Local layout is temporary during startup failure; the first recovered
-  // profile response restores both member layout and save permissions.
-  useEffect(() => {
-    if (remote.data !== null && !hydratedRemote.current) {
-      hydratedRemote.current = true;
-      setRole(remote.data.role ?? null);
-      const saved = remote.data.layout;
-      setLayout(normalise(saved
-        ? { order: saved.order ?? [], hidden: saved.hidden ?? [] }
-        : loadLocal()));
-    } else if (layout === null && (households.error || remote.error)) {
-      setLayout(normalise(loadLocal()));
-    }
-  }, [remote.data, remote.error, layout, households.error]);
-
-  const save = (next: Layout) => {
-    setLayout(next);
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-    if (role !== null) {
-      void api.put("/api/v1/profiles/me/dashboard",
-        { body: next }).catch(() => { /* remote optional */ });
-    }
-  };
 
   const move = (id: string, dir: -1 | 1) => {
     if (!layout) return;
@@ -146,7 +100,7 @@ export function Dashboard() {
   const allowed = (w: { roles?: Role[] }) =>
     // Standalone (no resolved profile) is a single operator — see
     // everything; members get role-gated widgets.
-    !w.roles || role === null || w.roles.includes(role);
+    !w.roles || role === null || (role !== undefined && w.roles.includes(role));
 
   const visible = layout?.order
     .map(widgetById)
@@ -155,13 +109,28 @@ export function Dashboard() {
     .filter(allowed)
     ?? [];
 
+  const status = (
+    <div className="mb-4 text-[13px] text-fg-muted" aria-live="polite">
+      {preferences.saving ? <p>Saving layout…</p> : preferences.dirty ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2">
+          <p className="w-full wrap-anywhere">Changes not saved. {preferences.error ?? "Your draft is kept in this browser tab."}</p>
+          <Button variant="secondary" size="sm" className="min-h-11" disabled={!preferences.canRetry} onClick={preferences.retry}>
+            Retry saving layout
+          </Button>
+          <Button variant="ghost" size="sm" className="min-h-11" disabled={!preferences.canRevert} onClick={preferences.revert}>
+            Revert layout
+          </Button>
+        </div>
+      ) : preferences.saved ? <p>{role === null ? "Layout saved in this browser." : "Layout saved to your profile."}</p> : null}
+    </div>
+  );
   const now = new Date();
   return (
     <div>
       <PageHeader
         eyebrow={formatLongDate(now)}
         title={greeting(now)}
-        description={households.data?.[0] ? `Here's where ${households.data[0].name} stands today.` : undefined}
+        description={household ? `Here's where ${household.name} stands today.` : undefined}
         actions={
           <>
             <Button variant="secondary" onClick={() => setCustomising(true)}>
@@ -176,6 +145,10 @@ export function Dashboard() {
       {households.error && !households.loading && (
         <ErrorState message={households.error} onRetry={households.refetch} />
       )}
+      {preferences.remoteError && (
+        <ErrorState message={preferences.remoteError} onRetry={preferences.refetch} />
+      )}
+      {!customising && status}
       <ReviewCallout />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {layout === null && (
@@ -197,8 +170,9 @@ export function Dashboard() {
       <Sheet open={customising} onOpenChange={setCustomising} title="Customise dashboard" side="right">
         <div className="p-4">
           <p className="mb-4 text-[13px] text-fg-muted">
-            Reorder or hide widgets. Your layout is saved to your profile.
+            {preferences.canRetry ? "Reorder or hide widgets." : "Loading your saved layout before editing."}
           </p>
+          {customising && status}
           {layout && (
             <ul aria-label="Customise widgets" className="flex flex-col gap-1.5">
               {layout.order.map((id, idx) => {
@@ -210,13 +184,13 @@ export function Dashboard() {
                   <li key={id} className={cn("flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2", hidden && "opacity-60")}>
                     <span className="flex-1 truncate text-[13.5px] font-medium">{w.title}</span>
                     {roleBlocked && <span className="text-[11.5px] text-fg-subtle">admin only</span>}
-                    <Button variant="ghost" size="icon-sm" aria-label={`Move ${w.title} up`} disabled={idx === 0} onClick={() => move(id, -1)}>
+                    <Button variant="ghost" size="icon-sm" aria-label={`Move ${w.title} up`} disabled={preferences.saving || !preferences.canRetry || idx === 0} onClick={() => move(id, -1)}>
                       <ArrowUp />
                     </Button>
-                    <Button variant="ghost" size="icon-sm" aria-label={`Move ${w.title} down`} disabled={idx === layout.order.length - 1} onClick={() => move(id, 1)}>
+                    <Button variant="ghost" size="icon-sm" aria-label={`Move ${w.title} down`} disabled={preferences.saving || !preferences.canRetry || idx === layout.order.length - 1} onClick={() => move(id, 1)}>
                       <ArrowDown />
                     </Button>
-                    <Button variant="ghost" size="icon-sm" aria-label={`${hidden ? "Show" : "Hide"} ${w.title}`} onClick={() => toggleHide(id)}>
+                    <Button variant="ghost" size="icon-sm" disabled={preferences.saving || !preferences.canRetry} aria-label={`${hidden ? "Show" : "Hide"} ${w.title}`} onClick={() => toggleHide(id)}>
                       {hidden ? <EyeOff /> : <Eye />}
                     </Button>
                   </li>
@@ -224,7 +198,7 @@ export function Dashboard() {
               })}
             </ul>
           )}
-          <Button variant="ghost" className="mt-4" onClick={() => save({ order: DEFAULT_ORDER, hidden: [] })}>
+          <Button variant="ghost" className="mt-4" disabled={preferences.saving || !preferences.canRetry} onClick={() => save({ order: DEFAULT_ORDER, hidden: [] })}>
             Reset to default
           </Button>
         </div>

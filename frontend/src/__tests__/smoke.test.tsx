@@ -66,7 +66,7 @@ describe("AppShell", () => {
     );
   });
 
-  it("requests stay relative for ingress (./ prefix)", async () => {
+  it("requests use the standalone app mount", async () => {
     render(
       <MemoryRouter>
         <App />
@@ -75,7 +75,7 @@ describe("AppShell", () => {
     await waitFor(() =>
       expect(
         (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(
-          ([u]) => String(u).startsWith("./api/v1/households"),
+          ([u]) => String(u).startsWith("/api/v1/households"),
         ),
       ).toBe(true),
     );

@@ -26,11 +26,11 @@ from app.domain.projection import (
     _assemble,
     _movement_rows,
     _next_payday,
+    _payday_dates,
 )
 from app.persistence.models import (
     Account,
     ExpectedMovement,
-    ExpectedSource,
     Scenario,
     ScenarioOp,
     ScenarioOpKind,
@@ -165,22 +165,6 @@ def _apply_ops(rows: list[tuple[int, date, int]],
     # Shifts can push a movement outside the window — clip so
     # out-of-window items affect neither the series nor committed.
     return [(d, a) for d, a in out if start < d <= end]
-
-
-def _payday_dates(session: Session, account_id: int, start: date,
-                  end: date) -> list[date]:
-    """All baseline payroll dates in (start, end] — the comparison
-    anchors for payday-balance deltas."""
-    return list(session.scalars(
-        select(ExpectedMovement.expected_date)
-        .where(ExpectedMovement.account_id == account_id,
-               ExpectedMovement.source_type.in_(
-                [ExpectedSource.payroll_run, ExpectedSource.employment]),
-               ExpectedMovement.amount_pence > 0,
-               ExpectedMovement.expected_date > start,
-               ExpectedMovement.expected_date <= end,
-               ExpectedMovement.dismissed_at.is_(None))
-        .order_by(ExpectedMovement.expected_date)))
 
 
 def _balances_by_date(proj: Projection) -> dict[date, int]:
