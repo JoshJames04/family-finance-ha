@@ -281,6 +281,21 @@ def test_spaces_repair_uses_new_balance_after_feed_not_discovery_cache(
         scheduler.sync_tick(session, client=client, token_for=lambda *_: "synthetic")
     assert len(spaces_reads) == 2
     assert mapping.balance_pence == 9000
+    assert current_balance(session, account.id) == -1000
+    assert session.scalar(select(Transaction).where(
+        Transaction.external_ref == f"open:{account.id}")) is None
+    # The first bracket changed 9500→9000. Only a subsequent complete stable
+    # 9000/9000 bracket may establish the historical opening.
+    if manual_run:
+        manual(session, household.id, conn.id, client)
+    else:
+        scheduler.sync_tick(session, client=client, token_for=lambda *_: "synthetic",
+                            interval_seconds=0)
+    assert len(spaces_reads) == 4
+    assert mapping.balance_pence == 9000
+    opening = session.scalar(select(Transaction).where(
+        Transaction.external_ref == f"open:{account.id}"))
+    assert opening.amount_pence == 10000
     assert current_balance(session, account.id) == 9000
 
 
@@ -689,3 +704,118 @@ def test_settings_next_due_keeps_failed_retry_deadline_after_expiry(status):
                              retry_at=deadline, refresh_requested=False)
     expected = deadline if status is SyncStatus.failed else last_success + timedelta(hours=4)
     assert _next_due(cursor, now, 4 * 3600) == expected
+
+def _snapshot_provider(monkeypatch, kind, *, late_activity):
+    state = {"balances": 0, "feeds": 0}
+
+    def get(token, path):
+        if path.endswith("/accounts"):
+            return {"accounts": [{"accountUid": "1", "defaultCategory":
+                "main" if kind == "space" else "category-1"}]}
+        if path.endswith("/spaces") and kind != "space":
+            return {"savingsGoals": []}
+        if path.endswith("/spaces") or path.endswith("/balance"):
+            state["balances"] += 1
+            amount = 8700 if late_activity and state["balances"] > 1 else 9000
+            if kind == "space":
+                return {"savingsGoals": [{"savingsGoalUid": "category-1",
+                    "totalSaved": {"minorUnits": amount}}]}
+            return {"effectiveBalance": {"minorUnits": amount}}
+        assert "/feed/" in path
+        state["feeds"] += 1
+        items = [("new", date.today(), 500)]
+        if not late_activity:
+            items.append(("prior", date.today() - timedelta(days=2), 500))
+        elif state["feeds"] > 1:
+            items.append(("late", date.today(), 300))
+        return {"feedItems": [{"feedItemUid": ref, "direction": "OUT", "status": "SETTLED",
+            "amount": {"minorUnits": pence}, "transactionTime": day.isoformat(),
+            "counterPartyName": "Synthetic movement"} for ref, day, pence in items]}
+
+    monkeypatch.setattr(starling, "_get", get)
+    return starling.StarlingClient(), state
+
+
+@pytest.mark.parametrize("kind", ["account", "space"])
+@pytest.mark.parametrize("manual_run", [False, True])
+def test_late_balance_activity_preserves_opening_until_feed_captures_it(
+        session, household, monkeypatch, kind, manual_run):
+    account, conn, mapping = linked(session, household)
+    mapping.external_kind = kind
+    account.opening_date = date.today() - timedelta(days=1)
+    account.opening_balance_pence = 10000
+    opening = Transaction(account_id=account.id, date=account.opening_date,
+        amount_pence=10000, payee="Opening balance", source=TransactionSource.system,
+        status=TransactionStatus.reconciled, external_ref=f"open:{account.id}")
+    prior = Transaction(account_id=account.id, date=date.today() - timedelta(days=2),
+        amount_pence=-500, payee="Synthetic protected", source=SRC,
+        status=TransactionStatus.reconciled, external_ref="prior")
+    session.add_all([opening, prior])
+    session.commit()
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+    client, state = _snapshot_provider(monkeypatch, kind, late_activity=True)
+
+    def run():
+        if manual_run:
+            manual(session, household.id, conn.id, client)
+        else:
+            scheduler.sync_tick(session, client=client, token_for=lambda *_: "synthetic",
+                                interval_seconds=0)
+
+    run()
+    assert state["balances"] == 2
+    assert mapping.balance_pence == 8700
+    assert opening.amount_pence == account.opening_balance_pence == 10000
+    assert current_balance(session, account.id) == 9000
+    assert session.scalar(select(Transaction).where(Transaction.external_ref == "late")) is None
+    run()
+    assert state["balances"] == 4
+    assert opening.amount_pence == 10000 and current_balance(session, account.id) == 8700
+    run()
+    assert opening.amount_pence == 10000 and current_balance(session, account.id) == 8700
+    assert session.scalar(select(func.count()).select_from(Transaction).where(
+        Transaction.account_id == account.id)) == 4
+    assert prior.amount_pence == -500 and prior.payee == "Synthetic protected"
+    assert prior.status is TransactionStatus.reconciled
+
+
+@pytest.mark.parametrize("kind", ["account", "space"])
+@pytest.mark.parametrize("manual_run", [False, True])
+def test_quiescent_initial_history_repairs_opening_on_first_complete_feed(
+        session, household, monkeypatch, kind, manual_run):
+    account, conn, mapping = linked(session, household)
+    mapping.external_kind = kind
+    account.opening_date = date.today() - timedelta(days=1)
+    account.opening_balance_pence = 9000
+    opening = Transaction(account_id=account.id, date=account.opening_date,
+        amount_pence=9000, payee="Opening balance", source=TransactionSource.system,
+        status=TransactionStatus.reconciled, external_ref=f"open:{account.id}")
+    session.add(opening)
+    session.commit()
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+    client, state = _snapshot_provider(monkeypatch, kind, late_activity=False)
+    if manual_run:
+        manual(session, household.id, conn.id, client)
+    else:
+        scheduler.sync_tick(session, client=client, token_for=lambda *_: "synthetic")
+    assert state["balances"] == 2
+    assert mapping.balance_pence == 9000
+    assert opening.amount_pence == account.opening_balance_pence == 10000
+    assert current_balance(session, account.id) == 9000
+
+def test_successful_manual_consumes_existing_queue_without_extra_scheduled_run(
+        session, household, monkeypatch):
+    account, conn, _ = linked(session, household)
+    cursor = sync.cursor_for(session, account.id, SRC)
+    cursor.last_success_at = datetime.now() - timedelta(minutes=1)
+    cursor.refresh_requested = True
+    session.commit()
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+    provider = Client()
+    manual(session, household.id, conn.id, provider, scheduler_enabled=True)
+    assert cursor.status is SyncStatus.completed
+    assert cursor.refresh_requested is False
+    provider.calls.clear()
+    assert scheduler.sync_tick(session, client=provider, token_for=lambda *_: "synthetic",
+                               interval_seconds=4 * 3600) == 0
+    assert provider.calls == []

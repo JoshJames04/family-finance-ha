@@ -207,6 +207,7 @@ def sync_balances(session: Session, conn: BankConnection,
             continue
         cat = (m.external_category_uid or None
                if m.external_kind == "space" else None)
+        previous_balance = m.balance_pence
         try:
             balance = client.balance(token, m.external_uid, cat)
         except SpacesUnavailable:
@@ -214,11 +215,14 @@ def sync_balances(session: Session, conn: BankConnection,
             conn.status = ConnStatus.degraded
             conn.last_error = "Spaces unavailable — check Spaces read permission"
             continue
-        balances.append((m, balance))
-    for m, balance in balances:
+        balances.append((m, balance, previous_balance))
+    for m, balance, previous_balance in balances:
         m.balance_pence = balance
         m.balance_at = datetime.now()
-        if reconcile_opening and m.account_id is not None:
+        # Changing stock can include activity not captured by the completed feed.
+        # Equality reduces that timing risk; it is not proof of provider atomicity.
+        if (reconcile_opening and m.account_id is not None
+                and previous_balance is not None and previous_balance == balance):
             _reconcile_opening(session, m.account_id, m.balance_pence)
     session.flush()
     return len(balances)

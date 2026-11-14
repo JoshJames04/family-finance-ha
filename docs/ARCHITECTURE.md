@@ -510,3 +510,25 @@ expires, even if its last successful refresh was recent and no manual queue flag
 exists. A restart preserves that eligibility. Settings reports the same retry
 deadline instead of falling back to the four-hour successful-sync cadence;
 completed cursors retain their normal cadence.
+
+Opening repair also requires the immediately prior provider snapshot amount to
+match the newly fetched amount. If the balance changed, the fresh provider
+snapshot is still stored but the historical opening is retained until a
+subsequent complete feed has stable bracket amounts. Quiescent initial-history
+imports still establish their correct opening on the first completed run;
+changing Spaces snapshots wait for a later stable run instead of treating a
+stale discovery cache as proof.
+
+This is conservative timing-risk reduction, not an atomicity guarantee. Equal
+amounts can conceal offsetting activity across the reads: a captured debit and
+an uncaptured later credit can leave the provider balance unchanged and still
+make an opening adjustment unsafe. The provider endpoints supply no common
+snapshot watermark. That acceptance limitation remains explicit under #416;
+this guard does not establish unattended provider reconciliation or change the
+private live-policy work in #475.
+
+Starting an acquired feed attempt consumes existing refresh intent in the same
+commit that records the running cursor/run, before provider I/O. Completion does
+not clear that flag again: a new concurrent refresh requested during I/O remains
+queued for its own later run. A successful manual attempt therefore satisfies an
+older queued request without causing a redundant immediate scheduled pull.

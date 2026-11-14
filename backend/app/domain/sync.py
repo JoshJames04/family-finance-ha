@@ -209,6 +209,9 @@ def _sync_account(
     # loop outright (#460). Each page commits as its own unit so
     # the writer window stays milliseconds, not a sync's duration.
     # A fetch may refresh expired cursor fields; leave nothing to autoflush.
+    # Consume prior intent at the start boundary, not after provider I/O.
+    # A request queued after this commit must survive for the next run.
+    cursor.refresh_requested = False
     cursor.status = SyncStatus.running
     cursor.error = None
     session.commit()
