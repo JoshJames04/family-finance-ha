@@ -28,12 +28,40 @@ release pipeline (multi-arch GHCR image + GitHub release).
   Budget, reports, analytics and forecasts, including deleted-rule history (#485).
 - Scoped analytics read fresh authorised ledger data, and request writes commit
   before HTTP success is reported (#479, #481).
+- Forecasts and scenarios use signed unpaid residuals instead of adding payments
+  already received or liabilities already settled (#491).
+- Payment matching validates live correction evidence, rejects void/cyclic or
+  ambiguous history, and counts each payment once. Legacy corrected refunds
+  retain their refundable-capacity evidence; automatic reconciliation skips
+  corrupt candidates without aborting unrelated valid settlements (#494).
+- Bank refreshes share nonblocking ownership, preserve new queued intent and
+  respect retry deadlines. Historical opening repair requires a complete feed
+  and stable known provider balance; failed/incomplete feeds cannot certify it
+  (#490, #478).
+- Dashboard preferences recover malformed layouts and expose failed-save
+  retry/revert controls without leaking restricted widgets during hydration
+  (#492).
+- Budget received-income details reconcile by category and plan coverage, link
+  to exact transactions, and include labelled Shared/member sections in All.
+  Unplanned and uncategorised activity remains visible (#483, #466).
+
+### Changed
+
+- Update Tailwind and its Vite plugin to 4.3.5, jsdom to 31.0.0 and Lucide React
+  to 1.72.0. Node typings use the common Node 22 production-build API; Compose
+  development remains on Node 24, with both environments verified.
+- Update Docker QEMU/login/build-push actions to 4/4/7. Their Node 24 action
+  runtime is separate from the application build/runtime toolchain.
+- Scheduled dependency version updates target `develop` and assign Josh;
+  intentional Node typings major upgrades stay tied to toolchain changes (#508).
+- Route code ownership to Josh and document current-head human approval for
+  develop bot PRs. Automatic merging remains inactive (#510).
 
 ### Release preparation and acceptance
 
-- This version-preparation branch does not include the outstanding forecast,
-  matching, banking, Dashboard preference or Budget-detail follow-up PRs. Review
-  and integrate those before finalising this changelog or promoting to main.
+- The release candidate includes the reviewed finance fixes and dependency
+  updates above. Complete the final integration, CI and release review before
+  promoting `develop` to `main`.
 - Migration `0070_transfer_confirmation_history` retains historical transfer
   evidence. Take a verified backup before upgrade and rehearse migration and
   restore on a copy.

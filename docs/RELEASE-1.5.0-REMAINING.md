@@ -1,4 +1,4 @@
-# Release 1.5.0 preparation and remaining acceptance
+# Release 1.5.0 candidate and remaining acceptance
 
 This is a release-preparation checklist. It does not authorise merging, tagging,
 publishing, live deployment or private data/configuration changes.
@@ -7,13 +7,27 @@ The previous 1.4.2 patch-version exception applied only to that batch. This batc
 adds payday Budget windows and weekly overtime, so the repository's ordinary
 backwards-compatible-feature rule selects 1.5.0.
 
+## Implementation included in this candidate
+
+- [x] Forecast/matching correction (#491, #494; PR #493).
+- [x] Dashboard preference recovery (#492; PR #495).
+- [x] Bank-sync ownership, queue/retry and balance-repair correction (#490).
+- [x] Budget receipt reconciliation and owner-labelled All sections (#483, #466).
+- [x] Frontend dependency updates with a common Node 22 production API and
+      verified Node 24 Compose development; Docker action upgrades.
+- [x] Scheduled dependency routing/assignment (#508) and sole-Josh code ownership
+      with current-head approval, without activating automatic merging (#510).
+
+The joint candidate combines the remaining Lucide dependency update from #507
+with the release notes from #513, based on the current #505 jsdom candidate.
+Merge #505 first, then review and merge the joint candidate as one complete
+diff with passing CI and Josh's current-head approval. The original #507 and
+#513 remain open for traceability; do not merge them separately afterward.
+
 ## Before promoting develop to main
 
-- [ ] Integrate the reviewed forecast/matching correction (#491, #494; PR #493).
-- [ ] Integrate Dashboard preference recovery (#492; PR #495).
-- [ ] Integrate the reviewed bank-sync correction (#490).
-- [ ] Integrate Budget receipt reconciliation and owner-labelled All sections
-      (#483, #466).
+- [ ] Merge the reviewed #505 candidate, then the joint #507/#513 candidate,
+      into develop. #506 is already integrated.
 - [ ] Reconcile the changelog and release closing keywords against the actual
       final aggregate diff; do not claim an unmerged fix is included.
 - [ ] Full required CI and native Codex review pass on the exact release head.

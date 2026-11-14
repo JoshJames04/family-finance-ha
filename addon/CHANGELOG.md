@@ -9,12 +9,21 @@
   sheets with weekly submit/approve/reject and individual actions.
 - Preserve confirmed internal-transfer portions consistently across Budget,
   reports, analytics and forecasts, including deleted transfer-rule history.
+- Forecast only the unpaid part of expected income and bills. Validate payment
+  corrections and refunds without counting void history or duplicate aliases.
+- Make bank refresh ownership, queued requests, retry deadlines and completed-feed
+  balance-repair guards consistent across manual and scheduled refreshes.
+- Recover malformed Dashboard layouts and show controls to retry or revert a
+  failed preference save.
+- Reconcile received Budget income by category and plan coverage, with links to
+  exact transactions and labelled Shared/member sections in All, including
+  unplanned and uncategorised activity.
+- Update frontend dependencies and image-build actions.
 - Back up before upgrading: startup applies migration
   `0070_transfer_confirmation_history`. Verify backup restoration and rehearse
   migration on a copy before deploying.
-- Release preparation: forecast/matching, banking, Dashboard preference and
-  Budget-detail follow-up PRs must be integrated and their final checks completed
-  before promotion. Finalize these notes against the actual release diff.
+- Complete final integration, CI and owner review before promotion; the release
+  candidate contains the finance fixes and dependency updates listed above.
 - Actual HA/provider/mobile acceptance, private categorisation configuration and
   sixteen recovered workbook-comment mappings remain tracked work. This update
   does not claim those operational checks or private data changes are complete.
