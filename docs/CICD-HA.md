@@ -94,6 +94,31 @@ feature PR ──► develop ──► release PR develop→main ──► tag v
   `/healthz`, serve the SPA, and report the tag's version via
   `/api/v1/version`.
 
+### Integration review and manual administrator override
+
+`develop` has a separate review-only ruleset requiring one approval, code-owner
+review, dismissal of stale approvals and approval of the latest push. The sole
+owner in `.github/CODEOWNERS` is `@JoshJames04`, for every file. GitHub evaluates
+ownership using the PR base branch, so this ownership change must reach `develop`
+before it can enforce Josh-specific review on other PRs.
+
+Josh can manually bypass this separate review requirement through a pull request,
+including on a PR he authored and cannot self-approve. The bypass does not exempt
+him from the existing required CI checks, resolved review conversations or
+force-push/deletion restrictions. It does not apply to `main` or release merges.
+Do not disable administrator enforcement on the existing classic protection rule.
+
+Bot PR automation is **not activated by this ownership change**. Before activation,
+the separately reviewed worker must verify the current-head Josh approval, all CI,
+resolved conversations, non-empty diff and the exact `develop` target. It must run
+under a non-administrator identity with no review bypass, and preserve downstream
+workflow behaviour. The built-in `GITHUB_TOKEN` normally suppresses subsequent
+push-triggered workflows; that effect must be addressed before enabling merging.
+No dedicated GitHub App will be created for this work. Until a safe runtime path
+is validated, automation is limited to a read-only readiness audit.
+Existing qualifying bot PRs and new bot PRs are in scope only after validation.
+No worker may auto-approve, use a manual admin override, or merge a release PR.
+
 ## 5. Minimal viable loop (what "live" means tomorrow)
 
 The pipeline is sufficient to ship: the only manual acts are
