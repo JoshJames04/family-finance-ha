@@ -47,6 +47,8 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   every confirmed correction. The app is fully functional without it.
 - **Household contributions** — configurable transfer rules between personal,
   joint and bills accounts, with outstanding-transfer detection.
+  Expected payments count live eligible payment amounts and retain their matches
+  through financially equivalent corrections; void entries cannot mark them paid.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and
   repayment schedules.
 - **Christmas and gifts** — seasonal budgeting with recipients, gift tracking

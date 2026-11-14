@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import categorise, settle
+from app.domain.expected_matches import SALARY_SOURCES
 from app.persistence.models import (
     Account,
     ExpectedMovement,
@@ -129,6 +130,7 @@ def reconcile_account(session: Session, account: Account,
             # system rows are the plan itself (rec: materialisations),
             # never payment evidence — self-matching them fakes payment
             Transaction.source != TransactionSource.system,
+            Transaction.amount_pence != 0,
             Transaction.transfer_id.is_(None),
             ~select(Reconciliation.id).where(
                 Reconciliation.transaction_id == Transaction.id,
@@ -148,6 +150,7 @@ def reconcile_account(session: Session, account: Account,
                     ExpectedMovement.account_id == account.id,
                     ExpectedMovement.expected_date.between(lo, hi),
                     ExpectedMovement.dismissed_at.is_(None),
+                    ExpectedMovement.amount_pence != 0,
                     # sign must agree — income matches income
                     (ExpectedMovement.amount_pence < 0)
                     == (txn.amount_pence < 0)))
@@ -155,6 +158,7 @@ def reconcile_account(session: Session, account: Account,
             not in matched_keys
             and (e.source_type.value, e.source_id, e.expected_date)
             not in dismissed_keys
+            and not (txn.refund_of_id is not None and e.source_type in SALARY_SOURCES)
         ]
         candidates.sort(key=lambda c: c[1], reverse=True)
         if not candidates or candidates[0][1] < REVIEW_SCORE:

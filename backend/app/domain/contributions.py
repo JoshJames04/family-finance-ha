@@ -16,17 +16,20 @@ States per expected movement:
 from __future__ import annotations
 
 import enum
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.expected_matches import SALARY_SOURCES, eligible_matches
 from app.persistence.models import (
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Transaction,
+    TransactionStatus,
 )
 
 DEFAULT_WINDOW_DAYS = 7
@@ -53,17 +56,33 @@ class ContributionStatus:
 
 
 def matched_total(session: Session, movement_id: int) -> int:
-    rows = session.execute(
-        select(ExpectedMatch.matched_pence).where(
-            ExpectedMatch.movement_id == movement_id)).scalars().all()
-    return sum(rows)
+    return matched_totals(session, [movement_id])[movement_id]
+
+
+def matched_totals(session: Session, movement_ids: Collection[int]) -> dict[int, int]:
+    """One grouped read, including zeroes; aliases share live-payment capacity.
+
+    Filter after allocation so requesting a subset cannot reuse capacity already
+    claimed by another movement's older historical link.
+    """
+    totals = dict.fromkeys(movement_ids, 0)
+    if totals:
+        matches = eligible_matches(movement_ids)
+        totals.update({mid: int(amount) for mid, amount in session.execute(select(
+            matches.c.movement_id, func.sum(matches.c.matched_pence)).where(
+            matches.c.movement_id.in_(totals)).group_by(matches.c.movement_id))})
+    return totals
 
 
 def status(session: Session, movement: ExpectedMovement,
            today: date | None = None) -> ContributionStatus:
+    return _status(movement, matched_total(session, movement.id), today)
+
+
+def _status(movement: ExpectedMovement, matched: int,
+            today: date | None = None) -> ContributionStatus:
     today = today or date.today()
     expected = abs(movement.amount_pence)
-    matched = matched_total(session, movement.id)
     if matched >= expected:
         state = ContributionState.satisfied
     elif matched > 0:
@@ -78,9 +97,30 @@ def status(session: Session, movement: ExpectedMovement,
         outstanding_pence=max(0, expected - matched), state=state)
 
 
-def _used_legs(session: Session) -> set[int]:
-    return set(session.execute(
-        select(ExpectedMatch.transaction_id)).scalars().all())
+def _used_legs(session: Session, *, household_id: int | None = None) -> set[int]:
+    matches = eligible_matches(select(ExpectedMovement.id).where(
+        ExpectedMovement.household_id == household_id)) if household_id is not None \
+        else eligible_matches()
+    return set(session.scalars(select(matches.c.transaction_id)))
+
+
+def assert_payment_eligible(session: Session, movement: ExpectedMovement,
+                            tx: Transaction) -> None:
+    """Validate new evidence before a match, category or schedule write."""
+    from app.persistence.models import Account
+
+    if tx.status == TransactionStatus.void:
+        raise MatchError("void transactions cannot satisfy expected movements")
+    if tx.account_id != movement.account_id:
+        raise MatchError("transaction account does not match the movement")
+    if tx.amount_pence * movement.amount_pence <= 0:
+        raise MatchError("transaction must be nonzero and match the movement sign")
+    if (movement.source_type in SALARY_SOURCES
+            and tx.refund_of_id is not None):
+        raise MatchError("a purchase refund cannot satisfy a salary expectation")
+    if session.scalar(select(Account.household_id).where(
+            Account.id == tx.account_id)) != movement.household_id:
+        raise MatchError("transaction household does not match the movement")
 
 
 def _link(session: Session, movement: ExpectedMovement,
@@ -97,13 +137,8 @@ def confirm(session: Session, movement: ExpectedMovement,
             pence: int | None = None,
             today: date | None = None) -> ExpectedMatch:
     """Manual confirmation of a leg against an expected movement."""
-    if tx.account_id != movement.account_id:
-        raise MatchError(
-            f"transaction {tx.id} is on account {tx.account_id}, "
-            f"expected {movement.account_id}")
-    if (tx.amount_pence < 0) != (movement.amount_pence < 0):
-        raise MatchError("transaction sign does not match the movement")
-    if tx.id in _used_legs(session):
+    assert_payment_eligible(session, movement, tx)
+    if tx.id in _used_legs(session, household_id=movement.household_id):
         raise MatchError(
             f"transaction {tx.id} already matched to a movement")
     need = status(session, movement, today).outstanding_pence
@@ -132,18 +167,20 @@ def auto_match(session: Session, household_id: int, *,
             ExpectedSource.transfer_rule,
             ExpectedMovement.account_id.is_not(None))
         .order_by(ExpectedMovement.expected_date)).scalars())
-    used = _used_legs(session)
+    used = _used_legs(session, household_id=household_id)
+    totals = matched_totals(session, [mv.id for mv in movements])
     written = 0
     for mv in movements:
         if account_ids is not None and mv.account_id not in account_ids:
             continue
-        need = status(session, mv, today).outstanding_pence
+        need = max(0, abs(mv.amount_pence) - totals[mv.id])
         if need <= 0:
             continue
         window = timedelta(days=window_days)
         candidates = session.execute(
             select(Transaction).where(
                 Transaction.account_id == mv.account_id,
+                Transaction.status != TransactionStatus.void,
                 Transaction.transfer_id.is_not(None),
                 Transaction.date >= mv.expected_date - window,
                 Transaction.date <= mv.expected_date + window,
@@ -178,7 +215,8 @@ def contributions(session: Session, household_id: int, *,
             ExpectedMovement.expected_date <= end,
             ExpectedMovement.dismissed_at.is_(None))
         .order_by(ExpectedMovement.expected_date)).scalars().all()
-    return [status(session, m, today) for m in movements]
+    totals = matched_totals(session, [m.id for m in movements])
+    return [_status(m, totals[m.id], today) for m in movements]
 
 
 # ---------- outstanding obligations (issue #88) --------------------
@@ -217,8 +255,9 @@ def outstanding(session: Session, household_id: int, *,
             ExpectedMovement.dismissed_at.is_(None))
         .order_by(ExpectedMovement.expected_date)).scalars().all()
     out: list[OutstandingItem] = []
+    totals = matched_totals(session, [mv.id for mv in rows])
     for mv in rows:
-        s = status(session, mv, today)
+        s = _status(mv, totals[mv.id], today)
         if s.state in (ContributionState.overdue,
                        ContributionState.partial):
             out.append(OutstandingItem(
@@ -248,11 +287,12 @@ def requirement_totals(session: Session, household_id: int, *,
             ExpectedMovement.dismissed_at.is_(None))
         .order_by(ExpectedMovement.account_id,
                   ExpectedMovement.expected_date)).scalars().all()
+    totals = matched_totals(session, [mv.id for mv in rows])
     return [Requirement(
         account_id=mv.account_id if mv.account_id is not None else 0,
         due_date=mv.expected_date,
         scheduled_pence=mv.amount_pence,
-        satisfied_pence=(s := status(session, mv, today)).matched_pence,
+        satisfied_pence=(s := _status(mv, totals[mv.id], today)).matched_pence,
         outstanding_pence=s.outstanding_pence)
         for mv in rows]
 
@@ -315,12 +355,14 @@ def member_contributions(session: Session, household_id: int, *,
     # matched legs on this household's movements in the window —
     # either movement leg may be matched, so pull both signs and find
     # the transfer's source leg by sign (negative = money out)
+    matches = eligible_matches(select(ExpectedMovement.id).where(
+        ExpectedMovement.household_id == household_id))
     rows = session.execute(
-        select(ExpectedMatch, ExpectedMovement, Transaction)
+        select(matches.c.matched_pence, ExpectedMovement, Transaction).select_from(matches)
         .join(ExpectedMovement,
-              ExpectedMatch.movement_id == ExpectedMovement.id)
+              matches.c.movement_id == ExpectedMovement.id)
         .join(Transaction,
-              ExpectedMatch.transaction_id == Transaction.id)
+              matches.c.transaction_id == Transaction.id)
         .where(ExpectedMovement.household_id == household_id,
                ExpectedMovement.expected_date >= start,
                ExpectedMovement.expected_date <= end,
@@ -340,12 +382,16 @@ def member_contributions(session: Session, household_id: int, *,
     transfer_ids = {tx.transfer_id for _, _, tx in rows}
     legs = session.execute(
         select(Transaction).where(
-            Transaction.transfer_id.in_(transfer_ids))).scalars().all()
+            Transaction.transfer_id.in_(transfer_ids),
+            Transaction.status != TransactionStatus.void,
+            Transaction.amount_pence != 0)).scalars().all()
     src_of: dict[int, Transaction] = {}
     dst_of: dict[int, Transaction] = {}
+    leg_counts: dict[int, int] = {}
     for leg in legs:
         if leg.transfer_id is None:  # query already filters
             continue
+        leg_counts[leg.transfer_id] = leg_counts.get(leg.transfer_id, 0) + 1
         (src_of if leg.amount_pence < 0 else dst_of)[
             leg.transfer_id] = leg
     account_ids = {leg.account_id for leg in legs}
@@ -356,15 +402,17 @@ def member_contributions(session: Session, household_id: int, *,
     # and both may be matched — count the transfer once, preferring
     # the in-leg's matched amount
     by_transfer_matched: dict[int, int] = {}
-    for match, _mv, tx in rows:
+    for matched_pence, _mv, tx in rows:
         if tx.transfer_id is None:  # query already filters — mypy guard
             continue
         cur = by_transfer_matched.get(tx.transfer_id, 0)
         by_transfer_matched[tx.transfer_id] = max(
-            cur, match.matched_pence)
+            cur, matched_pence)
 
     totals: dict[int, int] = {}
     for tid, matched in by_transfer_matched.items():
+        if leg_counts.get(tid) != 2:
+            continue  # missing/ambiguous live counterparts cannot prove attribution
         src_leg = src_of.get(tid)
         dst_leg = dst_of.get(tid)
         src = (accounts.get(src_leg.account_id)
@@ -373,13 +421,16 @@ def member_contributions(session: Session, household_id: int, *,
                if dst_leg is not None else None)
         if src is None or dst is None:
             continue
+        if src.household_id != household_id or dst.household_id != household_id:
+            continue
         # private: same owner both sides — excluded from shared views
         if src.owner_profile_id == dst.owner_profile_id:
             continue
         if src.owner_profile_id is None:
             continue  # household-shared source isn't a member
-        totals[src.owner_profile_id] = (
-            totals.get(src.owner_profile_id, 0) + matched)
+        assert src_leg is not None and dst_leg is not None
+        totals[src.owner_profile_id] = (totals.get(src.owner_profile_id, 0)
+            + min(matched, abs(src_leg.amount_pence), abs(dst_leg.amount_pence)))
 
     members = session.execute(
         select(UserProfile).where(
