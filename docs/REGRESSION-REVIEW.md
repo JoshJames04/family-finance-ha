@@ -4,6 +4,17 @@ This change follows the v1.4.1 reports and the historical issue audit.
 Tests use synthetic data. Production data, bank credentials and snapshots
 are excluded from the repository.
 
+## Legacy refund correction capacity
+
+Refund capacity resolves each correction family to one live payment. A live
+explicit purchase link remains authoritative after amount, date or account
+edits. Pre-upgrade NULL links inherit only through financially equivalent void
+predecessors to the nearest explicit purchase link. Linked descendants count
+once; terminal void refunds release capacity. Cyclic, ambiguous or unprovable
+legacy families require manual review and raise the existing refund conflict.
+Automatic refund linking skips such candidates and continues processing valid
+payments. These reads do not repair stored links or rewrite protected history.
+
 ## Weekly overtime (#487)
 
 Coverage includes derived grouping of all historical work dates, Monday/Sunday

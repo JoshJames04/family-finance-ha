@@ -30,7 +30,7 @@ from app.domain.periods import (
     ReconciledImmutableError,
     assert_editable,
 )
-from app.domain.refunds import link_refund, refundable_balance
+from app.domain.refunds import RefundError, link_refund, refundable_balance
 from app.persistence.models import (
     Account,
     BankAccountMapping,
@@ -423,8 +423,11 @@ def auto_link_refunds(session: Session, household_id: int,
             .order_by(Transaction.date.desc(), Transaction.id.desc()))
         if original is None:
             continue
-        if t.amount_pence <= refundable_balance(session, original.id):
-            link_refund(session, t, original)
-            linked += 1
+        try:
+            if t.amount_pence <= refundable_balance(session, original.id):
+                link_refund(session, t, original)
+                linked += 1
+        except RefundError:
+            continue  # ambiguous legacy history needs review, not a failed sync
     session.flush()
     return linked
