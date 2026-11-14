@@ -113,3 +113,48 @@ it.each([200, 503])("clears prior sections while navigating calendar periods (st
   }
   expect(screen.queryByRole("region", { name: "Member A budget" })).toBeNull();
 }, 10000);
+
+function ownerCoverageFixture(sharedPlanned: boolean, legacy = false) {
+  fixture();
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const response = await original(input, init);
+    if (!String(input).includes("/reports/combined")) return response;
+    const body = await response.json();
+    const receipt = (transaction_id: number, category_id: number, amount_pence: number) => ({
+      ...income[0], transaction_id, category_id, amount_pence,
+    });
+    const memberIncome = [receipt(177, 1, 101), receipt(180, 1, 409), receipt(180, 1, 7), receipt(180, 2, 503)];
+    const sharedIncome = [receipt(179, 1, 307)];
+    const missingPlanIncome = [receipt(178, 1, 203)];
+    body.actuals = { ...body.actuals, income_items: [...memberIncome, ...sharedIncome, ...missingPlanIncome], external_income_pence: 1530, income_received_pence: 1530 };
+    body.sections[0].detail.lines = sharedPlanned ? [lines[0]] : [];
+    body.sections[0].actuals.income_items = sharedIncome;
+    body.sections[1].actuals.income_items = memberIncome;
+    body.sections[2].actuals.income_items = missingPlanIncome;
+    if (legacy) delete body.sections;
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  });
+}
+
+it.each([false, true])("All income coverage follows the receipt owner's plan (Shared planned: %s)", async sharedPlanned => {
+  ownerCoverageFixture(sharedPlanned);
+  await openNovember();
+  const table = await screen.findByRole("table", { name: "Income by category" });
+  const salary = within(table).getByText("Salary").closest("tr")!;
+  expect(salary.textContent).toContain("Mixed coverage");
+  expect(salary.textContent).toContain("£10.27");
+  expect(within(table).getByText("In income plan").closest("tr")!.textContent).toContain(sharedPlanned ? "£8.24" : "£5.17");
+  expect(within(table).getByText("Outside income plan").closest("tr")!.textContent).toContain(sharedPlanned ? "£7.06" : "£10.13");
+  expect(within(table).getByText("Total received income").closest("tr")!.textContent).toContain("£15.30");
+  expect(within(table).getByText("Expense only").closest("tr")!.textContent).toContain("Unplanned category");
+});
+
+it("retains income-category coverage for legacy combined replies without sections", async () => {
+  ownerCoverageFixture(false, true);
+  await openNovember();
+  const table = await screen.findByRole("table", { name: "Income by category" });
+  expect(within(table).getByText("In income plan").closest("tr")!.textContent).toContain("£10.27");
+  expect(within(table).getByText("Outside income plan").closest("tr")!.textContent).toContain("£5.03");
+  expect(within(table).queryByText("Mixed coverage")).toBeNull();
+});

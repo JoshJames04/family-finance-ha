@@ -391,6 +391,17 @@ Category totals and income-plan versus outside-plan subtotals use integer pence
 from the same economic receipt items as the headline; expense-only planned
 categories do not count as income coverage. Split receipt legs remain distinct,
 and contribution details do not reuse income-category subtotals.
+In All, coverage joins each receipt's transaction/category key to its authorized
+owner section and that section's income-plan categories. Another owner's plan
+cannot cover the receipt, and missing plans cover none. A category can therefore
+show mixed coverage while exact in-plan/outside-plan subtotals still reconcile.
+Legacy combined replies without sections retain category-based coverage.
+
+Synthetic browser evidence (generated only from routed synthetic API fixtures):
+[All desktop](images/budget-reconciliation-all-desktop.png),
+[All mobile](images/budget-reconciliation-all-mobile.png),
+[personal income desktop](images/budget-reconciliation-income-desktop.png) and
+[personal income mobile](images/budget-reconciliation-income-mobile.png).
 
 The combined Budget response preserves `detail` and independent account-union
 `actuals`, and adds `sections` with owner ID/name, optional plan detail and scoped

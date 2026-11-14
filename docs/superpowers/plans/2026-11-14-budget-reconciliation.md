@@ -27,3 +27,10 @@ passed at 375px and 1280px, including real navigation to selected transactions,
 calendar sections and no viewport overflow/page errors. The initial unbounded
 frontend run had one existing transaction bulk-selection timeout; that file passed
 alone and the full bounded-worker run passed. Parent owns full CI/publication.
+
+- [x] Root review: make All income coverage owner-specific using section
+  transaction/category keys; prove planned/unplanned/mixed categories with
+  Shared, missing plans and repeated split categories. Preserve legacy fallback.
+- [x] Follow-up verification: 214 frontend tests and four synthetic browser tests
+  passed; production build passed. Visually inspect and commit synthetic desktop
+  and mobile screenshots under `docs/images` for PR evidence.

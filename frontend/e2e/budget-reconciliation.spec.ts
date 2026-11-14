@@ -27,15 +27,19 @@ for (const width of [375, 1280]) test(`income drills and calendar owner sections
     const transaction = { id: 77, household_id: 1, account_id: 1, date: "2026-10-30",
       payee: "Synthetic received salary", amount_pence: 10001, category_id: 1,
       status: "cleared", source: "manual", notes: null, splits: [] };
+    const unplannedMemberReceipt = { ...received, transaction_id: 79,
+      date: "2026-11-04", payee: "Synthetic unplanned member receipt", amount_pence: 203 };
     let json: unknown = { items: [], total: 0 };
     if (path.endsWith("/households")) json = { items: [{ id: 1, name: "Synthetic" }], total: 1 };
     else if (path.endsWith("/profiles")) json = { items: [{ id: 7, display_name: "Member A", role: "admin", is_active: true }], total: 1 };
     else if (path.endsWith("/categories")) json = { items: [{ id: 1, name: "Salary" }, { id: 2, name: "Expense only" }], total: 2 };
     else if (path.endsWith("/accounts")) json = { items: [{ id: 1, name: "Synthetic account", owner_profile_id: 7, archived: false }], total: 1 };
-    else if (path.endsWith("/reports/combined")) json = { detail, actuals, sections: [
+    else if (path.endsWith("/reports/combined")) json = { detail,
+      actuals: { ...actuals, external_income_pence: 15204, income_received_pence: 15204,
+        income_items: [...actuals.income_items, unplannedMemberReceipt] }, sections: [
       { owner_profile_id: null, name: "Shared", detail: { ...detail, lines: [] }, actuals: { ...actuals, period, spent_pence: 100, external_income_pence: 0, income_received_pence: 0, income_items: [] } },
       { owner_profile_id: 7, name: "Member A", detail, actuals: { ...actuals, period, spent_pence: 200, totals: { "11": 10001, "12": 200 } } },
-      { owner_profile_id: 8, name: "Member B", detail: null, actuals: { ...actuals, period, spent_pence: 300, external_income_pence: 0, income_received_pence: 0, income_items: [] } },
+      { owner_profile_id: 8, name: "Member B", detail: null, actuals: { ...actuals, period, spent_pence: 300, external_income_pence: 203, income_received_pence: 203, income_items: [unplannedMemberReceipt] } },
     ] };
     else if (path.endsWith("/budgets")) json = { items: budgets, total: 2 };
     else if (path.endsWith("/actuals")) json = actuals;
@@ -51,6 +55,11 @@ for (const width of [375, 1280]) test(`income drills and calendar owner sections
   await expect(page.getByRole("region", { name: "Member A budget", exact: true })).toContainText("1 Nov 2026 – 30 Nov 2026");
   await expect(page.getByRole("region", { name: "Member B budget", exact: true })).toContainText("No plan for this period");
   await expect(page.getByRole("region", { name: "Member B budget", exact: true })).toContainText("£3.00");
+  const allCategories = page.getByRole("table", { name: "Income by category", exact: true });
+  await expect(allCategories).toContainText("Mixed coverage");
+  await expect(allCategories.locator("tfoot")).toContainText("£100.01");
+  await expect(allCategories.locator("tfoot")).toContainText("£52.03");
+  await expect(allCategories.locator("tfoot")).toContainText("£152.04");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `e2e/artifacts/budget-reconciliation-all-${width}.png`, fullPage: true });
   await page.getByRole("radio", { name: "Member A", exact: true }).click();

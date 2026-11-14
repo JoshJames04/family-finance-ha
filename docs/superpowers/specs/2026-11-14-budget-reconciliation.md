@@ -6,6 +6,10 @@ outside-income-plan subtotal (including uncategorised receipts). Membership uses
 income lines only. Split legs keep their exact amounts/dates, manual plans and
 outstanding salary remain separate, and contribution detail gets receipt links
 without salary-category subtotals.
+All coverage follows each receipt's owner section, keyed by transaction/category,
+so another member's or Shared's income plan cannot cover an unplanned receipt.
+Categories can show mixed coverage; missing plans cover none. Retain the prior
+category-based fallback only for legacy combined replies without sections.
 
 All retains the independent authorized account-union headline and existing merged
 plan. Add owner-labelled read-only calendar sections for visible budgets and

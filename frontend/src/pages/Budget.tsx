@@ -396,6 +396,7 @@ export function Budget() {
                     <FundingDetails title={sharedFunding ? "Other external income details" : "Received income details"}
                       caption="Received income" items={actuals.data!.income_items} total={externalIncome}
                       incomePlanCategories={new Set(d.lines.filter(line => line.side === "income").map(line => line.category_id))}
+                      incomeSections={aggregate ? combined?.sections : undefined}
                       categoryName={id => categories.byId.get(id)?.name ?? `Category ${id}`} ownerLabel={id => ownerLabel(String(id))} />
                   )}
                   {sharedFunding && (actuals.data?.contribution_items ?? []).length > 0 && (
@@ -645,18 +646,30 @@ export function Budget() {
 
 type FundingItem = components["schemas"]["BudgetFundingItem"];
 
-function FundingDetails({ title, caption, items, total, contributions, incomePlanCategories, categoryName, ownerLabel }: {
+function FundingDetails({ title, caption, items, total, contributions, incomePlanCategories, incomeSections, categoryName, ownerLabel }: {
   title: string; caption: string; items: FundingItem[]; total: number; contributions?: boolean;
   incomePlanCategories?: ReadonlySet<number>;
+  incomeSections?: components["schemas"]["BudgetCombinedSection"][];
   categoryName: (id: number) => string; ownerLabel: (id: number) => string;
 }) {
-  const categories = new Map<number | null, number>();
+  const key = (item: FundingItem) => `${item.transaction_id}:${item.category_id ?? "uncategorised"}`;
+  const plannedItems = incomeSections?.length ? new Set(incomeSections.flatMap(section => {
+    const planned = new Set(section.detail?.lines.filter(line => line.side === "income")
+      .map(line => line.category_id) ?? []);
+    return (section.actuals.income_items ?? [])
+      .filter(item => item.category_id != null && planned.has(item.category_id)).map(key);
+  })) : undefined;
+  const categories = new Map<number | null, { amount: number; planned: number }>();
   for (const item of items) {
     const category = item.category_id ?? null;
-    categories.set(category, (categories.get(category) ?? 0) + item.amount_pence);
+    const covered = plannedItems ? plannedItems.has(key(item))
+      : category !== null && incomePlanCategories?.has(category);
+    const group = categories.get(category) ?? { amount: 0, planned: 0 };
+    group.amount += item.amount_pence;
+    group.planned += covered ? item.amount_pence : 0;
+    categories.set(category, group);
   }
-  const planned = [...categories].reduce((sum, [category, amount]) =>
-    sum + (category !== null && incomePlanCategories?.has(category) ? amount : 0), 0);
+  const planned = [...categories.values()].reduce((sum, group) => sum + group.planned, 0);
   const outside = items.reduce((sum, item) => sum + item.amount_pence, 0) - planned;
   return <details open className="mb-4 rounded-xl border border-border bg-surface p-4">
     <summary className="min-h-11 cursor-pointer text-sm font-medium">{title}</summary>
@@ -676,10 +689,10 @@ function FundingDetails({ title, caption, items, total, contributions, incomePla
     {!contributions && <div className="mt-4 overflow-x-auto">
       <table className="w-full text-left text-sm" aria-label="Income by category">
         <thead><tr><th className="pr-2">Category</th><th className="pr-2">Income plan coverage</th><th className="text-right">Received</th></tr></thead>
-        <tbody>{[...categories].map(([category, amount]) => <tr key={category ?? "uncategorised"} className="border-t border-border">
+        <tbody>{[...categories].map(([category, group]) => <tr key={category ?? "uncategorised"} className="border-t border-border">
           <th scope="row" className="py-2 pr-2 font-normal">{category === null ? "Uncategorised" : categoryName(category)}</th>
-          <td className="pr-2">{category !== null && incomePlanCategories?.has(category) ? "Planned category" : "Unplanned category"}</td>
-          <td className="text-right"><Money pence={amount} /></td>
+          <td className="pr-2">{group.planned === 0 ? "Unplanned category" : group.planned === group.amount ? "Planned category" : "Mixed coverage"}</td>
+          <td className="text-right"><Money pence={group.amount} /></td>
         </tr>)}</tbody>
         <tfoot>
           <tr><th colSpan={2}>In income plan</th><td className="text-right"><Money pence={planned} /></td></tr>
