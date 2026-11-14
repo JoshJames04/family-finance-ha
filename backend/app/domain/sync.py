@@ -21,11 +21,13 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from math import isfinite
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain import outbox
+from app.domain.sync_lock import claim
 from app.persistence.models import (
     Account,
     MergeCandidate,
@@ -50,9 +52,27 @@ class RateLimited(Exception):
         self.retry_after = retry_after
 
 
+class SyncBusy(Exception):
+    """Another trigger owns this account/source; the caller decides retry policy."""
+
+
 class SyncError(Exception):
     """Fatal feed failure — run fails resumable too; the cursor is
     the checkpoint either way."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def retry_deadline(delay: float | None, default: float) -> datetime:
+    now = datetime.now()
+    if delay is None or not isfinite(delay) or delay <= 0:
+        delay = default
+    try:
+        return now + timedelta(seconds=delay)
+    except OverflowError:
+        return now + timedelta(seconds=default)
 
 
 @dataclass(frozen=True)
@@ -161,6 +181,17 @@ def sync_account(
     source: TransactionSource,
     fetch: Callable[[SyncCursor], Iterator[FeedPage]],
 ) -> SyncRun:
+    with claim(session, f"account:{account.id}:{source.value}") as acquired:
+        if not acquired:
+            raise SyncBusy("sync already running")
+        return _sync_account(session, account, source, fetch)
+
+
+def _sync_account(
+    session: Session, account: Account,
+    source: TransactionSource,
+    fetch: Callable[[SyncCursor], Iterator[FeedPage]],
+) -> SyncRun:
     """Pull pages from ``fetch`` until exhaustion or failure.
 
     ``fetch`` yields ``FeedPage``s; each completed page advances the
@@ -178,6 +209,9 @@ def sync_account(
     # loop outright (#460). Each page commits as its own unit so
     # the writer window stays milliseconds, not a sync's duration.
     # A fetch may refresh expired cursor fields; leave nothing to autoflush.
+    # Consume prior intent at the start boundary, not after provider I/O.
+    # A request queued after this commit must survive for the next run.
+    cursor.refresh_requested = False
     cursor.status = SyncStatus.running
     cursor.error = None
     session.commit()
@@ -205,13 +239,15 @@ def sync_account(
         run.error = str(e)[:500]
         cursor.status = SyncStatus.failed
         cursor.error = str(e)[:500]
-        cursor.retry_at = (datetime.now()
-                           + timedelta(seconds=e.retry_after or 60))
+        cursor.retry_at = retry_deadline(e.retry_after, 60)
     except SyncError as e:
         run.status = SyncStatus.failed
         run.error = str(e)[:500]
         cursor.status = SyncStatus.failed
         cursor.error = str(e)[:500]
+        # A transient feed failure gets a persisted five-minute delay. Healthy
+        # siblings remain eligible; provider429 keeps its own connection deadline.
+        cursor.retry_at = retry_deadline(e.retry_after, 300)
     except Exception as e:
         # Discard an incomplete page, including flushed rows and counters.
         # The run and previous page checkpoints were already committed.

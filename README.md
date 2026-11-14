@@ -34,16 +34,24 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   payday intelligence and overdraft risk warnings. Salary is projected from
   the employment's payday rule — no run needed — using effective salary/tax
   configuration and regular deductions, into the account it is
-  paid into.
+  paid into. Account and scenario forecasts include only outstanding amounts
+  after matching; received salary and paid bills are not projected again.
 - **UK payroll** — salary history, overtime (configurable multipliers), PAYE,
   National Insurance, student loans, pension and payslip reconciliation.
+  Overtime is grouped into Monday–Sunday weekly sheets, including historical
+  entries, with week-level submit/approve/reject and individual entry actions.
 - **Banking** — secure, read-only Starling Bank synchronisation with duplicate
   detection, automatic categorisation and reconciliation. Categories resolve
   automatically: matched bills inherit their commitment's category, the
   household-owned bank-category map auto-applies, and payee rules learn from
-  every confirmed correction. The app is fully functional without it.
+  every confirmed correction. Settings shows whether automatic sync is enabled
+  and any retry deadline; concurrent refreshes queue safely. Balance history is
+  repaired only after a complete successful feed using a fresh provider snapshot.
+  The app is fully functional without it.
 - **Household contributions** — configurable transfer rules between personal,
   joint and bills accounts, with outstanding-transfer detection.
+  Expected payments count live eligible payment amounts and retain their matches
+  through financially equivalent corrections; void entries cannot mark them paid.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and
   repayment schedules.
 - **Christmas and gifts** — seasonal budgeting with recipients, gift tracking
@@ -55,6 +63,9 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   energy-cost awareness.
 - **Reporting** — monthly/annual reports, trends, net worth, explainable
   forecasts and data export.
+- **Dashboard customisation** — widget order and visibility persist per member.
+  Failed saves remain clearly marked as unsaved, with Retry and Revert; drafts
+  survive navigation and reload in the same browser tab.
 
 ## Architecture at a glance
 
@@ -103,6 +114,8 @@ python scripts/dev.py seed        # load synthetic fixture data
 cd backend && pip install -e '.[dev]' && pytest
 ```
 
+Frontend CI and production asset builds use Node.js 22.22.2 or later in the 22.x line. Docker Compose frontend development uses Node.js 24.15.0 or later in the 24.x line. These minimums meet jsdom 31 requirements. Keep `@types/node` on the 22.x API line so shared tooling stays within the production build runtime API; update older local Node patches.
+
 Layout: `backend/` (FastAPI), `frontend/` (Vite + React + TS), `addon/` (HA
 app packaging), `custom_components/` (HA integration), `dev/` (HA API stub),
 `tests/` (shared synthetic fixtures).
@@ -144,3 +157,24 @@ Employer payday settings include an optional payroll cutoff day (1–31); leave 
 blank to retain calendar-month earning periods. Category pickers sort by name and
 native option colours follow the selected light/dark theme and system selection
 palette.
+
+Personal monthly budgets now offer a **pay-cycle view**: November's plan uses
+the adjusted October payday through the day before November's adjusted payday.
+The exact dates are shown below the plan month. This applies to historical plans
+without changing transaction dates, approved amounts or revisions. Select the
+employment that anchors the cycle when more than one monthly payday is available,
+or choose a fixed monthly payday before employment/salary setup is complete.
+Missing or ambiguous configuration shows a calendar fallback warning. Payroll
+overtime cutoffs remain separate from the spending cycle.
+
+**Shared** and **All** stay on calendar months. Shared shows verified net
+contributions into joint accounts, with other external income separate. All
+counts household external income once, excluding internal contributions.
+Expand received-income/contribution details to see actual money outside the
+manual **Income plan**, open its transaction and reconcile category totals to
+the in-plan and outside-plan income subtotals. All also shows read-only member
+and Shared sections for the same calendar dates. Missing plans are labelled;
+their authorized account actuals still contribute to All. Section category tables
+include receipts and spending outside the plan, with separate actual totals.
+**Opening funds** are separate ledger balances through
+the stated date; future periods show currently known funds, not future receipts.

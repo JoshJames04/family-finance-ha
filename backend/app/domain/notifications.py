@@ -23,12 +23,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.domain.accounts import current_balance
+from app.domain.contributions import matched_totals
 from app.persistence.models import (
     Account,
     AnomalyFlag,
     AnomalyStatus,
     Employment,
-    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     NotificationDelivery,
@@ -93,6 +93,13 @@ def raise_event(session: Session, rule: NotificationRule,
     session.add(e)
     session.flush()
     return e
+
+
+def _unpaid(session: Session, movements: list[ExpectedMovement]
+            ) -> list[tuple[ExpectedMovement, int]]:
+    totals = matched_totals(session, [m.id for m in movements])
+    return [(m, remaining if m.amount_pence > 0 else -remaining)
+            for m in movements if (remaining := max(0, abs(m.amount_pence) - totals[m.id]))]
 
 
 def _owner_scope(rule: NotificationRule) -> ColumnElement[bool]:
@@ -308,26 +315,23 @@ def _eval_weekly_digest(session: Session, rule: NotificationRule,
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= today + timedelta(days=6),
             ExpectedMovement.amount_pence < 0,
-            ExpectedMovement.dismissed_at.is_(None),
-            # settled movements are no longer a liability (issue #429)
-            ~select(ExpectedMatch.id).where(
-                ExpectedMatch.movement_id ==
-                ExpectedMovement.id).exists())
+            ExpectedMovement.dismissed_at.is_(None))
         .order_by(ExpectedMovement.amount_pence)).all()
+    unpaid = _unpaid(session, list(upcoming))
     anomalies = session.scalar(
         select(func.count()).select_from(AnomalyFlag).where(
             AnomalyFlag.household_id == rule.household_id,
             AnomalyFlag.account_id.in_(_account_ids(rule)),
             AnomalyFlag.status == AnomalyStatus.pending)) or 0
     iso = today.isocalendar()
-    liabilities = sum(-m.amount_pence for m in upcoming)
+    liabilities = sum(-amount for _, amount in unpaid)
     lines = [
         f"Spent last 7 days: {spent}p",
-        f"Coming week: {len(upcoming)} payments totalling {liabilities}p",
+        f"Coming week: {len(unpaid)} payments totalling {liabilities}p",
     ]
-    for m in upcoming[:5]:
+    for m, amount in unpaid[:5]:
         lines.append(f"  {m.expected_date.isoformat()} {m.label} "
-                     f"{m.amount_pence}p")
+                     f"{amount}p")
     if anomalies:
         lines.append(f"{anomalies} unusual transaction(s) to review")
     return 1 if raise_event(
@@ -384,21 +388,17 @@ def _eval_bill_reminder(session: Session, rule: NotificationRule,
             ExpectedMovement.amount_pence < 0,
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= end,
-            ExpectedMovement.dismissed_at.is_(None),
-            # already paid — do not remind (issue #429)
-            ~select(ExpectedMatch.id).where(
-                ExpectedMatch.movement_id ==
-                ExpectedMovement.id).exists())
+            ExpectedMovement.dismissed_at.is_(None))
         .order_by(ExpectedMovement.expected_date)).all()
     raised = 0
-    for m in bills:
+    for m, amount in _unpaid(session, list(bills)):
         if raise_event(
                 session, rule,
                 f"bill:{m.id}:{m.expected_date.isoformat()}",
                 {"title": f"{m.label} due {m.expected_date.isoformat()}",
                  "movement_id": m.id,
                  "label": m.label,
-                 "amount_pence": m.amount_pence,
+                  "amount_pence": amount,
                  "expected_date": m.expected_date.isoformat()},
                 at=at) is not None:
             raised += 1
@@ -588,18 +588,14 @@ def _eval_missed_transfer(session: Session, rule: NotificationRule,
             _movement_scope(rule),
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,
             ExpectedMovement.expected_date <= overdue,
-            ExpectedMovement.dismissed_at.is_(None),
-            # already fulfilled — not missed (issue #429)
-            ~select(ExpectedMatch.id).where(
-                ExpectedMatch.movement_id ==
-                ExpectedMovement.id).exists())).all()
+            ExpectedMovement.dismissed_at.is_(None))).all()
     raised = 0
-    for m in missed:
+    for m, amount in _unpaid(session, list(missed)):
         if raise_event(session, rule, f"missed:{m.id}", {
                 "title": f"Missed transfer: {m.label}",
                 "movement_id": m.id,
                 "label": m.label,
-                "amount_pence": m.amount_pence,
+                "amount_pence": amount,
                 "expected_date": m.expected_date.isoformat(),
                 "severity": SEVERITY[NotificationKind.missed_transfer]},
                 at=at) is not None:

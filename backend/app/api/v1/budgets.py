@@ -1,7 +1,7 @@
 """Budgets: CRUD, lines, lifecycle transitions, per-line actuals."""
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import select, update
@@ -15,8 +15,8 @@ from app.api.deps import (
     ProfileDep,
     SessionDep,
 )
+from app.domain import budget_funding, budget_periods, rbac, schedule
 from app.domain import budgets as dom
-from app.domain import rbac, schedule
 from app.persistence.models import (
     Account,
     Budget,
@@ -33,12 +33,7 @@ router = APIRouter(prefix="/budgets", tags=["budgets"])
 def _visible(b: Budget, profile: UserProfile | None) -> bool:
     """Shared budgets (owner NULL) are household-visible; private
     budgets only to their owner or an admin profile (issue #61)."""
-    if b.owner_profile_id is None:
-        return True
-    if profile is None:
-        return False
-    return (profile.role == Role.admin
-            or b.owner_profile_id == profile.id)
+    return rbac.visible(b.owner_profile_id, profile)
 
 
 def _w(b: Budget, profile: UserProfile | None) -> None:
@@ -59,12 +54,15 @@ def _get(session: Session, household_id: int, budget_id: int,
     return b
 
 
-def _detail(session: Session, b: Budget) -> schemas.BudgetDetail:
+def _detail(session: Session, b: Budget, *,
+            basis: Literal["calendar", "pay_cycle"] = "calendar") -> schemas.BudgetDetail:
     return schemas.BudgetDetail(
         **schemas.BudgetOut.model_validate(b).model_dump(),
         lines=[schemas.BudgetLineOut.model_validate(line)
                for line in b.lines],
-        read_only=dom.is_read_only(session, b))
+        read_only=dom.is_read_only(session, b),
+        period=schemas.BudgetPeriodWindow.model_validate(
+            budget_periods.resolve_period(session, b, basis=basis), from_attributes=True))
 
 
 @router.get("", response_model=schemas.Page[schemas.BudgetOut])
@@ -103,13 +101,61 @@ def create_budget(
     return schemas.BudgetOut.model_validate(b)
 
 
+def _cycle_owner(session: Session, household_id: int, owner_id: int,
+                 profile: UserProfile | None) -> UserProfile:
+    owner = session.get(UserProfile, owner_id)
+    if (owner is None or owner.household_id != household_id
+            or not rbac.visible(owner_id, profile)):
+        raise HTTPException(404, "budget owner not found")
+    return owner
+
+
+def _cycle_settings(session: Session, household_id: int,
+                    owner_id: int) -> schemas.PayCycleSettings:
+    return schemas.PayCycleSettings(
+        employment_id=budget_periods.selected_anchor(session, household_id, owner_id),
+        payday_day=budget_periods.selected_day(session, household_id, owner_id),
+        options=[schemas.PayCycleOption.model_validate(option)
+                 for option in budget_periods.source_choices(session, household_id, owner_id)])
+
+
+@router.get("/pay-cycle-settings", response_model=schemas.PayCycleSettings)
+def get_pay_cycle_settings(
+    owner_profile_id: int, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep,
+) -> schemas.PayCycleSettings:
+    _cycle_owner(session, household.id, owner_profile_id, profile)
+    return _cycle_settings(session, household.id, owner_profile_id)
+
+
+@router.put("/pay-cycle-settings", response_model=schemas.PayCycleSettings)
+def set_pay_cycle_settings(
+    body: schemas.PayCycleSettingsIn, household: HouseholdDep, session: SessionDep,
+    profile: ProfileDep, actor: ActorDep,
+) -> schemas.PayCycleSettings:
+    _cycle_owner(session, household.id, body.owner_profile_id, profile)
+    if not rbac.write_allowed(body.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot change this budget payday")
+    try:
+        if body.payday_day is not None:
+            budget_periods.set_day(session, household.id, body.owner_profile_id, body.payday_day)
+        else:
+            budget_periods.set_anchor(session, household.id, body.owner_profile_id,
+                                      body.employment_id)
+    except (ValueError, LookupError) as error:
+        raise HTTPException(422, str(error)) from error
+    emit(session, household.id, actor, "update", "budget_payday", body.owner_profile_id,
+         {"employment_id": body.employment_id, "payday_day": body.payday_day})
+    return _cycle_settings(session, household.id, body.owner_profile_id)
+
+
 @router.get("/{budget_id}", response_model=schemas.BudgetDetail)
 def get_budget(
     budget_id: int, household: HouseholdDep, session: SessionDep,
-    profile: ProfileDep,
+    profile: ProfileDep, basis: Literal["calendar", "pay_cycle"] = "calendar",
 ) -> schemas.BudgetDetail:
     return _detail(session, _get(
-        session, household.id, budget_id, profile))
+        session, household.id, budget_id, profile), basis=basis)
 
 
 @router.post("/{budget_id}/lines",
@@ -197,10 +243,10 @@ def lock_budget(
             response_model=schemas.BudgetActuals)
 def budget_actuals(
     budget_id: int, household: HouseholdDep, session: SessionDep,
-    profile: ProfileDep,
+    profile: ProfileDep, basis: Literal["calendar", "pay_cycle"] = "calendar",
 ) -> schemas.BudgetActuals:
     b = _get(session, household.id, budget_id, profile)
-    return _actuals(session, b, _account_ids(session, household.id, profile))
+    return _actuals(session, b, _account_ids(session, household.id, profile), basis=basis)
 
 
 def _account_ids(session: Session, household_id: int,
@@ -211,15 +257,24 @@ def _account_ids(session: Session, household_id: int,
 
 
 def _actuals(session: Session, b: Budget,
-             account_ids: list[int]) -> schemas.BudgetActuals:
-    totals = dom.actuals_for_budget(session, b, account_ids)
-    lines = {line.id: dom.line_analysis(totals[line.id], line)
-             for line in b.lines}
-    rem_pence, rem_count = dom.bills_remaining(session, b, account_ids)
+             account_ids: list[int], *, include_private: bool = False,
+             basis: Literal["calendar", "pay_cycle"] = "calendar") -> schemas.BudgetActuals:
+    period = budget_periods.resolve_period(session, b, basis=basis)
+    totals = dom.actuals_for_budget(session, b, account_ids, include_private=include_private,
+                                   start=period.start, end=period.end)
+    rem_pence, rem_count = dom.bills_remaining(
+        session, b, account_ids, include_private=include_private,
+        start=period.start, end=period.end)
+    summary = dom.spending_summary(session, b, account_ids, include_private=include_private,
+                                   start=period.start, end=period.end)
+    funding = budget_funding.budget_funding(session, b, account_ids,
+        start=period.start, end=period.end, include_private=include_private)
+    lines = {line.id: dom.line_analysis(totals[line.id], line) for line in b.lines}
     return schemas.BudgetActuals.model_validate({
         "budget_id": b.id, "totals": totals, "lines": lines,
         "bills_remaining_pence": rem_pence, "bills_remaining_count": rem_count,
-        **dom.spending_summary(session, b, account_ids)})
+        "period": schemas.BudgetPeriodWindow.model_validate(period, from_attributes=True),
+        **summary, **funding})
 
 
 @router.get("/reports/combined", response_model=schemas.BudgetCombined)
@@ -256,12 +311,29 @@ def combined_budget(
             merged.revised_pence = (merged.revised_pence or 0) + line.effective_pence
     combined.lines = list(groups.values())
     account_ids = _account_ids(session, household.id, profile)
-    # With no shared plan, include only the owners represented in this period.
-    if None not in by_owner:
-        account_ids = list(session.scalars(select(Account.id).where(
-            Account.id.in_(account_ids), Account.owner_profile_id.in_(by_owner))))
+    # Plans alone cannot enumerate All's scopes: an authorized account may have
+    # calendar activity even when its owner has no plan for the selected month.
+    owners = {None} | set(by_owner) | set(session.scalars(select(Account.owner_profile_id).where(
+        Account.household_id == household.id, Account.id.in_(account_ids))))
+    names = {p.id: p.display_name for p in session.scalars(select(UserProfile).where(
+        UserProfile.household_id == household.id, UserProfile.id.in_(
+            [owner for owner in owners if owner is not None])))}
+    sections = []
+    for owner in sorted(owners, key=lambda value: (value is not None, value or 0)):
+        plan = by_owner.get(owner)
+        scope = plan if plan is not None else Budget(
+            id=0, household_id=household.id, owner_profile_id=owner,
+            name="Unplanned", period_type=combined.period_type, start_date=start,
+            end_date=end, status=BudgetStatus.locked, lines=[])
+        sections.append(schemas.BudgetCombinedSection(
+            owner_profile_id=owner,
+            name="Shared" if owner is None else names.get(owner, f"Member {owner}"),
+            detail=(_detail(session, plan).model_copy(update={"read_only": True})
+                    if plan is not None else None),
+            actuals=_actuals(session, scope, account_ids)))
     return schemas.BudgetCombined(detail=_detail(session, combined),
-        actuals=_actuals(session, combined, account_ids))
+        actuals=_actuals(session, combined, account_ids, include_private=True),
+        sections=sections)
 
 
 

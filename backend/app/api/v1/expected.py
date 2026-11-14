@@ -43,6 +43,12 @@ def _visible_movement(movement: ExpectedMovement,
                 ExpectedSource.employment, ExpectedSource.payroll_run)))
 
 
+def _movement_out(session: Session, movement: ExpectedMovement) -> schemas.ExpectedMovementOut:
+    result = schemas.ExpectedMovementOut.model_validate(movement)
+    result.outstanding_pence = contributions.status(session, movement).outstanding_pence
+    return result
+
+
 @router.get("", response_model=list[schemas.ExpectedMovementOut])
 def list_movements(
     household: HouseholdDep, session: SessionDep, profile: ProfileDep,
@@ -57,9 +63,9 @@ def list_movements(
         Account.household_id == household.id)).all()
     allowed = {a.id for a in accounts
                if rbac.visible(a.owner_profile_id, profile)
-               and (budget is None or budget.owner_profile_id is None
+               and (budget is None
                     or a.owner_profile_id == budget.owner_profile_id)}
-    return [schemas.ExpectedMovementOut.model_validate(m)
+    return [_movement_out(session, m)
             for m in schedule.stream(
                 session, household.id, start=start, end=end,
                 account_id=account_id)
@@ -88,7 +94,7 @@ def create_manual(
         amount_pence=body.amount.pence, label=body.label)
     emit(session, household.id, actor, "create", "expected_movement",
          m.id, {"expected_date": str(m.expected_date)})
-    return schemas.ExpectedMovementOut.model_validate(m)
+    return _movement_out(session, m)
 
 
 @router.delete("/{mid}", status_code=204)

@@ -28,12 +28,13 @@ A release is the act of promoting `develop` to `main` and tagging.
   `org.opencontainers.image.version` label all derive from this
   value — never edit them by hand.
 
-Release-specific version decision, 12 November 2026: the owner explicitly
-requested **1.4.2** for this release batch, including the backward-compatible HA
-additions described in its changelog. Use that patch number rather than 1.5.0 for
-this release. This is a version-selection exception, not permission to merge,
-tag or publish; the release PR remains the owner's publication gate. The general
-versioning rules above continue to apply to subsequent releases.
+Historical exception, 12 November 2026: the owner selected **1.4.2** for that
+already released batch, including its backward-compatible HA additions. That
+exception is complete and does not prescribe the version of a later release.
+Use the general rules above for subsequent batches: new backward-compatible
+features require a MINOR increment. Version preparation does not authorise
+merging, tagging or publishing; the release PR remains the owner's publication
+gate.
 
 ## Changelog rules
 

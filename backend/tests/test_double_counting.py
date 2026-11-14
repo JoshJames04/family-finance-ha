@@ -50,13 +50,15 @@ DOMAIN = Path(__file__).parents[1] / "app" / "domain"
 # either side of a month boundary (same basis as net_worth_at).
 # _reconcile_opening restamps openings so ledger == provider balance;
 # it must match current_balance's all-legs basis to be correct.
+# _opening_funds is ledger stock strictly before a budget's displayed window.
 ALLOWLIST = {
     "current_balance",
-    "refundable_balance",
     "contributed_pence",
     "repaid_pence",
     "_monthly_net",
+    "net_worth_at",
     "_reconcile_opening",
+    "_opening_funds",
 }
 
 
@@ -97,6 +99,7 @@ class TestStaticContract:
                 seg = source.splitlines()
                 body = "\n".join(seg[max(0, line - 60):line + 60])
                 if "external_only" not in body \
+                        and "external_category_amounts" not in body \
                         and "transfer_id" not in body:
                     violations.append(f"{path.name}:{line} ({fn})")
         assert not violations, (

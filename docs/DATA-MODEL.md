@@ -62,7 +62,13 @@ is never hard-deleted.
 - **salary_revision** — effective date, annual salary, notes.
 - **overtime_entry** — date, hours, multiplier (1.5×/2×/custom), day type
   (weekday/Saturday/Sunday/bank holiday), status (`draft`|`submitted`|
-  `approved`), payroll period ref.
+  `approved`|`rejected`), employment and snapshotted hourly rate. Work dates
+  determine payroll attribution using the employment's existing cutoff.
+  Monday–Sunday sheets are derived views using ISO week-year, not persisted
+  records; all historic entries participate without a backfill. An opaque
+  revision combines content, status and the mutation timestamp for atomic
+  weekly confirmation. Existing timestamp fields use microseconds for new
+  entries and strictly advance on overtime mutations; no migration is needed.
 - **payroll_run** — period, gross, deductions breakdown (PAYE/NI/SL/pension),
   net, forecast vs payslip actual, reconciliation state.
 - **tax_rule_set** — versioned UK parameters (thresholds, bands, rates,
@@ -105,15 +111,36 @@ Four distinct measures; labels must never conflate them:
 
 - **Planned spending** — sum of approved (effective) expense lines for
   the period; never changes because money was spent.
-- **Spent so far** — real transactions attributed to expense lines in
-  the window (category-matched, non-void, non-transfer).
+- **Spent so far** — external economic spending through today within the
+  effective window, including categories outside the manual plan. Void rows,
+  internal transfers and opening stock are excluded; splits retain their
+  individual economic meaning.
 - **Left to spend** — planned − spent; a negative result is reported
   as an overspend of that magnitude, never a bare negative.
 - **Bills remaining** — commitment/subscription expected movements in
   the window not yet matched by a real transaction (`expected_match`);
   past-due unmatched rows count (overdue, not gone). Member budgets
   are scoped to the owner's accounts.
-- **Income received** — actual income matched to income lines.
+- **Income received** — all external receipts through today within the effective
+  window, including income outside the manual plan. Received details reconcile
+  to this figure; opening stock and outstanding salary forecasts are separate.
+- **Shared funding** — verified net personal contributions into shared accounts,
+  with other external income shown separately. All excludes internal contributions
+  and calculates its calendar totals from the authorized account union.
+
+Personal monthly plans retain nominal stored dates and whole approved amounts,
+but their Budget view uses adjusted payday boundaries, including historical
+plans. Shared, All and legacy calendar API clients retain calendar windows.
+Per-member settings select an employment source or a fixed monthly payday without
+creating salary records. Opening funds retain every scoped nonvoid ledger leg
+before the effective period and expose their as-of date.
+
+Expected movements retain nullable transfer endpoint snapshots before a scheduling
+rule changes accounts or is deleted. Confirmed portions remain internal in
+Budget and reports; legacy deleted rules without endpoints retain unattributed
+funding. Transfer rule IDs cannot reuse retained historical identities. Endpoint
+changes with matched future movements return 409 before mutation, so one partly
+fulfilled occurrence cannot acquire a different counterparty or direction.
 
 ## 9. Integrity rules (enforced in domain + DB constraints)
 

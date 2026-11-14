@@ -96,7 +96,7 @@ export function Shared() {
           </Panel>
         ) : (
           <>
-            <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
+            <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
               <Stat
                 className="rounded-xl border border-border bg-surface p-4 shadow-card"
                 label={`Shared total · ${formatMonthOf(shared.start_date)}`}
@@ -119,9 +119,9 @@ export function Shared() {
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {rows.map(([name, pence]) => (
                     <div key={name}
-                      className="flex min-w-0 items-center justify-between gap-2 text-[13.5px]">
-                      <span className="truncate">{name}</span>
-                      <Money pence={pence} className="font-medium" />
+                      className="flex min-w-0 flex-wrap items-baseline justify-between gap-2 text-[13.5px]">
+                      <span className="min-w-0 flex-1 basis-40 wrap-anywhere">{name}</span>
+                      <Money pence={pence} className="shrink-0 font-medium" />
                     </div>
                   ))}
                 </div>
