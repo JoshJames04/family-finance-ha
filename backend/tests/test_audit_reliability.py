@@ -330,7 +330,9 @@ def test_personal_budget_actuals_only_owner(session, household, with_splits):
     session.flush()
     assert budgets.actuals_for_budget(session, budget)[line.id] == (500 if with_splits else 1000)
     budget.owner_profile_id = None
-    assert budgets.actuals_for_budget(session, budget)[line.id] == (5000 if with_splits else 10000)
+    assert budgets.actuals_for_budget(session, budget)[line.id] == 0
+    assert budgets.actuals_for_budget(session, budget, include_private=True)[line.id] == (
+        5000 if with_splits else 10000)
 
 
 def test_subscription_rename_rejects_active_bill(review_client):

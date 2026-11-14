@@ -11,6 +11,35 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-14
+
+### Added
+
+- Personal and historical Budget plans use adjusted payday-to-payday windows;
+  Shared and All retain calendar months (#482).
+- Received-income and verified contribution detail is independent of manual
+  Income plan lines, with opening funds kept separate (#483, #484).
+- Overtime entries, including history, appear in Monday–Sunday weekly sheets,
+  with weekly submit/approve/reject and individual actions (#487).
+
+### Fixed
+
+- Confirmed internal transfer portions keep their economic classification across
+  Budget, reports, analytics and forecasts, including deleted-rule history (#485).
+- Scoped analytics read fresh authorised ledger data, and request writes commit
+  before HTTP success is reported (#479, #481).
+
+### Release preparation and acceptance
+
+- This version-preparation branch does not include the outstanding forecast,
+  matching, banking, Dashboard preference or Budget-detail follow-up PRs. Review
+  and integrate those before finalising this changelog or promoting to main.
+- Migration `0070_transfer_confirmation_history` retains historical transfer
+  evidence. Take a verified backup before upgrade and rehearse migration and
+  restore on a copy.
+- The [release acceptance checklist](docs/RELEASE-1.5.0-REMAINING.md) distinguishes
+  verified implementation from actual HA/provider/device and private-data work.
+
 ## [1.4.2] — 2026-11-12
 
 ### Added

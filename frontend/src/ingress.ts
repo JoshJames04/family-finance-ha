@@ -23,3 +23,8 @@ export function ingressBasename(): string {
   const base = import.meta.env.BASE_URL ?? "/";
   return base.startsWith("/") ? base : "/";
 }
+
+/** Anchor API and download URLs to the mount, independent of the route depth. */
+export function appUrl(path: string): string {
+  return `${ingressBasename().replace(/\/$/, "")}/${path.replace(/^\.?\//, "")}`;
+}

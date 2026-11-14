@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from datetime import datetime
+from functools import partial
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -31,6 +33,7 @@ from app.domain import discovery as discdom
 from app.domain import financial_events, settle
 from app.domain import notifications as notifydom
 from app.domain import sync as syncdom
+from app.domain.sync_lock import claim
 from app.persistence.models import (
     Account,
     BankAccountMapping,
@@ -40,6 +43,7 @@ from app.persistence.models import (
     MappingStatus,
     NotificationRule,
     SyncCursor,
+    SyncStatus,
     TransactionSource,
 )
 
@@ -54,16 +58,23 @@ Fetch = Callable[[SyncCursor], Iterator[syncdom.FeedPage]]
 
 
 def _starling_fetch(client: BankClient, token: str,
-                    mapping: BankAccountMapping) -> Fetch:
+                    mapping: BankAccountMapping, *,
+                    on_error: Callable[[int | None, str, float | None], object] | None = None,
+                    ) -> Fetch:
     from app.integrations.starling import starling_fetch
     return starling_fetch(client, token, mapping.external_uid,
-                          str(mapping.external_category_uid))
+                          str(mapping.external_category_uid), on_error=on_error)
 
 
 def _due(cursor: SyncCursor, now: datetime,
          interval_seconds: float) -> bool:
     """A cursor is due for a scheduled pull when its last good sync
     is older than the interval — never-synced is due too."""
+    if cursor.retry_at is not None:
+        if cursor.retry_at > now:
+            return False
+        if cursor.status == SyncStatus.failed:
+            return True
     if cursor.last_success_at is None:
         return True
     elapsed = (now - cursor.last_success_at).total_seconds()
@@ -71,6 +82,16 @@ def _due(cursor: SyncCursor, now: datetime,
 
 
 def sync_tick(session: Session, *,
+              client: BankClient,
+              token_for: TokenResolver,
+              interval_seconds: float = 240 * 60,
+              now: datetime | None = None) -> int:
+    with ExitStack() as claims:
+        return _sync_tick(session, claims=claims, client=client, token_for=token_for,
+                          interval_seconds=interval_seconds, now=now)
+
+
+def _sync_tick(session: Session, *, claims: ExitStack,
               client: BankClient,
               token_for: TokenResolver,
               interval_seconds: float = 240 * 60,
@@ -95,46 +116,117 @@ def sync_tick(session: Session, *,
     conns = {c.id: c for c in session.scalars(select(BankConnection).where(
         BankConnection.status.in_(
             [ConnStatus.connected, ConnStatus.degraded])))}
+    backing_off = set(session.scalars(select(BankAccountMapping.connection_id).join(
+        SyncCursor, SyncCursor.account_id == BankAccountMapping.account_id).where(
+            BankAccountMapping.status == MappingStatus.linked,
+            SyncCursor.source == TransactionSource.starling,
+            SyncCursor.retry_at > now)))
+    ownership: dict[int, bool] = {}
+    completed_accounts: dict[int, set[int]] = {}
+    tokens: dict[int, str] = {}
+    metadata_succeeded: set[int] = set()
     refreshed_conns: set[int] = set()
+    refresh_succeeded: set[int] = set()
+    cursors_by_conn: dict[int, list[SyncCursor]] = {}
+    denied_spaces_by_conn: dict[int, set[str]] = {}
     synced_households: set[int] = set()
     for m in mappings:
         conn = conns.get(m.connection_id)
         if conn is None or m.account_id is None \
                 or not bankdom.syncable(conn):
             continue
+        if bankdom.connection_retry_at(session, conn, now=now) is not None:
+            continue
         cursor = syncdom.cursor_for(session, m.account_id,
                                     TransactionSource.starling)
+        cursors_by_conn.setdefault(conn.id, []).append(cursor)
         refreshed = (m.account_id, TransactionSource.starling) in queued
         if not refreshed and not _due(cursor, now, interval_seconds):
+            continue
+        if conn.id not in ownership:
+            ownership[conn.id] = claims.enter_context(
+                claim(session, f"connection:{conn.id}"))
+        if not ownership[conn.id]:
+            cursor.refresh_requested = True
+            session.commit()
             continue
         try:
             token = token_for(session, conn)
         except Exception as e:
             conn.last_error = str(e)[:500]
+            refresh_succeeded.discard(conn.id)
             continue
-        if conn.id not in refreshed_conns:
+        tokens[conn.id] = token
+        if conn.id not in refreshed_conns and conn.id not in backing_off:
             # Scheduled parity with the manual /sync route (#416):
             # provider discovery + balance refresh — account
             # renames/closures and live balances used to propagate
             # only when a human pressed Sync.
             try:
                 discdom.discover(session, conn, client, token)
-                discdom.sync_balances(session, conn, client, token)
+                discdom.sync_balances(session, conn, client, token, reconcile_opening=False)
+                metadata_succeeded.add(conn.id)
+                denied_spaces_by_conn[conn.id] = discdom.unavailable_spaces(client)
+                if denied_spaces_by_conn[conn.id]:
+                    discdom.defer_unavailable_spaces(
+                        session, conn, denied_spaces_by_conn[conn.id], interval_seconds, now=now)
+                if not denied_spaces_by_conn[conn.id]:
+                    refresh_succeeded.add(conn.id)
             except Exception as e:
-                conn.last_error = str(e)[:500]
+                bankdom.record_api_error(
+                    session, conn,
+                    401 if isinstance(e, bankdom.TokenInvalid) else getattr(e, "status", None),
+                    str(e), getattr(e, "retry_after", None))
             session.commit()   # writer window ends before next I/O
             refreshed_conns.add(conn.id)
+        if not bankdom.syncable(conn):
+            continue
+        if cursor.retry_at is not None and cursor.retry_at > now:
+            continue
         if m.status is not MappingStatus.linked:
             continue   # discovery just closed/unlinked it provider-side
+        if (m.external_kind == "space"
+                and m.external_uid in denied_spaces_by_conn.get(conn.id, set())):
+            continue
         account = session.get(Account, m.account_id)
         if account is None:
             continue
         cursor.refresh_requested = False
-        syncdom.sync_account(
-            session, account, TransactionSource.starling,
-            _starling_fetch(client, token, m))
+        try:
+            run = syncdom.sync_account(
+                session, account, TransactionSource.starling,
+                _starling_fetch(client, token, m,
+                                on_error=partial(bankdom.record_api_error, session, conn)))
+        except syncdom.SyncBusy:
+            cursor.refresh_requested = True
+            session.commit()
+            refresh_succeeded.discard(conn.id)
+            continue
+        if run.status == SyncStatus.completed:
+            completed_accounts.setdefault(conn.id, set()).add(account.id)
         synced_households.add(account.household_id)
         ran += 1
+    for cid, account_ids in completed_accounts.items():
+        conn = conns[cid]
+        if (cid not in metadata_succeeded or not bankdom.syncable(conn)
+                or bankdom.connection_retry_at(session, conn, now=now) is not None):
+            continue
+        try:
+            discdom.reconcile_synced_balances(
+                session, conn, client, tokens[cid], account_ids, interval_seconds=interval_seconds)
+            if discdom.unavailable_spaces(client):
+                refresh_succeeded.discard(cid)
+        except Exception as exc:
+            bankdom.record_api_error(
+                session, conn,
+                401 if isinstance(exc, bankdom.TokenInvalid) else getattr(exc, "status", None),
+                str(exc), getattr(exc, "retry_after", None))
+            refresh_succeeded.discard(cid)
+        session.commit()
+    for cid in refresh_succeeded:
+        if all(c.status == SyncStatus.completed for c in cursors_by_conn[cid]):
+            conns[cid].status = ConnStatus.connected
+            conns[cid].last_error = None
     # Post-ingest settlement (issue #429): every sync trigger drains
     # through here — scheduled, queued manual refresh and webhook-
     # drained alike. Settlement failure never fails the sync itself.

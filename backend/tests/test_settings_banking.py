@@ -176,7 +176,13 @@ class TestConnectionStatus:
             assert st["status"] == "connected"
             assert st["last_success_at"] is not None
             assert st["refresh_queued"] is False
-            # Next due = last success + effective interval.
+            assert body["scheduler_enabled"] is False
+            assert st["next_due_at"] is None
+            # Model a running scheduler without starting a provider job loop.
+            c.app.state.scheduler_enabled = True
+            body = c.get("/api/v1/settings/banking").json()
+            assert body["scheduler_enabled"] is True
+            st = body["connections"][0]
             due = datetime.fromisoformat(st["next_due_at"])
             assert abs((due - (last_ok + timedelta(minutes=240)))
                        .total_seconds()) < 5

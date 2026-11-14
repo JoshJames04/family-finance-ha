@@ -21,7 +21,12 @@ from sqlalchemy.orm import Session
 
 from app.domain import budgets as budget_domain
 from app.domain import splits
-from app.domain.reporting import external_only
+from app.domain.reporting import (
+    expense_leg,
+    external_category_amounts,
+    income_leg,
+    internal_category_amounts,
+)
 from app.persistence.models import (
     Account,
     Budget,
@@ -61,51 +66,37 @@ def _sum(session: Session, household_id: int, start: date, end: date,
          positive: bool, category_id: int | None = None,
          internal: bool | None = None,
          account_ids: list[int] | None = None) -> int:
-    sign = (Transaction.amount_pence > 0 if positive
-            else Transaction.amount_pence < 0)
-    if category_id is not None:
-        # Splits-aware: a split parent contributes its legs, not the
-        # whole amount (issue #289).
-        wheres = [Account.household_id == household_id,
-                  Transaction.status != TransactionStatus.void,
-                  Transaction.date >= start, Transaction.date <= end,
-                  sign,
-                  *([Account.id.in_(account_ids)] if account_ids is not None else []),
-                  ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
-                  | Transaction.external_ref.is_(None)]
-        if internal is True:
-            wheres.append(Transaction.transfer_id.isnot(None))
-        elif internal is False:
-            wheres.append(Transaction.transfer_id.is_(None))
-        ea = splits.effective_category_amounts(*wheres)
-        stmt = select(
-            func.coalesce(func.sum(ea.c.amount_pence), 0)).where(
-            ea.c.category_id == category_id)
-        return int(session.execute(stmt).scalar_one())
-    stmt = _base(household_id, start, end, account_ids).where(sign)
+    wheres = [Account.household_id == household_id,
+              Transaction.status != TransactionStatus.void,
+              Transaction.date >= start, Transaction.date <= end,
+              *([Account.id.in_(account_ids)] if account_ids is not None else []),
+              ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+              | Transaction.external_ref.is_(None)]
+    helper = (internal_category_amounts if internal is True else
+              external_category_amounts if internal is False else splits.effective_category_amounts)
+    amounts = helper(*wheres)
+    side = (income_leg(amounts) if positive else expense_leg(amounts))
     if internal is True:
-        stmt = stmt.where(Transaction.transfer_id.isnot(None))
-    elif internal is False:
-        stmt = external_only(stmt)
+        side = amounts.c.amount_pence > 0 if positive else amounts.c.amount_pence < 0
+    stmt = select(func.coalesce(func.sum(amounts.c.amount_pence), 0)).where(side)
+    if category_id is not None:
+        stmt = stmt.where(amounts.c.category_id == category_id)
     return int(session.execute(stmt).scalar_one())
 
 
 def _count(session: Session, household_id: int, start: date, end: date,
            internal: bool, account_ids: list[int] | None = None) -> int:
-    stmt = (
-        select(func.count(func.distinct(Transaction.transfer_id)))
-        .join(Account, Transaction.account_id == Account.id)
-        .where(
-            Account.household_id == household_id,
-            Transaction.status != TransactionStatus.void,
-            Transaction.date >= start, Transaction.date <= end,
-            *([Account.id.in_(account_ids)] if account_ids is not None else [])))
-    if internal:
-        stmt = stmt.where(Transaction.transfer_id.isnot(None))
-    else:
-        stmt = stmt.where(Transaction.transfer_id.is_(None))
-    return int(session.execute(stmt).scalar_one())
-
+    helper = internal_category_amounts if internal else external_category_amounts
+    amounts = helper(
+        Account.household_id == household_id,
+        Transaction.status != TransactionStatus.void,
+        Transaction.date >= start, Transaction.date <= end,
+        ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+        | Transaction.external_ref.is_(None),
+        *([Account.id.in_(account_ids)] if account_ids is not None else []))
+    rows = session.execute(select(amounts.c.transfer_id, amounts.c.transaction_id).distinct())
+    return len({("pair", transfer_id) if transfer_id is not None else ("row", transaction_id)
+                for transfer_id, transaction_id in rows})
 
 def _fig(key: str, label: str, amount: int | None,
          drill: dict[str, Any] | None = None,
@@ -131,21 +122,21 @@ def _sections(session: Session, household_id: int,
     expense = -_sum(session, household_id, start, end,
                     positive=False, internal=False, account_ids=account_ids)
     income_drill = _drill(date_from=start, date_to=end,
-                          direction="income")
+                          budget_side="income")
     expense_drill = _drill(date_from=start, date_to=end,
-                           direction="expense")
+                           budget_side="expense")
 
-    ea = splits.effective_category_amounts(
+    ea = external_category_amounts(
         Account.household_id == household_id,
         Transaction.status != TransactionStatus.void,
         Transaction.date >= start, Transaction.date <= end,
-        Transaction.amount_pence < 0,
         Transaction.transfer_id.is_(None),
         *([Account.id.in_(account_ids)] if account_ids is not None else []),
         ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
         | Transaction.external_ref.is_(None))
     cat_rows = session.execute(
         select(ea.c.category_id, func.sum(ea.c.amount_pence))
+        .where(expense_leg(ea))
         .group_by(ea.c.category_id)
         .order_by(ea.c.category_id.is_(None), ea.c.category_id)).all()
     names = {c.id: c.name for c in session.execute(
@@ -156,7 +147,8 @@ def _sections(session: Session, household_id: int,
         names.get(cid, f"Category {cid}") if cid is not None
         else "Uncategorised",
         -total,
-        _drill(date_from=start, date_to=end, direction="expense",
+        _drill(date_from=start, date_to=end, budget_side="expense",
+               uncategorised=True if cid is None else None,
                category_id=cid))
         for cid, total in cat_rows]
 
@@ -184,6 +176,8 @@ def _sections(session: Session, household_id: int,
                 ln.effective_pence - actual,
                 _drill(date_from=b.start_date, date_to=b.end_date,
                        owner_profile_id=b.owner_profile_id,
+                       shared_only=True if b.owner_profile_id is None else None,
+                       budget_side=ln.side.value,
                        category_id=ln.category_id)))
 
     savings = income - expense
@@ -198,8 +192,8 @@ def _sections(session: Session, household_id: int,
          "figures": [
              _fig("transfer_total", "Transferred between accounts",
                   t_total, t_drill),
-             _fig("transfer_count", "Number of transfers", None,
-                  t_drill, count=t_count)]},
+             _fig("transfer_count", "Internal movements", None,
+                  _drill(date_from=start, date_to=end, internal="only"), count=t_count)]},
         {"key": "savings", "label": "Savings", "figures": [
             _fig("savings_pence", "Net savings", savings,
                  components=[income_drill, expense_drill]),

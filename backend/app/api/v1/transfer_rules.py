@@ -6,7 +6,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.api import schemas
@@ -31,6 +31,18 @@ def _get(session: Session, household_id: int, rid: int) -> TransferRule:
     if r is None or r.household_id != household_id:
         raise HTTPException(404, f"transfer rule {rid} not found")
     return r
+
+
+def _retain_endpoints(session: Session, rule: TransferRule) -> None:
+    """Freeze existing movement identity before changing its scheduling source."""
+    session.execute(update(ExpectedMovement).where(
+        ExpectedMovement.household_id == rule.household_id,
+        ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+        ExpectedMovement.source_id == rule.id,
+        ExpectedMovement.transfer_source_account_id.is_(None),
+        ExpectedMovement.transfer_dest_account_id.is_(None),
+    ).values(transfer_source_account_id=rule.source_account_id,
+             transfer_dest_account_id=rule.dest_account_id))
 
 
 def _check_accounts(
@@ -145,6 +157,19 @@ def update_rule(
             changes.get("dest_account_id", r.dest_account_id))
     if "amount_spec" in changes and changes["amount_spec"] is not None:
         changes["amount_spec"] = json.dumps(changes["amount_spec"])
+    endpoints_changed = any(k in changes and changes[k] != getattr(r, k)
+                            for k in ("source_account_id", "dest_account_id"))
+    if endpoints_changed:
+        matched_future = session.scalar(select(ExpectedMovement.id).join(
+            ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id).where(
+            ExpectedMovement.household_id == household.id,
+            ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+            ExpectedMovement.source_id == r.id,
+            ExpectedMovement.expected_date >= date.today()).limit(1))
+        if matched_future is not None:
+            raise HTTPException(409, "This rule has matched future movements. "
+                                "Create a separate rule for the new accounts.")
+        _retain_endpoints(session, r)
     for k, v in changes.items():
         setattr(r, k, v)
     session.flush()
@@ -175,6 +200,7 @@ def delete_rule(
     ``expected_match`` FKs to them and real money already met the
     obligation. Pause is the softer option (PATCH ``active=false``)."""
     r = _get(session, household.id, rid)
+    _retain_endpoints(session, r)
     session.execute(
         delete(ExpectedMovement).where(
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,

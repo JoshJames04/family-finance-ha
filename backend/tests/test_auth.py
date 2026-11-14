@@ -1,15 +1,14 @@
 """Issue #29 — authn/authz middleware: spoof defence, ingress
 resolution, standalone sessions, deny-by-default coverage."""
 
+import re
 from pathlib import Path
 
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 import app.api.auth as auth
-from app.api import deps
 from app.core import security
 from app.core.settings import Settings
 from app.main import create_app
@@ -259,45 +258,34 @@ class TestStandaloneSessions:
 
 
 class TestRouteCoverage:
-    """AC: every endpoint has authz coverage — a route lacking an
-    auth dependency must be in the explicit public allowlist."""
+    """Exercise the ingress guard, including routes protected by middleware."""
 
     PUBLIC = {
-        ("POST", "/api/v1/households"),   # bootstrap creates household
-        ("POST", "/api/v1/profiles"),     # bootstrap admin window
         ("GET", "/api/v1/version"),
         ("POST", "/api/v1/auth/login"),
         ("POST", "/api/v1/auth/logout"),
-        ("GET", "/healthz"),              # supervisor/k8s probes
-        ("GET", "/readyz"),
-        ("GET", "/{full_path:path}"),     # issue #23: public SPA shell
     }
-    AUTH_DEPS = {deps.resolve_profile, auth.current_profile,
-                 auth.require_profile, deps.require_admin}
-
-    def _deps_of(self, route: APIRoute) -> set:
-        found: set = set()
-        stack = [route.dependant]
-        while stack:
-            d = stack.pop()
-            for sub in d.dependencies:
-                fn = sub.call
-                if (fn in self.AUTH_DEPS
-                        or getattr(fn, "_ff_auth", False)):
-                    found.add(fn)
-                stack.append(sub)
-        return found
 
     def test_every_route_has_authz_or_is_public(
             self, tmp_path: Path):
-        app = _app(tmp_path)
-        uncovered = []
-        for r in app.routes:
-            if not isinstance(r, APIRoute):
-                continue
-            for method in r.methods or ():
-                if (method, r.path) in self.PUBLIC:
+        app = _app(tmp_path, FF_INGRESS="true")
+        # OpenAPI enumerates actual endpoints across eager and lazy routers;
+        # inspecting only top-level APIRoute objects can silently check none.
+        paths = app.openapi()["paths"]
+        assert "get" in paths["/api/v1/transactions"]
+        checked = []
+        with TestClient(app) as client:
+            _seed_profile(client)  # close the unauthenticated bootstrap window
+            for path, operations in paths.items():
+                if not path.startswith("/api/v1/"):
                     continue
-                if not self._deps_of(r):
-                    uncovered.append(f"{method} {r.path}")
-        assert uncovered == []
+                for method in operations:
+                    if method not in {"get", "post", "put", "patch", "delete"}:
+                        continue
+                    if (method.upper(), path) in self.PUBLIC:
+                        continue
+                    concrete = re.sub(r"\{[^}]+\}", "1", path)
+                    response = client.request(method.upper(), concrete)
+                    assert response.status_code == 401, (method, path, response.status_code)
+                    checked.append((method, path))
+        assert ("get", "/api/v1/transactions") in checked
