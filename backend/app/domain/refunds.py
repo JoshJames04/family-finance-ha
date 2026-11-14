@@ -14,7 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.reporting import external_category_amounts
-from app.persistence.models import Transaction
+from app.persistence.models import Transaction, TransactionStatus
 
 
 class RefundError(ValueError):
@@ -49,13 +49,14 @@ def link_refund(
 
 
 def refundable_balance(session: Session, original_id: int) -> int:
-    """How much of `original` is still refundable (pence, >= 0)."""
+    """Live refunds consume the balance; void correction history does not."""
     orig = session.get(Transaction, original_id)
     if orig is None:
         raise RefundError("original transaction not found")
     refunded = session.execute(
         select(func.coalesce(func.sum(Transaction.amount_pence), 0))
-        .where(Transaction.refund_of_id == original_id)
+        .where(Transaction.refund_of_id == original_id,
+               Transaction.status != TransactionStatus.void)
     ).scalar_one()
     return -orig.amount_pence - refunded
 

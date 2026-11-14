@@ -416,3 +416,15 @@ def test_reconciliation_skips_salary_refund_without_blocking_real_salary(session
     assert result.matched == 1
     assert contributions.matched_total(session, movement.id) == 1000
     assert refund.status != TransactionStatus.reconciled
+
+
+def test_unassigned_expectation_cannot_count_an_account_payment_or_be_manually_matched(
+        session, payment):
+    _, movement, tx = payment
+    movement.account_id = None
+    stored = link(session, movement, tx)  # simulate invalid historical evidence
+    assert contributions.status(session, movement).outstanding_pence == 1000
+    with pytest.raises(contributions.MatchError, match="account"):
+        contributions.confirm(session, movement, tx)
+    assert session.get(ExpectedMatch, stored.id) is stored
+    assert session.scalar(select(func.count()).select_from(ExpectedMatch)) == 1
