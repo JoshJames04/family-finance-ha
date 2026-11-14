@@ -1,12 +1,25 @@
 import { expect, test } from "@playwright/test";
 
-const API = "http://localhost:8099/api/v1";
+const API = process.env["FF_E2E_API"] ?? "http://localhost:8099/api/v1";
 
 /** #413 regression: long unbreakable bill names gave the card grid an
  * auto-sized implicit column wider than the viewport — the whole page
  * scrolled horizontally and card amounts were cropped off-frame. */
 test.beforeAll(async ({ request }) => {
+  let households = await request.get(`${API}/households`);
+  expect(households.ok(), await households.text()).toBe(true);
+  if ((await households.json()).items.length === 0) {
+    const bootstrap = await request.post(`${API}/households`, {
+      data: { name: "E2E Bills bootstrap" },
+    });
+    expect(bootstrap.ok(), await bootstrap.text()).toBe(true);
+    households = await request.get(`${API}/households`);
+    expect(households.ok(), await households.text()).toBe(true);
+  }
+  const first = (await households.json()).items[0] as { id: number };
+  const headers = { "X-Household-Id": String(first.id) };
   const acct = await request.post(`${API}/accounts`, {
+    headers,
     data: {
       name: `E2E Bills Account ${crypto.randomUUID()}`,
       type: "personal",
@@ -14,10 +27,11 @@ test.beforeAll(async ({ request }) => {
       opening_date: "2026-01-01",
     },
   });
-  expect(acct.ok()).toBe(true);
+  expect(acct.ok(), await acct.text()).toBe(true);
   const { id } = (await acct.json()) as { id: number };
 
   const bill = await request.post(`${API}/commitments`, {
+    headers,
     data: {
       name: "Supercalifragilisticexpialidocious-Insurance-Premium",
       type: "bill",
@@ -28,7 +42,7 @@ test.beforeAll(async ({ request }) => {
       account_id: id,
     },
   });
-  expect(bill.ok()).toBe(true);
+  expect(bill.ok(), await bill.text()).toBe(true);
 });
 
 for (const width of [320, 375, 430]) {

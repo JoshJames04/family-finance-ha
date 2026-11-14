@@ -193,7 +193,7 @@ class TestBillsRemaining:
         self._mv(session, household, d=date(2026, 5, 3))   # overdue, in-window
         self._mv(session, household, d=date(2026, 6, 1))   # after end
         self._mv(session, household, d=date(2026, 5, 10), amount=2000)   # income
-        paid = self._mv(session, household, d=date(2026, 5, 12))
+        paid = self._mv(session, household, d=date(2026, 5, 12), acct=acct)
         t = Transaction(account_id=acct.id, date=date(2026, 5, 12),
                         amount_pence=-5000, payee="x",
                         category_id=category.id,

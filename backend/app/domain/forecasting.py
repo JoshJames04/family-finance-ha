@@ -29,7 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain.recurring import occurrences
-from app.domain.reporting import external_only
+from app.domain.reporting import expense_leg, external_category_amounts
 from app.persistence.models import (
     Account,
     RecurringCommitment,
@@ -66,22 +66,22 @@ def _add_months(d: date, n: int) -> date:
 
 
 def _actuals(session: Session, household_id: int, start: date,
-             end: date) -> dict[tuple[int | None, date], int]:
+             end: date, *, account_ids: list[int] | None = None
+             ) -> dict[tuple[int | None, date], int]:
     """Per (category, month) positive spend in [start, end) —
     external-only so internal transfers never count as expenditure."""
-    month_expr = func.strftime("%Y-%m", Transaction.date)
+    amounts = external_category_amounts(
+        Account.household_id == household_id,
+        Transaction.status != TransactionStatus.void,
+        Transaction.date >= start, Transaction.date < end,
+        *([Account.id.in_(account_ids)] if account_ids is not None else []))
+    month_expr = func.strftime("%Y-%m", amounts.c.date)
     stmt = (
         select(month_expr,
-               Transaction.category_id,
-               func.coalesce(func.sum(-Transaction.amount_pence), 0))
-        .join(Account, Transaction.account_id == Account.id)
-        .where(Account.household_id == household_id,
-               Transaction.amount_pence < 0,
-               Transaction.status != TransactionStatus.void,
-               Transaction.date >= start,
-               Transaction.date < end)
-        .group_by(month_expr, Transaction.category_id))
-    stmt = external_only(stmt)
+               amounts.c.category_id,
+               func.coalesce(func.sum(-amounts.c.amount_pence), 0))
+        .where(expense_leg(amounts))
+        .group_by(month_expr, amounts.c.category_id))
     out: dict[tuple[int | None, date], int] = {}
     for ym, cat, amt in session.execute(stmt):
         out[(cat, _month_start(int(ym[:4]), int(ym[5:])))] = int(amt)
@@ -89,7 +89,7 @@ def _actuals(session: Session, household_id: int, start: date,
 
 
 def _commitment_spend(session: Session, household_id: int,
-                      horizon: date
+                      horizon: date, *, account_ids: list[int] | None = None
                       ) -> dict[tuple[int, date], int]:
     """Per (category, month) committed spend across all occurrences —
     same expansion the expected-movement stream uses."""
@@ -98,7 +98,9 @@ def _commitment_spend(session: Session, household_id: int,
             RecurringCommitment.household_id == household_id,
             RecurringCommitment.active.is_(True),
             RecurringCommitment.category_id.isnot(None),
-            RecurringCommitment.amount_pence < 0))
+            RecurringCommitment.amount_pence < 0,
+            *([RecurringCommitment.account_id.in_(account_ids)]
+              if account_ids is not None else [])))
     out: dict[tuple[int, date], int] = {}
     for c in cats:
         assert c.category_id is not None
@@ -136,7 +138,8 @@ def _model(actuals: dict[date, int], target: date,
 
 def forecast(session: Session, household_id: int,
              from_month: date | None = None, months: int = 12,
-             history_months: int = 12) -> list[ForecastRow]:
+             history_months: int = 12, *, account_ids: list[int] | None = None
+             ) -> list[ForecastRow]:
     """Per-category monthly spend forecast with method + confidence
     provenance. Deterministic in ``from_month`` for tests."""
     today = date.today()
@@ -149,9 +152,9 @@ def forecast(session: Session, household_id: int,
     hist_start = _add_months(anchor, -history_months)
     horizon_end = _add_months(anchor, months)
 
-    actuals = _actuals(session, household_id, hist_start, anchor)
+    actuals = _actuals(session, household_id, hist_start, anchor, account_ids=account_ids)
     committed = _commitment_spend(
-        session, household_id, horizon_end)
+        session, household_id, horizon_end, account_ids=account_ids)
 
     per_cat: dict[int | None, dict[date, int]] = {}
     for (cat, m), amt in actuals.items():

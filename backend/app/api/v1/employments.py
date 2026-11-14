@@ -7,7 +7,7 @@ import calendar
 import json
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -548,7 +548,8 @@ def gross_for_period(
 
 def _entry(session: Session, emp_id: int, entry_id: int
            ) -> OvertimeEntry:
-    o = session.get(OvertimeEntry, entry_id)
+    ot.lock_entries(session, emp_id)
+    o = session.get(OvertimeEntry, entry_id, populate_existing=True)
     if o is None or o.employment_id != emp_id:
         raise HTTPException(404, f"overtime entry {entry_id} not found")
     return o
@@ -723,10 +724,37 @@ def create_overtime(
         session, e, work_date=body.work_date, hours=body.hours,
         multiplier_bps=body.multiplier_bps, day_type=body.day_type,
         notes=body.notes)
+    session.refresh(o)  # Return the same Numeric representation and revision as subsequent GETs.
     emit(session, household.id, actor, "create", "overtime_entry",
          o.id, {"employment_id": e.id, "work_date": str(o.work_date),
                 "day_type": o.day_type.value, "hours": str(o.hours)})
     return schemas.OvertimeOut.model_validate(o)
+
+
+@router.post("/{emp_id}/overtime-weeks/{week_start}/{action}",
+             response_model=schemas.OvertimeWeekOut)
+def overtime_week_transition(
+    emp_id: int, week_start: date, action: Literal["submit", "approve", "reject"],
+    body: schemas.OvertimeWeekIn,
+    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+) -> schemas.OvertimeWeekOut:
+    _get(session, household.id, emp_id)
+    if week_start.weekday() != 0:
+        raise HTTPException(422, "week_start must be a Monday")
+    try:
+        week_end = week_start + timedelta(days=6)
+    except OverflowError as error:
+        raise HTTPException(422, "week extends beyond the supported date range") from error
+    with session.begin_nested():
+        entries = ot.transition_week(session, emp_id, week_start, action,
+                                     {entry.id: entry.revision for entry in body.entries})
+        for entry in entries:
+            emit(session, household.id, actor, action, "overtime_entry", entry.id,
+                 {"employment_id": emp_id, "status": entry.status.value,
+                  "week_start": str(week_start), "week_end": str(week_end)})
+        session.flush()
+    return schemas.OvertimeWeekOut(week_start=week_start, week_end=week_end,
+                                   action=action, updated_count=len(entries))
 
 
 @router.post("/{emp_id}/overtime-entries/{entry_id}/{action}",
@@ -764,6 +792,7 @@ def patch_overtime(
         multiplier_bps=changed.get("multiplier_bps"),
         day_type=changed.get("day_type"),
         notes=changed.get("notes", ...))
+    session.refresh(o)
     emit(session, household.id, actor, "update", "overtime_entry", o.id,
          {"employment_id": emp_id,
           "fields": sorted(changed.keys())})

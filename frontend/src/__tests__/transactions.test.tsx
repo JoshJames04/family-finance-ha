@@ -253,7 +253,7 @@ describe("Category ordering", () => {
     stubFetch([]);
     render(<MemoryRouter><Transactions /></MemoryRouter>);
     const select = await screen.findByLabelText("Category");
-    await waitFor(() => expect((select as HTMLSelectElement).options.length).toBe(3));
-    expect(Array.from((select as HTMLSelectElement).options).map(o => o.text)).toEqual(["All categories", "Bills", "Food"]);
+    await waitFor(() => expect((select as HTMLSelectElement).options.length).toBe(4));
+    expect(Array.from((select as HTMLSelectElement).options).map(o => o.text)).toEqual(["All categories", "Bills", "Food", "Uncategorised"]);
   });
 });

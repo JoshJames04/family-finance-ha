@@ -60,9 +60,21 @@ add-on log or Settings → Banking showing a degraded connection.
    (`POST /api/v1/banks/connections/{id}/rotate`).
 3. Trigger a manual sync — the cursor clears once a run succeeds.
 
-Rate limiting is handled by `retry_at` backoff — a `429` shows as a
-deferred `retry_at` on the sync cursor in `/diagnostics`; the
-scheduler never hammers the provider.
+Provider `429` responses from discovery, balance or feed requests persist
+their `Retry-After` window on linked cursors (60 seconds when absent).
+The connection deadline also lives in `app_meta` under
+`bank_retry_at:<connection id>`, including before any account is linked.
+Discover and Balances enforce it too; successful re-authentication clears it.
+Scheduled refresh and **Sync now** wait for that connection-wide window,
+including newly linked sibling accounts. An optional Spaces permission
+failure instead delays only the denied space until the next configured
+sync interval; valid main-account feeds remain usable. While any linked
+cursor is waiting, connection-wide discovery and balance refresh wait too.
+Settings shows
+credential connection status separately from account sync failures and
+the retry time. A DNS failure needs network/DNS recovery; it does not
+mean the token has been revoked. A complete successful connection refresh
+clears stale errors. An incomplete Spaces response never closes mappings.
 
 ## 6. Upgrade rollback
 
