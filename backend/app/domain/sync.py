@@ -65,14 +65,14 @@ class SyncError(Exception):
         self.retry_after = retry_after
 
 
-def _retry_at(delay: float | None, default: float) -> datetime:
+def retry_deadline(delay: float | None, default: float) -> datetime:
     now = datetime.now()
     if delay is None or not isfinite(delay) or delay <= 0:
         delay = default
     try:
         return now + timedelta(seconds=delay)
     except OverflowError:
-        return datetime.max
+        return now + timedelta(seconds=default)
 
 
 @dataclass(frozen=True)
@@ -238,7 +238,7 @@ def _sync_account(
         run.error = str(e)[:500]
         cursor.status = SyncStatus.failed
         cursor.error = str(e)[:500]
-        cursor.retry_at = _retry_at(e.retry_after, 60)
+        cursor.retry_at = retry_deadline(e.retry_after, 60)
     except SyncError as e:
         run.status = SyncStatus.failed
         run.error = str(e)[:500]
@@ -246,7 +246,7 @@ def _sync_account(
         cursor.error = str(e)[:500]
         # A transient feed failure gets a persisted five-minute delay. Healthy
         # siblings remain eligible; provider429 keeps its own connection deadline.
-        cursor.retry_at = _retry_at(e.retry_after, 300)
+        cursor.retry_at = retry_deadline(e.retry_after, 300)
     except Exception as e:
         # Discard an incomplete page, including flushed rows and counters.
         # The run and previous page checkpoints were already committed.

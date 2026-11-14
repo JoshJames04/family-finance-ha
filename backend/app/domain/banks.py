@@ -15,8 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from math import isfinite
+from datetime import datetime
 
 from cryptography.exceptions import InvalidTag
 from sqlalchemy import func, select
@@ -136,9 +135,7 @@ def record_api_error(session: Session, conn: BankConnection,
                    if status_code in (401, 403)
                    else ConnStatus.degraded)
     if status_code == 429:
-        delay = (retry_after if retry_after is not None and isfinite(retry_after)
-                 and retry_after > 0 else 60)
-        retry_at = datetime.now() + timedelta(seconds=delay)
+        retry_at = syncdom.retry_deadline(retry_after, 60)
         if previous_retry is not None:
             retry_at = max(previous_retry, retry_at)
         conn.last_error = f"{RATE_LIMIT_ERROR} until {retry_at.isoformat()}: {message}"[:500]

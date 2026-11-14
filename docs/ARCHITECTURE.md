@@ -472,3 +472,7 @@ check identifiable post-sync reconciliation under that provider timing limit;
 the synthetic tests do not prove it away. Standalone balance refresh is
 snapshot-only by default and cannot rewrite an opening without completed feed
 history; the explicit opening-repair flag is used by the completed-feed path.
+
+Retry deadlines use the same validator in connection-error callbacks and feed
+handling. Finite hints too large for a datetime use the normal fallback rather
+than raising an overflow or parking a feed at year9999.

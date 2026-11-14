@@ -355,7 +355,7 @@ def test_transient_retry_after_takes_precedence_and_recovery_clears_it(
     assert conn.status is ConnStatus.connected and conn.last_error is None
 
 
-@pytest.mark.parametrize("delay", [float("inf"), float("nan"), -1.0])
+@pytest.mark.parametrize("delay", [float("inf"), float("nan"), -1.0, 1e300])
 def test_invalid_rate_limit_delay_has_a_finite_future_deadline(session, household, delay):
     account, _, _ = linked(session, household)
 
@@ -454,3 +454,24 @@ def test_balance_only_refresh_does_not_rewrite_opening_before_feed(
     assert result == {"synced": 1}
     assert opening.amount_pence == 10000
     assert current_balance(session, account.id) == 9500
+
+@pytest.mark.parametrize("manual_run", [False, True])
+def test_huge_finite_provider_retry_does_not_escape_error_callback(
+        session, household, monkeypatch, manual_run):
+    account, conn, _ = linked(session, household)
+    session.commit()
+    monkeypatch.setattr(bankapi.banks, "token", lambda *_: "synthetic")
+
+    class Limited(Client):
+        def feed_items(self, *args):
+            raise starling.UpstreamError(429, retry_after=1e300)
+
+    now = datetime.now()
+    if manual_run:
+        manual(session, household.id, conn.id, Limited())
+    else:
+        scheduler.sync_tick(session, client=Limited(), token_for=lambda *_: "synthetic")
+    cursor = sync.cursor_for(session, account.id, SRC)
+    assert cursor.status is SyncStatus.failed and cursor.last_ref is None
+    assert conn.status is ConnStatus.degraded
+    assert now + timedelta(seconds=50) <= cursor.retry_at <= now + timedelta(seconds=70)
