@@ -43,7 +43,10 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   detection, automatic categorisation and reconciliation. Categories resolve
   automatically: matched bills inherit their commitment's category, the
   household-owned bank-category map auto-applies, and payee rules learn from
-  every confirmed correction. The app is fully functional without it.
+  every confirmed correction. Settings shows whether automatic sync is enabled
+  and any retry deadline; concurrent refreshes queue safely. Balance history is
+  repaired only after a complete successful feed using a fresh provider snapshot.
+  The app is fully functional without it.
 - **Household contributions** — configurable transfer rules between personal,
   joint and bills accounts, with outstanding-transfer detection.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and

@@ -1787,6 +1787,7 @@ class BankingSyncSettingsOut(BaseModel):
     min_minutes: float
     max_minutes: float
     tick_seconds: float
+    scheduler_enabled: bool
     connections: list[ConnectionSyncStatusOut]
 
 

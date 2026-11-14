@@ -429,3 +429,46 @@ Grouping and status transitions preserve work dates, rate/multiplier snapshots,
 payroll-cutoff attribution and already-generated payroll components. Approved-only
 payroll behaviour is unchanged, including weeks crossing a cutoff or year. This
 workflow records submission/approval in the app; it does not send manager emails.
+
+### Bank sync ownership and balance repair (#490)
+
+Manual and scheduled syncs take nonblocking native advisory locks keyed by the
+SQLite database identity plus connection, then account/source. The account lock
+also covers direct feed calls. A contending trigger preserves a queued refresh
+without calling the provider or inventing a failed run. Linux uses `flock` and
+Windows uses a byte-range lock. The kernel releases ownership on process exit;
+a persisted `running` cursor can then resume from its committed checkpoint.
+Hashed lock files under the service's private temporary directory contain no
+financial data and must not be unlinked while the service is running. This
+coordinates workers in one service host/container; distributed replicas sharing
+SQLite are not supported. No SQLite write is held across provider HTTP.
+
+Discovery-time balances are snapshots. Their refresh does not repair the opening
+before ingestion. Only a completed feed with history predating its opening is
+eligible for the existing opening-history repair, using a newly fetched balance;
+Spaces reads explicitly invalidate the earlier discovery cache. Failed or partial
+feeds retain committed checkpoints and do not trigger that repair. Other ledger
+amounts/payees and reconciled historical movements remain unchanged. Ordinary
+feeds without pre-opening history incur no extra balance read.
+
+Transient feed/network failures persist a five-minute retry deadline. A positive
+finite provider `Retry-After` takes precedence; invalid rate-limit hints fall back
+to sixty seconds. Connection-wide provider429 cooldown remains distinct from
+per-feed transient retries, so healthy feeds can continue. Malformed feed
+listings fail without advancing a success watermark; an explicit empty list is
+valid. A failed fresh Spaces balance remains degraded rather than clearing a
+permission warning after feed-only success.
+
+Settings exposes the actual `scheduler_enabled` state and omits an automatic
+next-run time when the worker is disabled (including startup failure). Manual
+refresh remains available and its retry timing is still shown. Synthetic tests
+do not establish unattended live-provider acceptance for #416 or apply the
+private live policy tracked by #475.
+
+The provider feed and balance endpoints are separate reads, not an atomic bank
+snapshot. A fresh balance prevents cache staleness but cannot establish atomic
+agreement if bank activity arrives between those requests. Live acceptance must
+check identifiable post-sync reconciliation under that provider timing limit;
+the synthetic tests do not prove it away. Standalone balance refresh is
+snapshot-only by default and cannot rewrite an opening without completed feed
+history; the explicit opening-repair flag is used by the completed-feed path.

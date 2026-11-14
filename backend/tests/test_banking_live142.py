@@ -167,7 +167,8 @@ def test_backoff_prevents_connection_refresh_calls(
 
     if manual:
         result = bankapi.sync_transactions(
-            conn.id, household, session, "synthetic", None, Client(), SimpleNamespace())
+            conn.id, household, session, "synthetic", None, Client(), SimpleNamespace(
+                app=SimpleNamespace(state=SimpleNamespace(settings=Settings()))))
         assert result["balances_refreshed"] == 0
         assert [r["status"] for r in result["runs"]] == (
             ["queued", "completed"] if mixed else ["queued"])
@@ -198,7 +199,8 @@ def test_complete_sync_recovers_connection_error(session, household, monkeypatch
     if manual:
         monkeypatch.setattr(bankapi.banks, "token", lambda *args: "synthetic")
         bankapi.sync_transactions(
-            conn.id, household, session, "synthetic", None, Client(), SimpleNamespace())
+            conn.id, household, session, "synthetic", None, Client(), SimpleNamespace(
+                app=SimpleNamespace(state=SimpleNamespace(settings=Settings()))))
     else:
         scheduler.sync_tick(session, client=Client(), token_for=lambda *_: "synthetic")
     assert conn.status is ConnStatus.connected

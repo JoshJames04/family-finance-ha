@@ -60,6 +60,8 @@ def _status(request: Request, session: Session, household_id: int,
         session, settings)
     now = datetime.now()
     interval_seconds = interval * 60
+    scheduler_enabled = bool(getattr(request.app.state, "scheduler_enabled",
+                                     settings.scheduler_tick_seconds > 0))
 
     conns = session.scalars(select(BankConnection).where(
         BankConnection.household_id == household_id)).all()
@@ -107,7 +109,7 @@ def _status(request: Request, session: Session, household_id: int,
                 refresh_queued=(
                     cursor.refresh_requested if cursor else False),
                 retry_at=retry_at,
-                next_due_at=next_due if c.status in (
+                next_due_at=next_due if scheduler_enabled and c.status in (
                     ConnStatus.connected, ConnStatus.degraded) else None))
     return schemas.BankingSyncSettingsOut(
         interval_minutes=interval,
@@ -116,6 +118,7 @@ def _status(request: Request, session: Session, household_id: int,
         min_minutes=appconfig.SYNC_INTERVAL_MIN_MINUTES,
         max_minutes=appconfig.SYNC_INTERVAL_MAX_MINUTES,
         tick_seconds=settings.scheduler_tick_seconds,
+        scheduler_enabled=scheduler_enabled,
         connections=statuses)
 
 

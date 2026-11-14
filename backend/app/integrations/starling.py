@@ -90,6 +90,11 @@ class StarlingClient:
         self._spaces_cache: dict[str, list[DiscoveredAccount]] = {}
         self.unavailable_space_accounts: set[str] = set()
 
+    def invalidate_balances(self) -> None:
+        """Post-feed reads must not reuse discovery's earlier Spaces snapshot."""
+        self._spaces_cache.clear()
+        self.unavailable_space_accounts.clear()
+
     def validate_token(self, token: str) -> TokenInfo:
         data = _get(token, "/api/v2/identity/token")
         scopes = data.get("scopes", [])
@@ -218,11 +223,21 @@ class StarlingClient:
             f"/api/v2/feed/account/{external_uid}"
             f"/category/{category_uid}?changesSince="
             f"{urllib.parse.quote(since, safe='')}")
-        items = data.get("feedItems", [])
+        items = data.get("feedItems") if isinstance(data, dict) else None
         if not isinstance(items, list):
-            return []
-        return [i for i in (self._map(i2) for i2 in items
-                          if isinstance(i2, dict)) if i is not None]
+            raise UpstreamError(502, "malformed feed listing")
+        out = []
+        for raw in items:
+            if not isinstance(raw, dict):
+                raise UpstreamError(502, "malformed feed item")
+            try:
+                item = self._map(raw)
+            except (ValueError, TypeError) as exc:
+                raise UpstreamError(502, "malformed feed item") from exc
+            if item is None:
+                raise UpstreamError(502, "malformed feed identity")
+            out.append(item)
+        return out
 
     @staticmethod
     def _map(i: dict[str, object]) -> FeedItem | None:
@@ -287,6 +302,6 @@ def starling_fetch(client: BankClient, token: str,
             if isinstance(e, UpstreamError) and e.status == 429:
                 raise RateLimited(
                     str(e), retry_after=e.retry_after) from e
-            raise SyncError(message) from e
+            raise SyncError(message, retry_after=getattr(e, "retry_after", None)) from e
         yield FeedPage(items, cursor_ref=watermark)
     return fetch

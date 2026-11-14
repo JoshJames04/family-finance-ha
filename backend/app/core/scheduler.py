@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING
@@ -32,6 +33,7 @@ from app.domain import discovery as discdom
 from app.domain import financial_events, settle
 from app.domain import notifications as notifydom
 from app.domain import sync as syncdom
+from app.domain.sync_lock import claim
 from app.persistence.models import (
     Account,
     BankAccountMapping,
@@ -81,6 +83,16 @@ def sync_tick(session: Session, *,
               token_for: TokenResolver,
               interval_seconds: float = 240 * 60,
               now: datetime | None = None) -> int:
+    with ExitStack() as claims:
+        return _sync_tick(session, claims=claims, client=client, token_for=token_for,
+                          interval_seconds=interval_seconds, now=now)
+
+
+def _sync_tick(session: Session, *, claims: ExitStack,
+              client: BankClient,
+              token_for: TokenResolver,
+              interval_seconds: float = 240 * 60,
+              now: datetime | None = None) -> int:
     """Drain queued refreshes + run due scheduled syncs.
 
     Returns the number of sync runs performed. Failure on one
@@ -106,6 +118,10 @@ def sync_tick(session: Session, *,
             BankAccountMapping.status == MappingStatus.linked,
             SyncCursor.source == TransactionSource.starling,
             SyncCursor.retry_at > now)))
+    ownership: dict[int, bool] = {}
+    completed_accounts: dict[int, set[int]] = {}
+    tokens: dict[int, str] = {}
+    metadata_succeeded: set[int] = set()
     refreshed_conns: set[int] = set()
     refresh_succeeded: set[int] = set()
     cursors_by_conn: dict[int, list[SyncCursor]] = {}
@@ -124,12 +140,20 @@ def sync_tick(session: Session, *,
         refreshed = (m.account_id, TransactionSource.starling) in queued
         if not refreshed and not _due(cursor, now, interval_seconds):
             continue
+        if conn.id not in ownership:
+            ownership[conn.id] = claims.enter_context(
+                claim(session, f"connection:{conn.id}"))
+        if not ownership[conn.id]:
+            cursor.refresh_requested = True
+            session.commit()
+            continue
         try:
             token = token_for(session, conn)
         except Exception as e:
             conn.last_error = str(e)[:500]
             refresh_succeeded.discard(conn.id)
             continue
+        tokens[conn.id] = token
         if conn.id not in refreshed_conns and conn.id not in backing_off:
             # Scheduled parity with the manual /sync route (#416):
             # provider discovery + balance refresh — account
@@ -137,7 +161,8 @@ def sync_tick(session: Session, *,
             # only when a human pressed Sync.
             try:
                 discdom.discover(session, conn, client, token)
-                discdom.sync_balances(session, conn, client, token)
+                discdom.sync_balances(session, conn, client, token, reconcile_opening=False)
+                metadata_succeeded.add(conn.id)
                 denied_spaces_by_conn[conn.id] = discdom.unavailable_spaces(client)
                 if denied_spaces_by_conn[conn.id]:
                     discdom.defer_unavailable_spaces(
@@ -164,12 +189,35 @@ def sync_tick(session: Session, *,
         if account is None:
             continue
         cursor.refresh_requested = False
-        syncdom.sync_account(
-            session, account, TransactionSource.starling,
-            _starling_fetch(client, token, m,
-                            on_error=partial(bankdom.record_api_error, session, conn)))
+        try:
+            run = syncdom.sync_account(
+                session, account, TransactionSource.starling,
+                _starling_fetch(client, token, m,
+                                on_error=partial(bankdom.record_api_error, session, conn)))
+        except syncdom.SyncBusy:
+            refresh_succeeded.discard(conn.id)
+            continue
+        if run.status == SyncStatus.completed:
+            completed_accounts.setdefault(conn.id, set()).add(account.id)
         synced_households.add(account.household_id)
         ran += 1
+    for cid, account_ids in completed_accounts.items():
+        conn = conns[cid]
+        if (cid not in metadata_succeeded or not bankdom.syncable(conn)
+                or bankdom.connection_retry_at(session, conn, now=now) is not None):
+            continue
+        try:
+            discdom.reconcile_synced_balances(
+                session, conn, client, tokens[cid], account_ids, interval_seconds=interval_seconds)
+            if discdom.unavailable_spaces(client):
+                refresh_succeeded.discard(cid)
+        except Exception as exc:
+            bankdom.record_api_error(
+                session, conn,
+                401 if isinstance(exc, bankdom.TokenInvalid) else getattr(exc, "status", None),
+                str(exc), getattr(exc, "retry_after", None))
+            refresh_succeeded.discard(cid)
+        session.commit()
     for cid in refresh_succeeded:
         if all(c.status == SyncStatus.completed for c in cursors_by_conn[cid]):
             conns[cid].status = ConnStatus.connected

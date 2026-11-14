@@ -27,6 +27,7 @@ from app.domain.banks import (
     Validator,
 )
 from app.domain.discovery import BankClient, DiscoveryError
+from app.domain.sync_lock import claim
 from app.domain.vault import Keyring
 from app.integrations.starling import StarlingClient, starling_fetch
 from app.persistence.models import (
@@ -37,6 +38,7 @@ from app.persistence.models import (
     ConnStatus,
     MappingStatus,
     SyncCursor,
+    SyncStatus,
     TransactionSource,
 )
 
@@ -302,6 +304,39 @@ def sync_transactions(
     actor: ActorDep, ring: RingDep, client: ClientDep, request: Request,
     historical_since: date | None = None,
 ) -> dict[str, object]:
+    """Refresh linked feeds, queueing a request when another trigger owns them."""
+    c = _conn(session, household.id, cid)
+    with claim(session, f"connection:{c.id}") as acquired:
+        if acquired:
+            return _sync_transactions(cid, household, session, actor, ring, client,
+                                      request, historical_since)
+        if not banks.syncable(c):
+            raise HTTPException(422, "connection is revoked — re-authenticate first")
+        if historical_since is not None:
+            require_admin(request, session)
+            raise HTTPException(409, "sync already running; retry historical refresh later")
+        results = []
+        for mapping in session.scalars(select(BankAccountMapping).where(
+                BankAccountMapping.connection_id == c.id,
+                BankAccountMapping.status == MappingStatus.linked,
+                BankAccountMapping.account_id.is_not(None))):
+            assert mapping.account_id is not None
+            cursor = sync_domain.cursor_for(session, mapping.account_id,
+                                            TransactionSource.starling)
+            cursor.refresh_requested = True
+            results.append({"mapping_id": mapping.id, "status": "queued",
+                            "inserted": 0, "deduped": 0, "merge_candidates": 0,
+                            "error": None})
+        session.commit()
+        return {"runs": results, "balances_refreshed": 0,
+                "auto_matched": 0, "review_queued": 0}
+
+
+def _sync_transactions(
+    cid: int, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, ring: RingDep, client: ClientDep, request: Request,
+    historical_since: date | None = None,
+) -> dict[str, object]:
     """Manual refresh — runs the incremental feed sync for every
     linked mapping. A revoked connection 422s (re-auth first);
     rate-limit/network failures surface per-account, resumable."""
@@ -342,7 +377,8 @@ def sync_transactions(
     if metadata_ready:
         try:
             discovery.discover(session, c, client, token)
-            refreshed = discovery.sync_balances(session, c, client, token)
+            refreshed = discovery.sync_balances(
+                session, c, client, token, reconcile_opening=False)
             denied_spaces = discovery.unavailable_spaces(client)
             if denied_spaces:
                 interval = appconfig.effective_sync_interval_minutes(
@@ -358,6 +394,7 @@ def sync_transactions(
             BankAccountMapping.external_category_uid != "")
     ).all()
     results: list[dict[str, object]] = []
+    completed_accounts: set[int] = set()
     for m in mappings:
         if not banks.syncable(c):
             break
@@ -383,18 +420,38 @@ def sync_transactions(
                             "merge_candidates": 0,
                             "error": f"backoff until {cursor.retry_at}"})
             continue
-        run = sync_domain.sync_account(
-            session, acct, TransactionSource.starling,
-            starling_fetch(client, token, m.external_uid,
-                           str(m.external_category_uid),
-                           historical_since=historical_since,
-                           on_error=partial(banks.record_api_error, session, c)))
+        try:
+            run = sync_domain.sync_account(
+                session, acct, TransactionSource.starling,
+                starling_fetch(client, token, m.external_uid,
+                               str(m.external_category_uid),
+                               historical_since=historical_since,
+                               on_error=partial(banks.record_api_error, session, c)))
+        except sync_domain.SyncBusy:
+            results.append({"mapping_id": m.id, "status": "queued", "inserted": 0,
+                            "deduped": 0, "merge_candidates": 0, "error": None})
+            continue
+        if run.status == SyncStatus.completed:
+            completed_accounts.add(acct.id)
         results.append({"mapping_id": m.id,
                         "status": run.status.value,
                         "inserted": run.inserted,
                         "deduped": run.deduped,
                         "merge_candidates": run.merge_candidates,
                         "error": run.error})
+    if (metadata_ready and completed_accounts and banks.syncable(c)
+            and banks.connection_retry_at(session, c) is None):
+        try:
+            interval = appconfig.effective_sync_interval_minutes(
+                session, request.app.state.settings)[0]
+            discovery.reconcile_synced_balances(
+                session, c, client, token, completed_accounts, interval_seconds=interval * 60)
+            denied_spaces |= discovery.unavailable_spaces(client)
+        except ConnError as exc:
+            banks.record_api_error(
+                session, c, getattr(exc, "status", 401 if isinstance(exc, TokenInvalid) else None),
+                str(exc), getattr(exc, "retry_after", None))
+            metadata_ready = False
     if (metadata_ready and not denied_spaces
             and all(r["status"] == "completed" for r in results)):
         c.status = ConnStatus.connected
