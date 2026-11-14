@@ -186,10 +186,12 @@ Before enabling independent code-owner approval, add a trusted collaborator with
 write access and add them to the applicable CODEOWNERS entries.
 Native Codex review remains supplemental and does not establish human approval.
 
-Shared deployment and infrastructure-apply jobs require separate approval
-through the environment used by the job, with self-review and administrator
-bypass disabled. A PR approval does not authorise a deployment. No workflow is
-dispatched and no deployment is performed by this configuration PR.
+This change governs pull requests; it does not add deployment-environment
+approval to the existing release-publishing workflows. In particular, Family
+Finance's image publishing and tag-triggered release automation retain their
+existing behaviour and are not independently gated by an environment approval.
+Any future shared deployment approval must be designed separately without
+locking out the sole maintainer. This PR dispatches no release or deployment.
 
 The administrator rollout must read back effective branch rules and environment
 protections after applying them. Repository settings are separate from this PR:
