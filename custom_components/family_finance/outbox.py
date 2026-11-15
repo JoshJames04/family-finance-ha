@@ -12,6 +12,7 @@ FAMILY_PREFIXES = {
     "budget": "budgets",
     "subscription": "subscriptions",
     "goal": "goals",
+    "loan": "loans",
     "payroll": "payroll",
     "payslip": "payroll",
     "gift": "gifts",
@@ -37,6 +38,7 @@ EVENT_TYPES = {
     ],
     "subscriptions": ["subscription.price_observed"],
     "goals": ["goal.milestone"],
+    "loans": ["loan.balance_changed", "loan.fully_repaid"],
     "payroll": [
         "payroll.generated",
         "payroll.reconciled",

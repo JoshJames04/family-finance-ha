@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import budgets, energy, outbox, seasonal
+from app.domain import budgets, energy, loans, outbox, seasonal
 from app.persistence.models import (
     Account,
     AppMeta,
@@ -25,6 +25,7 @@ from app.persistence.models import (
     EnergyConfig,
     ExpectedMovement,
     ExpectedSource,
+    Loan,
     PayrollRun,
     Payslip,
     SeasonalEvent,
@@ -281,9 +282,43 @@ def record_backup_status(
         )
 
 
+def evaluate_loan(session: Session, loan: Loan, *, today: date | None = None) -> None:
+    """Record the canonical dated balance, never infer a bank payment or due date."""
+    today = today or date.today()
+    session.flush()
+    balance = loans.outstanding(session, loan, today)
+    current = {"owner": loan.owner_profile_id, "active": loan.active,
+               "outstanding": balance}
+    key = f"finance:loan:{loan.id}"
+    change = _observe(session, key, current)
+    if change is None or change[0] is None or not loan.active:
+        return
+    previous, revision = change
+    assert previous is not None
+    if previous.get("owner") != current["owner"] or not previous.get("active"):
+        return
+    old = int(previous["outstanding"])
+    if old == balance:
+        return
+    payload: dict[str, object] = {
+        "source": "loan", "status": "fully_repaid" if balance == 0 else "outstanding",
+        "date": today.isoformat(), "direction": loan.direction.value,
+        "name": loan.party, "old_outstanding_pence": old,
+        "outstanding_pence": balance, "currency": "GBP",
+    }
+    kinds = ["loan.balance_changed"]
+    if old > 0 and balance == 0:
+        kinds.append("loan.fully_repaid")
+    for kind in kinds:
+        outbox.emit(session, loan.household_id, kind, entity_kind="loan", entity_id=loan.id,
+                    payload=payload, dedup_key=f"{key}:{revision}:{kind}")
+
+
 def evaluate_household(session: Session, household_id: int, *, today: date | None = None) -> None:
     evaluate_budgets(session, household_id, today=today)
     evaluate_seasonal(session, household_id, today=today)
     evaluate_energy(session, household_id, today=today)
     evaluate_payslips(session, household_id, today=today)
     evaluate_paydays(session, household_id, today=today)
+    for loan in session.scalars(select(Loan).where(Loan.household_id == household_id)):
+        evaluate_loan(session, loan, today=today)

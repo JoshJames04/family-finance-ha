@@ -218,6 +218,9 @@ status and payload, and missing tariffs are unknown rather than zero. Known zero
 consumption days count in the projection average; missing days do not. Shared
 energy report responses apply the same private-plan exclusion.
 
+[Loan balance and fully-repaid events](HA-LOAN-EVENTS.md) extend the canonical
+family streams without inferring repayment due dates from monthly amounts.
+
 `payroll.approaching` is a durable time event in the three-day lead window of a
 real employment/payroll expected occurrence. It deduplicates on employment plus
 due date, including refresh, reload and catch-up inside the window. Employment

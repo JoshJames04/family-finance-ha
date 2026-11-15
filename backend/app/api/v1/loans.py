@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import loans, rbac
+from app.domain import financial_events, loans, rbac
 from app.persistence.models import Loan, Repayment, Role, Transaction, UserProfile
 
 router = APIRouter(prefix="/loans", tags=["loans"])
@@ -80,6 +80,7 @@ def create_loan(
         active=True)
     session.add(ln)
     session.flush()
+    financial_events.evaluate_loan(session, ln)
     emit(session, household.id, actor, "create", "loan", ln.id,
          {"party": ln.party, "direction": ln.direction.value})
     return schemas.LoanOut.model_validate(ln)
@@ -93,6 +94,7 @@ def patch_loan(
     """Edit a loan's terms, owner or active flag (#278)."""
     ln = _get(session, household.id, lid, profile)
     _write(ln, profile)
+    financial_events.evaluate_loan(session, ln)
     changed = body.model_dump(exclude_unset=True)
     new_owner = changed.get("owner_profile_id")
     if ("owner_profile_id" in changed and profile is not None
@@ -102,6 +104,7 @@ def patch_loan(
         raise HTTPException(403, "cannot reassign ownership")
     for k, v in changed.items():
         setattr(ln, k, v)
+    financial_events.evaluate_loan(session, ln)
     emit(session, household.id, actor, "update", "loan", ln.id,
          {k: (v.value if hasattr(v, "value") else v)
           for k, v in changed.items()})
@@ -125,6 +128,7 @@ def add_repayment(
 ) -> schemas.RepaymentOut:
     ln = _get(session, household.id, lid, profile)
     _write(ln, profile)
+    financial_events.evaluate_loan(session, ln)
     rp = Repayment(loan_id=ln.id, date=body.date,
                    amount_pence=body.amount.pence, notes=body.notes)
     if body.transaction_id is not None:
@@ -143,6 +147,7 @@ def add_repayment(
             raise HTTPException(409, str(error)) from error
     session.add(rp)
     session.flush()
+    financial_events.evaluate_loan(session, ln)
     emit(session, household.id, actor, "create", "repayment", rp.id,
          {"loan_id": ln.id})
     return schemas.RepaymentOut.model_validate(rp)
@@ -194,11 +199,13 @@ def delete_repayment(
 ) -> None:
     ln = _get(session, household.id, lid, profile)
     _write(ln, profile)
+    financial_events.evaluate_loan(session, ln)
     rp = session.get(Repayment, rid)
     if rp is None or rp.loan_id != ln.id:
         raise HTTPException(404, f"repayment {rid} not found")
     session.delete(rp)
     session.flush()
+    financial_events.evaluate_loan(session, ln)
     emit(session, household.id, actor, "delete", "repayment", rid,
          {"loan_id": ln.id})
 
@@ -211,4 +218,5 @@ def deactivate_loan(
     ln = _get(session, household.id, lid, profile)
     _write(ln, profile)
     ln.active = False
+    financial_events.evaluate_loan(session, ln)
     emit(session, household.id, actor, "deactivate", "loan", ln.id)
