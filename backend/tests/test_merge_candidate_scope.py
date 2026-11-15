@@ -88,6 +88,8 @@ def test_unauthorised_resolution_cannot_mutate_candidate_or_transaction(
     response = client.post(f"/api/v1/sync/merge-candidates/{candidate_id}/resolve",
                            headers=headers(hid, profiles, actor), json={"action": "merged"})
     assert response.status_code == status
+    if status == 404:
+        assert response.json()["title"] == f"candidate {candidate_id} not found"
     with Session(client.app.state.engine) as persisted:
         assert persisted.get(MergeCandidate, candidate_id).status == MergeStatus.pending
         assert persisted.get(Transaction, txn_id).external_ref is None
@@ -120,3 +122,41 @@ def test_inconsistent_candidate_cannot_write_a_different_accounts_transaction(re
     assert response.status_code == 404
     with Session(client.app.state.engine) as persisted:
         assert persisted.get(Transaction, private_txn_id).external_ref is None
+
+
+@pytest.mark.parametrize("target_private", [False, True])
+@pytest.mark.parametrize("decision", ["pending", "merged", "dismissed"])
+def test_account_merge_keeps_overlap_history_in_the_target_scope(review, target_private, decision):
+    client, hid, profiles, candidates = review
+    candidate_id, txn_id = candidates["shared" if target_private else "private"]
+    own = headers(hid, profiles, "owner")
+    if decision != "pending":
+        assert client.post(f"/api/v1/sync/merge-candidates/{candidate_id}/resolve", headers=own,
+                           json={"action": decision}).status_code == 200
+    with Session(client.app.state.engine) as session:
+        source_id = session.get(Transaction, txn_id).account_id
+        target = Account(household_id=hid, name="Merged target", type="personal",
+                         opening_date=date(2026, 1, 1), opening_balance_pence=0,
+                         owner_profile_id=profiles["owner"] if target_private else None)
+        session.add(target)
+        session.flush()
+        target_id = target.id
+        session.commit()
+    merged = client.post(f"/api/v1/accounts/{source_id}/merge-into/{target_id}", headers=own)
+    assert merged.status_code == 200
+    with Session(client.app.state.engine) as persisted:
+        assert persisted.get(Transaction, txn_id).account_id == target_id
+        candidate = persisted.get(MergeCandidate, candidate_id)
+        assert candidate.account_id == target_id
+        assert candidate.status == decision
+    if decision == "pending":
+        owner_rows = client.get("/api/v1/sync/merge-candidates", headers=own).json()
+        assert candidate_id in {row["id"] for row in owner_rows}
+        member = headers(hid, profiles, "member")
+        member_rows = client.get("/api/v1/sync/merge-candidates", headers=member).json()
+        assert (candidate_id in {row["id"] for row in member_rows}) is not target_private
+        if target_private:
+            assert client.post(f"/api/v1/sync/merge-candidates/{candidate_id}/resolve",
+                               headers=member, json={"action": "merged"}).status_code == 404
+        assert client.post(f"/api/v1/sync/merge-candidates/{candidate_id}/resolve", headers=own,
+                           json={"action": "merged"}).status_code == 200

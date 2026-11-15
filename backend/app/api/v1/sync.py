@@ -91,7 +91,10 @@ def resolve_candidate(
     c = session.get(MergeCandidate, cid)
     if c is None or c.household_id != household.id:
         raise HTTPException(404, f"candidate {cid} not found")
-    account = _account(session, household.id, c.account_id, profile)
+    try:
+        account = _account(session, household.id, c.account_id, profile)
+    except HTTPException:
+        raise HTTPException(404, f"candidate {cid} not found") from None
     if not rbac.write_allowed(account.owner_profile_id, profile):
         raise HTTPException(403, "role cannot mutate this scope")
     txn = session.get(Transaction, c.existing_txn_id)

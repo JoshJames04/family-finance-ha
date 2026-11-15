@@ -169,6 +169,9 @@ candidate list excludes another member's private accounts and foreign-household
 rows. Resolution requires a visible writable account; viewers cannot resolve
 shared candidates, and a candidate cannot redirect a write to a transaction on a
 different account. Rejected requests leave the proposal and ledger unchanged.
+Hidden-candidate errors do not reveal their account identifiers. Account merging
+moves valid overlap history alongside its transactions so pending proposals stay
+reviewable under the target account's scope; malformed cross-account links remain hidden.
 
 Integration outbox events apply ownership visibility before returning either safe
 or detailed payloads. Detailed mode does not bypass another member's private
