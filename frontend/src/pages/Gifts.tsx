@@ -2,7 +2,7 @@
  * purchased → wrapped → given, planned-vs-actual variance per gift and
  * per recipient, event totals vs budget, pay-with-transaction-link and
  * year-on-year comparison (issue #99). */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Check, Gift as GiftIcon, Plus } from "lucide-react";
 import { api, getProfileId } from "../api/client";
@@ -161,6 +161,7 @@ export function Gifts() {
       />
 
       {eventObj?.notes && <p className="mb-4 text-sm text-fg-muted">{eventObj.notes}</p>}
+      {eventObj && <EventDateEditor key={eventObj.id} event={eventObj} onSaved={events.refetch} />}
       <Input aria-label="Search gifts and notes" placeholder="Search recipients, ideas and notes" value={search} onChange={(e) => setSearch(e.target.value)} />
       {eventObj && totals.data && (
         <Panel className="mb-4">
@@ -344,6 +345,46 @@ function AddGiftDialog({ open, onOpenChange, eventId, onSaved }: {
   );
 }
 
+function EventDateEditor({ event, onSaved }: { event: Event; onSaved: () => void }) {
+  const [date, setDate] = useState({ saved: event.event_date ?? "", draft: event.event_date ?? "" });
+  useEffect(() => {
+    const incoming = event.event_date ?? "";
+    setDate(current => ({ saved: incoming,
+      draft: current.draft === current.saved ? incoming : current.draft }));
+  }, [event.event_date]);
+  const value = date.draft;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const valid = value === "" || value.startsWith(`${event.year}-`);
+  const save = () => {
+    setBusy(true);
+    setError(null);
+    api.patch("/api/v1/seasonal-events/{eid}/date", {
+      path: { eid: event.id }, body: { event_date: value || null },
+    }).then((saved) => {
+      const committed = saved.event_date ?? "";
+      setDate(current => ({ saved: committed,
+        draft: current.draft === value ? committed : current.draft }));
+      onSaved();
+    })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+  return <div className="mb-4">
+    <div className="flex flex-wrap items-end gap-3">
+      <Field label="Event date">{(id) => <Input id={id} type="date" value={value}
+        min={`${event.year}-01-01`} max={`${event.year}-12-31`} disabled={busy}
+        onChange={(e) => setDate(current => ({ ...current, draft: e.target.value }))} />}</Field>
+      <Button variant="secondary" onClick={save}
+        disabled={busy || !valid || value === date.saved}>
+        {busy ? "Saving…" : "Save event date"}
+      </Button>
+    </div>
+    <p className="mt-1 text-sm text-fg-muted">Optional. Set the actual occasion date for reminders; leave unknown dates blank.</p>
+    {error && <p role="alert" className="mt-1 text-sm text-negative">{error}</p>}
+  </div>;
+}
+
 function NewEventDialog({ open, onOpenChange, onSaved }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -352,17 +393,20 @@ function NewEventDialog({ open, onOpenChange, onSaved }: {
   const [name, setName] = useState("");
   const [type, setType] = useState("christmas");
   const [year, setYear] = useState(String(new Date().getFullYear()));
+  const [eventDate, setEventDate] = useState("");
   const [budget, setBudget] = useState("");
   const [privateEvent, setPrivateEvent] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
-  const valid = name.trim() && /^\d{4}$/.test(year) && /^\d+(\.\d{1,2})?$/.test(budget);
+  const valid = name.trim() && /^\d{4}$/.test(year) && /^\d+(\.\d{1,2})?$/.test(budget)
+    && (!eventDate || eventDate.startsWith(`${year}-`));
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
     setBusy(true);
     api.post("/api/v1/seasonal-events", {
-      body: { name: name.trim(), type, year: Number(year), budget, notes: notes.trim() || null, owner_profile_id: privateEvent ? getProfileId() : null },
+      body: { name: name.trim(), type, year: Number(year), budget, notes: notes.trim() || null,
+        owner_profile_id: privateEvent ? getProfileId() : null, event_date: eventDate || null },
     })
       .then((ev) => {
         toast.success(`Created ${ev.name}`);
@@ -394,6 +438,9 @@ function NewEventDialog({ open, onOpenChange, onSaved }: {
           <Field label="Year">{(id) => <Input id={id} inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value.trim())} />}</Field>
         </div>
         <Field label="Visibility">{(id) => <Select id={id} value={privateEvent ? "private" : "shared"} onChange={(e) => setPrivateEvent(e.target.value === "private")}><option value="shared">Shared household</option><option value="private" disabled={getProfileId() === null}>Private to me</option></Select>}</Field>
+        <Field label="Event date (optional)">{(id) => <Input id={id} type="date"
+          value={eventDate} min={`${year}-01-01`} max={`${year}-12-31`}
+          onChange={(e) => setEventDate(e.target.value)} />}</Field>
         <Field label="Notes">{(id) => <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>
         <Field label="Budget (£)">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={budget} onChange={(e) => setBudget(e.target.value.trim())} />}</Field>
       </form>

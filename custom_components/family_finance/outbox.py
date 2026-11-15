@@ -44,7 +44,7 @@ EVENT_TYPES = {
         "payslip.review_required",
         "payslip.state_changed",
     ],
-    "gifts": ["gift.purchased", "gift.paid", "seasonal.variance"],
+    "gifts": ["gift.purchased", "gift.paid", "seasonal.variance", "seasonal.approaching"],
     "energy": ["energy.variance", "energy.reading_updated"],
     "ops": [
         "sync.failed",
