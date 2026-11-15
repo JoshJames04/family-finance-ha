@@ -21,6 +21,7 @@ from app.persistence.models import (
     ExpectedSource,
     GoalType,
     Household,
+    IntegrationEvent,
     SavingsGoal,
     Transaction,
     TransactionStatus,
@@ -28,6 +29,162 @@ from app.persistence.models import (
 )
 
 TODAY = date(2025, 4, 10)
+
+
+def test_completion_event_is_canonical_private_and_replay_safe(
+        session, household, pot, main):
+    from app.domain import outbox
+
+    goal = _goal(session, household, pot, target=10_000)
+    first = _contribution(session, household, main, pot, 9_999, TODAY)
+    goals.emit_contribution_milestones(session, first, today=TODAY)
+    assert not session.scalar(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.completed"))
+    credit = _contribution(session, household, main, pot, 1, TODAY)
+    goals.emit_contribution_milestones(session, credit, today=TODAY)
+    goals.emit_contribution_milestones(session, credit, today=TODAY)
+    events = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.completed")))
+    assert len(events) == 1
+    event = events[0]
+    assert event.entity_id == goal.id
+    assert event.payload["name"] == "Reserve"
+    assert event.payload["amount_pence"] == 10_000
+    assert event.payload["target_pence"] == 10_000
+    assert outbox.visible_payload(event, False) == {
+        "source": "savings_goal", "status": "completed", "date": "2025-04-10",
+        "currency": "GBP"}
+    assert outbox.visible_payload(event, True)["amount_gbp"] == "100.00"
+    later = _contribution(session, household, main, pot, 100, TODAY)
+    goals.emit_contribution_milestones(session, later, today=TODAY)
+    # Completion is a lifetime goal occurrence, including a later re-crossing.
+    first.status = TransactionStatus.void
+    session.flush()
+    replacement = _contribution(session, household, main, pot, 9_999, TODAY)
+    goals.emit_contribution_milestones(session, replacement, today=TODAY)
+    assert len(list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.completed")))) == 1
+
+
+def test_completion_event_rolls_back_with_contribution(session, household, pot, main):
+    _goal(session, household, pot, target=10_000)
+    with session.begin_nested() as transaction:
+        credit = _contribution(session, household, main, pot, 10_000, TODAY)
+        goals.emit_contribution_milestones(session, credit, today=TODAY)
+        assert session.scalar(select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "goal.completed")) is not None
+        transaction.rollback()
+    assert list(session.scalars(select(IntegrationEvent))) == []
+
+
+def test_private_goal_completion_is_not_visible_to_shared_service(
+        session, household, pot, main):
+    from app.domain import outbox
+    from app.persistence.models import UserProfile
+
+    owner = UserProfile(household_id=household.id, display_name="Synthetic owner")
+    session.add(owner)
+    session.flush()
+    pot.owner_profile_id = owner.id
+    _goal(session, household, pot, target=10_000)
+    credit = _contribution(session, household, main, pot, 10_000, TODAY)
+    goals.emit_contribution_milestones(session, credit, today=TODAY)
+    event = session.scalar(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.completed"))
+    assert event is not None
+    assert not outbox.event_visible(session, event, None)
+    assert outbox.event_visible(session, event, owner.id)
+
+
+def test_goal_falling_behind_uses_persisted_canonical_progress(session, household, pot, main):
+    from app.domain import financial_events
+
+    goal = _goal(session, household, pot, target=40_000, target_date=date(2025, 7, 1))
+    _contribution(session, household, main, pot, 20_000, date(2025, 1, 2))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 3, 31))
+    assert list(session.scalars(select(IntegrationEvent))) == []
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 1))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 2))
+    events = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.behind_plan")))
+    assert len(events) == 1
+    assert events[0].entity_id == goal.id
+    assert events[0].payload["remaining_pence"] == 20_000
+
+
+def test_funded_goal_does_not_become_behind_plan_after_its_deadline(
+        session, household, pot, main):
+    from app.domain import financial_events
+
+    _goal(session, household, pot, target=40_000, target_date=date(2025, 4, 1))
+    _contribution(session, household, main, pot, 40_000, date(2025, 1, 2))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 3, 31))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 8, 1))
+    assert list(session.scalars(select(IntegrationEvent))) == []
+
+
+def test_goal_target_approaching_catches_up_once_per_target_date(session, household, pot):
+    from app.domain import financial_events, outbox
+
+    goal = _goal(session, household, pot, target=10_000, target_date=date(2025, 4, 30))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 25))
+    assert list(session.scalars(select(IntegrationEvent))) == []
+    # Catch up after an offline day, then do not repeat on the due day.
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 28))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 30))
+    events = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.target_approaching")))
+    assert len(events) == 1
+    assert outbox.visible_payload(events[0], False) == {
+        "source": "savings_goal", "status": "approaching", "date": "2025-04-28",
+        "expected_date": "2025-04-30", "lead_days": 3, "currency": "GBP"}
+    goal.target_date = date(2025, 5, 31)
+    financial_events.evaluate_household(session, household.id, today=date(2025, 5, 28))
+    assert len(list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.target_approaching")))) == 2
+
+
+@pytest.mark.parametrize("state", ["inactive", "funded", "undated", "future", "past"])
+def test_goal_deadline_ignores_ineligible_states(session, household, pot, main, state):
+    from app.domain import financial_events
+
+    goal = _goal(session, household, pot, target=10_000, target_date=date(2025, 4, 12))
+    if state == "inactive":
+        goal.active = False
+    elif state == "funded":
+        _contribution(session, household, main, pot, 10_000, TODAY)
+    elif state == "undated":
+        goal.target_date = None
+    elif state == "future":
+        goal.start_date = date(2025, 4, 11)
+    else:
+        goal.target_date = date(2025, 4, 9)
+    financial_events.evaluate_household(session, household.id, today=TODAY)
+    assert list(session.scalars(select(IntegrationEvent))) == []
+
+
+def test_goal_deadline_rolls_back_and_respects_private_visibility(session, household, pot):
+    from app.domain import financial_events, outbox
+    from app.persistence.models import UserProfile
+
+    owner = UserProfile(household_id=household.id, display_name="Synthetic owner")
+    session.add(owner)
+    session.flush()
+    pot.owner_profile_id = owner.id
+    _goal(session, household, pot, target=10_000, target_date=date(2025, 4, 12))
+    household_id = household.id
+    with session.begin_nested() as transaction:
+        financial_events.evaluate_household(session, household.id, today=TODAY)
+        event = session.scalar(select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "goal.target_approaching"))
+        assert event is not None
+        assert not outbox.event_visible(session, event, None)
+        assert outbox.event_visible(session, event, owner.id)
+        transaction.rollback()
+    session.expunge_all()
+    assert list(session.scalars(select(IntegrationEvent))) == []
+    financial_events.evaluate_household(session, household_id, today=TODAY)
+    assert len(list(session.scalars(select(IntegrationEvent)))) == 1
 
 
 @pytest.fixture()

@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain import outbox
+from app.domain.money import Money
 from app.persistence.models import (
     Account,
     GoalType,
@@ -231,3 +232,54 @@ def emit_contribution_milestones(session: Session, transaction: Transaction, *,
                          "date": transaction.date.isoformat(),
                          "owner_profile_id": account.owner_profile_id},
                 dedup_key=f"goal:{goal.id}:milestone:{milestone}")
+            if milestone == 100:
+                outbox.emit(
+                    session, goal.household_id, "goal.completed",
+                    entity_kind="savings_goal", entity_id=goal.id,
+                    payload={"source": "savings_goal", "status": "completed",
+                             "date": transaction.date.isoformat(), "name": goal.name,
+                             "amount_pence": total,
+                             "amount_gbp": str(Money.of_pence(total).pounds_decimal()),
+                             "target_pence": goal.target_pence, "currency": "GBP"},
+                    dedup_key=f"goal:{goal.id}:completed")
+
+
+def evaluate_automation(session: Session, household_id: int, *,
+                        today: date | None = None) -> None:
+    """Canonical progress transitions and a durable three-day deadline window."""
+    from app.domain.financial_events import _observe
+
+    today = today or date.today()
+    session.flush()
+    for goal in session.scalars(select(SavingsGoal).where(
+            SavingsGoal.household_id == household_id, SavingsGoal.active.is_(True))):
+        account = session.get(Account, goal.account_id)
+        if account is None or account.household_id != household_id or goal.start_date > today:
+            continue
+        state = progress(session, goal, today=today)
+        key = f"finance:goal:{goal.id}"
+        change = _observe(session, key, {
+            "on_track": state.on_track, "owner": account.owner_profile_id,
+        })
+        payload: dict[str, object] = {
+            "source": "savings_goal", "date": today.isoformat(), "name": goal.name,
+            "amount_pence": state.contributed_pence,
+            "amount_gbp": str(Money.of_pence(state.contributed_pence).pounds_decimal()),
+            "target_pence": goal.target_pence, "remaining_pence": state.remaining_pence,
+            "currency": "GBP",
+        }
+        if goal.target_date is not None:
+            payload["expected_date"] = goal.target_date.isoformat()
+        if (state.remaining_pence > 0 and change is not None and change[0] is not None
+                and change[0].get("owner") == account.owner_profile_id
+                and change[0].get("on_track") is True and state.on_track is False):
+            outbox.emit(
+                session, household_id, "goal.behind_plan", entity_kind="savings_goal",
+                entity_id=goal.id, payload={**payload, "status": "behind_plan"},
+                dedup_key=f"{key}:behind:{change[1]}")
+        if (goal.target_date is not None and state.remaining_pence > 0
+                and 0 <= (goal.target_date - today).days <= 3):
+            outbox.emit(
+                session, household_id, "goal.target_approaching", entity_kind="savings_goal",
+                entity_id=goal.id, payload={**payload, "status": "approaching", "lead_days": 3},
+                dedup_key=f"{key}:approaching:{goal.target_date}:3")
