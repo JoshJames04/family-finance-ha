@@ -164,6 +164,12 @@ ingress identities; notification service names must be a single notify service
 identifier. Notification overspend checks use the budget's authoritative scoped,
 split-aware actuals and respect an explicit zero revision.
 
+Banking overlap review uses the underlying account's existing scope. Its pending
+candidate list excludes another member's private accounts and foreign-household
+rows. Resolution requires a visible writable account; viewers cannot resolve
+shared candidates, and a candidate cannot redirect a write to a transaction on a
+different account. Rejected requests leave the proposal and ledger unchanged.
+
 Integration outbox events apply ownership visibility before returning either safe
 or detailed payloads. Detailed mode does not bypass another member's private
 account visibility; safe mode also omits monetary settlement remainders. Filtered
