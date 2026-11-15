@@ -136,7 +136,10 @@ landscape, including bottom safe-area padding. Check All and a personal Budget.
   attachment. Follow [the automation recipes](NOTIFICATIONS-HA.md).
 - **#360/#351:** Privately approve each recovered note's current budget/year/category
   destination, or explicit preservation as unmatched historical context. Verify
-  all sixteen survive with provenance and remain viewable after backup/restore.
+  all sixteen survive with provenance. Restore the backup into a disposable local
+  test instance with copied provider credentials disabled, then confirm the notes
+  remain viewable there. Never restore over the live database for acceptance: it
+  would roll back newer transactions and interrupt banking authentication/sync.
   Do not guess a gift or BudgetLine mapping from a source cell address.
 
 ## Recording results
