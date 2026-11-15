@@ -287,6 +287,20 @@ def seed_bill_end(session: Session, bill: RecurringCommitment) -> None:
     _observe(session, f"finance:bill_end:{bill.household_id}:{bill.id}", {"ended": False})
 
 
+def _bill_end_conditions(bill: RecurringCommitment, today: date) -> tuple[bool, bool]:
+    ended_by_date = bill.end_date is not None and bill.end_date < today
+    ended_by_count = (bill.occurrence_count is not None
+                      and bill.generated_count >= bill.occurrence_count
+                      and bill.last_generated is not None and bill.last_generated < today)
+    return ended_by_date, ended_by_count
+
+
+def reset_active_bill_end(session: Session, bill: RecurringCommitment) -> None:
+    """A committed schedule edit can reopen an ended bill before the next wake."""
+    if not any(_bill_end_conditions(bill, date.today())):
+        seed_bill_end(session, bill)
+
+
 def evaluate_bill_ends(session: Session, household_id: int, *, today: date | None = None) -> None:
     """Observe explicit schedule end boundaries, never future generation or payment.
 
@@ -298,10 +312,7 @@ def evaluate_bill_ends(session: Session, household_id: int, *, today: date | Non
     session.flush()
     for bill in session.scalars(select(RecurringCommitment).where(
             RecurringCommitment.household_id == household_id)):
-        ended_by_date = bill.end_date is not None and bill.end_date < today
-        ended_by_count = (bill.occurrence_count is not None
-                          and bill.generated_count >= bill.occurrence_count
-                          and bill.last_generated is not None and bill.last_generated < today)
+        ended_by_date, ended_by_count = _bill_end_conditions(bill, today)
         ended = ended_by_date or ended_by_count
         key = f"finance:bill_end:{household_id}:{bill.id}"
         change = _observe(session, key, {"ended": ended})

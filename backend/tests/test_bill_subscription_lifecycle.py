@@ -280,3 +280,49 @@ def test_accountless_subscription_retains_existing_shared_scope_without_metadata
     events = integration.events(household, session).events
     assert len(events) == 1
     assert "_scope_owner_profile_id" not in events[0].data
+
+
+@pytest.mark.parametrize("ending_kind", ["date", "count"])
+def test_reopened_bill_offline_until_next_end_keeps_second_transition(
+        session, household, account, ending_kind):
+    today = date.today()
+    if ending_kind == "date":
+        row = bill(session, household, account, end_date=today - timedelta(days=1))
+        next_end = today + timedelta(days=2)
+        change = schemas.CommitmentPatch(end_date=next_end)
+    else:
+        row = commitments.create_commitment(schemas.CommitmentIn(
+            name="Counted synthetic", account_id=account.id, amount=Money.of_pence(-1000),
+            frequency=Frequency.monthly, next_date=today - timedelta(days=1), occurrence_count=1),
+            household, session, "test")
+        from app.persistence.models import RecurringCommitment
+        item = session.get(RecurringCommitment, row.id)
+        recurring.materialise(session, item, today)
+        next_end = item.next_date
+        change = schemas.CommitmentPatch(occurrence_count=2)
+    financial_events.evaluate_bill_ends(session, household.id, today=today)
+    assert types(session).count("bill.ended") == 1
+    commitments.update_commitment(row.id, change, household, session, "test")
+    if ending_kind == "count":
+        recurring.materialise(session, item, next_end)
+    # No scheduler wake observes the reopened active window before the next end.
+    financial_events.evaluate_bill_ends(session, household.id, today=next_end + timedelta(days=1))
+    financial_events.evaluate_bill_ends(session, household.id, today=next_end + timedelta(days=2))
+    assert types(session).count("bill.ended") == 2
+
+
+def test_bill_end_reset_is_transactional_and_does_not_repeat_still_ended_edit(
+        session, household, account):
+    today = date.today()
+    row = bill(session, household, account, end_date=today - timedelta(days=2))
+    financial_events.evaluate_bill_ends(session, household.id, today=today)
+    commitments.update_commitment(row.id, schemas.CommitmentPatch(
+        end_date=today - timedelta(days=1)), household, session, "test")
+    financial_events.evaluate_bill_ends(session, household.id, today=today)
+    assert types(session).count("bill.ended") == 1
+    session.commit()
+    commitments.update_commitment(row.id, schemas.CommitmentPatch(
+        end_date=today + timedelta(days=1)), household, session, "test")
+    session.rollback()
+    financial_events.evaluate_bill_ends(session, household.id, today=today + timedelta(days=2))
+    assert types(session).count("bill.ended") == 1

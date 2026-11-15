@@ -131,6 +131,7 @@ def update_commitment(
     if old_amount != (c.amount_pence, c.formula):
         emit_lifecycle(session, c, "bill.amount_changed")
     if old_dates != (c.frequency, c.day_of_month, c.next_date, c.end_date, c.occurrence_count):
+        financial_events.reset_active_bill_end(session, c)
         emit_lifecycle(session, c, "bill.date_changed")
     emit(session, household.id, actor, "update",
          "recurring_commitment", c.id, {"fields": sorted(fields)})

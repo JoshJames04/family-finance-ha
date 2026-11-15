@@ -67,7 +67,10 @@ passed. Materialising a future final occurrence does not end a bill early; both
 materialisation and normal settlement supply the authoritative occurrence state.
 The first evaluation seeds existing records quietly. New bills seed their baseline
 inside creation, so an offline gap before their first scheduler wake cannot lose
-the ending. Subsequent crossings survive restart/downtime and do not repeat. This is a schedule ending, not proof of
+the ending. A schedule edit that reopens an ended bill resets its baseline in
+the same transaction, so a later ending is retained even if HA/app polling misses
+the reopened window. Edits that leave it ended do not create another ending.
+Subsequent crossings survive restart/downtime and do not repeat. This is a schedule ending, not proof of
 payment; merely passing a due date without a configured end condition does not
 emit it. Formula text and notes never enter these payloads.
 
