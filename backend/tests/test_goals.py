@@ -90,6 +90,23 @@ def test_future_contribution_completes_only_on_effective_date(session, household
         IntegrationEvent.event_type == "goal.completed")))
     assert len(events) == 1
     assert events[0].payload["date"] == "2025-04-12"
+    milestones = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.milestone")))
+    assert {event.payload["state"] for event in milestones} == {"25", "50", "75", "100"}
+
+
+def test_future_link_does_not_swallow_behind_plan_transition(session, household, pot, main):
+    from app.domain import financial_events
+
+    _goal(session, household, pot, target=40_000, target_date=date(2025, 7, 1))
+    _contribution(session, household, main, pot, 20_000, date(2025, 1, 2))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 3, 31))
+    future = _contribution(session, household, main, pot, 100, date(2025, 5, 1))
+    goals.emit_contribution_milestones(session, future, today=date(2025, 4, 1))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 1))
+    events = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.behind_plan")))
+    assert len(events) == 1
 
 
 def test_out_of_order_link_uses_chronological_completion_date(session, household, pot, main):
