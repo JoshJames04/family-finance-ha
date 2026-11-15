@@ -27,6 +27,7 @@ from app.persistence.models import (
     ExpectedSource,
     PayrollRun,
     Payslip,
+    RecurringCommitment,
     SeasonalEvent,
 )
 
@@ -281,7 +282,38 @@ def record_backup_status(
         )
 
 
+def evaluate_bill_ends(session: Session, household_id: int, *, today: date | None = None) -> None:
+    """Observe explicit schedule end boundaries, never future generation or payment.
+
+    Both materialisation and settlement update last_generated/generated_count.
+    First observation seeds existing records quietly; later scheduler wakes catch
+    a real date crossing, including after downtime, in the same transaction.
+    """
+    today = today or date.today()
+    session.flush()
+    for bill in session.scalars(select(RecurringCommitment).where(
+            RecurringCommitment.household_id == household_id)):
+        ended_by_date = bill.end_date is not None and bill.end_date < today
+        ended_by_count = (bill.occurrence_count is not None
+                          and bill.generated_count >= bill.occurrence_count
+                          and bill.last_generated is not None and bill.last_generated < today)
+        ended = ended_by_date or ended_by_count
+        key = f"finance:bill_end:{household_id}:{bill.id}"
+        change = _observe(session, key, {"ended": ended})
+        if change is None or change[0] is None or not ended:
+            continue
+        last_date = bill.end_date if ended_by_date else bill.last_generated
+        outbox.emit(session, household_id, "bill.ended",
+            entity_kind="commitment", entity_id=bill.id,
+            payload={"status": "ended", "date": today.isoformat(),
+                     "expected_date": last_date.isoformat() if last_date else None,
+                     "source": "configured_end" if ended_by_date else "final_occurrence",
+                     "name": bill.name, "amount_pence": bill.amount_pence},
+            dedup_key=f"{key}:{change[1]}")
+
+
 def evaluate_household(session: Session, household_id: int, *, today: date | None = None) -> None:
+    evaluate_bill_ends(session, household_id, today=today)
     evaluate_budgets(session, household_id, today=today)
     evaluate_seasonal(session, household_id, today=today)
     evaluate_energy(session, household_id, today=today)

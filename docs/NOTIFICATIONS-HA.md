@@ -61,10 +61,14 @@ an already matched transaction emits neither event again.
 
 Bill creation, amount/date edits, pause and resume events come from the actual
 register mutation. Repeating an unchanged edit, pause or resume emits no duplicate
-transition. A final materialised occurrence emits `bill.ended` when its configured
-end date or occurrence count exhausts the schedule. This is a schedule ending,
-not proof of payment; merely passing a due date does not emit a new lifecycle
-event. Formula text and notes never enter these payloads.
+transition. Scheduler evaluation emits `bill.ended` only after an explicit end
+date, or after the final dated occurrence of an exhausted configured count, has
+passed. Materialising a future final occurrence does not end a bill early; both
+materialisation and normal settlement supply the authoritative occurrence state.
+The first evaluation seeds existing records quietly; subsequent crossings survive
+restart/downtime and do not repeat. This is a schedule ending, not proof of
+payment; merely passing a due date without a configured end condition does not
+emit it. Formula text and notes never enter these payloads.
 
 Subscription creation also covers confirmation of a detected candidate.
 `subscription.renewal_changed` describes an explicit renewal date/frequency edit,

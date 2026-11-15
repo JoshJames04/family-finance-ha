@@ -124,8 +124,4 @@ def materialise(
     if latest is not None:
         c.next_date = advance(latest, c.frequency, anchor_dom)
         session.flush()
-        if ((c.end_date is not None and c.next_date > c.end_date)
-                or (c.occurrence_count is not None
-                    and c.generated_count >= c.occurrence_count)):
-            emit_lifecycle(session, c, "bill.ended")
     return created

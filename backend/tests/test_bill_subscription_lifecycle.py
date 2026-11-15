@@ -1,12 +1,12 @@
 """Committed bill/subscription lifecycle, with replay and privacy regressions (#521)."""
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
 from app.api import schemas
 from app.api.v1 import commitments, integration, subscriptions
-from app.domain import outbox, recurring
+from app.domain import financial_events, outbox, recurring, settle
 from app.domain import subscriptions as subs
 from app.domain.money import Money
 from app.persistence.models import Account, Frequency, IntegrationEvent, Role, UserProfile
@@ -72,7 +72,16 @@ def test_bill_materialise_reports_schedule_end_once_not_payment(
     c = session.get(RecurringCommitment, row.id)
     recurring.materialise(session, c, date(2030, 3, 1))
     recurring.materialise(session, c, date(2030, 3, 1))
+    assert types(session) == ["bill.created"]  # Future generation is not an ended bill.
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY)
+    assert types(session) == ["bill.created"]
+    from app.core.scheduler import notify_tick
+    notify_tick(session, notifier=None, now=datetime(2030, 1, 16, 0, 1))
+    notify_tick(session, notifier=None, now=datetime(2030, 1, 16, 0, 2))
     assert types(session) == ["bill.created", "bill.ended"]
+    ended = session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "bill.ended")).one()
+    assert ended.payload["status"] == "ended"
     assert not any("paid" in t or "settled" in t for t in types(session))
 
 
@@ -158,3 +167,46 @@ def test_bill_delete_visibility_watermark_rolls_back(session, household, account
     assert integration.events(household, session).events == []
     session.rollback()
     assert [e.event_type for e in integration.events(household, session).events] == ["bill.created"]
+
+
+
+def test_final_settled_bill_ends_after_occurrence_not_generation(session, household, account):
+    from app.persistence.models import (
+        Confidence,
+        ExpectedMovement,
+        ExpectedSource,
+        Transaction,
+        TransactionSource,
+        TransactionStatus,
+    )
+    row = bill(session, household, account, occurrence_count=1)
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY)
+    movement = ExpectedMovement(household_id=household.id, account_id=account.id,
+        expected_date=DAY, amount_pence=-1000, label="Synthetic bill",
+        confidence=Confidence.scheduled, source_type=ExpectedSource.commitment, source_id=row.id)
+    txn = Transaction(account_id=account.id, date=DAY, amount_pence=-1000,
+        payee="Synthetic bill", source=TransactionSource.starling, status=TransactionStatus.cleared)
+    session.add_all([movement, txn])
+    session.flush()
+    settle.settle_occurrence(session, movement, txn, manual=True)
+    assert "bill.ended" not in types(session)
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=1))
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=2))
+    assert types(session).count("bill.ended") == 1
+
+
+def test_bill_end_existing_baseline_quiet_and_rollback_retry(session, household, account):
+    bill(session, household, account, end_date=DAY)
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY)
+    session.commit()
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=1))
+    assert types(session).count("bill.ended") == 1
+    session.rollback()
+    assert "bill.ended" not in types(session)
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=2))
+    assert types(session).count("bill.ended") == 1
+    # A first observation after a historical schedule ended seeds quietly.
+    other = bill(session, household, account, end_date=DAY)
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=3))
+    assert not session.scalar(select(IntegrationEvent.id).where(
+        IntegrationEvent.event_type == "bill.ended", IntegrationEvent.entity_id == other.id))
