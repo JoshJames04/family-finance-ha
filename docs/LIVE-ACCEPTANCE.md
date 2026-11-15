@@ -22,11 +22,28 @@ or reimport the workbook. Current remaining work is tracked in
    navigation. There must be no persistent 503s or false empty financial values.
    If a request fails, record the time and request ID privately. Retry must recover
    when the service becomes healthy; failed reads must show an error.
+6. During a scheduled backup, repeat the same ingress navigation and compare
+   populated widgets. Alternatively, an administrator can start one normal backup
+   from Settings while the other tab navigates. Confirm backup success and no
+   503s, frozen widgets or false empty values. This adds actual backup contention
+   to normal sync/notification workload; do not run the destructive/stress harness
+   against live or repeatedly create backups.
+7. On desktop Chrome, first load the saved layout. In Developer Tools, use
+   **Network request blocking** to block only `*/api/v1/profiles/me/dashboard*`
+   in this browser tab. Change one widget preference. Confirm the save is shown
+   as failed/unsaved, rather than saved. Remove the blocking rule before
+   navigation so normal layout reads work again, but do not retry the save yet.
+   Navigate away/back and refresh: the unsaved draft must remain with a recovery
+   action. Choose **Retry saving layout**, then refresh and confirm the saved result.
+   Reopen Customise to compare it. Do not clear tab/session storage during this
+   test. This locally blocks only layout requests; it does not stop the add-on,
+   bank sync, backup, or another user's connection.
 
-Transient/persistent failure injection, malformed preferences and failed saves
-belong in the isolated automated regression environment. Do not disrupt the
-production network or database to reproduce them manually. Normal live navigation
-and automated fault-injection coverage are separate evidence.
+HTTP 503/504 injection and malformed persisted preferences belong in the isolated
+automated regression environment. The targeted browser-only failed-save check
+above supplies installed-release recovery evidence without corrupting stored
+preferences. Do not disrupt the production network or database. Normal live
+navigation and automated fault-injection coverage are separate evidence.
 
 ## Automatic banking: #416
 
@@ -105,7 +122,9 @@ landscape, including bottom safe-area padding. Check All and a personal Budget.
 ## Recording results
 
 Report by issue, for example: `#414 PASS — v1.5.0, HA ingress, saved layout retained
-through three routes, refresh and fresh login`. Keep failures open with precise
+through three routes, refresh and fresh login; blocked-save draft recovered and
+retry persisted it`. For #460 also record the successful backup-under-navigation
+and sync-workload checks. Keep failures open with precise
 steps and sanitised symptoms. A combined session can provide evidence for #414
 and #460, but each issue's criteria must pass. Close #416 only after a real
 unattended provider refresh and #477 only after physical-device acceptance. A
