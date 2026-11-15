@@ -260,3 +260,12 @@ def test_existing_duplicate_overlap_candidates_do_not_abort_provider_replay(sess
     assert run.deduped == 1
     assert len(list(session.scalars(select(MergeCandidate)))) == 2
     assert rows(session, "transaction.review_required") == []
+
+
+def test_import_without_explicit_provider_settlement_does_not_claim_settlement(session, household):
+    account, _, _ = linked(session, household)
+    item = sync.FeedItem("unknown-status", date.today(), -500, "Synthetic")
+    sync.sync_account(session, account, TransactionSource.starling,
+                      lambda _: iter([sync.FeedPage([item])]))
+    assert len(rows(session, "transaction.imported")) == 1
+    assert rows(session, "transaction.settled") == []

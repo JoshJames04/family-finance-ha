@@ -66,12 +66,14 @@ Detailed transaction events can include `payee`, `amount_pence`, `account_id` an
 and `date`. Safe mode excludes names and monetary detail server-side.
 
 Banking transitions distinguish provider settlement (`transaction.settled`: a new
-cleared feed row or an actual pending-to-cleared change, including manual clearing)
+explicitly cleared feed row or an actual pending-to-cleared change, including manual
+clearing)
 from an accepted expected-payment match (`transaction.reconciled`). An ambiguous
 persisted reconciliation proposal or fuzzy import-overlap candidate emits
-`transaction.review_required`; an import
-alone proves neither settlement nor reconciliation. Replayed provider rows retain
-local reconciled/void states and do not produce another settlement event.
+`transaction.review_required`; an import alone proves neither settlement nor
+reconciliation. Unknown/missing provider statuses do not emit settlement merely
+because legacy ledger ingest defaults a new row to cleared. Replayed provider rows
+retain local reconciled/void states and do not produce another settlement event.
 Provider overlap candidates with the same source/reference and existing ledger
 transaction retain their original review object across replay, including after
 resolution; they do not create duplicate review notifications. Reference-free

@@ -182,7 +182,7 @@ def _ingest_item(session: Session, account: Account,
         provider_category=item.provider_category)
     session.add(txn)
     session.flush()
-    if txn.status == TransactionStatus.cleared:
+    if item.status == TransactionStatus.cleared:
         banking_events.transaction_changed(session, txn, "transaction.settled")
     outbox.emit(
         session, account.household_id, "transaction.imported",
