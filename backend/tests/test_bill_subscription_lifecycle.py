@@ -218,7 +218,8 @@ def test_bill_end_existing_baseline_quiet_and_rollback_retry(session, household,
 
 
 
-def test_new_bill_offline_before_first_scheduler_tick_retains_end_event(session, household, account):
+def test_new_bill_offline_before_first_scheduler_tick_retains_end_event(
+        session, household, account):
     row = bill(session, household, account, end_date=DAY)
     session.commit()
     financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=1))
@@ -230,7 +231,8 @@ def test_new_bill_offline_before_first_scheduler_tick_retains_end_event(session,
 
 def test_detected_subscription_creation_preserves_origin_metadata(session, household, account):
     sub = subs.create(session, household.id, payee="Detected subscription", source="detected",
-        frequency=Frequency.monthly, expected_pence=1000, next_renewal_date=DAY, account_id=account.id)
+        frequency=Frequency.monthly, expected_pence=1000, next_renewal_date=DAY,
+        account_id=account.id)
     event = session.scalars(select(IntegrationEvent).where(
         IntegrationEvent.event_type == "subscription.created")).one()
     assert event.entity_id == sub.id
