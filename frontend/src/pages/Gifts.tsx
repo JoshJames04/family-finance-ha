@@ -372,10 +372,10 @@ function EventDateEditor({ event, onSaved }: { event: Event; onSaved: () => void
   };
   return <div className="mb-4">
     <div className="flex flex-wrap items-end gap-3">
-      <Field label="Event date">{(id) => <Input id={id} type="date" value={value}
+      <Field label="Event date">{(id) => <Input id={id} className="min-h-11" type="date" value={value}
         min={`${event.year}-01-01`} max={`${event.year}-12-31`} disabled={busy}
         onChange={(e) => setDate(current => ({ ...current, draft: e.target.value }))} />}</Field>
-      <Button variant="secondary" onClick={save}
+      <Button className="min-h-11" variant="secondary" onClick={save}
         disabled={busy || !valid || value === date.saved}>
         {busy ? "Saving…" : "Save event date"}
       </Button>
@@ -438,7 +438,7 @@ function NewEventDialog({ open, onOpenChange, onSaved }: {
           <Field label="Year">{(id) => <Input id={id} inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value.trim())} />}</Field>
         </div>
         <Field label="Visibility">{(id) => <Select id={id} value={privateEvent ? "private" : "shared"} onChange={(e) => setPrivateEvent(e.target.value === "private")}><option value="shared">Shared household</option><option value="private" disabled={getProfileId() === null}>Private to me</option></Select>}</Field>
-        <Field label="Event date (optional)">{(id) => <Input id={id} type="date"
+        <Field label="Event date (optional)">{(id) => <Input id={id} className="min-h-11" type="date"
           value={eventDate} min={`${year}-01-01`} max={`${year}-12-31`}
           onChange={(e) => setEventDate(e.target.value)} />}</Field>
         <Field label="Notes">{(id) => <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>

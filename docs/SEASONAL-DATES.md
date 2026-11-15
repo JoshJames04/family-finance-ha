@@ -20,7 +20,8 @@ For a different lead time, opt into **Days to occasion** in the integration's
 Configure screen, selecting All or one or several named occasions. Its native
 numeric-state sensor uses the configured date and the app calendar date; unknown
 dates create no sensor. Below `N + 1` and Above `-1` express within N days without
-YAML. This separate metric defaults to None and shares the 100-entity global cap.
+YAML: for seven days, enter Below `8` and Above `-1`. This separate metric defaults
+to None and shares the 100-entity global cap.
 Stable `seasonal:<id>:days` identities survive occasion renaming.
 
 The default payload contains source/status, observation date, expected date and
