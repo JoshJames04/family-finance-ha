@@ -88,6 +88,12 @@ observation for a linked account or Space. First observation seeds the baseline;
 unchanged refreshes stay quiet, while a later return to an older value is a new
 change. Detailed mode includes `old_balance_pence` and `balance_pence`; safe mode
 omits them. This is a provider snapshot signal, not fabricated ledger activity.
+Standalone balance refresh, discovery, reauthentication and disconnect share the
+transaction sync connection owner and commit before releasing it. This includes
+Connect reviving an existing revoked row; genuinely new or unrelated connections
+remain independent. Overlapping requests return retryable 409 without provider
+calls or credential mutations, preventing duplicate/stale-prior balance events
+and successful in-flight syncs overwriting a concurrent disconnect.
 Connection revocation fires on a persisted 401/403 transition; transient failures
 do not imply revocation. Explicit user removal emits `connection.disconnected`.
 Repeated removal stays quiet based on revoked state and actual credential removal,
