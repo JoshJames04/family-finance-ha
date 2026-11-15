@@ -242,13 +242,17 @@ def emit_contribution_milestones(session: Session, transaction: Transaction, *,
                 entity_kind="savings_goal", entity_id=goal.id,
                 payload={"source": "savings_goal", "state": str(milestone),
                          "date": transaction.date.isoformat(),
-                         "owner_profile_id": account.owner_profile_id},
+                         "owner_profile_id": account.owner_profile_id,
+                         "_scope_owner_profile_id": account.owner_profile_id},
                 dedup_key=f"goal:{goal.id}:milestone:{milestone}")
             if milestone == 100:
                 _emit_completion(session, goal, today)
 
 
 def _emit_completion(session: Session, goal: SavingsGoal, today: date) -> None:
+    account = session.get(Account, goal.account_id)
+    if account is None or account.household_id != goal.household_id:
+        return
     total = 0
     for credit in ledger(session, goal, today=today):
         total += credit.amount_pence
@@ -260,7 +264,8 @@ def _emit_completion(session: Session, goal: SavingsGoal, today: date) -> None:
                          "date": credit.date.isoformat(), "name": goal.name,
                          "amount_pence": total,
                          "amount_gbp": str(Money.of_pence(total).pounds_decimal()),
-                         "target_pence": goal.target_pence, "currency": "GBP"},
+                         "target_pence": goal.target_pence, "currency": "GBP",
+                         "_scope_owner_profile_id": account.owner_profile_id},
                 dedup_key=f"goal:{goal.id}:completed")
             return
 
@@ -295,6 +300,7 @@ def evaluate_automation(session: Session, household_id: int, *,
             "amount_gbp": str(Money.of_pence(state.contributed_pence).pounds_decimal()),
             "target_pence": goal.target_pence, "remaining_pence": state.remaining_pence,
             "currency": "GBP",
+            "_scope_owner_profile_id": account.owner_profile_id,
         }
         if goal.target_date is not None:
             payload["expected_date"] = goal.target_date.isoformat()

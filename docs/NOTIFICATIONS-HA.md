@@ -78,6 +78,9 @@ ledger, even when transfers are linked out of date order. Linking a future-dated
 credit seeds current progress without firing early; the durable scheduler emits
 completion when that credit becomes effective, with its actual crossing date.
 An already funded installation still seeds quietly instead of replaying history.
+New goal events retain their original private owner internally, so making the
+account shared later cannot disclose an old private notification payload. This
+internal scope marker is never included in either Safe or Detailed feed data.
 
 The scheduler also evaluates active goals without requiring a notification rule.
 `goal.behind_plan` fires when the canonical on-track calculation changes from true

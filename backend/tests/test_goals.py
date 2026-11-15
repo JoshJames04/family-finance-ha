@@ -122,6 +122,10 @@ def test_private_goal_completion_is_not_visible_to_shared_service(
     assert event is not None
     assert not outbox.event_visible(session, event, None)
     assert outbox.event_visible(session, event, owner.id)
+    pot.owner_profile_id = None
+    session.flush()
+    assert not outbox.event_visible(session, event, None)
+    assert "_scope_owner_profile_id" not in outbox.visible_payload(event, True)
 
 
 def test_goal_falling_behind_uses_persisted_canonical_progress(session, household, pot, main):
