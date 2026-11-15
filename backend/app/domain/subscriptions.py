@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.domain import outbox
 from app.domain.recurring import advance
 from app.persistence.models import (
+    Account,
     Frequency,
     PriceChangeEvent,
     RecurringCommitment,
@@ -77,9 +78,11 @@ def create(
 
 def emit_lifecycle(session: Session, sub: Subscription, event_type: str, *,
                    source: str = "manual") -> None:
+    account = session.get(Account, sub.account_id) if sub.account_id is not None else None
     outbox.emit(session, sub.household_id, event_type,
                 entity_kind="subscription", entity_id=sub.id,
-                payload={"payee": sub.payee, "amount_pence": sub.expected_pence,
+                payload={"_scope_owner_profile_id": account.owner_profile_id if account else None,
+                         "payee": sub.payee, "amount_pence": sub.expected_pence,
                          "expected_date": sub.next_renewal_date.isoformat(),
                          "frequency": sub.frequency.value, "status": sub.status.value,
                          "source": source})
@@ -152,10 +155,12 @@ def record_price(
         transaction_id=transaction_id)
     session.add(p)
     session.flush()
+    account = session.get(Account, sub.account_id) if sub.account_id is not None else None
     outbox.emit(
         session, sub.household_id, "subscription.price_observed",
         entity_kind="subscription", entity_id=sub.id,
         payload={
+            "_scope_owner_profile_id": account.owner_profile_id if account else None,
             "payee": sub.payee,
             "date": d.isoformat(),
             "amount_pence": amount_pence,

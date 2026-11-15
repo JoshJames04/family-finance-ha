@@ -87,6 +87,13 @@ deleted, its events are hidden because its current visibility can no longer be
 verified; deletion does not disclose a tombstone to HA. A transactional internal
 delete watermark keeps old bill events hidden even if SQLite reuses its record
 ID later; recreating a bill never revives the deleted bill's private history.
+New bill lifecycle and subscription lifecycle/price-observation rows also retain
+the account owner scope at emission. Making an account shared or assigning it to
+another owner cannot reclassify those queued private rows as shared history.
+Current ownership must still allow the read; internal scope metadata is stripped
+even in Detailed mode. Accountless subscriptions keep their existing shared scope.
+Legacy rows without this emission-time binding retain their existing current-scope
+behavior; their original ownership cannot be reconstructed and is not rewritten.
 
 Use only types implemented by the installed app version. An available event entity
 is a stream endpoint, not evidence that every conceivable transition exists.

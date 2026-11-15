@@ -92,7 +92,7 @@ def visible_payload(event: IntegrationEvent, detailed: bool) -> dict[str, object
     """Read-time redaction — safe mode strips anything that could
     name or value a real record (ADR-0009)."""
     if detailed and event.entity_kind != "backup":
-        return dict(event.payload)
+        return {k: v for k, v in event.payload.items() if k != "_scope_owner_profile_id"}
     return {k: v for k, v in event.payload.items() if k in _SAFE_KEYS}
 
 
@@ -121,6 +121,9 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
                   *, all_scopes: bool = False) -> bool:
     """Apply account ownership even in safe mode: ids and dates are private too."""
     from app.persistence import models
+    original_owner = event.payload.get("_scope_owner_profile_id")
+    if original_owner is not None and not all_scopes and original_owner != profile_id:
+        return False
     if event.entity_kind is not None and event.entity_id is not None:
         retired = session.get(AppMeta,
             f"ha_retired:{event.household_id}:{event.entity_kind}:{event.entity_id}")

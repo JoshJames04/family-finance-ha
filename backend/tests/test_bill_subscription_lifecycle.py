@@ -237,3 +237,46 @@ def test_detected_subscription_creation_preserves_origin_metadata(session, house
         IntegrationEvent.event_type == "subscription.created")).one()
     assert event.entity_id == sub.id
     assert outbox.visible_payload(event, False)["source"] == "detected"
+
+
+@pytest.mark.parametrize("detailed", [False, True])
+@pytest.mark.parametrize("kind", ["bill", "subscription"])
+def test_original_private_scope_survives_account_reclassification(
+        session, household, account, detailed, kind):
+    owner = UserProfile(household_id=household.id, display_name="Original", role=Role.member)
+    other = UserProfile(household_id=household.id, display_name="Other", role=Role.member)
+    session.add_all([owner, other])
+    session.flush()
+    account.owner_profile_id = owner.id
+    if kind == "bill":
+        bill(session, household, account, end_date=DAY)
+        financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=1))
+    else:
+        item = subscription(session, household, account)
+        subs.record_price(session, item, DAY, 1000)
+        subscriptions.cancel_subscription(item.id, schemas.SubscriptionCancelIn(date=DAY),
+                                          household, session, "test")
+    if detailed:
+        outbox.set_detail(session, "detailed")
+    before = integration.events(household, session, owner).events
+    assert before
+    assert all("_scope_owner_profile_id" not in event.data for event in before)
+    account.owner_profile_id = None
+    # The HA service has no member identity; making the account shared must not
+    # turn its queued private history into a shared event stream.
+    assert integration.events(household, session).events == []
+    assert integration.events(household, session, other).events == []
+    assert len(integration.events(household, session, owner).events) == len(before)
+    account.owner_profile_id = other.id
+    assert integration.events(household, session, other).events == []
+    assert integration.events(household, session, owner).events == []
+
+
+def test_accountless_subscription_retains_existing_shared_scope_without_metadata_leak(
+        session, household):
+    subs.create(session, household.id, payee="Shared unassigned subscription",
+        frequency=Frequency.monthly, expected_pence=1000, next_renewal_date=DAY)
+    outbox.set_detail(session, "detailed")
+    events = integration.events(household, session).events
+    assert len(events) == 1
+    assert "_scope_owner_profile_id" not in events[0].data

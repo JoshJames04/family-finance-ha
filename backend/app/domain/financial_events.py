@@ -308,9 +308,11 @@ def evaluate_bill_ends(session: Session, household_id: int, *, today: date | Non
         if change is None or change[0] is None or not ended:
             continue
         last_date = bill.end_date if ended_by_date else bill.last_generated
+        account = session.get(Account, bill.account_id)
         outbox.emit(session, household_id, "bill.ended",
             entity_kind="commitment", entity_id=bill.id,
-            payload={"status": "ended", "date": today.isoformat(),
+            payload={"_scope_owner_profile_id": account.owner_profile_id if account else None,
+                     "status": "ended", "date": today.isoformat(),
                      "expected_date": last_date.isoformat() if last_date else None,
                      "source": "configured_end" if ended_by_date else "final_occurrence",
                      "name": bill.name, "amount_pence": bill.amount_pence},
