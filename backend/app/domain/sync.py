@@ -192,7 +192,8 @@ def _ingest_item(session: Session, account: Account,
             "date": item.date.isoformat(),
             "payee": item.payee,
             "amount_pence": item.amount_pence,
-            "source": source.value},
+            "source": source.value,
+            "_scope_owner_profile_id": account.owner_profile_id},
         dedup_key=f"txn.imported:{txn.id}")
     run.inserted += 1
 

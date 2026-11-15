@@ -15,7 +15,8 @@ def transaction_changed(session: Session, txn: Transaction, event_type: str, *,
                 entity_kind="transaction", entity_id=txn.id,
                 payload={"source": str(txn.source), "status": status or str(txn.status),
                          "date": txn.date.isoformat(), "account_id": account.id,
-                         "payee": txn.payee, "amount_pence": txn.amount_pence},
+                         "payee": txn.payee, "amount_pence": txn.amount_pence,
+                         "_scope_owner_profile_id": account.owner_profile_id},
                 dedup_key=dedup_key)
 
 
@@ -24,10 +25,14 @@ def balance_changed(session: Session, mapping: BankAccountMapping,
     if (mapping.account_id is None or previous is None
             or previous == mapping.balance_pence):
         return
+    account = session.get(Account, mapping.account_id)
+    if account is None:
+        return
     outbox.emit(session, mapping.household_id, "account.balance_changed",
                 entity_kind="account", entity_id=mapping.account_id,
                 payload={"source": "starling", "status": "observed",
-                         "old_balance_pence": previous, "balance_pence": mapping.balance_pence})
+                         "old_balance_pence": previous, "balance_pence": mapping.balance_pence,
+                         "_scope_owner_profile_id": account.owner_profile_id})
 
 
 def connection_changed(session: Session, conn: BankConnection, event_type: str) -> None:
@@ -37,9 +42,13 @@ def connection_changed(session: Session, conn: BankConnection, event_type: str) 
         BankAccountMapping.connection_id == conn.id,
         BankAccountMapping.account_id.is_not(None))))
     for account_id in account_ids:
+        account = session.get(Account, account_id)
+        if account is None:
+            continue
         outbox.emit(session, conn.household_id, event_type,
                     entity_kind="account", entity_id=account_id,
-                    payload={"source": str(conn.provider), "status": str(conn.status)})
+                    payload={"source": str(conn.provider), "status": str(conn.status),
+                             "_scope_owner_profile_id": account.owner_profile_id})
     if not account_ids:
         outbox.emit(session, conn.household_id, event_type,
                     entity_kind="bank_connection", entity_id=conn.id,

@@ -292,3 +292,42 @@ def test_stale_provider_session_cannot_revive_removed_credentials(session, house
     session.commit()
     assert rows(session, "connection.revoked") == []
     assert len(rows(session, "connection.disconnected")) == 1
+
+
+@pytest.mark.parametrize("writer", ["transaction", "imported", "balance", "connection"])
+def test_original_private_banking_scope_survives_account_becoming_shared(
+        session, household, writer):
+    from app.persistence.models import UserProfile
+    owner = UserProfile(household_id=household.id, display_name="Original owner")
+    session.add(owner)
+    session.flush()
+    account, conn, mapping = linked(session, household)
+    account.owner_profile_id = owner.id
+    if writer == "transaction":
+        txn = transaction(session, account)
+        periods.transition(session, txn, TransactionStatus.cleared)
+        event, = rows(session, "transaction.settled")
+    elif writer == "imported":
+        item = sync.FeedItem("private-import", date.today(), -500, "Synthetic",
+                             TransactionStatus.pending)
+        sync.sync_account(session, account, TransactionSource.starling,
+                          lambda _: iter([sync.FeedPage([item])]))
+        event, = rows(session, "transaction.imported")
+    elif writer == "balance":
+        class Client:
+            def balance(self, *args):
+                return 2000
+        mapping.balance_pence = 1000
+        discovery.sync_balances(session, conn, Client(), "synthetic")
+        event, = rows(session, "account.balance_changed")
+    else:
+        banks.record_api_error(session, conn, 401)
+        event, = rows(session, "connection.revoked")
+    assert not outbox.event_visible(session, event, None)
+    account.owner_profile_id = None
+    session.flush()
+    assert not outbox.event_visible(session, event, None)
+    assert outbox.event_visible(session, event, owner.id)
+    assert outbox.event_visible(session, event, None, all_scopes=True)
+    assert "_scope_owner_profile_id" not in outbox.visible_payload(event, True)
+    assert "_scope_owner_profile_id" not in outbox.visible_payload(event, False)

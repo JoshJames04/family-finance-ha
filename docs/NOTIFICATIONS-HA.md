@@ -98,6 +98,12 @@ Connection events are separately scoped to each mapped account and contain no
 provider identifiers, labels, credentials or error text. An unmapped connection
 has no provable member scope, so its event is visible only to an all-scopes admin.
 Every hook shares the state writer's transaction: rollback removes its events.
+New banking events, including imports, retain their original account ownership as
+internal scope metadata. Making a private account shared later cannot disclose
+those earlier events; current ownership still applies as an additional restriction.
+The internal owner marker is removed in both Safe and Detailed payloads. Events
+written before this ownership snapshot existed retain the legacy visibility policy;
+historical ownership cannot be reconstructed from the current account alone.
 
 Use the visual Event trigger with `family_finance_banking_event`, select the
 desired `event_type`, and optionally match its local `entity_kind` / `entity_id`.
