@@ -51,7 +51,8 @@ def contributed_pence(session: Session, goal: SavingsGoal,
     return int(session.execute(q).scalar_one())
 
 
-def ledger(session: Session, goal: SavingsGoal) -> list[Transaction]:
+def ledger(session: Session, goal: SavingsGoal,
+           today: date | None = None) -> list[Transaction]:
     """The contribution ledger — inbound transfer legs, dated."""
     return list(session.execute(
         select(Transaction).where(
@@ -60,7 +61,7 @@ def ledger(session: Session, goal: SavingsGoal) -> list[Transaction]:
             Transaction.transfer_id.is_not(None),
             Transaction.status != TransactionStatus.void,
             Transaction.date >= goal.start_date,
-            Transaction.date <= date.today())
+            Transaction.date <= (today or date.today()))
         .order_by(Transaction.date, Transaction.id)).scalars())
 
 
@@ -214,7 +215,7 @@ def emit_contribution_milestones(session: Session, transaction: Transaction, *,
     """
     today = today or date.today()
     if (transaction.transfer_id is None or transaction.amount_pence <= 0
-            or transaction.status is TransactionStatus.void or transaction.date > today):
+            or transaction.status is TransactionStatus.void):
         return
     account = session.get(Account, transaction.account_id)
     if account is None:
@@ -222,6 +223,17 @@ def emit_contribution_milestones(session: Session, transaction: Transaction, *,
     for goal in session.scalars(select(SavingsGoal).where(
             SavingsGoal.account_id == account.id, SavingsGoal.active.is_(True),
             SavingsGoal.start_date <= transaction.date)):
+        if transaction.date > today:
+            from app.domain.financial_events import _observe
+
+            # Seed effective-date progress now, so the normal durable scheduler
+            # can see this real credit become eligible without replaying history.
+            state = progress(session, goal, today=today)
+            _observe(session, f"finance:goal:{goal.id}", {
+                "on_track": state.on_track, "owner": account.owner_profile_id,
+                "funded": state.contributed_pence,
+            })
+            continue
         total = contributed_pence(session, goal, today=today)
         previous = total - transaction.amount_pence
         for milestone in newly_crossed(previous, total, goal.target_pence):
@@ -233,15 +245,24 @@ def emit_contribution_milestones(session: Session, transaction: Transaction, *,
                          "owner_profile_id": account.owner_profile_id},
                 dedup_key=f"goal:{goal.id}:milestone:{milestone}")
             if milestone == 100:
-                outbox.emit(
-                    session, goal.household_id, "goal.completed",
-                    entity_kind="savings_goal", entity_id=goal.id,
-                    payload={"source": "savings_goal", "status": "completed",
-                             "date": transaction.date.isoformat(), "name": goal.name,
-                             "amount_pence": total,
-                             "amount_gbp": str(Money.of_pence(total).pounds_decimal()),
-                             "target_pence": goal.target_pence, "currency": "GBP"},
-                    dedup_key=f"goal:{goal.id}:completed")
+                _emit_completion(session, goal, today)
+
+
+def _emit_completion(session: Session, goal: SavingsGoal, today: date) -> None:
+    total = 0
+    for credit in ledger(session, goal, today=today):
+        total += credit.amount_pence
+        if total >= goal.target_pence:
+            outbox.emit(
+                session, goal.household_id, "goal.completed",
+                entity_kind="savings_goal", entity_id=goal.id,
+                payload={"source": "savings_goal", "status": "completed",
+                         "date": credit.date.isoformat(), "name": goal.name,
+                         "amount_pence": total,
+                         "amount_gbp": str(Money.of_pence(total).pounds_decimal()),
+                         "target_pence": goal.target_pence, "currency": "GBP"},
+                dedup_key=f"goal:{goal.id}:completed")
+            return
 
 
 def evaluate_automation(session: Session, household_id: int, *,
@@ -260,7 +281,14 @@ def evaluate_automation(session: Session, household_id: int, *,
         key = f"finance:goal:{goal.id}"
         change = _observe(session, key, {
             "on_track": state.on_track, "owner": account.owner_profile_id,
+            "funded": state.contributed_pence,
         })
+        previous_funded = change[0].get("funded") if change and change[0] is not None else None
+        if (isinstance(previous_funded, int)
+                and previous_funded < goal.target_pence <= state.contributed_pence
+                and change is not None and change[0] is not None
+                and change[0].get("owner") == account.owner_profile_id):
+            _emit_completion(session, goal, today)
         payload: dict[str, object] = {
             "source": "savings_goal", "date": today.isoformat(), "name": goal.name,
             "amount_pence": state.contributed_pence,

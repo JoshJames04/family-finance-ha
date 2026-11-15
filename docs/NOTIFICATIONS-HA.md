@@ -73,6 +73,12 @@ condition. Detailed actions can use `{{ trigger.event.data.name }}` and
 `{{ trigger.event.data.amount_gbp }}`. Actual editor and delivery acceptance are
 still required under #441.
 
+Completion dates and funded amounts come from the chronological contribution
+ledger, even when transfers are linked out of date order. Linking a future-dated
+credit seeds current progress without firing early; the durable scheduler emits
+completion when that credit becomes effective, with its actual crossing date.
+An already funded installation still seeds quietly instead of replaying history.
+
 The scheduler also evaluates active goals without requiring a notification rule.
 `goal.behind_plan` fires when the canonical on-track calculation changes from true
 to false. Initial existing behind-plan data seeds a quiet baseline; an undated

@@ -77,6 +77,34 @@ def test_completion_event_rolls_back_with_contribution(session, household, pot, 
     assert list(session.scalars(select(IntegrationEvent))) == []
 
 
+def test_future_contribution_completes_only_on_effective_date(session, household, pot, main):
+    from app.domain import financial_events
+
+    _goal(session, household, pot, target=10_000)
+    credit = _contribution(session, household, main, pot, 10_000, date(2025, 4, 12))
+    goals.emit_contribution_milestones(session, credit, today=TODAY)
+    assert list(session.scalars(select(IntegrationEvent))) == []
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 12))
+    financial_events.evaluate_household(session, household.id, today=date(2025, 4, 13))
+    events = list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.completed")))
+    assert len(events) == 1
+    assert events[0].payload["date"] == "2025-04-12"
+
+
+def test_out_of_order_link_uses_chronological_completion_date(session, household, pot, main):
+    _goal(session, household, pot, target=10_000)
+    later = _contribution(session, household, main, pot, 6_000, date(2025, 2, 1))
+    goals.emit_contribution_milestones(session, later, today=TODAY)
+    earlier = _contribution(session, household, main, pot, 6_000, date(2025, 1, 2))
+    goals.emit_contribution_milestones(session, earlier, today=TODAY)
+    event = session.scalar(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.completed"))
+    assert event is not None
+    assert event.payload["date"] == "2025-02-01"
+    assert event.payload["amount_pence"] == 12_000
+
+
 def test_private_goal_completion_is_not_visible_to_shared_service(
         session, household, pot, main):
     from app.domain import outbox
