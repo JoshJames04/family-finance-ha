@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import outbox, schedule
+from app.domain import financial_events, outbox, schedule
 from app.domain.recurring import advance, emit_lifecycle, materialise
 from app.domain.subscriptions import normalise_payee
 from app.persistence.models import (
@@ -85,6 +85,7 @@ def create_commitment(
     session.add(c)
     session.flush()
     schedule.rematerialize_commitment(session, c)
+    financial_events.seed_bill_end(session, c)
     emit_lifecycle(session, c, "bill.created")
     emit(session, household.id, actor, "create",
          "recurring_commitment", c.id, {"name": c.name})

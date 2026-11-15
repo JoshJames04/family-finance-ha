@@ -206,7 +206,32 @@ def test_bill_end_existing_baseline_quiet_and_rollback_retry(session, household,
     financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=2))
     assert types(session).count("bill.ended") == 1
     # A first observation after a historical schedule ended seeds quietly.
-    other = bill(session, household, account, end_date=DAY)
+    from app.persistence.models import RecurringCommitment
+    other = RecurringCommitment(household_id=household.id, name="Existing before feature",
+        account_id=account.id, amount_pence=-1000, frequency=Frequency.monthly,
+        next_date=DAY, end_date=DAY)
+    session.add(other)
+    session.flush()
     financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=3))
     assert not session.scalar(select(IntegrationEvent.id).where(
         IntegrationEvent.event_type == "bill.ended", IntegrationEvent.entity_id == other.id))
+
+
+
+def test_new_bill_offline_before_first_scheduler_tick_retains_end_event(session, household, account):
+    row = bill(session, household, account, end_date=DAY)
+    session.commit()
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=1))
+    assert [e.event_type for e in integration.events(household, session).events] == [
+        "bill.created", "bill.ended"]
+    assert session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "bill.ended")).one().entity_id == row.id
+
+
+def test_detected_subscription_creation_preserves_origin_metadata(session, household, account):
+    sub = subs.create(session, household.id, payee="Detected subscription", source="detected",
+        frequency=Frequency.monthly, expected_pence=1000, next_renewal_date=DAY, account_id=account.id)
+    event = session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "subscription.created")).one()
+    assert event.entity_id == sub.id
+    assert outbox.visible_payload(event, False)["source"] == "detected"

@@ -71,7 +71,7 @@ def create(
         tolerance_pct=tolerance_pct, source=source, notes=notes)
     session.add(sub)
     session.flush()
-    emit_lifecycle(session, sub, "subscription.created")
+    emit_lifecycle(session, sub, "subscription.created", source=sub.source)
     return sub
 
 

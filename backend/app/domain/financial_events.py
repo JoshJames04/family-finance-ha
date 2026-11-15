@@ -282,6 +282,11 @@ def record_backup_status(
         )
 
 
+def seed_bill_end(session: Session, bill: RecurringCommitment) -> None:
+    """New records need a durable baseline before any scheduler/offline gap."""
+    _observe(session, f"finance:bill_end:{bill.household_id}:{bill.id}", {"ended": False})
+
+
 def evaluate_bill_ends(session: Session, household_id: int, *, today: date | None = None) -> None:
     """Observe explicit schedule end boundaries, never future generation or payment.
 
