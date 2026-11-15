@@ -70,7 +70,9 @@ inside creation, so an offline gap before their first scheduler wake cannot lose
 the ending. A schedule edit that reopens an ended bill resets its baseline in
 the same transaction, so a later ending is retained even if HA/app polling misses
 the reopened window. Edits that leave it ended do not create another ending.
-Subsequent crossings survive restart/downtime and do not repeat. This is a schedule ending, not proof of
+Subsequent crossings survive restart/downtime and do not repeat. If both end
+conditions pass during downtime, the event identifies whichever dated boundary
+came first, matching the schedule engine. This is a schedule ending, not proof of
 payment; merely passing a due date without a configured end condition does not
 emit it. Formula text and notes never enter these payloads.
 

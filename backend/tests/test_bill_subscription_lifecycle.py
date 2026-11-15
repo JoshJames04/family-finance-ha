@@ -326,3 +326,25 @@ def test_bill_end_reset_is_transactional_and_does_not_repeat_still_ended_edit(
     session.rollback()
     financial_events.evaluate_bill_ends(session, household.id, today=today + timedelta(days=2))
     assert types(session).count("bill.ended") == 1
+
+
+@pytest.mark.parametrize("earlier", ["count", "date"])
+def test_bill_ended_after_downtime_reports_earliest_satisfied_boundary(
+        session, household, account, earlier):
+    from app.persistence.models import RecurringCommitment
+
+    row = bill(session, household, account, occurrence_count=1,
+               end_date=DAY + timedelta(days=60))
+    item = session.get(RecurringCommitment, row.id)
+    recurring.materialise(session, item, DAY + timedelta(days=30))
+    if earlier == "date":
+        commitments.update_commitment(row.id, schemas.CommitmentPatch(
+            end_date=DAY - timedelta(days=1)), household, session, "test")
+    # Both date and count conditions are now true at the first wake after downtime.
+    financial_events.evaluate_bill_ends(session, household.id, today=DAY + timedelta(days=90))
+    event = session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "bill.ended")).one()
+    expected = DAY if earlier == "count" else DAY - timedelta(days=1)
+    assert event.payload["expected_date"] == expected.isoformat()
+    assert event.payload["source"] == ("final_occurrence" if earlier == "count"
+                                       else "configured_end")
