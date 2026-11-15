@@ -331,3 +331,30 @@ def test_original_private_banking_scope_survives_account_becoming_shared(
     assert outbox.event_visible(session, event, None, all_scopes=True)
     assert "_scope_owner_profile_id" not in outbox.visible_payload(event, True)
     assert "_scope_owner_profile_id" not in outbox.visible_payload(event, False)
+
+
+@pytest.mark.parametrize("edit", ["local", "provider"])
+@pytest.mark.parametrize("decision", ["pending", "merged", "dismissed"])
+def test_stored_overlap_identity_survives_later_field_edits(session, household, edit, decision):
+    from app.persistence.models import MergeCandidate
+    account, _, _ = linked(session, household)
+    original = transaction(session, account, status=TransactionStatus.cleared)
+    item = sync.FeedItem("stable-overlap", date.today(), -500, "Synthetic",
+                         TransactionStatus.cleared)
+    sync.sync_account(session, account, TransactionSource.starling,
+                      lambda _: iter([sync.FeedPage([item])]))
+    candidate = session.scalar(select(MergeCandidate))
+    if decision != "pending":
+        sync.resolve_merge(session, candidate, decision)
+    if edit == "local":
+        original.payee = "Edited local description"
+    else:
+        item = sync.FeedItem("stable-overlap", date.today(), -600, "Changed provider description",
+                             TransactionStatus.cleared)
+    run = sync.sync_account(session, account, TransactionSource.starling,
+                            lambda _: iter([sync.FeedPage([item])]))
+    assert run.inserted == 0
+    assert run.deduped == 1
+    assert len(list(session.scalars(select(Transaction)))) == 1
+    assert len(list(session.scalars(select(MergeCandidate)))) == 1
+    assert len(rows(session, "transaction.review_required")) == 1

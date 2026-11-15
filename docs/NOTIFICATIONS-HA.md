@@ -74,9 +74,9 @@ persisted reconciliation proposal or fuzzy import-overlap candidate emits
 reconciliation. Unknown/missing provider statuses do not emit settlement merely
 because legacy ledger ingest defaults a new row to cleared. Replayed provider rows
 retain local reconciled/void states and do not produce another settlement event.
-Provider overlap candidates with the same source/reference and existing ledger
-transaction retain their original review object across replay, including after
-resolution; they do not create duplicate review notifications. Reference-free
+Provider overlap candidates with the same account/source/reference retain their
+original review object across replay, including after resolution or later edits
+to local/provider fields; they do not create duplicate ledger rows or review notifications. Reference-free
 feeds cannot prove replay identity and retain a separate candidate per observation.
 Refund and transfer events require the actual canonical link; labels and equal
 amounts alone are insufficient. Transfers publish one event for each leg using

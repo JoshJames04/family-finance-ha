@@ -147,18 +147,17 @@ def _ingest_item(session: Session, account: Account,
                 dup.provider_category = item.provider_category
             run.deduped += 1
             return
+    if item.external_ref is not None:
+        seen = session.scalar(select(MergeCandidate.id).where(
+            MergeCandidate.account_id == account.id,
+            MergeCandidate.incoming["external_ref"].as_string() == item.external_ref,
+            (MergeCandidate.incoming["source"].as_string() == source.value)
+            | MergeCandidate.incoming["source"].as_string().is_(None)).limit(1))
+        if seen is not None:
+            run.deduped += 1
+            return
     existing = _fuzzy_match(session, account.id, item)
     if existing is not None and existing.source != source:
-        if item.external_ref is not None:
-            seen = session.scalar(select(MergeCandidate.id).where(
-                MergeCandidate.account_id == account.id,
-                MergeCandidate.existing_txn_id == existing.id,
-                MergeCandidate.incoming["external_ref"].as_string() == item.external_ref,
-                (MergeCandidate.incoming["source"].as_string() == source.value)
-                | MergeCandidate.incoming["source"].as_string().is_(None)))
-            if seen is not None:
-                run.deduped += 1
-                return
         candidate = MergeCandidate(
             household_id=account.household_id, account_id=account.id,
             existing_txn_id=existing.id,
