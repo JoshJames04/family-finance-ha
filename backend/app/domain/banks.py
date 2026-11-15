@@ -129,13 +129,11 @@ def record_api_error(session: Session, conn: BankConnection,
     """Map an upstream failure onto the state machine. 401/403 →
     revoked (token dead — sync stops cleanly, re-auth offered);
     anything else → degraded (transient — sync may retry)."""
-    # A request may return after another session removed its credentials.
+    # A request may return after another session revoked this connection.
     # Read persisted state, not the in-flight session's cached connection.
     stored_status = session.scalar(select(BankConnection.status).where(
         BankConnection.id == conn.id))
-    if stored_status == ConnStatus.revoked and session.scalar(select(VaultEntry.id).where(
-            VaultEntry.household_id == conn.household_id,
-            VaultEntry.ref == conn.vault_ref)) is None:
+    if stored_status == ConnStatus.revoked:
         conn.status = ConnStatus.revoked
         return conn.status
     previous_retry = connection_retry_at(session, conn) if status_code == 429 else None

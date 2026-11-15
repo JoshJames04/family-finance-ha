@@ -92,8 +92,9 @@ Connection revocation fires on a persisted 401/403 transition; transient failure
 do not imply revocation. Explicit user removal emits `connection.disconnected`.
 Repeated removal stays quiet based on revoked state and actual credential removal,
 independent of the recorded error message.
-Late provider errors cannot revive a persisted revoked connection after its
-credential was removed, including responses arriving in a stale request session.
+Late provider errors cannot revive a persisted revoked connection, whether the
+credential remains or was removed, including responses in a stale request session.
+Only explicit successful reauthentication reopens the connection lifecycle.
 Connection events are separately scoped to each mapped account and contain no
 provider identifiers, labels, credentials or error text. An unmapped connection
 has no provable member scope, so its event is visible only to an all-scopes admin.

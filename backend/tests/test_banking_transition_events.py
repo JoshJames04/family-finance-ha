@@ -358,3 +358,24 @@ def test_stored_overlap_identity_survives_later_field_edits(session, household, 
     assert len(list(session.scalars(select(Transaction)))) == 1
     assert len(list(session.scalars(select(MergeCandidate)))) == 1
     assert len(rows(session, "transaction.review_required")) == 1
+
+
+def test_provider_revocation_stays_terminal_with_credentials_until_rotation(session, household):
+    from app.domain import vault
+    _, conn, _ = linked(session, household)
+    ring = vault.Keyring({1: b"0" * 32})
+    vault.store(session, household.id, conn.vault_ref, b"synthetic", ring)
+    banks.record_api_error(session, conn, 401)
+    banks.record_api_error(session, conn, 500, "late server response")
+    assert conn.status == ConnStatus.revoked
+    assert not banks.syncable(conn)
+    banks.record_api_error(session, conn, 401)
+    assert len(rows(session, "connection.revoked")) == 1
+    assert vault.retrieve(session, household.id, conn.vault_ref, ring) == b"synthetic"
+    banks.rotate(session, conn, "replacement",
+                 lambda _: banks.TokenInfo(banks.REQUIRED_SCOPES), ring)
+    assert conn.status == ConnStatus.connected
+    banks.record_api_error(session, conn, 500)
+    assert conn.status == ConnStatus.degraded
+    banks.record_api_error(session, conn, 401)
+    assert len(rows(session, "connection.revoked")) == 2
