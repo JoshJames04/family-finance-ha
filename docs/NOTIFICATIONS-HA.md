@@ -59,6 +59,13 @@ and forecasting default, rather than the HA browser's timezone. A selected metri
 becomes unavailable if its source is deleted, archived or no longer authorised;
 renaming preserves its stored identity.
 
+Budget metric labels show their actual reporting dates and basis. Personal
+monthly budgets use the same planned pay-cycle boundaries as the personal Budget
+view; Shared and nonmonthly budgets retain calendar/explicit dates. Unknown or
+ambiguous personal pay-cycle configuration omits these metrics instead of
+silently substituting a calendar figure. Archived-account spending remains part
+of the appropriate owner's budget history.
+
 Employment ownership applies even when a salary destination account is shared.
 The HA service identity has shared scope, so private employment names/payday
 metrics remain absent. Detailed event mode does not grant private access. A new
@@ -107,7 +114,7 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Ops | `sync.failed`, `sync.completed`, `sync.recovered`, `data.stale`; `backup.created` / `backup.failed` from real backup outcomes |
 | Budgets | `budget.approved`, `budget.locked`, `budget.usage`, `budget.over`, `budget.remaining_changed` from canonical lifecycle/financial changes |
 | Payroll | `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
-| Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance` |
+| Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance`, `seasonal.approaching` |
 | Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
 | Goals | `goal.milestone` from a real committed inbound contribution crossing; per-goal numeric percent supports other visual thresholds |
 

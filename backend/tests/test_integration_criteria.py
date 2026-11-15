@@ -2,10 +2,11 @@
 
 from datetime import date, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import resolve_profile
-from app.domain import accounts
+from app.domain import accounts, budget_periods
 from app.main import create_app
 from app.persistence.models import (
     AccountType,
@@ -227,3 +228,51 @@ def test_forecast_window_changes_only_its_canonical_horizon(session, household):
     assert next(row for row in default if row["family"] == "safe_to_spend")["value"] == "-50.00"
     assert api.get("/api/v1/integration/items?forecast_days=0").status_code == 422
     assert api.get("/api/v1/integration/items?forecast_days=732").status_code == 422
+
+
+@pytest.mark.parametrize("configured", [True, False])
+def test_personal_budget_metrics_follow_pay_cycle_or_stay_unknown(
+        session, household, monkeypatch, configured):
+    from app.api.v1 import integration
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 12, 1)
+
+    monkeypatch.setattr(integration, "date", FixedDate)
+    owner = UserProfile(household_id=household.id, display_name="Synthetic owner")
+    category = Category(household_id=household.id, name="Synthetic category")
+    session.add_all([owner, category])
+    session.flush()
+    owned = accounts.open_account(
+        session, household.id, "Synthetic owned account", AccountType.joint,
+        10_000, date(2026, 1, 1), owner_profile_id=owner.id)
+    budget = Budget(household_id=household.id, owner_profile_id=owner.id, name="Synthetic monthly",
+                    status="approved", period_type="monthly", start_date=date(2026, 11, 1),
+                    end_date=date(2026, 11, 30))
+    session.add(budget)
+    session.flush()
+    session.add_all([
+        BudgetLine(budget_id=budget.id, category_id=category.id, side="expense",
+                   original_pence=10_000),
+        Transaction(account_id=owned.id, date=date(2026, 10, 29), amount_pence=-2_500,
+                    payee="Synthetic cycle expense", category_id=category.id, status="cleared"),
+        Transaction(account_id=owned.id, date=date(2026, 11, 29), amount_pence=-6_000,
+                    payee="Synthetic next-cycle expense", category_id=category.id,
+                    status="cleared"),
+    ])
+    if configured:
+        budget_periods.set_day(session, household.id, owner.id, 28)
+    session.flush()
+    items = client(session, owner).get("/api/v1/integration/items").json()["items"]
+    budgets_found = [item for item in items
+                     if item["family"] in {"budget_remaining", "budget_usage"}]
+    if configured:
+        remaining = next(item for item in budgets_found if item["family"] == "budget_remaining")
+        assert remaining["value"] == "75.00"
+        assert "2026-10-28–2026-11-26" in remaining["name"]
+        usage = next(item for item in budgets_found if item["family"] == "budget_usage")
+        assert usage["value"] == "25.00"
+    else:
+        assert budgets_found == []

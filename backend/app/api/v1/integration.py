@@ -19,7 +19,17 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, AdminDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import accounts, budgets, contributions, goals, outbox, projection, rbac, seasonal
+from app.domain import (
+    accounts,
+    budget_periods,
+    budgets,
+    contributions,
+    goals,
+    outbox,
+    projection,
+    rbac,
+    seasonal,
+)
 from app.domain.money import Money
 from app.persistence.models import (
     Account,
@@ -149,11 +159,15 @@ def _criteria_items(session: Session, household_id: int, profile: UserProfile | 
             Budget.status.in_([BudgetStatus.approved, BudgetStatus.locked])).order_by(Budget.id)):
         if not rbac.visible(budget.owner_profile_id, profile):
             continue
-        summary = budgets.spending_summary(session, budget, as_of=today)
+        period = budget_periods.resolve_period(session, budget, basis="pay_cycle")
+        if period.warning:
+            continue  # A missing/ambiguous personal cycle is unknown, not a calendar substitute.
+        summary = budgets.spending_summary(session, budget, as_of=today,
+                                           start=period.start, end=period.end)
         spent = int(summary["spent_pence"])
         planned = sum(line.effective_pence for line in budget.lines
                       if line.side == BudgetLineSide.expense)
-        name = f"{budget.name} ({budget.start_date}–{budget.end_date})"
+        name = f"{budget.name} ({period.start}–{period.end}, {period.basis.replace('_', ' ')})"
         result.append(schemas.IntegrationItemOut(
             family="budget_remaining", id=f"budget:{budget.id}", name=f"{name} remaining",
             value=Money.of_pence(planned - spent).pounds_decimal(), unit="GBP"))
