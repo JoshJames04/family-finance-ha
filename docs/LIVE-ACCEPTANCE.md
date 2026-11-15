@@ -22,6 +22,11 @@ or reimport the workbook. Current remaining work is tracked in
    navigation. There must be no persistent 503s or false empty financial values.
    If a request fails, record the time and request ID privately. Retry must recover
    when the service becomes healthy; failed reads must show an error.
+   Find that request ID in Settings → Add-ons → Family Finance → Log, correlate
+   its status/time with the browser failure, and inspect scheduler health and
+   database-lock/error counters in diagnostics for the same window. Keep raw logs
+   private. If there are no failures, retain a successful request/log correlation
+   and the workload diagnostics rather than inventing an error case.
 6. During a scheduled backup, repeat the same ingress navigation and compare
    populated widgets. Alternatively, an administrator can start one normal backup
    from Settings while the other tab navigates. Confirm backup success and no
@@ -57,11 +62,17 @@ navigation and automated fault-injection coverage are separate evidence.
    reconciled and Bills, Budget and forecast agree. Ambiguous movements should
    remain available for Review.
 4. Observe another interval: no duplicate transaction or repeated balance
-   adjustment. When convenient, restart the add-on and confirm scheduling resumes
-   without duplicate work.
+   adjustment. Arrange a convenient restart of the add-on and confirm scheduling
+   resumes without duplicate work. Restart recovery is required for a full PASS;
+   postponing it means this part remains NOT TESTED and #416 stays open.
 5. If the provider reports a rate limit, record the retry deadline and verify
    recovery after it. Do not repeatedly press Sync or deliberately trigger limits.
    Offline/rate-limit injection belongs in isolated tests.
+   Record release-version backoff/recovery evidence from a naturally occurring
+   or already recorded retry episode, alongside the automated fault-injection
+   results. If no such operational episode is available, mark backoff NOT TESTED
+   and retain #416 until that remaining evidence is reviewed; a successful normal
+   refresh alone does not complete every acceptance criterion.
 
 Keep copied local provider credentials unscheduled. A copied database does not
 prove a new unattended provider refresh.
@@ -125,8 +136,9 @@ Report by issue, for example: `#414 PASS — v1.5.0, HA ingress, saved layout re
 through three routes, refresh and fresh login; blocked-save draft recovered and
 retry persisted it`. For #460 also record the successful backup-under-navigation
 and sync-workload checks. Keep failures open with precise
-steps and sanitised symptoms. A combined session can provide evidence for #414
+steps and sanitised symptoms. Record NOT TESTED separately from PASS. A combined session can provide evidence for #414
 and #460, but each issue's criteria must pass. Close #416 only after a real
-unattended provider refresh and #477 only after physical-device acceptance. A
+unattended provider refresh plus restart, backoff/recovery and idempotency
+evidence, and #477 only after physical-device acceptance. A
 partial automation slice references #432 without claiming its whole roadmap
 complete. Close #351 only when its children and remaining parity acceptance pass.
