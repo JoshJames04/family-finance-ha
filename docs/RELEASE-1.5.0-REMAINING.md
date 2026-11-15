@@ -1,44 +1,16 @@
-# Release 1.5.0 candidate and remaining acceptance
+# Release 1.5.0: remaining work and acceptance
 
-This is a release-preparation checklist. It does not authorise merging, tagging,
-publishing, live deployment or private data/configuration changes.
+Reviewed 15 November 2026. [v1.5.0 is published](https://github.com/JoshJames04/family-finance-ha/releases/tag/v1.5.0)
+and release PR #499 is merged. The former candidate merge order is historical;
+do not merge superseded dependency or release-preparation PRs.
 
-The previous 1.4.2 patch-version exception applied only to that batch. This batch
-adds payday Budget windows and weekly overtime, so the repository's ordinary
-backwards-compatible-feature rule selects 1.5.0.
+Release-closing issues #466, #478, #479, #481, #482, #483, #484, #485,
+#487, #490, #491, #492, #494, #508 and #510 are closed. A release or passing CI
+alone does not establish the installed Home Assistant acceptance below.
 
-## Implementation included in this candidate
-
-- [x] Forecast/matching correction (#491, #494; PR #493).
-- [x] Dashboard preference recovery (#492; PR #495).
-- [x] Bank-sync ownership, queue/retry and balance-repair correction (#490).
-- [x] Budget receipt reconciliation and owner-labelled All sections (#483, #466).
-- [x] Frontend dependency updates with a common Node 22 production API and
-      verified Node 24 Compose development; Docker action upgrades.
-- [x] Scheduled dependency routing/assignment (#508) and sole-Josh code ownership
-      with current-head approval, without activating automatic merging (#510).
-
-The joint candidate combines the remaining Lucide dependency update from #507
-with the release notes from #513, based on the current #505 jsdom candidate.
-Merge #505 first, then review and merge the joint candidate as one complete
-diff with passing CI and Josh's current-head approval. The original #507 and
-#513 remain open for traceability; do not merge them separately afterward.
-
-## Before promoting develop to main
-
-- [ ] Merge the reviewed #505 candidate, then the joint #507/#513 candidate,
-      into develop. #506 is already integrated.
-- [ ] Reconcile the changelog and release closing keywords against the actual
-      final aggregate diff; do not claim an unmerged fix is included.
-- [ ] Full required CI and native Codex review pass on the exact release head.
-- [ ] Complete the seven-check machine release gate, production-copy migration
-      upgrade/downgrade/upgrade, version consistency and verified backup restore.
-- [ ] Review the aggregate release diff and its operational risks.
-
-Fixing PRs use `Closes #N` for satisfied issues. The release PR must carry the
-applicable closing keywords because GitHub closes automatically on `main`, not
-`develop`. Use references for outstanding acceptance; do not close a whole
-parent because one implementation child passed tests.
+The parity parent #351 remains open while child #360 is incomplete. The five
+issues awaiting installed-release acceptance are #414, #416, #460, #461 and #477.
+Use the [installed-release checklist](LIVE-ACCEPTANCE.md) to record results.
 
 ## Required operational acceptance that stays open
 
