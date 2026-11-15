@@ -7,6 +7,7 @@ from typing import Any
 
 FAMILY_PREFIXES = {
     "movement": "bills",
+    "bill": "bills",
     "transaction": "banking",
     "account": "banking",
     "budget": "budgets",
@@ -23,6 +24,12 @@ FAMILY_PREFIXES = {
 }
 EVENT_TYPES = {
     "bills": [
+        "bill.created",
+        "bill.paused",
+        "bill.resumed",
+        "bill.ended",
+        "bill.amount_changed",
+        "bill.date_changed",
         "movement.settled",
         "movement.partial",
         "movement.overdue",
@@ -35,7 +42,13 @@ EVENT_TYPES = {
         "budget.approved",
         "budget.locked",
     ],
-    "subscriptions": ["subscription.price_observed"],
+    "subscriptions": [
+        "subscription.price_observed",
+        "subscription.created",
+        "subscription.cancelled",
+        "subscription.amount_changed",
+        "subscription.renewal_changed",
+    ],
     "goals": ["goal.milestone"],
     "payroll": [
         "payroll.generated",

@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain import outbox
 from app.persistence.models import (
     Frequency,
     RecurringCommitment,
@@ -68,6 +69,16 @@ def occurrences(c: RecurringCommitment, horizon: date) -> Iterator[date]:
         d = advance(d, c.frequency, anchor_dom)
 
 
+def emit_lifecycle(session: Session, c: RecurringCommitment, event_type: str) -> None:
+    """Write only record facts; notes and formula text never enter the event bus."""
+    outbox.emit(session, c.household_id, event_type,
+                entity_kind="commitment", entity_id=c.id,
+                payload={"name": c.name, "amount_pence": c.amount_pence,
+                         "expected_date": c.next_date.isoformat(),
+                         "frequency": c.frequency.value,
+                         "status": "active" if c.active else "paused"})
+
+
 def materialise(
     session: Session,
     c: RecurringCommitment,
@@ -113,4 +124,8 @@ def materialise(
     if latest is not None:
         c.next_date = advance(latest, c.frequency, anchor_dom)
         session.flush()
+        if ((c.end_date is not None and c.next_date > c.end_date)
+                or (c.occurrence_count is not None
+                    and c.generated_count >= c.occurrence_count)):
+            emit_lifecycle(session, c, "bill.ended")
     return created

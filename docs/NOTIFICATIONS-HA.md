@@ -45,9 +45,9 @@ transitions. Unknown future types in a recognised family remain consumable.
 
 | Family | Canonical transition types / source |
 | --- | --- |
-| Bills | `movement.settled`, `movement.partial`, `movement.overdue` from settlement/overdue processing |
+| Bills | `movement.settled`, `movement.partial`, `movement.overdue` from settlement/overdue processing; `bill.created`, `bill.paused`, `bill.resumed`, `bill.amount_changed`, `bill.date_changed`, `bill.ended` from committed recurring-commitment changes |
 | Banking | `transaction.imported` from a committed imported transaction |
-| Subscriptions | `subscription.price_observed` from an observed price |
+| Subscriptions | `subscription.price_observed` from an observed price; `subscription.created`, `subscription.cancelled`, `subscription.amount_changed`, `subscription.renewal_changed` from committed register changes |
 | Ops | `sync.failed`, `sync.completed`, `sync.recovered`, `data.stale`; `backup.created` / `backup.failed` from real backup outcomes |
 | Budgets | `budget.approved`, `budget.locked`, `budget.usage`, `budget.over`, `budget.remaining_changed` from canonical lifecycle/financial changes |
 | Payroll | `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
@@ -58,6 +58,30 @@ transitions. Unknown future types in a recognised family remain consumable.
 A matched payment emits `movement.partial` while an outstanding amount remains.
 Only a payment that completes the obligation emits `movement.settled`; replaying
 an already matched transaction emits neither event again.
+
+Bill creation, amount/date edits, pause and resume events come from the actual
+register mutation. Repeating an unchanged edit, pause or resume emits no duplicate
+transition. A final materialised occurrence emits `bill.ended` when its configured
+end date or occurrence count exhausts the schedule. This is a schedule ending,
+not proof of payment; merely passing a due date does not emit a new lifecycle
+event. Formula text and notes never enter these payloads.
+
+Subscription creation also covers confirmation of a detected candidate.
+`subscription.renewal_changed` describes an explicit renewal date/frequency edit,
+or the existing renewal advance after an observed price (`source: price_observation`).
+An observation or advanced renewal is not a confirmed settled charge, missed
+payment, expiry or completed renewal contract. Cancellation is an explicit register
+mutation; the current model has no automatic expiry or reactivation transition.
+No duplicate due-reminder polls are added.
+
+All these rows share the writer's transaction: rollback removes the event.
+Paused/cancelled records retain their opaque `entity_id`; renaming never changes
+that ID. Feed reads apply current account ownership in Safe and Detailed modes.
+Archived accounts retain their ownership restriction. If a record is permanently
+deleted, its events are hidden because its current visibility can no longer be
+verified; deletion does not disclose a tombstone to HA. A transactional internal
+delete watermark keeps old bill events hidden even if SQLite reuses its record
+ID later; recreating a bill never revives the deleted bill's private history.
 
 Use only types implemented by the installed app version. An available event entity
 is a stream endpoint, not evidence that every conceivable transition exists.
@@ -161,6 +185,21 @@ picker. Raw Event triggers can use visual Template conditions for an allowed lis
 of stable `entity_id` values. On an EventEntity state trigger, event details are in
 `trigger.to_state.attributes`; raw bus Event triggers use `trigger.event.data`.
 These are different HA trigger contexts and should not be interchanged.
+
+### Bill or subscription lifecycle: All, one or several
+
+Create an **Other triggers > Event** trigger for `family_finance_bills_event`
+(or `family_finance_subscriptions_event`). In the visual event-data form, set
+`event_type` to a supported type, such as `bill.paused` or
+`subscription.cancelled`, and `config_entry_id` to the intended connection.
+For All authorised items, leave `entity_id` unset. For one item, enter its opaque
+`entity_id`. For several, leave that field unset and add a visual **Template**
+condition such as `{{ trigger.event.data.entity_id | int in [17, 23] }}`, using
+IDs from synthetic event traces. These are form fields, not YAML editing.
+Use generic notification wording in Safe mode; Detailed mode can expose the
+name/payee and amount. Exercise a real mutation, then an unchanged replay, and
+inspect the trace. Installed HA visual-editor and notification delivery acceptance
+remains tracked in #441; synthetic harness tests do not claim that acceptance.
 
 ## Configured energy-statistics ingestion
 
