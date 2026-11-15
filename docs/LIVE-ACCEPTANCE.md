@@ -22,11 +22,15 @@ or reimport the workbook. Current remaining work is tracked in
    navigation. There must be no persistent 503s or false empty financial values.
    If a request fails, record the time and request ID privately. Retry must recover
    when the service becomes healthy; failed reads must show an error.
-   Find that request ID in Settings → Add-ons → Family Finance → Log, correlate
-   its status/time with the browser failure, and inspect scheduler health and
-   database-lock/error counters in diagnostics for the same window. Keep raw logs
-   private. If there are no failures, retain a successful request/log correlation
-   and the workload diagnostics rather than inventing an error case.
+   Search that ID in Settings → Add-ons → Family Finance → Log and correlate any
+   matching failure with its browser status/time. Inspect scheduler health and
+   database-lock/error counters for the same window. Record missing log entries
+   rather than inventing them. An ingress response may lack an app request ID;
+   in that case compare Supervisor/ingress logs and app request counters by time
+   to establish whether it reached the backend. Keep logs and ingress URLs private.
+   If there are no failures, retain browser Network response statuses/IDs and
+   before/after workload diagnostics. Successful requests are not access-logged;
+   mark error-log correlation not applicable for a failure-free run.
 6. During a scheduled backup, repeat the same ingress navigation and compare
    populated widgets. Alternatively, an administrator can start one normal backup
    from Settings while the other tab navigates. Confirm backup success and no
