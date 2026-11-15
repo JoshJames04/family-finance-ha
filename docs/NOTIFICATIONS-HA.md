@@ -50,7 +50,7 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Subscriptions | `subscription.price_observed` from an observed price |
 | Ops | `sync.failed`, `sync.completed`, `sync.recovered`, `data.stale`; `backup.created` / `backup.failed` from real backup outcomes |
 | Budgets | `budget.approved`, `budget.locked`, `budget.usage`, `budget.over`, `budget.remaining_changed` from canonical lifecycle/financial changes |
-| Payroll | `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
+| Payroll | `overtime.recorded`, `payroll.estimate_changed`, `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
 | Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance` |
 | Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
 | Goals | `goal.milestone` from a real committed inbound contribution crossing; per-goal numeric percent supports other visual thresholds |
@@ -71,6 +71,33 @@ review. These remain summary transition signals, not item-specific outbox events
 First successful connection/reload seeds the summary baseline without replaying
 historical conditions. Each emitted event includes `config_entry_id`, and device
 triggers filter it so another configured household cannot activate the device.
+
+### Overtime recording and payroll estimate changes
+
+`overtime.recorded` is emitted when a new draft overtime entry is committed,
+including the existing permitted app/HA action paths. It describes recorded hours
+and estimated overtime pay, not approval, a payslip or money received. Editing,
+submitting or approving that entry does not repeat its creation event. The opaque
+`entity_id` identifies its employment; Detailed payloads add the entry ID, hours,
+employer name and estimated pence. Notes are never included.
+
+`payroll.estimate_changed` compares the previous and new canonical expected net
+amount for the same employment/pay date/destination during schedule regeneration.
+It covers regular employment estimates and forecast payroll runs. A first known
+value seeds quietly; unchanged regeneration emits nothing. A reconciled/actual
+amount is not labelled an estimate, and a missing estimate is never a fabricated
+zero. A changed payday/destination is not compared as though it were the same
+obligation. Detailed payloads contain old/new estimated pence and employer name;
+Safe mode keeps structural dates/status/source only. Rollback removes changes and
+events together. Event delivery/retry uses the existing durable cursor.
+
+Both types inherit the employment owner's visibility even when pay lands in a
+shared account; the HA service token cannot expose a member's private employment.
+For authorised profiles, use a visual **Event** trigger on
+`family_finance_payroll_event`, with the desired `event_type` and connection's
+`config_entry_id`. Leave `entity_id` unset for All authorised employments, set it
+for one, or use a visual Template condition for a list of IDs. Renaming preserves
+the employment ID. Enabling Detailed mode does not widen ownership permissions.
 
 ## Cursor, retry and offline behaviour
 

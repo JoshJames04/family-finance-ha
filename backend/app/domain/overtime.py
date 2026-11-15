@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.domain import outbox
 from app.domain.paydays import HolidayTable, load_holidays
 from app.domain.payroll import PayrollError, hourly_rate_pence, salary_at
 from app.persistence.models import (
@@ -96,6 +97,11 @@ def create_entry(
         notes=notes, created_at=created_at, updated_at=created_at)
     session.add(e)
     session.flush()
+    outbox.emit(session, employment.household_id, "overtime.recorded",
+        entity_kind="employment", entity_id=employment.id,
+        payload={"source": "overtime", "date": work_date.isoformat(), "status": e.status.value,
+                 "name": employment.employer, "hours": str(e.hours),
+                 "amount_pence": e.pay_pence, "entry_id": e.id})
     return e
 
 

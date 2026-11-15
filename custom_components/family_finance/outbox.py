@@ -13,6 +13,7 @@ FAMILY_PREFIXES = {
     "subscription": "subscriptions",
     "goal": "goals",
     "payroll": "payroll",
+    "overtime": "payroll",
     "payslip": "payroll",
     "gift": "gifts",
     "seasonal": "gifts",
@@ -38,6 +39,8 @@ EVENT_TYPES = {
     "subscriptions": ["subscription.price_observed"],
     "goals": ["goal.milestone"],
     "payroll": [
+        "overtime.recorded",
+        "payroll.estimate_changed",
         "payroll.generated",
         "payroll.reconciled",
         "payroll.approaching",
