@@ -137,17 +137,18 @@ def _emit_payroll_estimate_change(session: Session, employment: Employment, pay_
 
 def rematerialize_payroll_run(
     session: Session, run: PayrollRun, *,
-    today: date | None = None,
+    today: date | None = None, previous_estimate: int | None = None,
 ) -> int:
     """Expected income on the run's pay date — estimated until the run
     is reconciled, scheduled after. Only future/mutable runs emit."""
     today = today or date.today()
-    previous_estimate = session.scalar(select(ExpectedMovement.amount_pence).where(
-        ExpectedMovement.source_type == ExpectedSource.payroll_run,
-        ExpectedMovement.source_id == run.id,
-        ExpectedMovement.expected_date == run.pay_date,
-        ExpectedMovement.account_id == run.employment.paid_into_account_id,
-        ExpectedMovement.confidence == Confidence.estimated))
+    if previous_estimate is None:
+        previous_estimate = session.scalar(select(ExpectedMovement.amount_pence).where(
+            ExpectedMovement.source_type == ExpectedSource.payroll_run,
+            ExpectedMovement.source_id == run.id,
+            ExpectedMovement.expected_date == run.pay_date,
+            ExpectedMovement.account_id == run.employment.paid_into_account_id,
+            ExpectedMovement.confidence == Confidence.estimated))
     survivors = _drop_future(
         session, ExpectedSource.payroll_run, run.id, today)
     if run.status is PayrollRunStatus.corrected \

@@ -72,7 +72,7 @@ First successful connection/reload seeds the summary baseline without replaying
 historical conditions. Each emitted event includes `config_entry_id`, and device
 triggers filter it so another configured household cannot activate the device.
 
-### Overtime recording and payroll estimate changes
+### Scoped payroll backend feed; private HA access pending
 
 `overtime.recorded` is emitted when a new draft overtime entry is committed,
 including the existing permitted app/HA action paths. It describes recorded hours
@@ -92,12 +92,19 @@ Safe mode keeps structural dates/status/source only. Rollback removes changes an
 events together. Event delivery/retry uses the existing durable cursor.
 
 Both types inherit the employment owner's visibility even when pay lands in a
-shared account; the HA service token cannot expose a member's private employment.
-For authorised profiles, use a visual **Event** trigger on
-`family_finance_payroll_event`, with the desired `event_type` and connection's
-`config_entry_id`. Leave `entity_id` unset for All authorised employments, set it
-for one, or use a visual Template condition for a list of IDs. Renaming preserves
-the employment ID. Enabling Detailed mode does not widen ownership permissions.
+shared account. They are available through the authenticated, profile-aware backend
+feed. **The current HA service token has no private payroll grant and cannot read
+either new type**, in Safe or Detailed mode. The integration does not send a member
+identity, and it cannot impersonate an employment owner. These writer hooks are
+backend groundwork; they do not deliver a private payroll automation to HA.
+
+Admin-selected private read grants require the access-model decision in
+#532 (under #524/#432). Rich detail opt-in and named entity selection do not grant private
+access. The existing HA adapter can publish an authorised canonical payroll row,
+but mocked/harness publication proves that adapter behavior only; real service
+HTTP tests prove the current private denial. No private HA automation recipe is
+claimed until explicit access is designed, approved and tested. Renaming preserves
+the employment ID for authorised backend consumers.
 
 ## Cursor, retry and offline behaviour
 

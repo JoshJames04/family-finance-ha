@@ -1,4 +1,4 @@
-"""Real HA publication and replay of canonical payroll writer events."""
+"""HA adapter publication of permitted rows; this does not grant private access."""
 from unittest.mock import AsyncMock, patch
 
 import pytest

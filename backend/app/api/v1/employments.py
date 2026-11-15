@@ -24,10 +24,13 @@ from app.domain import payroll as dom
 from app.persistence.models import (
     Account,
     Budget,
+    Confidence,
     DayType,
     DeliveryCharge,
     DeliveryEntry,
     Employment,
+    ExpectedMovement,
+    ExpectedSource,
     OvertimeEntry,
     OvertimeStatus,
     PayrollRun,
@@ -573,10 +576,18 @@ def _sync_delivery_run(session: Session, e: Employment,
             session, e, work_date)
     except dom.PayrollError as error:
         raise HTTPException(409, str(error)) from error
+    previous_estimate = None
     if old_run is not None:
+        if new_run is not None and new_run.pay_date == old_run.pay_date:
+            previous_estimate = session.scalar(select(ExpectedMovement.amount_pence).where(
+                ExpectedMovement.source_type == ExpectedSource.payroll_run,
+                ExpectedMovement.source_id == old_run.id,
+                ExpectedMovement.expected_date == new_run.pay_date,
+                ExpectedMovement.account_id == e.paid_into_account_id,
+                ExpectedMovement.confidence == Confidence.estimated))
         schedule.rematerialize_payroll_run(session, old_run)
     if new_run is not None:
-        schedule.rematerialize_payroll_run(session, new_run)
+        schedule.rematerialize_payroll_run(session, new_run, previous_estimate=previous_estimate)
 
 
 @router.get("/{emp_id}/deliveries",

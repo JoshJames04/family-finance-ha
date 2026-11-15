@@ -22,9 +22,9 @@ TODAY = date(2026, 1, 1)
 PAY = date(2026, 1, 28)
 
 
-@pytest.fixture()
-def employment(session, household):
-    owner = UserProfile(household_id=household.id, display_name="Owner", role=Role.member)
+def _employment(session, household):
+    owner = UserProfile(household_id=household.id, display_name="Owner", role=Role.member,
+                        ha_user_id="synthetic-payroll-owner")
     account = Account(household_id=household.id, name="Shared destination", type="joint",
                       opening_date=TODAY)
     session.add_all([owner, account])
@@ -37,6 +37,11 @@ def employment(session, household):
     session.flush()
     payroll.add_salary_revision(session, emp, TODAY, 3_600_000)
     return emp
+
+
+@pytest.fixture()
+def employment(session, household):
+    return _employment(session, household)
 
 
 def events(session, event_type):
@@ -122,3 +127,69 @@ def test_payroll_writers_and_events_roll_back_together(session, household, emplo
     session.rollback()
     assert list(session.scalars(select(IntegrationEvent))) == []
     assert list(session.scalars(select(ExpectedMovement))) == []
+
+
+def test_piecework_replacement_preserves_prior_net_estimate(session, household, employment):
+    from app.api import schemas
+    from app.api.v1 import employments
+    from app.domain.money import Money
+
+    employment.employment_type = "piecework"
+    day = date(2030, 1, 2)
+    first = schemas.DeliveryIn(work_date=day, hours=Decimal("1"),
+                               hourly_rate=Money.of_pence(1000))
+    created = employments.create_delivery(employment.id, first, household, session, "test")
+    assert events(session, "payroll.estimate_changed") == []
+    changed = schemas.DeliveryIn(work_date=day, hours=Decimal("2"),
+                                 hourly_rate=Money.of_pence(1000))
+    employments.patch_delivery(employment.id, created.id, changed, household, session, "test")
+    employments.patch_delivery(employment.id, created.id, changed, household, session, "test")
+    rows = events(session, "payroll.estimate_changed")
+    assert len(rows) == 1
+    assert rows[0].payload["old_pence"] == 1000
+    assert rows[0].payload["amount_pence"] == 2000
+    current = session.scalars(select(ExpectedMovement)).one()
+    assert current.amount_pence == rows[0].payload["amount_pence"]
+
+
+
+@pytest.mark.parametrize("detailed", [False, True])
+def test_real_ha_service_has_no_private_payroll_grant(tmp_path, monkeypatch, detailed):
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+
+    from app.api import auth
+    from app.core.settings import Settings
+    from app.main import create_app
+    from app.persistence.models import Household
+
+    monkeypatch.setattr(auth, "SUPERVISOR_IP", "testclient")
+    app = create_app(Settings.load({"FF_DATA_DIR": str(tmp_path), "FF_INGRESS": "true",
+        "FF_ADMIN_TOKEN": "synthetic-payroll-token", "FF_SCHEDULER_TICK_SECONDS": "0",
+        "FF_BACKUP_INTERVAL_HOURS": "0"}))
+    with TestClient(app) as client:
+        with Session(app.state.engine) as db:
+            home = Household(name="Synthetic")
+            db.add(home)
+            db.flush()
+            emp = _employment(db, home)
+            overtime.create_entry(db, emp, work_date=TODAY, hours=Decimal("2"), notes="SECRET")
+            schedule.rematerialize_employment(db, emp, today=TODAY, horizon_days=30)
+            payroll.add_salary_revision(db, emp, date(2026, 1, 2), 4_200_000)
+            schedule.rematerialize_employment(db, emp, today=TODAY, horizon_days=30)
+            if detailed:
+                outbox.set_detail(db, "detailed")
+            hid, pid = home.id, emp.profile_id
+            db.commit()
+        service = client.get("/api/v1/integration/events", headers={
+            "X-Admin-Token": "synthetic-payroll-token", "X-Household-Id": str(hid),
+            "X-Profile-Id": str(pid)})  # A service token cannot impersonate an owner.
+        assert service.status_code == 200
+        assert service.json()["events"] == []
+        owner = client.get("/api/v1/integration/events", headers={
+            "X-Remote-User-Id": "synthetic-payroll-owner", "X-Household-Id": str(hid)})
+        assert owner.status_code == 200
+        rows = owner.json()["events"]
+        assert {e["event_type"] for e in rows} == {"overtime.recorded", "payroll.estimate_changed"}
+        assert all(("name" in e["data"]) is detailed for e in rows)
+        assert "SECRET" not in owner.text
