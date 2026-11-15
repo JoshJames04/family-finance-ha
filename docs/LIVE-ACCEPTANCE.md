@@ -84,6 +84,11 @@ prove a new unattended provider refresh.
 2. Compare the next salary in Expected/forecast with Dashboard Next payday. Date,
    account and planned net amount should agree. Future salary must not appear as
    already received.
+   In Forecast, explicitly select the **Paid into** account and inspect its
+   projected balance on the salary date. Verify the estimated salary is included
+   in that day's projected cashflow alongside any other movements that day;
+   appearing in the separate Expected list alone is not a pass. Check an existing
+   payroll run replaces the employment estimate once, rather than adding both.
 3. Open a personal Budget containing known historical salary/spending. Check the
    displayed pay-cycle dates, planned salary, received headline and received
    transaction detail. Detail must sum to the headline. Include a known early
