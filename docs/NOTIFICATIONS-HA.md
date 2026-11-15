@@ -78,7 +78,10 @@ HA machine service cannot expose a private employment until an explicit resource
 grant model is approved under #532. Selecting All does not override that boundary.
 
 Discovery is paginated in stable order, so later metric families are not silently
-lost after the first 100 records. HA supports up to 1,000 discoverable metrics and
+lost after the first 100 records. Original Accounts, Goal percent and Bills retain
+their previous ordering before any new metric is appended, preserving the first
+page for older integrations that cannot paginate. HA supports up to 1,000
+discoverable metrics and
 fails with a discovery error beyond that bound; the separate active-entity cap
 remains at most 100. No transaction-by-transaction entities are created.
 

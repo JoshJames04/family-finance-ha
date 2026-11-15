@@ -66,6 +66,7 @@ def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
               value=Money.of_pence(accounts.current_balance(session, a.id)).pounds_decimal(),
               unit=a.currency)
               for a in visible]
+    goal_criteria: list[schemas.IntegrationItemOut] = []
     for goal in session.scalars(select(SavingsGoal).where(
             SavingsGoal.household_id == household.id, SavingsGoal.active.is_(True),
             SavingsGoal.account_id.in_(allowed)).order_by(SavingsGoal.id)):
@@ -73,11 +74,11 @@ def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
         result.append(schemas.IntegrationItemOut(family="goals", id=f"goal:{goal.id}",
                       name=goal.name,
                       value=progress.pct, unit="%"))
-        result.append(schemas.IntegrationItemOut(
+        goal_criteria.append(schemas.IntegrationItemOut(
             family="goal_funding", id=f"goal:{goal.id}", name=f"{goal.name} funded",
             value=Money.of_pence(progress.contributed_pence).pounds_decimal(), unit="GBP"))
         if goal.target_date is not None:
-            result.append(schemas.IntegrationItemOut(
+            goal_criteria.append(schemas.IntegrationItemOut(
                 family="goal_dates", id=f"goal:{goal.id}:days",
                 name=f"{goal.name} days to target",
                 value=(goal.target_date - today).days, unit="d"))
@@ -98,6 +99,9 @@ def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
         seen.add(key)
         result.append(schemas.IntegrationItemOut(family="bills", id=key, name=movement.label,
                       value=(movement.expected_date - today).days, unit="d"))
+    # Legacy clients read only the first 100 rows. Preserve their complete old
+    # accounts/goals/bills prefix before appending any newly discoverable metric.
+    result.extend(goal_criteria)
     result.extend(_criteria_items(session, household.id, profile, visible, today, forecast_days))
     return schemas.IntegrationItemsOut(items=result[offset:offset + limit],
                                       has_more=offset + limit < len(result))

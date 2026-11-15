@@ -276,3 +276,22 @@ def test_personal_budget_metrics_follow_pay_cycle_or_stay_unknown(
         assert usage["value"] == "25.00"
     else:
         assert budgets_found == []
+
+
+def test_legacy_first_page_keeps_original_accounts_goals_and_bills_order(session, household):
+    shared = account(session, household)
+    for index in range(40):
+        session.add(SavingsGoal(
+            household_id=household.id, account_id=shared.id, name=f"Synthetic goal {index}",
+            goal_type="general", target_pence=10_000, start_date=date.today(),
+            target_date=date.today() + timedelta(days=7)))
+    session.add(ExpectedMovement(
+        household_id=household.id, account_id=shared.id, source_type="commitment", source_id=99,
+        expected_date=date.today() + timedelta(days=3), amount_pence=-1_000,
+        label="Synthetic bill", confidence="scheduled"))
+    session.flush()
+    first = client(session).get("/api/v1/integration/items").json()
+    expected_families = ["accounts", *["goals"] * 40, "bills"]
+    assert [item["family"] for item in first["items"][:42]] == expected_families
+    assert first["items"][41]["id"] == "commitment:99"
+    assert first["has_more"] is True
