@@ -171,16 +171,19 @@ def test_provider_replay_preserves_terminal_local_state_without_new_settlement(
     assert len(rows(session, "transaction.settled")) == 1
 
 
-def test_disconnect_and_unmapped_connection_visibility(session, household):
+@pytest.mark.parametrize("late_status", [None, 401, 403, 429, 500])
+def test_disconnect_and_unmapped_connection_visibility(session, household, late_status):
     from app.domain import vault
     from app.persistence.models import BankAccountMapping
     _, conn, mapping = linked(session, household)
     session.delete(mapping)
     session.flush()
     banks.disconnect(session, conn, vault.Keyring({1: b"0" * 32}))
-    banks.record_api_error(session, conn, 401, "late provider response")
+    banks.record_api_error(session, conn, late_status, "late provider response")
+    assert conn.status == ConnStatus.revoked
     banks.disconnect(session, conn, vault.Keyring({1: b"0" * 32}))
     event, = rows(session, "connection.disconnected")
+    assert rows(session, "connection.revoked") == []
     assert not outbox.event_visible(session, event, None)
     assert outbox.event_visible(session, event, None, all_scopes=True)
     assert session.scalar(select(BankAccountMapping)) is None
@@ -269,3 +272,23 @@ def test_import_without_explicit_provider_settlement_does_not_claim_settlement(s
                       lambda _: iter([sync.FeedPage([item])]))
     assert len(rows(session, "transaction.imported")) == 1
     assert rows(session, "transaction.settled") == []
+
+
+def test_stale_provider_session_cannot_revive_removed_credentials(session, household):
+    from sqlalchemy.orm import Session
+
+    from app.domain import vault
+    _, conn, _ = linked(session, household)
+    ring = vault.Keyring({1: b"0" * 32})
+    vault.store(session, household.id, conn.vault_ref, b"synthetic", ring)
+    session.commit()
+    assert conn.status == ConnStatus.connected  # cache the in-flight request's state
+    with Session(session.get_bind()) as other:
+        banks.disconnect(other, other.get(type(conn), conn.id), ring)
+        other.commit()
+    assert conn.status == ConnStatus.connected
+    banks.record_api_error(session, conn, 500, "late provider response")
+    assert conn.status == ConnStatus.revoked
+    session.commit()
+    assert rows(session, "connection.revoked") == []
+    assert len(rows(session, "connection.disconnected")) == 1

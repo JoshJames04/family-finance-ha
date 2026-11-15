@@ -91,7 +91,9 @@ omits them. This is a provider snapshot signal, not fabricated ledger activity.
 Connection revocation fires on a persisted 401/403 transition; transient failures
 do not imply revocation. Explicit user removal emits `connection.disconnected`.
 Repeated removal stays quiet based on revoked state and actual credential removal,
-including after a late provider response changes the recorded error message.
+independent of the recorded error message.
+Late provider errors cannot revive a persisted revoked connection after its
+credential was removed, including responses arriving in a stale request session.
 Connection events are separately scoped to each mapped account and contain no
 provider identifiers, labels, credentials or error text. An unmapped connection
 has no provable member scope, so its event is visible only to an all-scopes admin.
