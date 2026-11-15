@@ -13,12 +13,14 @@ import tempfile
 from typing import Any
 
 import jsonschema
+import pytest
 import schemathesis
 from fastapi.testclient import TestClient
 from hypothesis import HealthCheck, settings
 
 from app.core.settings import Settings
 from app.main import create_app
+from app.persistence.session import init_session_factory
 
 _tmpdir = tempfile.mkdtemp(prefix="ff-contract-")
 _app = create_app(Settings.load({"FF_DATA_DIR": _tmpdir}))
@@ -28,6 +30,13 @@ _client = TestClient(_app)
 _client.__enter__()
 
 ADMIN = {"X-Admin-Token": "s3cret"}
+
+
+@pytest.fixture(autouse=True)
+def _contract_persistence() -> None:
+    # Other app lifespans replace the process-global session factory. Restore
+    # this long-lived client's engine before each case, not only at collection.
+    init_session_factory(_app.state.engine)
 
 
 # ---------- spec ↔ implementation parity -------------------------
