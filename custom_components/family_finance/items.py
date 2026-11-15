@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-ITEM_FAMILIES = ("bills", "accounts", "goals")
+ITEM_FAMILIES = ("bills", "accounts", "goals", "safe_to_spend", "projected_balances",
+                 "budget_remaining", "budget_usage", "seasonal_remaining", "seasonal_usage", "paydays",
+                 "goal_funding", "goal_dates")
 ENTITY_CAP = 100
+DISCOVERY_CAP = 1000
 
 
 def selected_items(

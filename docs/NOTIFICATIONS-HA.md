@@ -2,7 +2,8 @@
 
 The integration polls the app every minute. It exposes summary sensors, eight
 compatible device triggers, durable per-family event entities, and optional numeric
-sensors for individual Bills, Accounts and Goals. The app remains authoritative for
+sensors for individual Bills, Accounts, Goals, Budgets, Seasonal budgets and
+authorised payday occurrences. The app remains authoritative for
 financial calculations and committed transitions.
 
 ## Connection and privacy
@@ -30,6 +31,58 @@ is rejected; new items cannot silently grow the active entity set beyond it.
 Account sensors expose GBP balances, Bill sensors expose days to due, and Goal
 sensors expose percent. Summary monetary sensors remain disabled by default in the
 entity registry. Consider recorder exclusions before enabling financial entities.
+
+Additional per-item metrics use the same None / All / Selected controls and the
+same global cap; each enabled metric counts as one entity. Existing Bill, Account
+and Goal sensor identities stay unchanged. The new metrics are:
+
+| Metric | Canonical value | Unit |
+| --- | --- | --- |
+| Safe to spend | Account cleared-ledger balance minus outstanding obligations until the next expected payday, or the 90-day horizon when none exists | GBP |
+| Lowest projected balance | Minimum of the account's current balance and canonical daily projection over 90 days | GBP |
+| Budget remaining | Approved/locked expense plan minus signed, split-aware, as-of actual spending in that budget's owner scope | GBP |
+| Budget usage | The same actual spending divided by the positive expense plan; unknown when the plan is zero | % |
+| Seasonal remaining | Event budget minus recorded gift actuals, keeping planned commitments separate | GBP |
+| Seasonal usage | Recorded gift actuals divided by a positive event budget; unknown for a zero budget | % |
+| Goal funded amount | Real, eligible inbound transfer contributions to the goal, separate from its percentage metric | GBP |
+| Days to goal target | Configured target date minus the app calendar date; absent for undated goals | days |
+| Days to payday | Earliest outstanding positive employment/payroll-run occurrence for each authorised active employment, including today, within two years | days |
+
+Forecasts are estimates, not received income or confirmed future payments. They
+use the same default 90-day calculations as account forecasting. Budget and
+seasonal percentages use two decimal places; zero plans do not fabricate a
+percentage. Day counts use the app server's calendar date, matching its scheduling
+and forecasting default, rather than the HA browser's timezone. A selected metric
+becomes unavailable if its source is deleted, archived or no longer authorised;
+renaming preserves its stored identity.
+
+Employment ownership applies even when a salary destination account is shared.
+The HA service identity has shared scope, so private employment names/payday
+metrics remain absent. Detailed event mode does not grant private access. A new
+account forecast metric is also omitted if any outstanding payroll input within
+its forecast window has private or unresolved provenance for the requesting
+identity. This avoids publishing a private-derived figure as a shared zero or
+partial estimate. The actual shared account balance sensor remains independent.
+Payday numeric discovery is groundwork for authorised app profiles; the current
+HA machine service cannot expose a private employment until an explicit resource
+grant model is approved under #532. Selecting All does not override that boundary.
+
+Discovery is paginated in stable order, so later metric families are not silently
+lost after the first 100 records. HA supports up to 1,000 discoverable metrics and
+fails with a discovery error beyond that bound; the separate active-entity cap
+remains at most 100. No transaction-by-transaction entities are created.
+
+For a visual threshold automation, enable the desired named metrics in Configure,
+then choose one or several in the native Numeric state entity picker. Use Below
+`0` for a negative projected balance, Below `100` for GBP 100 safe to spend, or
+Above `89.99` for a 90% budget/seasonal usage threshold. For an authorised payday
+within N days, use Below `N + 1` and Above `-1` on days-to-payday sensors. These
+native controls support arbitrary day/amount/percent thresholds without YAML.
+State/Template conditions can express equality or compare a selected event's
+stable ID. Native numeric triggers fire on entry into their configured range;
+creating an automation while already inside it is not a historical replay.
+Actual visual-editor, multi-target and notification-delivery validation remains
+under #441.
 
 ## Version 1 payload catalogue
 

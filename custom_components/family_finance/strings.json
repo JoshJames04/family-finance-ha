@@ -43,7 +43,7 @@
     "step": {
       "init": {
         "title": "Per-item financial sensors",
-        "description": "Optional: expose selected bill, account and goal names and numeric values to Home Assistant entities, recorder and automations. None keeps item details disabled. All and Selected share the entity cap (maximum 100).",
+        "description": "Optional: expose selected financial names and numeric values to Home Assistant entities, recorder and automations. None keeps each metric disabled. All and Selected share the entity cap (maximum 100). Forecasts use 90 days. Payday details require authorised employment access; private payroll inputs suppress shared forecasts.",
         "data": {
           "entity_cap": "Maximum per-item entities",
           "bills_mode": "Bills: None / All / Selected",
@@ -51,7 +51,25 @@
           "goals_mode": "Goals: None / All / Selected",
           "bills_selected": "Selected bills",
           "accounts_selected": "Selected accounts",
-          "goals_selected": "Selected goals"
+          "goals_selected": "Selected goals",
+          "safe_to_spend_mode": "Safe to spend: None / All / Selected",
+          "safe_to_spend_selected": "Selected safe-to-spend accounts",
+          "projected_balances_mode": "Lowest projected balance: None / All / Selected",
+          "projected_balances_selected": "Selected projected-balance accounts",
+          "budget_remaining_mode": "Budget remaining: None / All / Selected",
+          "budget_remaining_selected": "Selected remaining budgets",
+          "budget_usage_mode": "Budget usage: None / All / Selected",
+          "budget_usage_selected": "Selected usage budgets",
+          "seasonal_remaining_mode": "Seasonal remaining: None / All / Selected",
+          "seasonal_remaining_selected": "Selected remaining seasonal budgets",
+          "seasonal_usage_mode": "Seasonal usage: None / All / Selected",
+          "seasonal_usage_selected": "Selected seasonal usage",
+          "paydays_mode": "Days to payday: None / All / Selected",
+          "paydays_selected": "Selected employments",
+          "goal_funding_mode": "Goal funded amount: None / All / Selected",
+          "goal_funding_selected": "Selected funded goals",
+          "goal_dates_mode": "Days to goal target: None / All / Selected",
+          "goal_dates_selected": "Selected dated goals"
         }
       }
     },
