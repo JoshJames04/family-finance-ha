@@ -113,6 +113,10 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
     }
     if event.entity_kind == "backup":
         return True
+    if event.entity_kind == "bank_connection":
+        connection = session.get(models.BankConnection, event.entity_id)
+        return (all_scopes and connection is not None
+                and connection.household_id == event.household_id)
     if event.entity_kind is None and event.entity_id is None:
         return True
     if event.entity_kind in {"manual", "transfer_rule"}:

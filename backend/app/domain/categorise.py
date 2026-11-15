@@ -380,7 +380,10 @@ def auto_pair_transfers(session: Session, household_id: int,
             d.transfer_id = tr.id
             c.transfer_id = tr.id
             session.flush()
-            from app.domain import goals
+            from app.domain import banking_events, goals
+            for txn in (d, c):
+                banking_events.transaction_changed(session, txn, "transaction.transfer_linked",
+                                                   dedup_key=f"transfer.linked:{tr.id}:{txn.id}")
             goals.emit_contribution_milestones(session, c)
             pairs += 1
     session.flush()

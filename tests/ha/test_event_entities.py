@@ -237,3 +237,37 @@ async def test_reload_baseline_does_not_replay_summary_history(hass, mock_api):
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert seen == []
+
+
+async def test_banking_catalogue_publishes_canonical_events_with_local_identity(hass, mock_api):
+    from custom_components.family_finance.outbox import EVENT_TYPES, family_for
+    kinds = [
+        "transaction.settled", "transaction.review_required", "transaction.reconciled",
+        "transaction.refund_linked", "transaction.transfer_linked", "account.balance_changed",
+        "connection.revoked", "connection.disconnected",
+    ]
+    assert all(kind in EVENT_TYPES["banking"] and family_for(kind) == "banking" for kind in kinds)
+    entry = MockConfigEntry(domain=DOMAIN, data={"url": "http://synthetic", "household_id": 1})
+    entry.add_to_hass(hass)
+    with patch("custom_components.family_finance.api.FamilyFinanceClient.async_fetch_events",
+               new_callable=AsyncMock) as feed:
+        feed.return_value = {"events": [], "next_cursor": 4}
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        seen = []
+        @callback
+        def record(event):
+            seen.append(event.data)
+        hass.bus.async_listen("family_finance_banking_event", record)
+        feed.return_value = {"events": [
+            {"seq": seq, "event_type": kind, "entity_kind": "account", "entity_id": 7,
+             "occurred_at": "2026-11-15T12:00:00+00:00", "data": {"status": "observed"}}
+            for seq, kind in enumerate(kinds, 5)
+        ], "next_cursor": 12}
+        await hass.data[DOMAIN][entry.entry_id].async_refresh()
+        await hass.async_block_till_done()
+        assert [event["event_type"] for event in seen] == kinds
+        assert all(event["entity_id"] == 7 for event in seen)
+        await hass.data[DOMAIN][entry.entry_id].async_refresh()
+        await hass.async_block_till_done()
+        assert len(seen) == len(kinds)
