@@ -178,6 +178,7 @@ def test_disconnect_and_unmapped_connection_visibility(session, household):
     session.delete(mapping)
     session.flush()
     banks.disconnect(session, conn, vault.Keyring({1: b"0" * 32}))
+    banks.record_api_error(session, conn, 401, "late provider response")
     banks.disconnect(session, conn, vault.Keyring({1: b"0" * 32}))
     event, = rows(session, "connection.disconnected")
     assert not outbox.event_visible(session, event, None)
@@ -240,3 +241,22 @@ def test_provider_overlap_queues_one_review_across_replay(session, household):
     assert event.entity_id == original.id
     assert len(list(session.scalars(select(MergeCandidate)))) == 1
     assert event.payload["status"] == "pending_review"
+
+
+def test_existing_duplicate_overlap_candidates_do_not_abort_provider_replay(session, household):
+    from app.persistence.models import MergeCandidate
+    account, _, _ = linked(session, household)
+    original = transaction(session, account, status=TransactionStatus.cleared)
+    for _ in range(2):
+        session.add(MergeCandidate(
+            household_id=household.id, account_id=account.id, existing_txn_id=original.id,
+            incoming={"external_ref": "legacy-overlap", "date": date.today().isoformat(),
+                      "amount_pence": -500, "payee": "Synthetic"}))
+    session.flush()
+    item = sync.FeedItem("legacy-overlap", date.today(), -500, "Synthetic",
+                         TransactionStatus.cleared)
+    run = sync.sync_account(session, account, TransactionSource.starling,
+                            lambda _: iter([sync.FeedPage([item])]))
+    assert run.deduped == 1
+    assert len(list(session.scalars(select(MergeCandidate)))) == 2
+    assert rows(session, "transaction.review_required") == []

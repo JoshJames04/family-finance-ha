@@ -196,11 +196,10 @@ def disconnect(session: Session, conn: BankConnection,
     """User-initiated removal — purges the vault ref so no token
     material survives, then revokes the connection row (audit
     trail) rather than deleting it."""
-    already_disconnected = (conn.status == ConnStatus.revoked
-                            and conn.last_error == "disconnected by user")
     entry = session.scalar(select(VaultEntry).where(
         VaultEntry.household_id == conn.household_id,
         VaultEntry.ref == conn.vault_ref))
+    already_disconnected = conn.status == ConnStatus.revoked and entry is None
     if entry is not None:
         vault.delete(session, entry)
     conn.status = ConnStatus.revoked
