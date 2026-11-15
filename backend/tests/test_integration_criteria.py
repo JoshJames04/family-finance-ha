@@ -195,3 +195,35 @@ def test_budget_metrics_keep_archived_account_history(session, household):
     items = client(session).get("/api/v1/integration/items").json()["items"]
     assert next(item for item in items if item["family"] == "budget_remaining")["value"] == "75.00"
     assert not any(item["family"] == "accounts" for item in items)
+
+
+def test_seasonal_days_use_only_explicit_persisted_date(session, household):
+    due = date.today() + timedelta(days=7)
+    event = SeasonalEvent(household_id=household.id, type="dated", year=due.year,
+                          name="Synthetic dated occasion", budget_pence=0, event_date=due)
+    undated = SeasonalEvent(household_id=household.id, type="undated", year=due.year,
+                            name="Synthetic unknown occasion", budget_pence=0)
+    session.add_all([event, undated])
+    session.flush()
+    session.expire_all()
+    items = client(session).get("/api/v1/integration/items").json()["items"]
+    dates = [item for item in items if item["family"] == "seasonal_dates"]
+    assert len(dates) == 1
+    assert dates[0]["value"] == 7
+    assert dates[0]["id"] == f"seasonal:{event.id}:days"
+
+
+def test_forecast_window_changes_only_its_canonical_horizon(session, household):
+    shared = account(session, household)
+    session.add(ExpectedMovement(
+        household_id=household.id, account_id=shared.id, source_type="manual", source_id=1,
+        expected_date=date.today() + timedelta(days=30), amount_pence=-15_000,
+        label="Synthetic later obligation", confidence="scheduled"))
+    session.flush()
+    api = client(session)
+    shorter = api.get("/api/v1/integration/items?forecast_days=7").json()["items"]
+    assert next(row for row in shorter if row["family"] == "safe_to_spend")["value"] == "100.00"
+    default = api.get("/api/v1/integration/items").json()["items"]
+    assert next(row for row in default if row["family"] == "safe_to_spend")["value"] == "-50.00"
+    assert api.get("/api/v1/integration/items?forecast_days=0").status_code == 422
+    assert api.get("/api/v1/integration/items?forecast_days=732").status_code == 422

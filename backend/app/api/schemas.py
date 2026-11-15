@@ -2064,7 +2064,7 @@ class IntegrationFeedOut(BaseModel):
 class IntegrationItemOut(BaseModel):
     family: Literal["bills", "accounts", "goals", "safe_to_spend", "projected_balances",
                     "budget_remaining", "budget_usage", "seasonal_remaining", "seasonal_usage",
-                    "paydays", "goal_funding", "goal_dates"]
+                    "paydays", "goal_funding", "goal_dates", "seasonal_dates"]
     id: str
     name: str
     value: int | Decimal

@@ -5639,7 +5639,7 @@ export interface components {
              * Family
              * @enum {string}
              */
-            family: "bills" | "accounts" | "goals";
+            family: "bills" | "accounts" | "goals" | "safe_to_spend" | "projected_balances" | "budget_remaining" | "budget_usage" | "seasonal_remaining" | "seasonal_usage" | "paydays" | "goal_funding" | "goal_dates" | "seasonal_dates";
             /** Id */
             id: string;
             /** Name */
@@ -5653,6 +5653,11 @@ export interface components {
         IntegrationItemsOut: {
             /** Items */
             items: components["schemas"]["IntegrationItemOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
         };
         /** IntegrationSettingsOut */
         IntegrationSettingsOut: {
@@ -12452,6 +12457,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                offset?: number;
+                forecast_days?: number;
             };
             header?: {
                 "x-household-id"?: number | null;

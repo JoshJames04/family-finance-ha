@@ -33,6 +33,7 @@ class FamilyFinanceClient:
     def __init__(self, session: aiohttp.ClientSession, config: dict[str, Any]) -> None:
         self._session = session
         self._base = str(config[CONF_URL]).rstrip("/")
+        self._forecast_days = int(config.get("forecast_days", 90))
         self._headers = {
             "X-Household-Id": str(config[CONF_HOUSEHOLD_ID]),
         }
@@ -146,7 +147,8 @@ class FamilyFinanceClient:
     async def async_fetch_items(self) -> list[dict[str, Any]]:
         items = []
         for offset in range(0, DISCOVERY_CAP, 100):
-            result = await self._get(f"/api/v1/integration/items?limit=100&offset={offset}")
+            result = await self._get(f"/api/v1/integration/items?limit=100&offset={offset}"
+                                     f"&forecast_days={self._forecast_days}")
             items.extend(result["items"])
             if not result.get("has_more", False):
                 return items

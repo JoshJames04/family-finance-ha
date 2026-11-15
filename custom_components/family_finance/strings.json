@@ -43,9 +43,10 @@
     "step": {
       "init": {
         "title": "Per-item financial sensors",
-        "description": "Optional: expose selected financial names and numeric values to Home Assistant entities, recorder and automations. None keeps each metric disabled. All and Selected share the entity cap (maximum 100). Forecasts use 90 days. Payday details require authorised employment access; private payroll inputs suppress shared forecasts.",
+        "description": "Optional: expose selected financial names and numeric values to Home Assistant entities, recorder and automations. None keeps each metric disabled. All and Selected share the entity cap (maximum 100). Forecasts use the configured window (default 90 days). Payday details require authorised employment access; private payroll inputs suppress shared forecasts.",
         "data": {
           "entity_cap": "Maximum per-item entities",
+          "forecast_days": "Forecast window in days (1–731; default 90)",
           "bills_mode": "Bills: None / All / Selected",
           "accounts_mode": "Accounts: None / All / Selected",
           "goals_mode": "Goals: None / All / Selected",
@@ -69,7 +70,9 @@
           "goal_funding_mode": "Goal funded amount: None / All / Selected",
           "goal_funding_selected": "Selected funded goals",
           "goal_dates_mode": "Days to goal target: None / All / Selected",
-          "goal_dates_selected": "Selected dated goals"
+          "goal_dates_selected": "Selected dated goals",
+          "seasonal_dates_mode": "Days to occasion: None / All / Selected",
+          "seasonal_dates_selected": "Selected dated occasions"
         }
       }
     },

@@ -22,8 +22,8 @@ async def test_numeric_criteria_offer_named_all_selected_with_shared_entity_cap(
                new_callable=AsyncMock, return_value=items):
         form = await hass.config_entries.options.async_init(entry.entry_id)
         fields = {str(key) for key in form["data_schema"].schema}
-        assert {"budget_remaining_mode", "seasonal_usage_mode", "paydays_mode"} <= fields
-        chosen = {"entity_cap": 1, "budget_remaining_mode": "selected",
+        assert {"budget_remaining_mode", "seasonal_usage_mode", "paydays_mode", "forecast_days"} <= fields
+        chosen = {"entity_cap": 1, "forecast_days": 7, "budget_remaining_mode": "selected",
                   "budget_remaining_selected": ["budget:17"], "seasonal_usage_mode": "all"}
         result = await hass.config_entries.options.async_configure(form["flow_id"], chosen)
         assert result["errors"] == {"base": "too_many_entities"}
@@ -32,6 +32,7 @@ async def test_numeric_criteria_offer_named_all_selected_with_shared_entity_cap(
         assert result["type"].value == "create_entry"
         assert entry.options["budget_remaining_selected"] == ["budget:17"]
         assert entry.options["paydays_mode"] == "none"
+        assert entry.options["forecast_days"] == 7
 
 
 async def test_discovery_drains_pages_so_later_families_remain_selectable():

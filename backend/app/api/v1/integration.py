@@ -43,7 +43,9 @@ router = APIRouter(prefix="/integration", tags=["integration"])
 @router.get("/items", response_model=schemas.IntegrationItemsOut)
 def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
           limit: Annotated[int, Query(ge=1, le=100)] = 100,
-          offset: Annotated[int, Query(ge=0)] = 0) -> schemas.IntegrationItemsOut:
+          offset: Annotated[int, Query(ge=0)] = 0,
+          forecast_days: Annotated[int, Query(ge=1, le=projection.MAX_HORIZON_DAYS)]
+          = projection.DEFAULT_HORIZON_DAYS) -> schemas.IntegrationItemsOut:
     """Opt-in HA discovery; cap entities and apply ledger visibility first."""
     visible = [a for a in session.scalars(select(Account).where(
         Account.household_id == household.id, Account.archived.is_(False)).order_by(Account.id))
@@ -86,7 +88,7 @@ def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
         seen.add(key)
         result.append(schemas.IntegrationItemOut(family="bills", id=key, name=movement.label,
                       value=(movement.expected_date - today).days, unit="d"))
-    result.extend(_criteria_items(session, household.id, profile, visible, today))
+    result.extend(_criteria_items(session, household.id, profile, visible, today, forecast_days))
     return schemas.IntegrationItemsOut(items=result[offset:offset + limit],
                                       has_more=offset + limit < len(result))
 
@@ -99,9 +101,10 @@ def _employment(session: Session, movement: ExpectedMovement) -> Employment | No
 
 
 def _criteria_items(session: Session, household_id: int, profile: UserProfile | None,
-                    visible: list[Account], today: date) -> list[schemas.IntegrationItemOut]:
+                    visible: list[Account], today: date,
+                    forecast_days: int) -> list[schemas.IntegrationItemOut]:
     result: list[schemas.IntegrationItemOut] = []
-    horizon = today + timedelta(days=projection.DEFAULT_HORIZON_DAYS)
+    horizon = today + timedelta(days=forecast_days)
     # Account visibility alone cannot authorise a private employment forecast
     # whose destination happens to be shared. Omit that derived account metric.
     hidden_forecasts: set[int] = set()
@@ -132,13 +135,13 @@ def _criteria_items(session: Session, household_id: int, profile: UserProfile | 
     for account in visible:
         if account.id in hidden_forecasts:
             continue
-        forecast = projection.project(session, account, projection.DEFAULT_HORIZON_DAYS, today)
+        forecast = projection.project(session, account, forecast_days, today)
         result.extend([
             schemas.IntegrationItemOut(family="safe_to_spend", id=f"account:{account.id}",
                 name=f"{account.name} safe to spend",
                 value=Money.of_pence(forecast.safe_to_spend_pence).pounds_decimal(), unit="GBP"),
             schemas.IntegrationItemOut(family="projected_balances", id=f"account:{account.id}",
-                name=f"{account.name} lowest projected balance (90 days)",
+                name=f"{account.name} lowest projected balance ({forecast_days} days)",
                 value=Money.of_pence(forecast.min_balance_pence).pounds_decimal(), unit="GBP"),
         ])
     for budget in session.scalars(select(Budget).where(
@@ -164,6 +167,10 @@ def _criteria_items(session: Session, household_id: int, profile: UserProfile | 
             continue
         totals = seasonal.totals(session, event)
         name = f"{event.name} ({event.year})"
+        if event.event_date is not None:
+            result.append(schemas.IntegrationItemOut(
+                family="seasonal_dates", id=f"seasonal:{event.id}:days",
+                name=f"{name} days to event", value=(event.event_date - today).days, unit="d"))
         result.append(schemas.IntegrationItemOut(
             family="seasonal_remaining", id=f"seasonal:{event.id}", name=f"{name} remaining",
             value=Money.of_pence(totals.remaining_pence).pounds_decimal(), unit="GBP"))

@@ -16,6 +16,13 @@ first available scheduler tick inside that window catches up; past dates do not
 replay old reminders. Setting a different date defines a different occurrence.
 Clearing a date stops future reminders, but cannot retract a delivered event.
 
+For a different lead time, opt into **Days to occasion** in the integration's
+Configure screen, selecting All or one or several named occasions. Its native
+numeric-state sensor uses the configured date and the app calendar date; unknown
+dates create no sensor. Below `N + 1` and Above `-1` express within N days without
+YAML. This separate metric defaults to None and shares the 100-entity global cap.
+Stable `seasonal:<id>:days` identities survive occasion renaming.
+
 The default payload contains source/status, observation date, expected date and
 lead days. The occasion name requires existing explicit detailed-data opt-in;
 gift recipients and notes are never included. Private events retain their
