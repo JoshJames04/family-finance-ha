@@ -76,6 +76,7 @@ def create_entry(
     multiplier_bps: int | None = None,
     day_type: DayType | None = None,
     notes: str | None = None,
+    rate_pence: int | None = None,
     holidays: HolidayTable | None = None,
 ) -> OvertimeEntry:
     """New draft entry; resolves day type + multiplier, snapshots the
@@ -90,6 +91,10 @@ def create_entry(
     rate = hourly_rate_pence(
         salary_at(session, employment.id, work_date),
         Decimal(str(employment.contracted_hours)))
+    if rate_pence is not None:
+        if rate_pence < 0:
+            raise PayrollError("overtime hourly rate cannot be negative")
+        rate = rate_pence
     created_at = datetime.now(UTC).replace(tzinfo=None)
     e = OvertimeEntry(
         employment_id=employment.id, work_date=work_date, hours=hours,

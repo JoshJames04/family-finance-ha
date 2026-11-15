@@ -193,3 +193,35 @@ def test_real_ha_service_has_no_private_payroll_grant(tmp_path, monkeypatch, det
         assert {e["event_type"] for e in rows} == {"overtime.recorded", "payroll.estimate_changed"}
         assert all(("name" in e["data"]) is detailed for e in rows)
         assert "SECRET" not in owner.text
+
+
+def test_payslip_missing_overtime_event_matches_final_committed_rate(
+        session, household, employment):
+    import json
+
+    from app.api import schemas
+    from app.api.v1 import payslips
+    from app.persistence.models import DayType, OvertimeEntry, Payslip
+
+    run = PayrollRun(employment_id=employment.id, period_start=TODAY, period_end=date(2026, 1, 31),
+        pay_date=PAY, status=PayrollRunStatus.forecast, tax_year="2025/26", rule_set_version=1,
+        gross_pence=300_000, net_pence=250_000)
+    session.add(run)
+    session.flush()
+    slip = Payslip(household_id=household.id, payroll_run_id=run.id,
+        original_name="PRIVATE_DOCUMENT.pdf", private_path="synthetic-unused", sha256="0" * 64,
+        size_bytes=1, media_type="application/pdf", extracted_json=json.dumps({
+            "overtime_findings": [{"line_id": "synthetic", "status": "paid-extra",
+                "delta_hours": "2", "hourly_rate_pence": 2000, "multiplier_bps": 15000}]}))
+    session.add(slip)
+    session.flush()
+    result = payslips.resolve_overtime_finding(employment.id, run.id, slip.id, "synthetic",
+        schemas.OvertimeFindingResolveIn(action="add_missing", reason="Synthetic confirmation",
+                                         work_date=TODAY, day_type=DayType.weekday),
+        household, session, "test")
+    entry_id = result.overtime_findings[0]["resolution"]["created_entry_id"]
+    entry = session.get(OvertimeEntry, entry_id)
+    event = events(session, "overtime.recorded")[0]
+    assert event.payload["amount_pence"] == entry.pay_pence == 6000
+    assert "PRIVATE_DOCUMENT" not in str(event.payload)
+    assert "Payslip finding" not in str(event.payload)

@@ -391,9 +391,8 @@ def resolve_overtime_finding(
                 422, "missing hours exceed 24; split across multiple work dates")
         entry = overtime_domain.create_entry(
             session, employment, work_date=body.work_date, hours=hours,
-            multiplier_bps=multiplier, day_type=body.day_type,
+            multiplier_bps=multiplier, day_type=body.day_type, rate_pence=rate,
             notes=f"Payslip finding {finding_id}")
-        entry.hourly_rate_pence = rate
         session.flush()
         created_id = entry.id
     if body.action == "map_rate":
