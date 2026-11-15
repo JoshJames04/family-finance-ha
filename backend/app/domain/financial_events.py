@@ -305,6 +305,7 @@ def evaluate_loan(session: Session, loan: Loan, *, today: date | None = None) ->
         "date": today.isoformat(), "direction": loan.direction.value,
         "name": loan.party, "old_outstanding_pence": old,
         "outstanding_pence": balance, "currency": "GBP",
+        "_scope_owner_profile_id": loan.owner_profile_id,
     }
     kinds = ["loan.balance_changed"]
     if old > 0 and balance == 0:

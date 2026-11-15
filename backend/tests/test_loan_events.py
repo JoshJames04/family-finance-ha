@@ -119,6 +119,11 @@ def test_owner_change_reseeds_and_private_events_remain_filtered(session, househ
     session.add(other)
     session.flush()
     assert outbox.feed(session, other.id)[0] == []
+    # Reclassifying the current record must not reclassify its old private event.
+    loan.owner_profile_id = None
+    session.flush()
+    assert not outbox.event_visible(session, event, None)
+    assert "_scope_owner_profile_id" not in outbox.visible_payload(event, True)
 
 
 def test_household_evaluation_and_inactive_loans(session, household):
