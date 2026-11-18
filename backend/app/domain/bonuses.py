@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -103,10 +103,9 @@ def _payment(employment: Employment, month: date) -> tuple[date, date, date]:
 
 
 def _pence(value: Decimal) -> int:
-    result = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-    if result < 0 or result > 999_999_999_999:
+    if not value.is_finite() or value < 0 or value > 999_999_999_999:
         raise PayrollError("bonus amount is outside the supported range")
-    return result
+    return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_EVEN))
 
 
 def save(
@@ -120,8 +119,8 @@ def save(
     manual_pence: int = 0,
     existing: EmploymentBonus | None = None,
 ) -> EmploymentBonus:
-    if pay_month.day != 1:
-        raise PayrollError("payment month must use its first day")
+    if pay_month.day != 1 or not 1900 <= pay_month.year <= 2200:
+        raise PayrollError("payment month must use its first day in 1900–2200")
     if existing is not None and existing.pay_month != pay_month:
         raise PayrollError("delete and recreate a bonus to change its payment month")
     if salary_percentage is not None and (

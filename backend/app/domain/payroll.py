@@ -44,8 +44,11 @@ def add_salary_revision(
     annual_pence: int,
     notes: str | None = None,
     *,
-    shares_owned: Decimal = Decimal("0"),
+    shares_owned: Decimal | None = None,
 ) -> SalaryRevision:
+    if shares_owned is None:
+        prior = _effective(session, SalaryRevision, employment.id, effective_date)
+        shares_owned = prior.shares_owned if prior else Decimal("0")
     if (
         not shares_owned.is_finite()
         or shares_owned < 0

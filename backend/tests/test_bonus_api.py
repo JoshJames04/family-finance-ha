@@ -71,6 +71,8 @@ def test_bonus_crud_updates_one_run_and_rejects_locked_changes(api):
     "change",
     [
         {"pay_month": "2025-04-02"},
+        {"pay_month": "9999-12-01"},
+        {"pay_month": "0001-01-01"},
         {"share_value": "-1"},
         {"manual_amount": "-1"},
         {"salary_percentage": "NaN"},

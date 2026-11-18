@@ -745,7 +745,7 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
       </ul>
       <SalaryBonuses employmentId={e.id} employer={e.employer} sharePaymentMethod={e.share_payment_method ?? "payroll_cash"} rev={rev} onChanged={onChanged} />
       {salaryOpen && (
-        <SalaryRevisionDialog employment={e} initialShares={revs.find((r) => r.effective_date <= toISODate(new Date()))?.shares_owned ?? "0"}
+        <SalaryRevisionDialog employment={e}
           onOpenChange={(o) => { if (!o) setSalaryOpen(false); }}
           onSaved={onChanged} />
       )}
@@ -973,10 +973,9 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
 /** Record a salary change effective from a date — a pay rise, a new
  * rate on contract change (issue #296). Revisions are a dated series;
  * the engine picks the one current on any given day. */
-function SalaryRevisionDialog({ employment, existing, initialShares = "0", onOpenChange, onSaved }: {
+function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
   employment: Employment;
   existing?: SalaryRevision;
-  initialShares?: string;
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
@@ -984,10 +983,19 @@ function SalaryRevisionDialog({ employment, existing, initialShares = "0", onOpe
     existing?.effective_date ?? toISODate(new Date()));
   const [pounds, setPounds] = useState(
     existing ? String(existing.annual_salary_pence / 100) : "");
-  const [shares, setShares] = useState(existing?.shares_owned ?? initialShares);
+  const revisions = useApi(
+    () => api.get("/api/v1/employments/{emp_id}/salary-revisions",
+      { path: { emp_id: employment.id } }),
+    !existing, [employment.id]);
+  const [editedShares, setShares] = useState<string | null>(existing?.shares_owned ?? null);
+  const current = [...(revisions.data ?? [])]
+    .filter((revision) => revision.effective_date <= toISODate(new Date()))
+    .sort((a, b) => b.effective_date.localeCompare(a.effective_date))[0];
+  const shares = editedShares ?? current?.shares_owned ?? "0";
+  const sharesReady = Boolean(existing) || (revisions.data !== null && !revisions.error);
   const [notes, setNotes] = useState(existing?.notes ?? "");
   const [busy, setBusy] = useState(false);
-  const valid = date && /^\d+(\.\d{1,2})?$/.test(pounds) && Number(pounds) >= 0
+  const valid = sharesReady && date && /^\d+(\.\d{1,2})?$/.test(pounds) && Number(pounds) >= 0
     && /^\d+(\.\d{1,4})?$/.test(shares);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1034,6 +1042,8 @@ function SalaryRevisionDialog({ employment, existing, initialShares = "0", onOpe
         </Button>
       </>}>
       <form id="ff-salaryrev" onSubmit={submit} className="grid gap-4">
+        {!existing && revisions.loading && <p role="status" className="text-[13px]">Loading current shareholding…</p>}
+        {!existing && revisions.error && <ErrorState message={revisions.error} onRetry={revisions.refetch} />}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Annual salary (£)">{(id) => (
             <Input id={id} autoFocus inputMode="decimal" placeholder="e.g. 42000"
@@ -1045,7 +1055,7 @@ function SalaryRevisionDialog({ employment, existing, initialShares = "0", onOpe
           )}</Field>
         </div>
         <Field label="Shares owned" hint="Holding from this date, up to four decimal places. Use a new revision when it changes.">{(id) => (
-          <Input id={id} className="min-h-11" inputMode="decimal" value={shares} onChange={(e) => setShares(e.target.value.trim())} />
+          <Input id={id} className="min-h-11" inputMode="decimal" disabled={!sharesReady} value={shares} onChange={(e) => setShares(e.target.value.trim())} />
         )}</Field>
         <Field label="Note" hint={'Optional — e.g. "April pay rise".'}>{(id) => (
           <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />

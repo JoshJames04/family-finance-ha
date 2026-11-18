@@ -7023,11 +7023,8 @@ export interface components {
         };
         /** SalaryRevisionIn */
         SalaryRevisionIn: {
-            /**
-             * Shares Owned
-             * @default 0
-             */
-            shares_owned: number | string;
+            /** Shares Owned */
+            shares_owned?: number | string | null;
             /**
              * Effective Date
              * Format: date

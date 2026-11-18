@@ -55,6 +55,24 @@ def test_bonus_parts_and_multiple_entries_share_one_payroll(session, employer):
     assert sum(c.forecast_pence for c in run.components) == run.net_pence
 
 
+def test_salary_revision_inherits_effective_holding_unless_explicit_zero(session, employer):
+    future = payroll.add_salary_revision(session, employer, date(2025, 8, 1), 7_000_000,
+                                          shares_owned=Decimal("500"))
+    middle = payroll.add_salary_revision(session, employer, date(2025, 5, 1), 6_500_000)
+    assert middle.shares_owned == Decimal("250")
+    zero = payroll.add_salary_revision(session, employer, date(2025, 9, 1), 7_500_000,
+                                       shares_owned=Decimal("0"))
+    assert zero.shares_owned == Decimal("0")
+    assert future.shares_owned == Decimal("500")
+
+
+def test_bonus_rounding_matches_the_money_policy():
+    assert bonuses._pence(Decimal("50.5")) == 50
+    assert bonuses._pence(Decimal("51.5")) == 52
+    with pytest.raises(payroll.PayrollError):
+        bonuses._pence(Decimal("1e100"))
+
+
 def test_share_and_salary_basis_uses_adjusted_payday_and_snapshot(session, employer):
     payroll.add_salary_revision(
         session, employer, date(2025, 6, 28), 9_000_000, shares_owned=Decimal("500")

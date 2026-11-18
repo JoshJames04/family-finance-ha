@@ -31,7 +31,7 @@ const REVISIONS = [
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
-  opts: { employments?: object[] } = {}) {
+  opts: { employments?: object[]; revisionsReady?: Promise<void> } = {}) {
   const employments = opts.employments ?? [EMP];
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -53,6 +53,11 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
         body = [];
       } else if (url.includes("/salary-revisions")) {
         body = REVISIONS;
+        if (opts.revisionsReady) {
+          return opts.revisionsReady.then(() => new Response(JSON.stringify(body), {
+            status: 200, headers: { "Content-Type": "application/json" },
+          }));
+        }
       } else if (url.includes("/payroll-runs")) {
         body = [];
       } else if (url.match(/\/employments\/\d+\/salary/)) {
@@ -126,6 +131,25 @@ describe("Salary", () => {
       expect(c).toBeDefined();
       expect(JSON.parse(c!.body).annual_salary).toBe("46000");
       expect(JSON.parse(c!.body).shares_owned).toBe("123.4567");
+    });
+  });
+
+  it("waits for effective holdings before saving a new salary opened during history loading", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    let release!: () => void;
+    stubFetch(calls, { revisionsReady: new Promise<void>((resolve) => { release = resolve; }) });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "New salary" }));
+    await user.type(screen.getByLabelText(/Annual salary/), "48000");
+    expect((screen.getByRole("button", { name: "Save salary" }) as HTMLButtonElement).disabled).toBe(true);
+    release();
+    await waitFor(() => expect((screen.getByLabelText("Shares owned") as HTMLInputElement).value).toBe("123.4567"));
+    await user.click(screen.getByRole("button", { name: "Save salary" }));
+    await waitFor(() => {
+      const saved = calls.find((call) => call.method === "POST" && call.url.endsWith("/salary-revisions"));
+      expect(saved).toBeDefined();
+      expect(JSON.parse(saved!.body).shares_owned).toBe("123.4567");
     });
   });
 

@@ -798,8 +798,8 @@ class PrepareYearOut(BaseModel):
 
 
 class SalaryRevisionIn(BaseModel):
-    shares_owned: Decimal = Field(
-        default=Decimal("0"), ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    shares_owned: Decimal | None = Field(
+        default=None, ge=0, le=Decimal("9999999999.9999"), decimal_places=4
     )
     effective_date: date
     annual_salary: Money

@@ -1,7 +1,7 @@
 """Effective shareholdings and employer/month payroll bonus snapshots."""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0072_employer_bonuses"
 down_revision = "0071_seasonal_event_date"
@@ -63,16 +63,16 @@ def downgrade() -> None:
     checks = (
         "SELECT COUNT(*) FROM employment_bonus",
         "SELECT COUNT(*) FROM salary_revision WHERE shares_owned <> 0",
-        "SELECT COUNT(*) FROM payroll_run WHERE planned_bonus_pence <> 0 OR noncash_bonus_pence <> 0",
+        "SELECT COUNT(*) FROM payroll_run "
+        "WHERE planned_bonus_pence <> 0 OR noncash_bonus_pence <> 0",
         "SELECT COUNT(*) FROM employment WHERE share_payment_method <> 'payroll_cash'",
     )
     if any(op.get_bind().execute(sa.text(sql)).scalar() for sql in checks):
         raise RuntimeError("bonus/share data exists; restore a verified pre-upgrade backup instead")
     op.drop_table("employment_bonus")
-    with op.batch_alter_table("payroll_run") as batch:
-        batch.drop_column("noncash_bonus_pence")
-        batch.drop_column("planned_bonus_pence")
-    with op.batch_alter_table("salary_revision") as batch:
-        batch.drop_column("shares_owned")
-    with op.batch_alter_table("employment") as batch:
-        batch.drop_column("share_payment_method")
+    # Native DROP COLUMN preserves the financial-integrity triggers from0068.
+    # SQLite table recreation would silently remove those triggers.
+    op.drop_column("payroll_run", "noncash_bonus_pence")
+    op.drop_column("payroll_run", "planned_bonus_pence")
+    op.drop_column("salary_revision", "shares_owned")
+    op.drop_column("employment", "share_payment_method")
