@@ -221,4 +221,3 @@ def gross_for_period(
         days = (seg_end - seg_start).days
         total += int(rev.annual_salary_pence) * days // DAYS_PER_YEAR
     return total
-

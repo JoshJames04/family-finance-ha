@@ -60,8 +60,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if op.get_bind().execute(sa.text("SELECT COUNT(*) FROM employment_bonus")).scalar():
-        raise RuntimeError("bonus history exists; restore a verified pre-upgrade backup instead")
+    checks = (
+        "SELECT COUNT(*) FROM employment_bonus",
+        "SELECT COUNT(*) FROM salary_revision WHERE shares_owned <> 0",
+        "SELECT COUNT(*) FROM payroll_run WHERE planned_bonus_pence <> 0 OR noncash_bonus_pence <> 0",
+        "SELECT COUNT(*) FROM employment WHERE share_payment_method <> 'payroll_cash'",
+    )
+    if any(op.get_bind().execute(sa.text(sql)).scalar() for sql in checks):
+        raise RuntimeError("bonus/share data exists; restore a verified pre-upgrade backup instead")
     op.drop_table("employment_bonus")
     with op.batch_alter_table("payroll_run") as batch:
         batch.drop_column("noncash_bonus_pence")

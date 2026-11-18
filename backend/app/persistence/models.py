@@ -1328,8 +1328,8 @@ class SeasonalEvent(TimestampMixin, Base):
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     type: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    budget_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     event_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    budget_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     savings_goal_id: Mapped[int | None] = mapped_column(
         ForeignKey("savings_goal.id"), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
