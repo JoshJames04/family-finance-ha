@@ -24,8 +24,9 @@ Each entry saves its salary, holding, share method, payment date and calculated
 parts. Changing salary history or employer settings does not silently rewrite that
 snapshot; explicitly edit an open bonus to recalculate it. Changing the payment
 month requires deleting/recreating the open entry. Reconciled payroll, actual
-components, incomplete imported earnings and manual overrides are protected;
-follow the payroll correction workflow first. Later reconciled pay also prevents
+components, pending corrections, bank matches, incomplete imported earnings and
+manual overrides are protected. The planner changes eligible forecasts; use
+explicit payslip correction for confirmed amounts. Later reconciled pay also prevents
 rewriting an earlier cumulative tax basis.
 
 The month uses the existing PAYE/NI, pension and student-loan configuration. Later

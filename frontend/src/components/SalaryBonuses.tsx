@@ -142,10 +142,10 @@ export function BonusDialog({ employmentId, employer, sharePaymentMethod, existi
         {mixed && <p role="status" className="rounded-lg bg-surface-2 p-3 text-sm text-fg-muted">
           This existing entry combines several parts. Editing one keeps the others: salary {salary || "0"}%, shares £{shareValue || "0"} each, manual £{manual || "0"}.
         </p>}
-        {type === "salary" && (<Field label="Salary percentage (%)" hint="Percentage of the effective annual salary. Optional, up to four decimal places.">{(id) => <Input id={id} className="min-h-11" inputMode="decimal" placeholder="0" value={salary} onChange={(e) => setSalary(e.target.value.trim())} />}</Field>)}
+        {type === "salary" && (<Field label="Salary percentage (%)" hint="Percentage of the effective annual salary, up to four decimal places.">{(id) => <Input id={id} className="min-h-11" inputMode="decimal" placeholder="0" value={salary} onChange={(e) => setSalary(e.target.value.trim())} />}</Field>)}
         {type === "shares" && (<Field label="Value per share (£)" hint={sharePaymentMethod === "outside_payroll" ? "Record separate share sales outside payroll. No PAYE or capital gains estimate is made here." : sharePaymentMethod === "payroll_noncash" ? "Non-cash award value per effective share held: taxable through payroll but excluded from cash net pay. Your normal pension settings apply." : "Cash paid and taxed through payroll for each share held on the pay date. Your normal pension settings apply."}>{(id) => <Input id={id} className="min-h-11" inputMode="decimal" placeholder="0.00" disabled={sharePaymentMethod === "outside_payroll"} value={sharePaymentMethod === "outside_payroll" ? "" : shareValue} onChange={(e) => setShareValue(e.target.value.trim())} />}</Field>)}
         {type === "manual" && (<Field label="Manual gross amount (£)">{(id) => <Input id={id} className="min-h-11" inputMode="decimal" value={manual} onChange={(e) => setManual(e.target.value.trim())} />}</Field>)}
-        <p className="text-[12.5px] text-fg-subtle">Saving updates this month's payroll forecast. Existing bonus entries are kept and added together. Reconciled pay must be corrected before changing its bonuses.</p>
+        <p className="text-[12.5px] text-fg-subtle">Saving updates this month's payroll forecast. Existing bonus entries are kept and added together. Confirmed pay and pending corrections are protected; use payslip correction for actual amounts.</p>
       </form>
     </Dialog>
   );
