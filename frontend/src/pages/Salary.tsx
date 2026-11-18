@@ -10,6 +10,7 @@ import { api } from "../api/client";
 import { useApi } from "../api/useApi";
 import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
+import { PayrollFactsFields, confirmationFacts, poundsToPence } from "../components/PayrollConfirmation";
 import { DataView } from "../components/DataView";
 import { Panel } from "../components/Panel";
 import { Badge, type BadgeTone } from "../components/Badge";
@@ -639,6 +640,7 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
   const missingAccount = accounts.data !== null && !accounts.data.items.some((a) => a.id === e.paid_into_account_id && !a.archived);
   const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
+
   const [editing, setEditing] = useState(false);
   const [endConfirmed, setEndConfirmed] = useState(false);
   const revs = [...(revisions.data ?? [])].sort(
@@ -769,6 +771,7 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
 }) {
   const [employer, setEmployer] = useState(e.employer);
   const [hours, setHours] = useState(String(e.contracted_hours));
+  const [salaryPolicy, setSalaryPolicy] = useState<"annual_daily" | "equal_monthly">(e.salary_policy === "equal_monthly" ? "equal_monthly" : "annual_daily");
   const [endDate, setEndDate] = useState(e.end_date ?? "");
   const [paydayRule, setPaydayRule] = useState(e.payday_rule ?? "");
   const [paidInto, setPaidInto] = useState(
@@ -789,6 +792,7 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
       body: {
         employer: employer.trim(),
         contracted_hours: hours,
+        salary_policy: salaryPolicy,
         end_date: endDate || null,
         payday_rule: paydayRule || null,
         paid_into_account_id: paidInto ? Number(paidInto) : null,
@@ -839,6 +843,12 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
             </Select>
           )}</Field>
         </div>
+        <Field label="Salary calculation" hint="Changing this affects forecasts only. Choose the method used by your employer.">{id => (
+          <Select id={id} value={salaryPolicy} onChange={ev => setSalaryPolicy(ev.target.value as "annual_daily" | "equal_monthly")}>
+            <option value="annual_daily">Annual salary / 365 days (existing method)</option>
+            <option value="equal_monthly">Equal monthly instalments (annual / 12)</option>
+          </Select>
+        )}</Field>
         <PaydayPicker value={paydayRule} onChange={setPaydayRule} />
         <Field label="Paid into"
           hint="The account salary lands in — required for paydays to appear in that account's forecast.">{(id) => (
@@ -874,6 +884,17 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
   const [reconciling, setReconciling] = useState<Run | null>(null);
   const [payslipRun, setPayslipRun] = useState<Run | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
+  const [rebuild, setRebuild] = useState<{fingerprint:string; changes:{run_id:number;pay_date:string;old_net_pence:number;new_net_pence:number;old_period_start:string;old_period_end:string;new_period_start:string;new_period_end:string}[]; warnings:string[]} | null>(null);
+  const [rebuildBusy, setRebuildBusy] = useState(false);
+  const rebuildForecasts = (apply = false) => {
+    setRebuildBusy(true);
+    api.post("/api/v1/employments/{emp_id}/rebuild-forecasts", {
+      path:{emp_id:e.id}, body:{apply, fingerprint:apply ? rebuild?.fingerprint : undefined},
+    }).then(value => {
+      if (apply) { setRebuild(null); onChanged(); toast.success("Forecasts rebuilt; recorded actuals preserved"); }
+      else setRebuild(value as typeof rebuild);
+    }).catch((err:Error) => toast.error(err.message)).finally(() => setRebuildBusy(false));
+  };
   const sorted = [...(runs.data ?? [])].sort((a, b) => b.pay_date.localeCompare(a.pay_date));
 
   return (
@@ -902,6 +923,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
               New salary
             </Button>
           )}
+          <Button size="sm" variant="secondary" disabled={rebuildBusy} onClick={() => rebuildForecasts()}>Review forecasts</Button>
           <Button size="sm" variant="secondary" onClick={onAddRun}><Plus /> Add run</Button>
         </div>
       </div>
@@ -938,6 +960,16 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
         )}
       </div>
 
+      {rebuild && <Dialog open onOpenChange={open => { if (!open) setRebuild(null); }} title="Review forecast changes"
+        description="Only unconfirmed runs without bank matches, actuals or manual overrides can be rebuilt."
+        footer={<><Button variant="ghost" onClick={() => setRebuild(null)}>Cancel</Button>
+          <Button disabled={rebuildBusy || !rebuild.changes.length} onClick={() => rebuildForecasts(true)}>Apply forecast changes</Button></>}>
+        {rebuild.warnings.map(w => <p key={w} className="text-sm text-warning">{w}</p>)}
+        {!rebuild.changes.length && <p>No eligible forecasts to rebuild.</p>}
+        {rebuild.changes.map(c => <div key={c.run_id} className="py-2 text-sm"><p>{formatSmartDate(c.pay_date)}: {formatPence(c.old_net_pence)} → {formatPence(c.new_net_pence)}</p>
+          {(c.old_period_start !== c.new_period_start || c.old_period_end !== c.new_period_end) && <p className="text-xs text-fg-muted">Work window: {c.old_period_start}–{c.old_period_end} → {c.new_period_start}–{c.new_period_end}</p>}
+        </div>)}
+      </Dialog>}
       {reconciling && (
         <ReconcileDialog
           run={reconciling}
@@ -1084,7 +1116,7 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
             </>
           )}
         </td>
-        <td className="px-3"><Badge tone={RUN_TONE[r.status]}>{r.status}</Badge></td>
+        <td className="px-3"><Badge tone={RUN_TONE[r.status]}>{r.status}</Badge>{r.forecast_stale && <Badge tone="warning">Forecast needs review</Badge>}</td>
         <td className="pr-4 text-right">
           <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onPayslip(); }}>
             Payslip
@@ -1101,6 +1133,9 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
       {open && (
         <tr className="border-b border-border bg-surface-2/40">
           <td colSpan={7} className="px-4 py-3">
+            {r.statutory_pay_date && r.statutory_pay_date !== r.pay_date && <p className="mb-2 text-xs text-fg-muted">PAYE date: {formatSmartDate(r.statutory_pay_date)} · cash received: {formatSmartDate(r.pay_date)}</p>}
+            {r.verified_taxable_pence != null && <p className="mb-2 text-xs text-fg-muted">Verified taxable pay: {formatPence(r.verified_taxable_pence)}{r.verified_ytd_taxable_pence != null ? ` · taxable pay to date: ${formatPence(r.verified_ytd_taxable_pence)}` : ""}{r.verified_ytd_tax_pence != null ? ` · PAYE to date: ${formatPence(r.verified_ytd_tax_pence)}` : ""}</p>}
+
             {detail.loading ? (
               <Skeleton className="h-16 w-full" />
             ) : components.length === 0 ? (
@@ -1144,6 +1179,8 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState<Payslip | null>(null);
   const [actuals, setActuals] = useState<Record<string, string>>({});
+  const [facts, setFacts] = useState<Record<string, string>>({});
+  useEffect(() => { setFacts({}); }, [reviewing?.id]);
   const basePath = `/api/v1/employments/${empId}/payroll-runs/${run.id}/payslips`;
   const load = () => api.get("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips", {
     path: { emp_id: empId, run_id: run.id },
@@ -1162,9 +1199,12 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   };
   const saveReview = () => {
     if (!reviewing) return;
-    const values = Object.fromEntries(Object.entries(actuals)
-      .filter(([, value]) => value.trim() !== "")
-      .map(([key, value]) => [key, Math.round(Number(value) * 100)]));
+    let values: Record<string, number>;
+    try {
+      values = Object.fromEntries(Object.entries(actuals)
+        .filter(([, value]) => value.trim() !== "")
+        .map(([key, value]) => [key, poundsToPence(value)]));
+    } catch (err) { toast.error((err as Error).message); return; }
     api.patch("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}", {
       path: { emp_id: empId, run_id: run.id, payslip_id: reviewing.id },
       body: { components: values, warnings: reviewing.warnings },
@@ -1176,16 +1216,21 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   };
   const confirmReview = () => {
     if (!reviewing) return;
-    const values = Object.fromEntries(Object.entries(actuals)
-      .filter(([, value]) => value.trim() !== "")
-      .map(([key, value]) => [key, Math.round(Number(value) * 100)]));
+    let printed;
+    try { printed = confirmationFacts(facts); } catch (err) { toast.error((err as Error).message); return; }
+    let values: Record<string, number>;
+    try {
+      values = Object.fromEntries(Object.entries(actuals)
+        .filter(([, value]) => value.trim() !== "")
+        .map(([key, value]) => [key, poundsToPence(value)]));
+    } catch (err) { toast.error((err as Error).message); return; }
     if (!Object.keys(values).length) {
       toast.error("Enter at least one signed actual component");
       return;
     }
     api.post("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}/confirm", {
       path: { emp_id: empId, run_id: run.id, payslip_id: reviewing.id },
-      body: { actuals: values },
+      body: { actuals: values, ...printed },
     }).then((value) => {
       setRows((existing) => existing.map((row) => row.id === reviewing.id ? value : row));
       setReviewing(value);
@@ -1263,6 +1308,7 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
                   onChange={(event) => setActuals((current) => ({ ...current, [kind]: event.target.value }))} />
               )}</Field>
             ))}
+            <PayrollFactsFields values={facts} onChange={setFacts} />
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={saveReview}>Save review</Button>
               <Button variant="primary" onClick={confirmReview}>Confirm actuals</Button>
@@ -1280,19 +1326,32 @@ function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
-  const components = run.components ?? [];
+  const grouped = new Map<string, {id:number; kind:string; forecast_pence:number}>();
+  for (const c of run.components ?? []) {
+    const previous = grouped.get(c.kind);
+    grouped.set(c.kind, { id:c.id, kind:c.kind, forecast_pence:(previous?.forecast_pence ?? 0)+c.forecast_pence });
+  }
+  for (const kind of Object.keys(KIND_LABEL)) if (!grouped.has(kind)) grouped.set(kind, {id:0,kind,forecast_pence:0});
+  const components = [...grouped.values()];
   const [actuals, setActuals] = useState<Record<string, string>>({});
+  const [facts, setFacts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    let printed;
     const body: Record<string, number> = {};
-    for (const [k, v] of Object.entries(actuals)) {
-      if (v.trim()) body[k] = Math.round(Number(v) * 100);
-    }
+    try {
+      printed = confirmationFacts(facts);
+      for (const c of components) {
+        const value = actuals[c.kind];
+        if (!value?.trim()) throw new Error(`Enter Actual ${KIND_LABEL[c.kind] ?? c.kind}, including zero`);
+        body[c.kind] = poundsToPence(value);
+      }
+    } catch (err) { toast.error((err as Error).message); return; }
+    setBusy(true);
     api.post("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/reconcile", {
       path: { emp_id: empId, run_id: run.id },
-      body: { actuals: body },
+      body: { actuals: body, ...printed },
     })
       .then(() => { toast.success("Run reconciled against payslip"); onSaved(); onOpenChange(false); })
       .catch((err: Error) => { toast.error(err.message); setBusy(false); });
@@ -1300,17 +1359,17 @@ function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
   return (
     <Dialog open onOpenChange={onOpenChange}
       title={`Reconcile payslip — ${formatDayMonth(run.pay_date)}`}
-      description="Enter the actual figures from the payslip. Anything left blank is assumed correct."
+      description="Enter signed totals for every category, including zero. Negative deductions and positive refunds must match the printed payslip totals."
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-reconcile" disabled={busy}>{busy ? "Reconciling…" : "Reconcile"}</Button>
       </>}>
       <form id="ff-reconcile" onSubmit={submit} className="grid gap-3">
         {components.length === 0 && (
-          <p className="text-[13px] text-fg-subtle">No components on this run — confirm to mark it reconciled as-is.</p>
+          <p className="text-[13px] text-fg-subtle">Enter the complete payslip breakdown before confirming.</p>
         )}
         {components.map((c) => (
-          <div key={c.id} className="grid grid-cols-[1fr_140px] items-center gap-3">
+          <div key={c.kind} className="grid grid-cols-[1fr_140px] items-center gap-3">
             <span className="text-[13px]">
               {KIND_LABEL[c.kind] ?? c.kind}
               <span className="block text-[11.5px] text-fg-subtle">forecast {formatPence(c.forecast_pence)}</span>
@@ -1325,6 +1384,7 @@ function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
             />
           </div>
         ))}
+        <PayrollFactsFields values={facts} onChange={setFacts} />
       </form>
     </Dialog>
   );
@@ -1425,6 +1485,7 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
         jurisdiction: "england_wales",
         ni_category: "A",
         student_loan_plan: "none",
+        salary_policy: "annual_daily",
         pension_mode: "none",
         pension_employee_bps: 0,
         pension_fixed_pence: 0,

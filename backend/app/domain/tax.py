@@ -1,8 +1,8 @@
 """UK statutory deduction engine (issue #81).
 
-Pure functions driven entirely by versioned ``tax_rule_set`` params —
+Pure functions driven entirely by versioned ``tax_rule_set`` params â€”
 zero statutory constants in logic. Money in integer pence; rates in
-basis points; all deductions floor to the penny per HMRC convention.
+basis points. PAYE, NI and loan rounding follow their separate HMRC rules.
 
 PAYE is cumulative: period tax = cumulative tax due on cumulative
 income minus tax already paid, with allowances/bands pro-rated by the
@@ -16,6 +16,8 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date
+from decimal import ROUND_HALF_DOWN, Decimal
+from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -29,13 +31,23 @@ from app.persistence.models import (
     TaxRuleSet,
 )
 
-__all__ = ["PensionMode", "TaxCode", "Deductions", "TaxError",
-           "compute_period", "parse_tax_code", "rule_set",
-           "seed_rule_sets", "embedded_rule_sets", "tax_year_for",
-           "tax_month_for"]
+__all__ = [
+    "PensionMode",
+    "TaxCode",
+    "Deductions",
+    "TaxError",
+    "compute_period",
+    "parse_tax_code",
+    "rule_set",
+    "seed_rule_sets",
+    "embedded_rule_sets",
+    "tax_year_for",
+    "tax_month_for",
+]
 
 _DATA = Path(__file__).resolve().parent / "data" / "uk_tax_rules.json"
 
+CALCULATION_VERSION = "hmrc-v24-1"
 MONTHS_PER_YEAR = 12
 FLAT_CODES = {"BR", "D0", "D1", "0T", "NT"}
 _CODE_NUM = re.compile(r"^(S|C|W)?(\d+)(L|T|M|N)$")
@@ -48,10 +60,10 @@ class TaxError(ValueError):
 
 @dataclass(frozen=True)
 class TaxCode:
-    allowance_pence: int          # may be negative (K codes)
-    cumulative: bool              # False → W1/M1 period-only basis
-    flat_code: str | None        # rate is resolved from versioned parameters
-    prefix: str                   # '', 'S', 'C' → jurisdiction override
+    allowance_pence: int  # may be negative (K codes)
+    cumulative: bool  # False â†’ W1/M1 period-only basis
+    flat_code: str | None  # rate is resolved from versioned parameters
+    prefix: str  # '', 'S', 'C' â†’ jurisdiction override
 
 
 @dataclass(frozen=True)
@@ -61,15 +73,19 @@ class Deductions:
     ni_pence: int
     student_loan_pence: int
     pension_pence: int
-    # Contribution deducted from NET pay — nonzero only for relief at
+    # Contribution deducted from NET pay â€” nonzero only for relief at
     # source; net_pay/sacrifice already sit inside taxable_gross.
     net_pension_deduction_pence: int = 0
 
     @property
     def net_pence(self) -> int:
-        return (self.taxable_gross_pence - self.tax_pence
-                - self.ni_pence - self.student_loan_pence
-                - self.net_pension_deduction_pence)
+        return (
+            self.taxable_gross_pence
+            - self.tax_pence
+            - self.ni_pence
+            - self.student_loan_pence
+            - self.net_pension_deduction_pence
+        )
 
 
 def parse_tax_code(raw: str) -> TaxCode:
@@ -83,40 +99,49 @@ def parse_tax_code(raw: str) -> TaxCode:
             break
     flat = {"BR", "D0", "D1", "NT"}
     if code in flat:
-        return TaxCode(allowance_pence=0, cumulative=False,
-                       flat_code=code, prefix="")
+        return TaxCode(allowance_pence=0, cumulative=cumulative, flat_code=code, prefix="")
     if code == "0T":
-        return TaxCode(allowance_pence=0, cumulative=cumulative,
-                       flat_code=None, prefix="")
+        return TaxCode(allowance_pence=0, cumulative=cumulative, flat_code=None, prefix="")
     if m := _CODE_K.match(code):
         prefix, num = m.group(1) or "", int(m.group(2))
-        return TaxCode(allowance_pence=-num * 1000,
-                       cumulative=cumulative, flat_code=None,
-                       prefix=prefix)
+        return TaxCode(
+            allowance_pence=-num * 1000, cumulative=cumulative, flat_code=None, prefix=prefix
+        )
     if m := _CODE_NUM.match(code):
         prefix, num = m.group(1) or "", int(m.group(2))
-        return TaxCode(allowance_pence=num * 1000,
-                       cumulative=cumulative, flat_code=None,
-                       prefix=prefix)
+        return TaxCode(
+            allowance_pence=num * 1000, cumulative=cumulative, flat_code=None, prefix=prefix
+        )
     raise TaxError(f"unrecognised tax code: {raw!r}")
 
 
-def _banded(taxable: int, bands: list[dict[str, Any]],
-            periods: int, periods_per_year: int = MONTHS_PER_YEAR) -> int:
-    """Cumulative banded tax on `taxable` pence with annual band limits
-    pro-rated by `periods`/`periods_per_year`."""
-    tax, lower = 0, 0
+def _banded(
+    taxable: int, bands: list[dict[str, Any]], periods: int, periods_per_year: int = MONTHS_PER_YEAR
+) -> int:
+    """PAYE v24: select the band using unrounded pay and ceiling-pound
+    thresholds, then use rounded-down taxable pay in that band's formula.
+    """
+    prior_tax, lower = Fraction(0), 0
+    rounded = taxable // 100 * 100
     for band in bands:
         limit = band["limit"]
-        top = (limit * periods // periods_per_year
-               if limit is not None else None)
-        upper = taxable if top is None else min(taxable, top)
-        if upper > lower:
-            tax += (upper - lower) * int(band["rate"]) // 10_000
-        if top is None or taxable <= top:
-            break
-        lower = top
-    return tax
+        ceiling = (
+            ((int(limit) * periods + periods_per_year * 100 - 1) // (periods_per_year * 100) * 100)
+            if limit is not None
+            else None
+        )
+        if ceiling is None or taxable <= ceiling:
+            return int(
+                prior_tax
+                + (rounded - Fraction(lower * periods, periods_per_year))
+                * int(band["rate"])
+                / 10_000
+            )
+        prior_tax += Fraction(
+            (int(limit) - lower) * periods * int(band["rate"]), periods_per_year * 10_000
+        )
+        lower = int(limit)
+    raise TaxError("tax bands must include an unlimited final band")
 
 
 def _load_params(row: TaxRuleSet) -> dict[str, Any]:
@@ -125,7 +150,7 @@ def _load_params(row: TaxRuleSet) -> dict[str, Any]:
 
 def seed_rule_sets(session: Session) -> int:
     """Insert embedded rule sets missing from tax_rule_set. Existing
-    rows are never touched — corrections arrive as a new version."""
+    rows are never touched â€” corrections arrive as a new version."""
     raw = json.loads(_DATA.read_text(encoding="utf-8"))
     added = 0
     for s in raw["sets"]:
@@ -133,63 +158,75 @@ def seed_rule_sets(session: Session) -> int:
             select(TaxRuleSet).where(
                 TaxRuleSet.tax_year == s["tax_year"],
                 TaxRuleSet.jurisdiction == s["jurisdiction"],
-                TaxRuleSet.version == s["version"])
+                TaxRuleSet.version == s["version"],
+            )
         ).scalar_one_or_none()
         if exists is None:
-            session.add(TaxRuleSet(
-                tax_year=s["tax_year"],
-                jurisdiction=TaxJurisdiction(s["jurisdiction"]),
-                version=int(s["version"]),
-                params=json.dumps(s["params"], separators=(",", ":"))))
+            session.add(
+                TaxRuleSet(
+                    tax_year=s["tax_year"],
+                    jurisdiction=TaxJurisdiction(s["jurisdiction"]),
+                    version=int(s["version"]),
+                    params=json.dumps(s["params"], separators=(",", ":")),
+                )
+            )
             added += 1
     session.flush()
     return added
 
 
-def rule_set(session: Session, tax_year: str,
-             jurisdiction: TaxJurisdiction) -> TaxRuleSet:
+def rule_set(session: Session, tax_year: str, jurisdiction: TaxJurisdiction) -> TaxRuleSet:
     seed_rule_sets(session)
     row = session.execute(
-        select(TaxRuleSet).where(
-            TaxRuleSet.tax_year == tax_year,
-            TaxRuleSet.jurisdiction == jurisdiction)
-        .order_by(TaxRuleSet.version.desc()).limit(1)
+        select(TaxRuleSet)
+        .where(TaxRuleSet.tax_year == tax_year, TaxRuleSet.jurisdiction == jurisdiction)
+        .order_by(TaxRuleSet.version.desc())
+        .limit(1)
     ).scalar_one_or_none()
     if row is None:
         seed_rule_sets(session)
         row = session.execute(
-            select(TaxRuleSet).where(
-                TaxRuleSet.tax_year == tax_year,
-                TaxRuleSet.jurisdiction == jurisdiction)
-            .order_by(TaxRuleSet.version.desc()).limit(1)
+            select(TaxRuleSet)
+            .where(TaxRuleSet.tax_year == tax_year, TaxRuleSet.jurisdiction == jurisdiction)
+            .order_by(TaxRuleSet.version.desc())
+            .limit(1)
         ).scalar_one_or_none()
     if row is None:
         raise TaxError(f"no rule set for {tax_year}/{jurisdiction}")
     return row
 
 
-def latest_rule_set(session: Session,
-                    jurisdiction: TaxJurisdiction) -> TaxRuleSet | None:
-    """Newest rule set for a jurisdiction regardless of year — the
+def latest_rule_set(session: Session, jurisdiction: TaxJurisdiction) -> TaxRuleSet | None:
+    """Newest rule set for a jurisdiction regardless of year â€” the
     fallback for forecasting beyond published HMRC tables."""
     return session.execute(
-        select(TaxRuleSet).where(
-            TaxRuleSet.jurisdiction == jurisdiction)
-        .order_by(TaxRuleSet.tax_year.desc(),
-                  TaxRuleSet.version.desc()).limit(1)
+        select(TaxRuleSet)
+        .where(TaxRuleSet.jurisdiction == jurisdiction)
+        .order_by(TaxRuleSet.tax_year.desc(), TaxRuleSet.version.desc())
+        .limit(1)
     ).scalar_one_or_none()
 
 
-def _allowance(code: TaxCode, params: dict[str, Any],
-               cum_income: int, periods: int,
-               periods_per_year: int = MONTHS_PER_YEAR) -> int:
-    """Effective cumulative allowance incl. PA taper."""
-    base = code.allowance_pence * periods // periods_per_year
-    taper_start = int(params["taper_start"]) * periods // periods_per_year
-    over = max(0, cum_income - taper_start)
-    tapered = base - over // int(params["taper_divisor"])
-    # K codes keep their negative allowance; positive codes floor at 0.
-    return max(0, tapered) if code.allowance_pence >= 0 else base
+def _allowance(
+    code: TaxCode,
+    params: dict[str, Any],
+    cum_income: int,
+    periods: int,
+    periods_per_year: int = MONTHS_PER_YEAR,
+) -> int:
+    """PAYE v24 §4.3 numeric-code free/additional pay. HMRC changes the
+    tax code for allowance tapering; payroll must not taper it a second time.
+    """
+    number = abs(code.allowance_pence) // 1000
+    if number == 0:
+        return 0
+    blocks, remainder = divmod(number - 1, 500)
+
+    def ceil_div(n: int) -> int:
+        return (n + periods_per_year - 1) // periods_per_year
+
+    one_period = blocks * ceil_div(500_000) + ceil_div((remainder + 1) * 1000 + 900)
+    return one_period * periods * (-1 if code.allowance_pence < 0 else 1)
 
 
 def compute_period(
@@ -197,7 +234,7 @@ def compute_period(
     gross_pence: int,
     tax_code: str,
     params: dict[str, Any],
-    period: int = 1,                     # tax month 1..12 or week 1..53
+    period: int = 1,  # tax month 1..12 or week 1..53
     periods_per_year: int = MONTHS_PER_YEAR,
     ytd_taxable_gross_pence: int = 0,
     ytd_tax_pence: int = 0,
@@ -212,9 +249,14 @@ def compute_period(
     max_period = 12 if periods_per_year == 12 else 53
     if not 1 <= period <= max_period:
         raise TaxError(f"period must be between 1 and {max_period}")
+    if gross_pence < 0 or not 0 <= pension_pence <= gross_pence:
+        raise TaxError("gross and pension must be non-negative; pension cannot exceed gross")
+    if ni_category.upper() not in params["ni"]["categories"]:
+        raise TaxError("unsupported NI category")
+    if student_loan_plan != "none" and student_loan_plan not in params["student_loans"]:
+        raise TaxError("unsupported student loan plan")
     code = parse_tax_code(tax_code)
-    cumulative = code.cumulative and not (
-        periods_per_year == 52 and period == 53)
+    cumulative = code.cumulative and not (periods_per_year == 52 and period == 53)
 
     # Pension treatment determines which base each deduction sees.
     if pension_mode is PensionMode.salary_sacrifice:
@@ -222,56 +264,54 @@ def compute_period(
     elif pension_mode is PensionMode.net_pay:
         taxable_gross = gross_pence - pension_pence
         ni_gross = gross_pence
-    else:  # none / relief_at_source — RAS is claimed back, not deducted
+    else:  # none / relief_at_source â€” RAS is claimed back, not deducted
         taxable_gross = ni_gross = gross_pence
 
     periods = period if cumulative else 1
-    cum_income = (ytd_taxable_gross_pence + taxable_gross
-                  if cumulative else taxable_gross)
+    cum_income = ytd_taxable_gross_pence + taxable_gross if cumulative else taxable_gross
     prior_tax = ytd_tax_pence if cumulative else 0
 
     if code.flat_code is not None:
         flat_name = code.flat_code
         band_index = params.get("flat_code_band_indices", {"BR": 0, "D0": -2, "D1": -1})
-        rate = (int(params["bands"][band_index[flat_name]]["rate"])
-                if flat_name in band_index else 0)
-        tax = taxable_gross * rate // 10_000
+        rate = int(params["bands"][band_index[flat_name]]["rate"]) if flat_name in band_index else 0
+        tax = (cum_income // 100 * 100) * rate // 10_000 - prior_tax
     else:
-        allow = _allowance(code, params, cum_income, periods,
-                           periods_per_year)
+        allow = _allowance(code, params, cum_income, periods, periods_per_year)
         taxable = max(0, cum_income - allow)
         # Cumulative PAYE repays excess tax already paid (regulation 23(6)).
         # W1/M1 has prior_tax=0 and therefore cannot refund earlier periods.
-        tax = (_banded(taxable, params["bands"], periods,
-                       periods_per_year) - prior_tax)
+        tax = _banded(taxable, params["bands"], periods, periods_per_year) - prior_tax
 
-    if code.allowance_pence < 0:
-        tax = min(tax, max(0, gross_pence // 2))
+    tax = min(tax, max(0, gross_pence // 2))
 
     # NI: period thresholds, non-cumulative.
     ni = params["ni"]
-    pt = int(ni["primary_threshold"]) // periods_per_year
-    uel = int(ni["upper_earnings_limit"]) // periods_per_year
-    below_r, above_r = ni["categories"].get(
-        ni_category.upper(), ni["categories"]["A"])
-    ni_pence = (
-        max(0, min(ni_gross, uel) - pt) * int(below_r) // 10_000
-        + max(0, ni_gross - uel) * int(above_r) // 10_000)
+    thresholds = ni.get("period_thresholds", {}).get(str(periods_per_year))
+    if thresholds is None:
+        raise TaxError("rule set lacks published NI period thresholds; use the latest version")
+    pt, uel = thresholds
+    below_r, above_r = ni["categories"].get(ni_category.upper(), ni["categories"]["A"])
+    ni_raw = max(0, min(ni_gross, uel) - pt) * int(below_r) + max(0, ni_gross - uel) * int(above_r)
+    ni_pence = int((Decimal(ni_raw) / 10_000).quantize(Decimal("1"), rounding=ROUND_HALF_DOWN))
 
-    # Student loan: period threshold, period-only, floor to penny.
+    # SL3: same earnings basis as Class 1 NI, rounded down to whole pounds.
     sl = params["student_loans"].get(student_loan_plan)
     sl_pence = 0
     if sl is not None:
         threshold = int(sl[0]) // periods_per_year
-        sl_pence = max(0, taxable_gross - threshold) * int(sl[1]) // 10_000
+        sl_pence = max(0, ni_gross - threshold) * int(sl[1]) // 1_000_000 * 100
 
     return Deductions(
-        taxable_gross_pence=taxable_gross, tax_pence=tax,
-        ni_pence=ni_pence, student_loan_pence=sl_pence,
+        taxable_gross_pence=taxable_gross,
+        tax_pence=tax,
+        ni_pence=ni_pence,
+        student_loan_pence=sl_pence,
         pension_pence=pension_pence,
         net_pension_deduction_pence=(
-            pension_pence
-            if pension_mode is PensionMode.relief_at_source else 0))
+            pension_pence if pension_mode is PensionMode.relief_at_source else 0
+        ),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -281,13 +321,12 @@ def embedded_rule_sets() -> tuple[dict[str, Any], ...]:
 
 
 def tax_year_for(d: date) -> str:
-    """UK tax year label for a date — 6 Apr 2025…5 Apr 2026 → '2025-26'."""
+    """UK tax year label for a date â€” 6 Apr 2025â€¦5 Apr 2026 â†’ '2025-26'."""
     start = d.year if (d.month, d.day) >= (4, 6) else d.year - 1
     return f"{start}-{str(start + 1)[2:]}"
 
 
 def tax_month_for(d: date) -> int:
-    """HMRC tax month 1..12 (month 1 = 6 Apr–5 May) for a date."""
-    anchor = (d.month - 1 if d.month > 1 else 12) if d.day < 6 \
-        else d.month
+    """HMRC tax month 1..12 (month 1 = 6 Aprâ€“5 May) for a date."""
+    anchor = (d.month - 1 if d.month > 1 else 12) if d.day < 6 else d.month
     return ((anchor - 4) % 12) + 1

@@ -285,7 +285,7 @@ class TestApi:
                           "annual_salary": 3600000}, headers=h)
         client.post(f"/api/v1/employments/{eid}/tax-code-revisions",
                     json={"effective_date": "2026-01-01",
-                          "tax_code": "1257L"}, headers=h)
+                          "tax_code": "1257L M1"}, headers=h)
         r = client.post("/api/v1/employments/prepare-year",
                         json={"year": 2027}, headers=h)
         assert r.status_code == 201
@@ -315,7 +315,7 @@ class TestApi:
                           "annual_salary": 3600000}, headers=h)
         client.post(f"/api/v1/employments/{eid}/tax-code-revisions",
                     json={"effective_date": "2026-01-01",
-                          "tax_code": "1257L"}, headers=h)
+                          "tax_code": "1257L M1"}, headers=h)
         client.patch(f"/api/v1/employments/{eid}",
                      json={"end_date": "2026-03-15"}, headers=h)
         r = client.post(f"/api/v1/employments/{eid}/payroll-runs",
@@ -346,7 +346,7 @@ class TestApi:
                           "annual_salary": 3600000}, headers=h)
         client.post(f"/api/v1/employments/{eid}/tax-code-revisions",
                     json={"effective_date": "2026-01-01",
-                          "tax_code": "1257L"}, headers=h)
+                          "tax_code": "1257L M1"}, headers=h)
         run = client.post(f"/api/v1/employments/{eid}/payroll-runs",
                           json={"period_start": "2026-12-01",
                                 "period_end": "2026-12-31",

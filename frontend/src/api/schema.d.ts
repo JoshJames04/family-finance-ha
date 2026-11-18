@@ -1331,6 +1331,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/rebuild-forecasts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild Payroll Forecasts */
+        post: operations["rebuild_payroll_forecasts_api_v1_employments__emp_id__rebuild_forecasts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/correct": {
         parameters: {
             query?: never;
@@ -5047,6 +5064,12 @@ export interface components {
              * @enum {string}
              */
             deduction_mode: "paye" | "gross_only";
+            /**
+             * Salary Policy
+             * @default annual_daily
+             * @enum {string}
+             */
+            salary_policy: "annual_daily" | "equal_monthly";
             /** Initial Salary */
             initial_salary?: (number | string | {
                 pence: number;
@@ -5111,6 +5134,8 @@ export interface components {
             employment_type: string;
             /** Deduction Mode */
             deduction_mode: string;
+            /** Salary Policy */
+            salary_policy: string;
         };
         /** EmploymentPatch */
         EmploymentPatch: {
@@ -5147,6 +5172,8 @@ export interface components {
             employment_type?: ("salaried" | "piecework") | null;
             /** Deduction Mode */
             deduction_mode?: ("paye" | "gross_only") | null;
+            /** Salary Policy */
+            salary_policy?: ("annual_daily" | "equal_monthly") | null;
             /** Start Date */
             start_date?: string | null;
         };
@@ -6394,16 +6421,39 @@ export interface components {
             /** Actor */
             actor: string;
         };
+        /** PayrollRebuildIn */
+        PayrollRebuildIn: {
+            /**
+             * Apply
+             * @default false
+             */
+            apply: boolean;
+            /** Fingerprint */
+            fingerprint?: string | null;
+        };
         /**
          * PayrollReconcileIn
-         * @description actual amounts keyed by component kind, e.g. {"tax": 29500}.
-         *     Absent kinds are assumed to match forecast.
+         * @description Signed aggregate actuals per kind, with independent payslip totals.
          */
         PayrollReconcileIn: {
             /** Actuals */
             actuals?: {
                 [key: string]: number;
             };
+            /** Payslip Gross Pence */
+            payslip_gross_pence: number;
+            /** Payslip Net Pence */
+            payslip_net_pence: number;
+            /** Taxable Pence */
+            taxable_pence?: number | null;
+            /** Niable Pence */
+            niable_pence?: number | null;
+            /** Ytd Taxable Pence */
+            ytd_taxable_pence?: number | null;
+            /** Ytd Tax Pence */
+            ytd_tax_pence?: number | null;
+            /** Statutory Pay Date */
+            statutory_pay_date?: string | null;
         };
         /** PayrollRunIn */
         PayrollRunIn: {
@@ -6471,6 +6521,27 @@ export interface components {
             net_pence: number;
             /** Corrects Id */
             corrects_id: number | null;
+            /** Statutory Pay Date */
+            statutory_pay_date?: string | null;
+            /**
+             * Forecast Stale
+             * @default false
+             */
+            forecast_stale: boolean;
+            /** Signed Components */
+            signed_components?: boolean | null;
+            /** Verified Gross Pence */
+            verified_gross_pence?: number | null;
+            /** Verified Net Pence */
+            verified_net_pence?: number | null;
+            /** Verified Taxable Pence */
+            verified_taxable_pence?: number | null;
+            /** Verified Niable Pence */
+            verified_niable_pence?: number | null;
+            /** Verified Ytd Taxable Pence */
+            verified_ytd_taxable_pence?: number | null;
+            /** Verified Ytd Tax Pence */
+            verified_ytd_tax_pence?: number | null;
             /**
              * Components
              * @default []
@@ -6492,6 +6563,20 @@ export interface components {
             actuals?: {
                 [key: string]: number;
             };
+            /** Payslip Gross Pence */
+            payslip_gross_pence: number;
+            /** Payslip Net Pence */
+            payslip_net_pence: number;
+            /** Taxable Pence */
+            taxable_pence?: number | null;
+            /** Niable Pence */
+            niable_pence?: number | null;
+            /** Ytd Taxable Pence */
+            ytd_taxable_pence?: number | null;
+            /** Ytd Tax Pence */
+            ytd_tax_pence?: number | null;
+            /** Statutory Pay Date */
+            statutory_pay_date?: string | null;
         };
         /** PayslipOut */
         PayslipOut: {
@@ -11205,6 +11290,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rebuild_payroll_forecasts_api_v1_employments__emp_id__rebuild_forecasts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayrollRebuildIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
