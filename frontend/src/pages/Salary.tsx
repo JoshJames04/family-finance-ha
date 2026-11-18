@@ -945,10 +945,8 @@ function EmploymentCard({ employment: e, profileName, rev, year, onRefreshed, sh
             <thead className="text-left text-[12px] text-fg-subtle">
               <tr className="h-9 border-b border-border">
                 <th className="w-8 pl-4"><span className="sr-only">Expand</span></th>
-                <th className="px-3 font-medium">Period</th>
-                <th className="hidden px-3 font-medium sm:table-cell">Pay date</th>
-                <th className="px-3 text-right font-medium">Gross</th>
-                <th className="hidden px-3 text-right font-medium sm:table-cell">Net</th>
+                <th className="px-3 font-medium">Pay date</th>
+                <th className="px-3 text-right font-medium">Net</th>
                 <th className="px-3 font-medium">Status</th>
                 <th className="w-px pr-4"><span className="sr-only">Actions</span></th>
               </tr>
@@ -1092,51 +1090,37 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
         className="cursor-pointer border-b border-border hover:bg-surface-2/60"
         onClick={() => setOpen((o) => !o)}
       >
-        <td className="pl-4 text-fg-subtle">
-          <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+        <td className="pl-3 text-fg-subtle">
+          <Button size="icon-sm" variant="ghost" aria-expanded={open}
+            aria-label={`${open ? "Hide" : "Show"} payroll details for ${r.pay_date}`}
+            onClick={event => {event.stopPropagation(); setOpen(value => !value);}}>
+            <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+          </Button>
         </td>
-        <td className="px-3 py-2.5 font-medium">
-          {formatDayMonth(r.period_start)} – {formatSmartDate(r.period_end)}
-          <span className="ml-2 text-[11.5px] text-fg-subtle">{r.tax_year}</span>
-          {r.rule_set_year && r.rule_set_year !== r.tax_year && (
-            <span className="ml-2 text-[11px] text-warning">using {r.rule_set_year} tax rules</span>
-          )}
+        <td className="whitespace-nowrap px-3 py-2.5 font-medium">{formatSmartDate(r.pay_date)}</td>
+        <td className="tnum whitespace-nowrap px-3 text-right font-medium"><Money pence={amounts.actualNet ?? amounts.forecastNet} /></td>
+        <td className="px-3"><Badge tone={RUN_TONE[r.status]}>{r.status}</Badge>
+          {r.forecast_stale && <Badge tone="warning">Forecast needs review</Badge>}
+          {r.status === "forecast" && r.rule_set_year && r.rule_set_year !== r.tax_year &&
+            <span className="block text-[11px] text-warning">using {r.rule_set_year} rules</span>}
         </td>
-        <td className="hidden px-3 text-fg-muted sm:table-cell">{formatSmartDate(r.pay_date)}</td>
-        <td className="tnum px-3 text-right font-medium">
-          <span className="block"><Money pence={amounts.forecastGross} /></span>
-          {amounts.actualGross !== null && (
-            <span className="block text-[11px] text-success"><Money pence={amounts.actualGross} /> actual</span>
-          )}
-        </td>
-        <td className="tnum hidden px-3 text-right sm:table-cell">
-          <span className="block"><Money pence={amounts.forecastNet} /></span>
-          {amounts.actualNet !== null && (
-            <>
-              <span className="block text-[11px] text-success"><Money pence={amounts.actualNet} /> actual</span>
-              <span className="block text-[11px] text-fg-muted">
-                variance <Money pence={amounts.actualNet - amounts.forecastNet} signed tone="variance" />
-              </span>
-            </>
-          )}
-        </td>
-        <td className="px-3"><Badge tone={RUN_TONE[r.status]}>{r.status}</Badge>{r.forecast_stale && <Badge tone="warning">Forecast needs review</Badge>}</td>
         <td className="pr-4 text-right">
           <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onPayslip(); }}>
             Payslip
           </Button>
-          {r.status === "forecast" && (
-            <>
-              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onReconcile(); }}>
-                Check amounts
-              </Button>
-            </>
-          )}
         </td>
       </tr>
       {open && (
         <tr className="border-b border-border bg-surface-2/40">
-          <td colSpan={7} className="px-4 py-3">
+          <td colSpan={5} className="px-4 py-3">
+            <p className="mb-3 text-xs text-fg-muted">Earning period: {formatSmartDate(r.period_start)} – {formatSmartDate(r.period_end)} · {r.tax_year}</p>
+            <dl className="mb-3 grid grid-cols-2 gap-3 text-xs">
+              <div><dt className="text-fg-subtle">Forecast gross</dt><dd><Money pence={amounts.forecastGross} /></dd></div>
+              <div><dt className="text-fg-subtle">Forecast net</dt><dd><Money pence={amounts.forecastNet} /></dd></div>
+              {amounts.actualGross !== null && <div><dt className="text-fg-subtle">Actual gross</dt><dd><Money pence={amounts.actualGross} /></dd></div>}
+              {amounts.actualNet !== null && <div><dt className="text-fg-subtle">Actual net</dt><dd><Money pence={amounts.actualNet} /> · variance <Money pence={amounts.actualNet - amounts.forecastNet} signed /></dd></div>}
+            </dl>
+            {r.status === "forecast" && <Button size="sm" variant="secondary" className="mb-3" onClick={onReconcile}>Check amounts</Button>}
             {r.statutory_pay_date && r.statutory_pay_date !== r.pay_date && <p className="mb-2 text-xs text-fg-muted">PAYE date: {formatSmartDate(r.statutory_pay_date)} · cash received: {formatSmartDate(r.pay_date)}</p>}
             {r.verified_taxable_pence != null && <p className="mb-2 text-xs text-fg-muted">Verified taxable pay: {formatPence(r.verified_taxable_pence)}{r.verified_ytd_taxable_pence != null ? ` · taxable pay to date: ${formatPence(r.verified_ytd_taxable_pence)}` : ""}{r.verified_ytd_tax_pence != null ? ` · PAYE to date: ${formatPence(r.verified_ytd_tax_pence)}` : ""}</p>}
 

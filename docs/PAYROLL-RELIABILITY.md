@@ -126,3 +126,6 @@ remain independent tests.
 The API contract fuzzer rejects synthetic bank credentials locally. It does not
 send generated credentials to a real banking provider; successful provider and
 outage behaviour are covered by the dedicated banking tests.
+
+Employer rows show pay date, net and status. Expand a row to see its earning period,
+gross, component details, forecast variance and optional amount-checking action.
