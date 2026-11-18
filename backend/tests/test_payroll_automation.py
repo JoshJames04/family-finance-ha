@@ -298,3 +298,63 @@ def test_automatic_setup_includes_previous_period_shifted_into_today(session, em
     assert row.statutory_pay_date == date(2026, 5, 31)
     assert row.period_end == date(2026, 5, 31)
     assert not row.forecast_stale
+
+
+@pytest.mark.parametrize("policy", ["annual_daily", "equal_monthly"])
+@pytest.mark.parametrize("start_day", [10, 20])
+@pytest.mark.parametrize("tax_code", ["1257L", "1257L M1"])
+def test_first_cutoff_before_start_does_not_block_later_payroll(
+    session, employment, policy, start_day, tax_code
+):
+    from app.domain.payroll_automation import refresh
+
+    employment.start_date = date(2025, 11, start_day)
+    employment.salary_policy = policy
+    employment.tax_code_revisions[0].tax_code = tax_code
+    employment.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    result = refresh(session, employment, today=employment.start_date)
+    assert not result["issues"]
+    rows = list(session.scalars(select(PayrollRun).order_by(PayrollRun.pay_date)))
+    assert rows
+    assert rows[0].pay_date.month == (12 if policy == "annual_daily" and start_day > 15 else 11)
+    assert any(r.pay_date.year == 2025 and r.pay_date.month == 12 for r in rows)
+
+
+@pytest.mark.parametrize("status", ["uploaded", "needs_review", "failed"])
+def test_uploaded_payslip_preserves_forecast_and_invalidates_preview(session, employment, status):
+    from app.domain import payroll_automation, payroll_rebuild
+    from app.persistence.models import Payslip, PayslipStatus
+
+    payroll_automation.refresh(session, employment, today=date(2025, 4, 1))
+    run = session.scalar(select(PayrollRun).order_by(PayrollRun.pay_date))
+    original = (run.period_start, run.period_end, run.pay_date, run.gross_pence, run.net_pence)
+    preview = payroll_rebuild.rebuild_forecasts(session, employment, apply=False)
+    slip = Payslip(
+        household_id=employment.household_id,
+        payroll_run_id=run.id,
+        original_name="synthetic.pdf",
+        private_path="synthetic/not-a-real-file.pdf",
+        sha256="a" * 64,
+        size_bytes=1,
+        media_type="application/pdf",
+        status=PayslipStatus(status),
+        extracted_json='{"gross":"3000.00"}',
+    )
+    session.add(slip)
+    session.flush()
+    with pytest.raises(payroll.PayrollError, match="inputs changed"):
+        payroll_rebuild.rebuild_forecasts(
+            session, employment, apply=True, fingerprint=preview["fingerprint"]
+        )
+    payroll.add_salary_revision(session, employment, date(2025, 4, 2), 4800000)
+    employment.payday_rule = '{"kind":"fixed_day","day":25}'
+    result = payroll_automation.refresh(session, employment, today=date(2025, 4, 1))
+    assert result["issues"]
+    assert (
+        run.period_start,
+        run.period_end,
+        run.pay_date,
+        run.gross_pence,
+        run.net_pence,
+    ) == original
+    assert slip.extracted_json == '{"gross":"3000.00"}'

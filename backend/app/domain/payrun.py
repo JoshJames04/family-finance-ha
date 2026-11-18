@@ -319,6 +319,19 @@ def _require_ytd_coverage(
                     day=calendar.monthrange(label.year, label.month)[1]
                 ) + timedelta(days=1)
                 first_nominal = paydays.nominal_date(rule, label.year, label.month)
+            if (
+                employment.payday_rule
+                and "cutoff_day" in employment.payday_rule
+                and employment.salary_policy != "equal_monthly"
+                and pay_calendar.period(
+                    pay_calendar.parse_calendar(employment.payday_rule), label.year, label.month
+                ).cutoff
+                < employed
+            ):
+                label = label.replace(
+                    day=calendar.monthrange(label.year, label.month)[1]
+                ) + timedelta(days=1)
+                first_nominal = paydays.nominal_date(rule, label.year, label.month)
         first = max(1, period(first_nominal))
     covered = {period(effective_pay_date(employment, r)) for r in rows}
     if set(range(first, period(payday))) - covered:

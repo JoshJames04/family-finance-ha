@@ -23,7 +23,7 @@ def _rebuild_stale(session: Session, employment: Employment, result: dict[str, A
     stale = [r for r in runs if r.status is PayrollRunStatus.forecast and r.forecast_stale]
     if any(r.id in protected for r in stale):
         result["issues"].append(
-            "Forecast with actuals, bank matches, overrides or a correction preserved"
+            "Forecast with payslips, actuals, bank matches, overrides or a correction preserved"
         )
     if any(r.id not in protected for r in stale):
         try:
@@ -179,6 +179,12 @@ def refresh(
                     pay_calendar.parse_calendar(employment.payday_rule), end.year, end.month
                 )
                 work_start = window.start
+                if (
+                    employment.salary_policy != "equal_monthly"
+                    and start_limit is not None
+                    and window.cutoff < start_limit
+                ):
+                    continue  # No earnings in this first cutoff period.
             if employment.end_date is not None:
                 if work_start > employment.end_date:
                     continue
