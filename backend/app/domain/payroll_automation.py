@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.domain import pay_calendar, paydays, payroll_rebuild, payrun, schedule
+from app.domain import overtime, pay_calendar, paydays, payroll_rebuild, payrun, schedule
 from app.domain.payroll import PayrollError
 from app.persistence.models import Employment, PayrollRun, PayrollRunStatus
 
@@ -139,14 +139,17 @@ def refresh(
         periods: list[tuple[date, date, date]] = []
         if rule.kind is paydays.RuleKind.weekly:
             assert rule.weekday is not None
-            nominal = today + timedelta(days=(rule.weekday - today.weekday()) % 7)
+            nominal = (
+                today + timedelta(days=(rule.weekday - today.weekday()) % 7) - timedelta(days=7)
+            )
             while nominal <= date(today.year + 1, 12, 31):
                 periods.append(
                     (nominal - timedelta(days=6), nominal, paydays.adjust(nominal, rule.adjust))
                 )
                 nominal += timedelta(days=7)
         elif rule.kind is not paydays.RuleKind.nightly:
-            label = today.replace(day=1)
+            # A previous nominal period may be paid today after a forward shift.
+            label = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
             while label.year <= today.year + 1:
                 periods.append(
                     (
@@ -166,8 +169,28 @@ def refresh(
         for start, end, cash_date in periods:
             if cash_date < today or (start_limit is not None and end < start_limit):
                 continue
-            if employment.end_date is not None and start > employment.end_date:
-                continue
+            work_start = start
+            cutoff = (
+                rule.kind not in {paydays.RuleKind.weekly, paydays.RuleKind.nightly}
+                and "cutoff_day" in employment.payday_rule
+            )
+            if cutoff:
+                window = pay_calendar.period(
+                    pay_calendar.parse_calendar(employment.payday_rule), end.year, end.month
+                )
+                work_start = window.start
+            if employment.end_date is not None:
+                if work_start > employment.end_date:
+                    continue
+                if (
+                    cutoff
+                    and employment.salary_policy == "equal_monthly"
+                    and start > employment.end_date
+                    and not overtime.approved_total_pence(
+                        session, employment.id, work_start, employment.end_date
+                    )
+                ):
+                    continue  # No remaining monthly salary or final overtime.
             if rule.kind is paydays.RuleKind.weekly:
                 if any((r.statutory_pay_date or r.period_end) == end for r in active):
                     continue

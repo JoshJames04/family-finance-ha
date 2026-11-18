@@ -237,3 +237,64 @@ def test_lifecycle_reversal_reuses_identity_and_restores_full_month(session, emp
     assert rows[1].period_end == date(2025, 5, 31)
     assert rows[1].gross_pence == 400000
     assert all(r.status is PayrollRunStatus.forecast and not r.forecast_stale for r in rows)
+
+
+@pytest.mark.parametrize("policy", ["equal_monthly", "annual_daily"])
+@pytest.mark.parametrize("has_overtime", [False, True])
+def test_automatic_setup_includes_final_cutoff_payment(session, employment, policy, has_overtime):
+    from app.domain import overtime
+    from app.domain.payroll_automation import refresh
+
+    employment.salary_policy = policy
+    employment.deduction_mode = "gross_only"
+    employment.end_date = date(2025, 11, 20)
+    employment.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    extra = 0
+    if has_overtime:
+        entry = overtime.create_entry(
+            session,
+            employment,
+            work_date=date(2025, 11, 18),
+            hours=Decimal("2"),
+            multiplier_bps=10000,
+        )
+        overtime.submit(entry)
+        overtime.approve(entry)
+        extra = entry.pay_pence
+    result = refresh(session, employment, today=date(2025, 11, 21))
+    assert not result["issues"]
+    rows = list(session.scalars(select(PayrollRun).order_by(PayrollRun.pay_date)))
+    final = next((r for r in rows if r.pay_date.month == 12), None)
+    if policy == "equal_monthly" and not has_overtime:
+        assert final is None  # No invented zero-pay month after leaving.
+    else:
+        assert final is not None
+        assert final.period_start == date(2025, 11, 16)
+        assert final.period_end == date(2025, 11, 20)
+        assert final.gross_pence == extra + (49315 if policy == "annual_daily" else 0)
+    ids = [r.id for r in rows]
+    refresh(session, employment, today=date(2025, 11, 21))
+    assert list(session.scalars(select(PayrollRun.id).order_by(PayrollRun.pay_date))) == ids
+
+
+@pytest.mark.parametrize("weekly", [False, True])
+def test_automatic_setup_includes_previous_period_shifted_into_today(session, employment, weekly):
+    from app.domain.payroll_automation import refresh
+
+    employment.start_date = date(2026, 5, 1)
+    employment.payday_rule = (
+        '{"kind":"weekly","weekday":6,"adjust":"next"}'
+        if weekly
+        else '{"kind":"fixed_day","day":31,"adjust":"next"}'
+    )
+    if weekly:
+        employment.deduction_mode = "gross_only"
+    else:
+        employment.tax_code_revisions[0].tax_code = "1257L"  # Prove cumulative coverage too.
+    result = refresh(session, employment, today=date(2026, 6, 1))
+    assert not result["issues"]
+    row = session.scalar(select(PayrollRun).where(PayrollRun.pay_date == date(2026, 6, 1)))
+    assert row is not None
+    assert row.statutory_pay_date == date(2026, 5, 31)
+    assert row.period_end == date(2026, 5, 31)
+    assert not row.forecast_stale
