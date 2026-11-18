@@ -290,7 +290,11 @@ def test_payday_discovery_requires_grants_keeps_legacy_prefix_and_revokes(
         s.commit()
     path = "/api/v1/integration/items"
     baseline = client.get(path, headers=SERVICE).json()["items"]
-    assert len(baseline) == 1 and baseline[0]["family"] == "accounts"
+    assert baseline[0]["family"] == "accounts"
+    assert not any(
+        item["family"] == "paydays" or item["id"] == f"account:{ids['account']}"
+        for item in baseline
+    )
     assert (
         client.put(
             PATH, headers=ADMIN, json={"profile_ids": [ids["owner"]], "account_ids": []}
@@ -311,7 +315,7 @@ def test_payday_discovery_requires_grants_keeps_legacy_prefix_and_revokes(
         "value": 2,
         "unit": "d",
     }
-    assert client.get(path + "?limit=1", headers=SERVICE).json()["items"] == baseline
+    assert client.get(path + "?limit=1", headers=SERVICE).json()["items"] == baseline[:1]
     assert client.get(path, headers={"X-Remote-User-Id": "other"}).json()["items"] == baseline
     assert (
         client.put(PATH, headers=ADMIN, json={"profile_ids": [], "account_ids": []}).status_code

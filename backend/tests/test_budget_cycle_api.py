@@ -41,11 +41,13 @@ def setup(tmp_path):
             "name": "Synthetic personal", "owner_profile_id": owner["id"], "type": "personal",
             "opening_balance": 10000, "opening_date": "2025-01-01",
         })
+        client.headers["X-Profile-Id"] = str(owner["id"])
         employment = post(client, "employments", {
             "profile_id": owner["id"], "employer": "Synthetic employer", "contracted_hours": 35,
             "paid_into_account_id": account["id"], "start_date": "2025-01-01",
             "payday_rule": json.dumps({"kind": "fixed_day", "day": 28, "adjust": "previous"}),
         })
+        client.headers["X-Profile-Id"] = str(admin["id"])
         category = post(client, "categories", {"name": "Synthetic food"})
         budget = post(client, "budgets", {
             "name": "November plan", "owner_profile_id": owner["id"], "period_type": "monthly",
