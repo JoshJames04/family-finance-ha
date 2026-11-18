@@ -73,7 +73,9 @@ an automatic guarded refresh. Eligible forecasts update immediately; saving the
 source change does not depend on manually previewing or applying a rebuild.
 Incomplete setup or ambiguous cumulative history leaves the source change saved,
 keeps the affected forecast flagged and displays an actionable reason in Breakdown.
-Actuals, correction runs, bank matches and manual overrides are always preserved.
+Uploaded payslips (including unconfirmed or failed extractions), actuals, correction
+runs, bank matches and manual overrides are always preserved. Adding or changing
+payslip review evidence invalidates an earlier rebuild preview.
 A forecast is never promoted to verified actual pay by automatic calculation.
 
 Startup, daily maintenance and opening Breakdown maintain future payroll through
@@ -83,6 +85,8 @@ rule versions invalidate eligible forecasts before recalculation. Published rule
 from an earlier year remain visibly identified on provisional future forecasts.
 Regular cash dates follow payday settings while explicit one-off dates retain their
 saved provenance. A frequency change needs review rather than guessed new periods.
+Starter cutoff periods that end before employment begins are skipped without
+blocking subsequent payroll; equal-monthly salary still covers calendar-month work.
 The explicit preview/apply API remains available for diagnostics and still rejects
 changed inputs between preview and apply.
 

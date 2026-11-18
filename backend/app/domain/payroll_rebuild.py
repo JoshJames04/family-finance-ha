@@ -27,6 +27,7 @@ from app.persistence.models import (
     PayrollOverride,
     PayrollRun,
     PayrollRunStatus,
+    Payslip,
     SalaryRevision,
     TaxCodeRevision,
     TaxRuleSet,
@@ -77,6 +78,11 @@ def _forecast_calendar(employment: Employment, run: PayrollRun) -> tuple[date, d
 
 def protected_run_ids(session: Session, runs: list[PayrollRun]) -> set[int]:
     """Rows whose independent evidence must survive any automatic refresh."""
+    payslip_ids = set(
+        session.scalars(
+            select(Payslip.payroll_run_id).where(Payslip.payroll_run_id.in_([r.id for r in runs]))
+        )
+    )
     overridden_ids = set(
         session.scalars(
             select(PayrollOverride.run_id).where(PayrollOverride.run_id.in_([r.id for r in runs]))
@@ -98,6 +104,7 @@ def protected_run_ids(session: Session, runs: list[PayrollRun]) -> set[int]:
         if r.status is not PayrollRunStatus.forecast
         or r.id in overridden_ids
         or r.id in matched_ids
+        or r.id in payslip_ids
         or r.corrects_id is not None
         or any(c.actual_pence is not None for c in r.components)
     }
@@ -157,6 +164,13 @@ def rebuild_forecasts(
         )
     )
     inputs.extend(session.scalars(select(TaxRuleSet).order_by(TaxRuleSet.id)))
+    inputs.extend(
+        session.scalars(
+            select(Payslip)
+            .where(Payslip.payroll_run_id.in_([r.id for r in runs]))
+            .order_by(Payslip.id)
+        )
+    )
     movement_ids = list(
         session.scalars(
             select(ExpectedMovement.id).where(
@@ -213,7 +227,8 @@ def rebuild_forecasts(
                 continue
             if run.id in protected_ids:
                 warnings.append(
-                    f"Run {run.id}: bank matches, actuals, correction or overrides preserved"
+                    f"Run {run.id}: payslips, bank matches, actuals, "
+                    "correction or overrides preserved"
                 )
                 continue
             _, cash_date, generation_end, cash_override = calendars[run.id]
