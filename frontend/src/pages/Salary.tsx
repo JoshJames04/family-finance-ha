@@ -21,6 +21,7 @@ import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Stat } from "../components/Display";
 import { ErrorState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
+import { groupOvertimeComponents } from "../lib/payrollComponents";
 import {
   formatDayMonth, formatPence, formatSmartDate, toISODate,
 } from "../lib/format";
@@ -1082,7 +1083,7 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
     () => api.get("/api/v1/employments/{emp_id}/payroll-runs/{run_id}",
       { path: { emp_id: empId, run_id: r.id } }),
     open, [open]);
-  const components = detail.data?.components ?? r.components ?? [];
+  const components = groupOvertimeComponents(detail.data?.components ?? r.components ?? []);
   const amounts = runAmounts(r);
   return (
     <>

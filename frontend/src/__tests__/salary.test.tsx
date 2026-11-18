@@ -327,4 +327,23 @@ describe("Compact employer rows", () => {
     expect(await screen.findByRole('button',{name:'Check amounts'})).toBeTruthy();
     expect(screen.getByText('Forecast gross')).toBeTruthy();
   });
+
+  it.each(['forecast', 'reconciled'])("combines overtime hours at matching rates in %s records", async status => {
+    const line = (id:number, label:string, amount:number) => ({id, kind:'overtime', label,
+      forecast_pence:amount, actual_pence:status === 'reconciled' ? amount : null,
+      variance_pence:status === 'reconciled' ? 0 : null});
+    const lines = [line(1,'8 hours @ £12.345',9876), line(2,'3 hours @ £16.46',4938),
+      line(3,'4 hours @ £12.345',4938)];
+    stubFetch([], {payrollRuns:[{...GROSS_ONLY_RUN, status, components:lines}]});
+    const user = userEvent.setup(); open();
+    await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+    await user.click(await screen.findByRole('button',{name:'Show payroll details for 2026-04-28'}));
+    expect(await screen.findByText('12 hours @ £12.345')).toBeTruthy();
+    expect(screen.getByText('3 hours @ £16.46')).toBeTruthy();
+    expect(screen.queryByText('8 hours @ £12.345')).toBeNull();
+    expect(screen.queryByText('4 hours @ £12.345')).toBeNull();
+    expect(screen.getByText('£148.14')).toBeTruthy();
+    expect(lines[0]!.label).toBe('8 hours @ £12.345');
+    expect(lines[0]!.forecast_pence).toBe(9876);
+  });
 });
