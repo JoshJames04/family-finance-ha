@@ -68,49 +68,50 @@ week, without double-counting cash adjustments. A legacy unknown basis stays
 unknown: its cash deduction is preserved and the preview warns, rather than
 inventing a day count.
 
-Configuration changes, overtime approvals/edits and confirmed corrections mark
-affected forecasts for review without changing their amounts. Use Salary → Breakdown
-→ **Review forecasts**. Preview makes no persistent changes. **Apply forecast changes**
-requires the same saved inputs and preserves run identity. Changed inputs require
-a new preview. Regular cash dates follow the current payday rule; saved calendar
-provenance preserves explicit one-off dates and the payroll month for leavers.
-Prepared and received payroll periods keep covering their income while a payday
-edit awaits rebuilding, so no second generic salary is projected.
-The preview shows old and new cash dates. A change in pay frequency needs explicit
-new periods. Actuals, correction runs, bank matches and manual overrides are
-preserved and reported as exclusions. Dependent ambiguous history stops the rebuild.
+Configuration changes, overtime approvals/edits and confirmed corrections trigger
+an automatic guarded refresh. Eligible forecasts update immediately; saving the
+source change does not depend on manually previewing or applying a rebuild.
+Incomplete setup or ambiguous cumulative history leaves the source change saved,
+keeps the affected forecast flagged and displays an actionable reason in Breakdown.
+Actuals, correction runs, bank matches and manual overrides are always preserved.
+A forecast is never promoted to verified actual pay by automatic calculation.
 
-Existing forecasts are marked for review on upgrade. Later formula/rule-version
-changes are detected during projection repair and cumulative calculation; they
-flag estimates without changing their amounts. Rebuilding is deliberate,
-not a silent rewrite. Reconciled history always requires a linked correction, including the legacy
-Reopen action. A piecework forecast retains its identity when work entries change;
-removing its last entry leaves a zero forecast instead of deleting its identity.
-That empty period emits no expected-income movement.
+Startup, daily maintenance and opening Breakdown maintain future payroll through
+the end of the following calendar year. Missing historical months are not filled
+with invented actuals. Piecework still requires logged work. Changes to formula or
+rule versions invalidate eligible forecasts before recalculation. Published rules
+from an earlier year remain visibly identified on provisional future forecasts.
+Regular cash dates follow payday settings while explicit one-off dates retain their
+saved provenance. A frequency change needs review rather than guessed new periods.
+The explicit preview/apply API remains available for diagnostics and still rejects
+changed inputs between preview and apply.
+
+Breakdown has equal monthly-payroll and employer columns on wide screens, stacking
+on small screens. The year selector covers all employers. Monthly totals use the
+statutory payroll pay month, not the beginning of a cutoff earning window. Add run
+is no longer a routine action; optional payslip checking remains available when
+independent evidence needs recording or correction.
 
 ## Five local manual checks
 
-1. **Historical evidence:** open a confirmed month in Salary → Breakdown. Check
-   gross, net, component signs and taxable/YTD figures against its payslip. For a
-   month with an advance, confirm net entitlement and matched bank deposits remain distinct.
-2. **Salary and payday:** on a test employer choose equal monthly instalments.
-   Compare a February and March full-month forecast: base salary must be identical.
-   Check a regular weekend-shifted payday keeps its actual cash date.
-3. **Confirmation guard:** try confirming a test forecast with missing values or
-   deliberately incorrect printed net. It must refuse. Enter all signed components,
-   correct printed totals and taxable pay; confirm successfully and check the totals.
-4. **Overtime:** approve a test entry in a cutoff window. The existing forecast must
-   show a review warning without its amount silently changing. Editing an approved
-   entry returns it to draft; a later salary revision must not change its saved rate.
-5. **Rebuild:** preview forecast changes, cancel and check amounts are unchanged.
-   Preview again and apply. Eligible forecasts update; confirmed historical actuals,
-   bank matches and manual overrides stay intact. Changing inputs after preview
-   must require a fresh preview.
+1. **Automatic overtime:** select the test employer's payroll year. Approve a draft
+   overtime entry and return to Breakdown. Gross/net update without Review or Apply.
+   Editing that entry returns it to draft and removes its pay until approved again.
+2. **Automatic salary:** record a dated salary revision on the test employer. Check
+   affected forecasts update and earlier confirmed history retains its actuals.
+3. **Payday:** change the test employer's payday. Its regular forecast and expected
+   income move together, with one income movement for that period. Weekend shifts
+   retain the correct nominal payroll month.
+4. **Compact view:** select two payroll years. Monthly totals combine employers by
+   pay month, and employer details follow the year selection. A March–April earning
+   window paid in April appears in April.
+5. **Evidence boundary:** reopen a known confirmed month and check gross, net and
+   bank matches remain unchanged. A forecast remains labelled forecast; optional
+   payslip confirmation still refuses missing components or incorrect printed net.
 
 Automated tests use synthetic examples only. Private source replay is supplementary
 evidence, not a public fixture or a claim of HMRC certification. Salary, overtime,
 pension policies and missing bank history cannot be inferred from a tax formula.
-
 ## Sources
 
 - [HMRC PAYE tax table routines v24](https://www.gov.uk/government/publications/payroll-technical-specifications-income-tax), sections 4.3–4.5 and 5.4.

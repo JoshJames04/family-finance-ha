@@ -1,12 +1,12 @@
 /** Salary: employments with current pay figures, payroll run history
  * with per-component forecast-vs-actual breakdown, payslip reconcile
- * for forecast runs, and add-run / add-employment flows. */
+ * for optional evidence checks, and automatic payroll generation. */
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import { Briefcase, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
-import { api } from "../api/client";
+import { api, getProfileId } from "../api/client";
 import { useApi } from "../api/useApi";
 import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
@@ -229,7 +229,7 @@ export function Salary() {
   const [rev, setRev] = useState(0);
   const [tab, setTab] = useState<"employers" | "breakdown" | "worklog">(params.has("run_id") ? "breakdown" : "employers");
   const [addingEmp, setAddingEmp] = useState(false);
-  const [addingRun, setAddingRun] = useState<Employment | null>(null);
+  const [year, setYear] = useState(String(new Date().getFullYear()));
   const employments = useApi(() => api.get("/api/v1/employments"), ready, [rev]);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const refresh = () => setRev((r) => r + 1);
@@ -248,6 +248,16 @@ export function Salary() {
       api.get("/api/v1/employments/{emp_id}/payroll-runs",
         { path: { emp_id: e.id } }))),
     ready && items.length > 0, [rev, employmentIds]);
+  const [openedRunId, setOpenedRunId] = useState<string | null>(null);
+  useEffect(() => {
+    const runId = params.get("run_id");
+    if (!runId || openedRunId === runId) return;
+    const target = (runsAll.data ?? []).flat().find(run => String(run.id) === runId);
+    if (target) {
+      setYear((target.statutory_pay_date ?? target.pay_date).slice(0, 4));
+      setOpenedRunId(runId);
+    }
+  }, [params, runsAll.data, openedRunId]);
   const horizon = (runsAll.data ?? []).flat()
     .reduce<string | null>(
       (m, r) => (m === null || r.pay_date > m ? r.pay_date : m), null);
@@ -274,9 +284,7 @@ export function Salary() {
           </button>
         ))}
       </div>
-      {tab === "breakdown" && (
-        <MonthlyPayrollSummary runs={(runsAll.data ?? []).flat()} />
-      )}
+
       <DataView
         state={{ ...employments, data: items }}
         empty="No employments yet"
@@ -300,18 +308,22 @@ export function Salary() {
             <WorkLogView employment={piecework} onChanged={refresh} />
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <MonthlyPayrollSummary runs={(runsAll.data ?? []).flat()} year={year} onYearChange={setYear} />
+            <div className="grid gap-4">
             {list.map((e) => (
               <EmploymentCard
                 key={e.id}
                 employment={e}
                 profileName={profiles.data?.items.find((p: Profile) => p.id === e.profile_id)?.display_name ?? null}
                 rev={rev}
-                onAddRun={() => setAddingRun(e)}
+                year={year}
+                onRefreshed={runsAll.refetch}
                 showSalaryActions={false}
                 onChanged={refresh}
               />
             ))}
+            </div>
           </div>
         )}
       </DataView>
@@ -319,7 +331,7 @@ export function Salary() {
       <AddEmploymentDialog open={addingEmp} onOpenChange={setAddingEmp}
         profiles={profiles.data?.items ?? []}
         employments={items} onSaved={refresh} />
-      {addingRun && <AddRunDialog employment={addingRun} onOpenChange={(o) => { if (!o) setAddingRun(null); }} onSaved={refresh} />}
+
     </div>
   );
 }
@@ -462,65 +474,54 @@ function WorkLogView({ employment, onChanged }: {
   );
 }
 
-function MonthlyPayrollSummary({ runs }: { runs: Run[] }) {
+function MonthlyPayrollSummary({ runs, year, onYearChange }: {
+  runs: Run[]; year: string; onYearChange: (year: string) => void;
+}) {
   const groups = new Map<string, Run[]>();
   for (const run of activeRuns(runs)) {
-    const key = run.period_start.slice(0, 7);
+    const key = (run.statutory_pay_date ?? run.pay_date).slice(0, 7);
     groups.set(key, [...(groups.get(key) ?? []), run]);
   }
-  const months = [...groups.entries()].sort(([a], [b]) => b.localeCompare(a));
-  if (!months.length) return null;
+  const years = [...new Set([year, String(new Date().getFullYear()),
+    ...[...groups.keys()].map(key => key.slice(0, 4))])].sort().reverse();
+  const months = [...groups.entries()].filter(([key]) => key.startsWith(year))
+    .sort(([a], [b]) => b.localeCompare(a));
   return (
-    <section aria-label="Monthly payroll summary" className="mb-5">
-      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-fg-subtle">
-        Monthly payroll summary
-      </h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {months.map(([month, monthRuns]) => {
-          const totals = monthRuns.reduce((acc, run) => {
-            const values = runAmounts(run);
-            acc.forecastGross += values.forecastGross;
-            acc.forecastNet += values.forecastNet;
-            if (values.actualGross !== null && values.actualNet !== null) {
-              acc.actualGross += values.actualGross;
-              acc.actualNet += values.actualNet;
-              acc.effectiveGross += values.actualGross;
-              acc.effectiveNet += values.actualNet;
-              acc.actualRuns++;
-            } else {
-              acc.effectiveGross += values.forecastGross;
-              acc.effectiveNet += values.forecastNet;
-            }
-            return acc;
-          }, {
-            forecastGross: 0, forecastNet: 0, actualGross: 0, actualNet: 0,
-            effectiveGross: 0, effectiveNet: 0, actualRuns: 0,
-          });
-          const mixed = totals.actualRuns > 0 && totals.actualRuns < monthRuns.length;
-          return (
-            <div key={month} className="rounded-xl border border-border bg-surface px-4 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[13px] font-medium">{month}</span>
-                <Badge tone={mixed ? "warning" : totals.actualRuns ? "success" : "info"}>
-                  {mixed ? "mixed actual / forecast" : totals.actualRuns ? "actual" : "forecast"}
-                </Badge>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-3 text-[12px]">
-                <span><span className="block text-fg-subtle">Effective gross</span>
-                  <Money pence={totals.effectiveGross} />
-                  {mixed && <span className="block text-fg-subtle">actual <Money pence={totals.actualGross} /> · forecast <Money pence={totals.forecastGross} /></span>}</span>
-                <span><span className="block text-fg-subtle">Effective net</span>
-                  <Money pence={totals.effectiveNet} />
-                  {mixed && <span className="block text-fg-subtle">actual <Money pence={totals.actualNet} /> · forecast <Money pence={totals.forecastNet} /></span>}</span>
-              </div>
-            </div>
-          );
-        })}
+    <section aria-label="Monthly payroll summary" className="min-w-0 rounded-xl border border-border bg-surface">
+      <div className="flex items-center justify-between gap-4 border-b border-border p-4">
+        <div><h2 className="text-sm font-semibold">Monthly payroll</h2>
+          <p className="text-xs text-fg-subtle">All employers · grouped by pay month</p></div>
+        <Select aria-label="Payroll year" value={year} onChange={e => onYearChange(e.target.value)} className="w-28">
+          {years.map(value => <option key={value} value={value}>{value}</option>)}
+        </Select>
       </div>
+      <div className="overflow-x-auto"><table className="ff-table w-full text-[13px]">
+        <thead><tr className="border-b border-border text-left text-xs text-fg-subtle">
+          <th className="p-3 font-medium">Month</th><th className="p-3 text-right font-medium">Gross</th>
+          <th className="p-3 text-right font-medium">Net</th><th className="p-3 font-medium">Status</th>
+        </tr></thead>
+        <tbody>{months.map(([month, monthRuns]) => {
+          const totals = monthRuns.reduce((sum, run) => {
+            const values = runAmounts(run);
+            return {gross:sum.gross + (values.actualGross ?? values.forecastGross),
+              net:sum.net + (values.actualNet ?? values.forecastNet),
+              actual:sum.actual + (values.actualNet !== null ? 1 : 0)};
+          }, {gross:0, net:0, actual:0});
+          const mixed = totals.actual > 0 && totals.actual < monthRuns.length;
+          return <tr key={month} className="border-b border-border last:border-0">
+            <td className="p-3 font-medium">{month}</td>
+            <td className="p-3 text-right"><Money pence={totals.gross} /></td>
+            <td className="p-3 text-right font-medium"><Money pence={totals.net} /></td>
+            <td className="p-3"><Badge tone={mixed ? "warning" : totals.actual ? "success" : "info"}>
+              {mixed ? "mixed actual / forecast" : totals.actual ? "actual" : "forecast"}
+            </Badge></td>
+          </tr>;
+        })}</tbody>
+      </table></div>
+      {!months.length && <p className="p-4 text-sm text-fg-subtle">No payroll for {year}.</p>}
     </section>
   );
 }
-
 /** Employers tab: 50/50 — employer list left, the selected
  * employer's salary history and settings right. */
 function EmployersView({ employments, rev, onChanged }: {
@@ -865,14 +866,16 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
   );
 }
 
-function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryActions = true, onChanged }: {
+function EmploymentCard({ employment: e, profileName, rev, year, onRefreshed, showSalaryActions = true, onChanged }: {
   employment: Employment;
   profileName: string | null;
   rev: number;
-  onAddRun: () => void;
+  year: string;
+  onRefreshed: () => void;
   showSalaryActions?: boolean;
   onChanged: () => void;
 }) {
+  const [params] = useSearchParams();
   const salary = useApi(
     () => api.get("/api/v1/employments/{emp_id}/salary",
       { path: { emp_id: e.id }, query: { on: toISODate(new Date()) } }),
@@ -884,18 +887,18 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
   const [reconciling, setReconciling] = useState<Run | null>(null);
   const [payslipRun, setPayslipRun] = useState<Run | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
-  const [rebuild, setRebuild] = useState<{fingerprint:string; changes:{run_id:number;pay_date:string;old_pay_date:string;new_pay_date:string;old_net_pence:number;new_net_pence:number;old_period_start:string;old_period_end:string;new_period_start:string;new_period_end:string}[]; warnings:string[]} | null>(null);
-  const [rebuildBusy, setRebuildBusy] = useState(false);
-  const rebuildForecasts = (apply = false) => {
-    setRebuildBusy(true);
-    api.post("/api/v1/employments/{emp_id}/rebuild-forecasts", {
-      path:{emp_id:e.id}, body:{apply, fingerprint:apply ? rebuild?.fingerprint : undefined},
-    }).then(value => {
-      if (apply) { setRebuild(null); onChanged(); toast.success("Forecasts rebuilt; recorded actuals preserved"); }
-      else setRebuild(value as typeof rebuild);
-    }).catch((err:Error) => toast.error(err.message)).finally(() => setRebuildBusy(false));
-  };
-  const sorted = [...(runs.data ?? [])].sort((a, b) => b.pay_date.localeCompare(a.pay_date));
+  const automation = useApi(async () => {
+    const result = await api.post("/api/v1/employments/{emp_id}/refresh-payroll", {path:{emp_id:e.id}});
+    runs.refetch();
+    onRefreshed();
+    return result;
+  }, getProfileId() === null || getProfileId() === e.profile_id, [e.id, rev]);
+  const active = activeRuns(runs.data ?? []);
+  const visible = (run: Run) => (run.statutory_pay_date ?? run.pay_date).startsWith(year);
+  const linked = (run: Run) => params.get("run_id") === String(run.id);
+  const sorted = (runs.data ?? []).filter(run => visible(run) && (active.includes(run) || linked(run)))
+    .sort((a,b) => b.pay_date.localeCompare(a.pay_date));
+  const history = (runs.data ?? []).filter(run => visible(run) && !active.includes(run) && !linked(run));
 
   return (
     <Panel flush>
@@ -912,7 +915,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
           )}
         </div>
         <div className="flex items-center gap-5">
-          {salary.data && (
+          {showSalaryActions && salary.data && (
             <div className="text-right">
               <p className="tnum text-[17px] font-semibold"><Money pence={salary.data.annual_salary_pence} /></p>
               <p className="text-[11.5px] text-fg-subtle">per year · {formatPence(salary.data.hourly_rate_pence)}/hr</p>
@@ -923,12 +926,14 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
               New salary
             </Button>
           )}
-          <Button size="sm" variant="secondary" disabled={rebuildBusy} onClick={() => rebuildForecasts()}>Review forecasts</Button>
-          <Button size="sm" variant="secondary" onClick={onAddRun}><Plus /> Add run</Button>
+
+
         </div>
       </div>
 
       <div className="border-t border-border">
+        {automation.error && <ErrorState message={automation.error} onRetry={automation.refetch} />}
+        {!!automation.data?.issues?.length && <p role="status" className="px-4 py-2 text-xs text-warning">{automation.data.issues.join(" · ")}</p>}
         {runs.error && <ErrorState message={runs.error} onRetry={runs.refetch} />}
         {runs.error && !(runs.data?.length) ? null : (runs.data ?? []).length === 0 ? (
           <p className="px-4 py-6 text-center text-[13px] text-fg-subtle">
@@ -960,17 +965,13 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
         )}
       </div>
 
-      {rebuild && <Dialog open onOpenChange={open => { if (!open) setRebuild(null); }} title="Review forecast changes"
-        description="Only unconfirmed runs without bank matches, actuals or manual overrides can be rebuilt."
-        footer={<><Button variant="ghost" onClick={() => setRebuild(null)}>Cancel</Button>
-          <Button disabled={rebuildBusy || !rebuild.changes.length} onClick={() => rebuildForecasts(true)}>Apply forecast changes</Button></>}>
-        {rebuild.warnings.map(w => <p key={w} className="text-sm text-warning">{w}</p>)}
-        {!rebuild.changes.length && <p>No eligible forecasts to rebuild.</p>}
-        {rebuild.changes.map(c => <div key={c.run_id} className="py-2 text-sm"><p>{formatSmartDate(c.pay_date)}: {formatPence(c.old_net_pence)} → {formatPence(c.new_net_pence)}</p>
-          {c.old_pay_date !== c.new_pay_date && <p className="text-xs text-fg-muted">Pay date: {formatSmartDate(c.old_pay_date)} → {formatSmartDate(c.new_pay_date)}</p>}
-          {(c.old_period_start !== c.new_period_start || c.old_period_end !== c.new_period_end) && <p className="text-xs text-fg-muted">Work window: {c.old_period_start}–{c.old_period_end} → {c.new_period_start}–{c.new_period_end}</p>}
-        </div>)}
-      </Dialog>}
+      {!!history.length && <details className="border-t border-border p-4">
+        <summary className="cursor-pointer text-xs text-fg-muted">Earlier versions and withdrawn forecasts ({history.length})</summary>
+        <div className="mt-3 overflow-x-auto"><table className="ff-table w-full text-[13px]"><tbody>
+          {history.map(run => <RunRow key={run.id} run={run} empId={e.id}
+            onReconcile={() => setReconciling(run)} onPayslip={() => setPayslipRun(run)} />)}
+        </tbody></table></div>
+      </details>}
       {reconciling && (
         <ReconcileDialog
           run={reconciling}
@@ -1127,7 +1128,7 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
           {r.status === "forecast" && (
             <>
               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onReconcile(); }}>
-                Reconcile
+                Check amounts
               </Button>
             </>
           )}
@@ -1388,52 +1389,6 @@ function ReconcileDialog({ run, empId, grossOnly, onOpenChange, onSaved }: {
           </div>
         ))}
         <PayrollFactsFields values={facts} onChange={setFacts} grossOnly={grossOnly} />
-      </form>
-    </Dialog>
-  );
-}
-
-function AddRunDialog({ employment, onOpenChange, onSaved }: {
-  employment: Employment;
-  onOpenChange: (o: boolean) => void;
-  onSaved: () => void;
-}) {
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [payDate, setPayDate] = useState("");
-  const [bonus, setBonus] = useState("");
-  const [busy, setBusy] = useState(false);
-  const valid = start && end && payDate;
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!valid) return;
-    setBusy(true);
-    api.post("/api/v1/employments/{emp_id}/payroll-runs", {
-      path: { emp_id: employment.id },
-      body: {
-        period_start: start,
-        period_end: end,
-        pay_date: payDate,
-        bonus: bonus || null,
-      },
-    })
-      .then(() => { toast.success("Payroll run added"); onSaved(); onOpenChange(false); })
-      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
-  };
-  return (
-    <Dialog open onOpenChange={onOpenChange} title={`New payroll run — ${employment.employer}`}
-      description="The engine computes gross, tax, NI and deductions for the period."
-      footer={<>
-        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button variant="primary" type="submit" form="ff-add-run" disabled={!valid || busy}>{busy ? "Adding…" : "Add run"}</Button>
-      </>}>
-      <form id="ff-add-run" onSubmit={submit} className="grid gap-4">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Period start">{(id) => <Input id={id} type="date" value={start} onChange={(e) => setStart(e.target.value)} />}</Field>
-          <Field label="Period end">{(id) => <Input id={id} type="date" value={end} onChange={(e) => setEnd(e.target.value)} />}</Field>
-          <Field label="Pay date">{(id) => <Input id={id} type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />}</Field>
-        </div>
-        <Field label="One-off bonus (£)" hint="Optional.">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={bonus} onChange={(e) => setBonus(e.target.value.trim())} />}</Field>
       </form>
     </Dialog>
   );

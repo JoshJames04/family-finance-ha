@@ -460,7 +460,9 @@ def test_rebuild_moves_regular_cash_date_and_projection_after_rule_change(sessio
     assert len(rows) == 1 and rows[0].expected_date == date(2027, 1, 25)
 
 
-def test_payday_edit_preserves_legacy_calendar_provenance_before_rebuild(session, household, emp):
+def test_payday_edit_preserves_legacy_calendar_provenance_during_auto_refresh(
+    session, household, emp
+):
     import json
 
     from app.api import schemas
@@ -479,8 +481,8 @@ def test_payday_edit_preserves_legacy_calendar_provenance_before_rebuild(session
         "Test",
         None,
     )
-    preview = payrun.rebuild_forecasts(session, emp, apply=False)
-    assert preview["changes"][0]["new_pay_date"] == "2027-01-25"
+    assert run.pay_date == date(2027, 1, 25)
+    assert not run.forecast_stale
 
 
 def test_irregular_forecast_date_is_preserved_when_regular_rule_changes(session, emp):
@@ -637,7 +639,7 @@ def test_legacy_leave_does_not_invent_a_missing_day_count(session, emp):
 
 
 @pytest.mark.parametrize("day", [25, 31])
-def test_payday_edit_does_not_add_a_second_salary_before_rebuild(session, household, emp, day):
+def test_payday_edit_auto_refresh_does_not_add_a_second_salary(session, household, emp, day):
     from app.api import schemas
     from app.api.v1 import employments
     from app.domain import schedule
@@ -673,7 +675,7 @@ def test_payday_edit_does_not_add_a_second_salary_before_rebuild(session, househ
             )
         )
         assert len(rows) == 1 and rows[0].source_type is ExpectedSource.payroll_run
-        assert rows[0].expected_date == date(2027, 1, 28)
+        assert rows[0].expected_date == date(2027, 1, day)
     preview = payrun.rebuild_forecasts(session, emp, apply=False)
     payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
     schedule.rematerialize_employment(session, emp, today=date(2027, 1, 1), horizon_days=31)

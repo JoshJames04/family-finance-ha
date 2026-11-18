@@ -41,7 +41,7 @@ def _forecast_calendar(employment: Employment, run: PayrollRun) -> tuple[date, d
         label = date.fromisoformat(
             snapshot.get("payroll_month", run.period_end.replace(day=1).isoformat())
         )
-        end = run.period_end
+        end = date.fromisoformat(snapshot.get("automatic_period_end", run.period_end.isoformat()))
         if employment.payday_rule and "cutoff_day" in employment.payday_rule:
             end = label.replace(day=calendar.monthrange(label.year, label.month)[1])
         old_rule = snapshot.get("payday_rule", employment.payday_rule)
@@ -72,6 +72,34 @@ def _forecast_calendar(employment: Employment, run: PayrollRun) -> tuple[date, d
     ):
         return label, run.pay_date, end, True  # Deliberate one-off forecast date.
     return label, paydays.pay_date(new, label.year, label.month), end, False
+
+
+def protected_run_ids(session: Session, runs: list[PayrollRun]) -> set[int]:
+    """Rows whose independent evidence must survive any automatic refresh."""
+    overridden_ids = set(
+        session.scalars(
+            select(PayrollOverride.run_id).where(PayrollOverride.run_id.in_([r.id for r in runs]))
+        )
+    )
+    matched_ids = set(
+        session.scalars(
+            select(ExpectedMovement.source_id)
+            .join(ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id)
+            .where(
+                ExpectedMovement.source_type == ExpectedSource.payroll_run,
+                ExpectedMovement.source_id.in_([r.id for r in runs]),
+            )
+        )
+    )
+    return {
+        r.id
+        for r in runs
+        if r.status is not PayrollRunStatus.forecast
+        or r.id in overridden_ids
+        or r.id in matched_ids
+        or r.corrects_id is not None
+        or any(c.actual_pence is not None for c in r.components)
+    }
 
 
 def rebuild_forecasts(
@@ -161,30 +189,7 @@ def rebuild_forecasts(
         raise PayrollError("payroll inputs changed; preview the changes again before applying")
     changes: list[dict[str, Any]] = []
     warnings: list[str] = []
-    overridden_ids = set(
-        session.scalars(
-            select(PayrollOverride.run_id).where(PayrollOverride.run_id.in_([r.id for r in runs]))
-        )
-    )
-    matched_ids = set(
-        session.scalars(
-            select(ExpectedMovement.source_id)
-            .join(ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id)
-            .where(
-                ExpectedMovement.source_type == ExpectedSource.payroll_run,
-                ExpectedMovement.source_id.in_([r.id for r in runs]),
-            )
-        )
-    )
-    protected_ids = {
-        r.id
-        for r in runs
-        if r.status is not PayrollRunStatus.forecast
-        or r.id in overridden_ids
-        or r.id in matched_ids
-        or r.corrects_id is not None
-        or any(c.actual_pence is not None for c in r.components)
-    }
+    protected_ids = protected_run_ids(session, runs)
     calendars = {
         r.id: _forecast_calendar(employment, r)
         for r in runs
@@ -256,6 +261,8 @@ def rebuild_forecasts(
                     replacement_for=run.id,
                 )
                 snapshot = json.loads(new.calculation_inputs or "{}")
+                if "automatic_period_end" in source_inputs:
+                    snapshot["automatic_period_end"] = source_inputs["automatic_period_end"]
                 snapshot["cash_date_override"] = cash_override
                 snapshot["unpaid_leave_basis_unknown"] = leave_basis_unknown
                 new.calculation_inputs = json.dumps(snapshot, sort_keys=True)

@@ -619,7 +619,12 @@ def confirm_payslip(
     if run.status.value != "forecast":
         raise HTTPException(409, "reconciled history is immutable; use correction")
     payrun.reconcile(session, run, **body.model_dump())
+    from app.domain import payroll_automation
+
     schedule.rematerialize_payroll_run(session, run)
+    employment = session.get(Employment, run.employment_id)
+    assert employment is not None  # Already authorised by _run.
+    payroll_automation.refresh(session, employment)
     extracted = json.loads(row.extracted_json or "{}")
     extracted["confirmed_actuals"] = {kind.value: value for kind, value in body.actuals.items()}
     row.extracted_json = json.dumps(extracted)

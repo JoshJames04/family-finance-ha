@@ -290,11 +290,11 @@ class TestApi:
                         json={"year": 2027}, headers=h)
         assert r.status_code == 201
         body = r.json()
-        assert body["runs_created"] == 12
-        assert body["runs_skipped"] == 0
+        assert body["runs_created"] + body["runs_skipped"] == 12
+        assert body["runs_skipped"] == 12  # Already generated automatically.
         runs = client.get(f"/api/v1/employments/{eid}/payroll-runs",
                           headers=h).json()
-        assert len(runs) == 12
+        assert len([r for r in runs if r["pay_date"].startswith("2027-")]) == 12
         assert {r["pay_date"] for r in runs}  # all have pay dates
         # re-run is a no-op
         body2 = client.post("/api/v1/employments/prepare-year",

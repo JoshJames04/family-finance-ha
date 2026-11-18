@@ -2079,3 +2079,9 @@ class IntegrationSettingsOut(BaseModel):
 
 class IntegrationSettingsPatch(BaseModel):
     detail: str
+
+
+class PayrollRefreshOut(BaseModel):
+    generated: int
+    updated: int
+    issues: list[str]

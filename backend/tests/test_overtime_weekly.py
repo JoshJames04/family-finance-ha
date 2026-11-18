@@ -336,11 +336,11 @@ def test_service_cannot_submit_weeks(client, scope):
     assert create(client, scope)["status"] == "draft"
 
 
-def test_weekly_approval_preserves_saved_payroll_and_period_cutoff(client, scope):
+def test_weekly_approval_refreshes_forecast_and_preserves_period_cutoff(client, scope):
     h, eid = scope
     initial = [create(client, scope, "2026-12-31"), create(client, scope, "2027-01-01")]
     run_body = {"period_start": "2026-12-01", "period_end": "2026-12-31", "pay_date": "2026-12-31"}
-    client.patch(f"/api/v1/employments/{eid}", headers=h, json={"deduction_mode":"gross_only"})
+    client.patch(f"/api/v1/employments/{eid}", headers=h, json={"deduction_mode": "gross_only"})
     saved = client.post(f"/api/v1/employments/{eid}/payroll-runs", headers=h, json=run_body)
     assert saved.status_code == 201, saved.text
     saved_body = saved.json()
@@ -358,9 +358,13 @@ def test_weekly_approval_preserves_saved_payroll_and_period_cutoff(client, scope
             ot.approved_total_pence(session, eid, date(2027, 1, 1), date(2027, 1, 31))
             == initial[1]["pay_pence"]
         )
-    assert client.get(
+    updated = client.get(
         f"/api/v1/employments/{eid}/payroll-runs/{saved_body['id']}", headers=h
-    ).json() == (saved_body | {"forecast_stale": True})
+    ).json()
+    assert updated["id"] == saved_body["id"]
+    assert updated["gross_pence"] == saved_body["gross_pence"] + initial[0]["pay_pence"]
+    assert not updated["forecast_stale"]
+    assert all(c["actual_pence"] is None for c in updated["components"])
 
 
 def test_old_draft_snapshot_cannot_replay_after_rejection_and_rework(client, scope):

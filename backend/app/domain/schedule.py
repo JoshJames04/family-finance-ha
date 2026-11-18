@@ -337,6 +337,18 @@ def _prune_employment_rows(
     session.flush()
 
 
+def withdraw_employment_estimates(session: Session, employment: Employment, today: date) -> None:
+    """Missing calculation evidence must not fall back to guessed salary income."""
+    rows = session.scalars(
+        select(ExpectedMovement).where(
+            ExpectedMovement.source_type == ExpectedSource.employment,
+            ExpectedMovement.source_id == employment.id,
+            ExpectedMovement.expected_date >= today,
+        )
+    )
+    _prune_employment_rows(session, {(row.expected_date, row.account_id): row for row in rows})
+
+
 def rematerialize_employment(
     session: Session,
     employment: Employment,

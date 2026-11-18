@@ -1,7 +1,7 @@
 /** #296: salary is an effective-dated series — the card shows the
  * dated history, "New salary" records a revision from a date, and
  * adding an employment can seed its first revision. */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -231,7 +231,7 @@ it('passes gross-only mode through the manual reconciliation dialog', async () =
   const user = userEvent.setup();
   open();
   await user.click(await screen.findByRole('button',{name:'Breakdown'}));
-  await user.click(await screen.findByRole('button',{name:'Reconcile'}));
+  await user.click(await screen.findByRole('button',{name:'Check amounts'}));
   expect(screen.getByLabelText('Taxable pay this period (optional)')).toBeTruthy();
 });
 
@@ -284,5 +284,33 @@ describe('Uploaded payslip completeness', () => {
       expect(Object.keys(body.actuals).length).toBeGreaterThanOrEqual(9);
       expect(body.taxable_pence).toBeUndefined();
     });
+  });
+});
+
+describe("Automatic compact payroll", () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("refreshes on opening Breakdown and groups cutoff payroll by pay month", async () => {
+    const calls: {url:string;method:string;body:string}[] = [];
+    stubFetch(calls, {payrollRuns:[{...GROSS_ONLY_RUN, period_start:'2026-03-16',
+      period_end:'2026-04-15', statutory_pay_date:'2026-04-28'}]});
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+    expect(await screen.findByLabelText('Payroll year')).toBeTruthy();
+    await waitFor(() => expect(calls.some(c => c.method === 'POST' && c.url.endsWith('/1/refresh-payroll'))).toBe(true));
+    const summary = screen.getByRole('region', {name:'Monthly payroll summary'});
+    expect(within(summary).getByText('2026-04')).toBeTruthy();
+    expect(within(summary).queryByText('2026-03')).toBeNull();
+    expect(screen.queryByRole('button',{name:'Add run'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'Review forecasts'})).toBeNull();
+  });
+});
+describe("Historical payroll links", () => {
+  afterEach(() => {cleanup(); vi.restoreAllMocks();});
+  it("selects the linked payroll year instead of hiding an old run", async () => {
+    stubFetch([], {payrollRuns:[{...GROSS_ONLY_RUN, pay_date:'2025-04-28', statutory_pay_date:'2025-04-28', period_start:'2025-04-01', period_end:'2025-04-30'}]});
+    render(<MemoryRouter initialEntries={['/?run_id=5']}><Salary /></MemoryRouter>);
+    await waitFor(() => expect((screen.getByLabelText('Payroll year') as HTMLSelectElement).value).toBe('2025'));
+    expect(screen.getByRole('button', {name:'Payslip'})).toBeTruthy();
   });
 });

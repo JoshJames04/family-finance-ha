@@ -1085,6 +1085,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/refresh-payroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Payroll */
+        post: operations["refresh_payroll_api_v1_employments__emp_id__refresh_payroll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/salary-revisions": {
         parameters: {
             query?: never;
@@ -6455,6 +6472,15 @@ export interface components {
             /** Statutory Pay Date */
             statutory_pay_date?: string | null;
         };
+        /** PayrollRefreshOut */
+        PayrollRefreshOut: {
+            /** Generated */
+            generated: number;
+            /** Updated */
+            updated: number;
+            /** Issues */
+            issues: string[];
+        };
         /** PayrollRunIn */
         PayrollRunIn: {
             /**
@@ -10475,6 +10501,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrepareYearOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_payroll_api_v1_employments__emp_id__refresh_payroll_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRefreshOut"];
                 };
             };
             /** @description Validation Error */

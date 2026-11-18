@@ -19,7 +19,7 @@ from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.api.payroll_scope import authorize_employment
 from app.domain import budgets as budget_dom
 from app.domain import overtime as ot
-from app.domain import pay_calendar, paydays, payrun, rbac, schedule
+from app.domain import pay_calendar, paydays, payroll_automation, payrun, rbac, schedule
 from app.domain import payroll as dom
 from app.persistence.models import (
     Account,
@@ -158,9 +158,10 @@ def create_employment(
         )
     if prior is not None and replacement_end is not None:
         prior.end_date = replacement_end
+        dom.invalidate_forecasts(session, prior.id)
         session.flush()
-        schedule.rematerialize_employment(session, prior)
-    schedule.rematerialize_employment(session, e)
+        payroll_automation.refresh(session, prior)
+    payroll_automation.refresh(session, e)
     emit(
         session,
         household.id,
@@ -200,7 +201,7 @@ def delete_employment(
             "set an end_date instead of deleting",
         )
     e.is_active = False
-    schedule.rematerialize_employment(session, e)
+    payroll_automation.refresh(session, e)
     for tax_rev in list(e.tax_code_revisions):
         session.delete(tax_rev)
     for rev in list(e.salary_revisions):
@@ -423,7 +424,7 @@ def prepare_year(
             else:
                 runs_created += 1
         # Real runs now cover their paydays — drop the projected rows.
-        schedule.rematerialize_employment(session, e)
+        payroll_automation.refresh(session, e)
     for b in session.scalars(select(Budget).where(Budget.household_id == household.id)).all():
         if b.end_date.year != year - 1:
             continue  # only budgets ending last year
@@ -459,6 +460,19 @@ def prepare_year(
         budgets_created=budgets_created,
         warnings=warnings,
     )
+
+
+@router.post("/{emp_id}/refresh-payroll", response_model=schemas.PayrollRefreshOut)
+def refresh_payroll(
+    emp_id: int,
+    household: HouseholdDep,
+    session: SessionDep,
+    profile: ProfileDep,
+) -> dict[str, object]:
+    e = _get(session, household.id, emp_id)
+    if profile is not None and e.profile_id != profile.id:
+        raise HTTPException(403, "only the payroll owner may refresh payroll")
+    return payroll_automation.refresh(session, e)
 
 
 @router.get("/{emp_id}", response_model=schemas.EmploymentOut)
@@ -517,7 +531,7 @@ def patch_employment(
     session.flush()
     dom.invalidate_forecasts(session, e.id)
     # Rule/account/activity changes all reshape the projection.
-    schedule.rematerialize_employment(session, e)
+    payroll_automation.refresh(session, e)
     if "paid_into_account_id" in changed:
         for r in session.scalars(select(PayrollRun).where(PayrollRun.employment_id == e.id)).all():
             schedule.rematerialize_payroll_run(session, r)
@@ -557,7 +571,7 @@ def add_salary_revision(
     rev = dom.add_salary_revision(
         session, e, body.effective_date, body.annual_salary.pence, body.notes
     )
-    schedule.rematerialize_employment(session, e)
+    payroll_automation.refresh(session, e)
     emit(
         session,
         household.id,
@@ -596,7 +610,7 @@ def patch_salary_revision(
         annual_pence=changed.get("annual_salary"),
         notes=changed.get("notes", ...),
     )
-    schedule.rematerialize_employment(session, _get(session, household.id, emp_id))
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,
@@ -619,7 +633,7 @@ def delete_salary_revision(
 ) -> None:
     rev = _get_revision(session, household.id, emp_id, rev_id)
     dom.delete_salary_revision(session, rev)
-    schedule.rematerialize_employment(session, _get(session, household.id, emp_id))
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,
@@ -653,7 +667,7 @@ def add_tax_code_revision(
 ) -> schemas.TaxCodeRevisionOut:
     e = _get(session, household.id, emp_id)
     rev = dom.add_tax_code_revision(session, e, body.effective_date, body.tax_code, body.notes)
-    schedule.rematerialize_employment(session, e)
+    payroll_automation.refresh(session, e)
     emit(
         session,
         household.id,
@@ -923,6 +937,7 @@ def create_overtime(
             "hours": str(o.hours),
         },
     )
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     return schemas.OvertimeOut.model_validate(o)
 
 
@@ -969,6 +984,7 @@ def overtime_week_transition(
                 },
             )
         session.flush()
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     return schemas.OvertimeWeekOut(
         week_start=week_start, week_end=week_end, action=action, updated_count=len(entries)
     )
@@ -1004,6 +1020,7 @@ def overtime_transition(
         o.id,
         {"employment_id": emp_id, "status": o.status.value},
     )
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     return schemas.OvertimeOut.model_validate(o)
 
 
@@ -1039,6 +1056,7 @@ def patch_overtime(
         o.id,
         {"employment_id": emp_id, "fields": sorted(changed.keys())},
     )
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     return schemas.OvertimeOut.model_validate(o)
 
 
@@ -1053,6 +1071,7 @@ def delete_overtime(
     _get(session, household.id, emp_id)
     o = _entry(session, emp_id, entry_id)
     ot.delete_entry(session, o)
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,
@@ -1104,7 +1123,7 @@ def create_payroll_run(
         unpaid_leave_days=body.unpaid_leave_days,
     )
     schedule.rematerialize_payroll_run(session, r)
-    schedule.rematerialize_employment(session, e)
+    payroll_automation.refresh(session, e)
     emit(
         session,
         household.id,
@@ -1141,6 +1160,7 @@ def reconcile_payroll_run(
     r = _run(session, emp_id, run_id)
     variances = payrun.reconcile(session, r, **body.model_dump())
     schedule.rematerialize_payroll_run(session, r)  # → scheduled
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,
@@ -1195,6 +1215,7 @@ def correct_payroll_run(
     new = payrun.correct(session, r)
     schedule.rematerialize_payroll_run(session, r)  # drop corrected
     schedule.rematerialize_payroll_run(session, new)  # add correction
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,
@@ -1222,6 +1243,7 @@ def reopen_payroll_run(
     new = payrun.reopen(session, r)
     schedule.rematerialize_payroll_run(session, r)
     schedule.rematerialize_payroll_run(session, new)
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,
@@ -1260,6 +1282,7 @@ def override_payroll_run(
         actor=actor or "unknown",
     )
     schedule.rematerialize_payroll_run(session, r)
+    payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,

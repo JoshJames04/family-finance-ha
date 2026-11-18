@@ -179,5 +179,5 @@ include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
 
-Payroll forecasts, explicit payslip confirmation and the five local acceptance
+Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
 checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).
