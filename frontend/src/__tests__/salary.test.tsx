@@ -307,6 +307,7 @@ it('passes gross-only mode through the manual reconciliation dialog', async () =
   const user = userEvent.setup();
   open();
   await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+  await user.click(await screen.findByRole('button',{name:'Show payroll details for 2026-04-28'}));
   await user.click(await screen.findByRole('button',{name:'Check amounts'}));
   expect(screen.getByLabelText('Taxable pay this period (optional)')).toBeTruthy();
 });
@@ -388,5 +389,18 @@ describe("Historical payroll links", () => {
     render(<MemoryRouter initialEntries={['/?run_id=5']}><Salary /></MemoryRouter>);
     await waitFor(() => expect((screen.getByLabelText('Payroll year') as HTMLSelectElement).value).toBe('2025'));
     expect(screen.getByRole('button', {name:'Payslip'})).toBeTruthy();
+  });
+});
+describe("Compact employer rows", () => {
+  afterEach(() => {cleanup(); vi.restoreAllMocks();});
+  it("keeps optional amount checking and gross breakdown inside the expanded detail", async () => {
+    stubFetch([], {payrollRuns:[GROSS_ONLY_RUN]});
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+    expect(screen.queryByRole('button',{name:'Check amounts'})).toBeNull();
+    await user.click(await screen.findByRole('button',{name:'Show payroll details for 2026-04-28'}));
+    expect(await screen.findByRole('button',{name:'Check amounts'})).toBeTruthy();
+    expect(screen.getByText('Forecast gross')).toBeTruthy();
   });
 });
