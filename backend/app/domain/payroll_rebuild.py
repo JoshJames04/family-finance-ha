@@ -225,6 +225,20 @@ def rebuild_forecasts(
                         PayrollComponentKind.unpaid_leave,
                     )
                 }
+                source_inputs = json.loads(run.calculation_inputs or "{}")
+                days = source_inputs.get("unpaid_leave_days")
+                leave_days = Decimal(days) if days is not None else None
+                fixed_leave = source_inputs.get(
+                    "unpaid_leave_fixed_pence", -adjustments[PayrollComponentKind.unpaid_leave]
+                )
+                leave_basis_unknown = bool(source_inputs.get("unpaid_leave_basis_unknown")) or (
+                    bool(adjustments[PayrollComponentKind.unpaid_leave])
+                    and "unpaid_leave_fixed_pence" not in source_inputs
+                )
+                if leave_basis_unknown:
+                    warnings.append(
+                        f"Run {run.id}: original leave basis unknown; cash deduction preserved"
+                    )
                 run.status = PayrollRunStatus.corrected
                 session.flush()
                 new = payrun.generate(
@@ -235,13 +249,15 @@ def rebuild_forecasts(
                     pay_date=cash_date,
                     bonus_pence=adjustments[PayrollComponentKind.bonus],
                     allowance_pence=adjustments[PayrollComponentKind.allowance],
-                    unpaid_leave_pence=-adjustments[PayrollComponentKind.unpaid_leave],
+                    unpaid_leave_pence=fixed_leave,
+                    unpaid_leave_days=leave_days,
                     allow_stale_rules=True,
                     emit_event=False,
                     replacement_for=run.id,
                 )
                 snapshot = json.loads(new.calculation_inputs or "{}")
                 snapshot["cash_date_override"] = cash_override
+                snapshot["unpaid_leave_basis_unknown"] = leave_basis_unknown
                 new.calculation_inputs = json.dumps(snapshot, sort_keys=True)
                 if new.id in {r.id for r in runs}:
                     raise PayrollError(

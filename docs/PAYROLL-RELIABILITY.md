@@ -62,6 +62,12 @@ a bank payment has been independently verified.
 
 ## Reviewing forecasts
 
+Leave entered as days retains its original day count separately from fixed cash
+deductions. Rebuilds recalculate those days using the current salary and working
+week, without double-counting cash adjustments. A legacy unknown basis stays
+unknown: its cash deduction is preserved and the preview warns, rather than
+inventing a day count.
+
 Configuration changes, overtime approvals/edits and confirmed corrections mark
 affected forecasts for review without changing their amounts. Use Salary → Breakdown
 → **Review forecasts**. Preview makes no persistent changes. **Apply forecast changes**

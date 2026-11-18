@@ -553,3 +553,84 @@ def test_irregular_date_stays_explicit_after_matching_an_intermediate_regular_ru
         preview = payrun.rebuild_forecasts(session, emp, apply=False)
         payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
         assert run.pay_date == date(2027, 1, 20)
+
+
+@pytest.mark.parametrize("change,new_deduction", [("salary", 36923), ("working_week", 34615)])
+@pytest.mark.parametrize("fixed", [0, 1234])
+def test_rebuild_recalculates_original_leave_days_without_double_counting_cash(
+    session, emp, change, new_deduction, fixed
+):
+    import json
+
+    from app.domain import payroll
+
+    emp.deduction_mode = "gross_only"
+    emp.salary_policy = "equal_monthly"
+    run = payrun.generate(
+        session,
+        emp,
+        start=date(2027, 1, 1),
+        end=date(2027, 1, 31),
+        pay_date=date(2027, 1, 28),
+        unpaid_leave_days=Decimal("2"),
+        unpaid_leave_pence=fixed,
+    )
+    if change == "salary":
+        payroll.add_salary_revision(session, emp, date(2027, 1, 1), 4800000)
+        base = 400000
+    else:
+        emp.work_days_per_week = Decimal("4")
+        base = 300000
+    for _ in range(2):
+        preview = payrun.rebuild_forecasts(session, emp, apply=False)
+        payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+        assert run.net_pence == base - new_deduction - fixed
+        inputs = json.loads(run.calculation_inputs)
+        assert Decimal(inputs["unpaid_leave_days"]) == 2
+        assert inputs["unpaid_leave_fixed_pence"] == fixed
+
+
+def test_rebuild_preserves_fixed_cash_leave_when_salary_changes(session, emp):
+    from app.domain import payroll
+
+    emp.deduction_mode = "gross_only"
+    emp.salary_policy = "equal_monthly"
+    run = payrun.generate(
+        session,
+        emp,
+        start=date(2027, 1, 1),
+        end=date(2027, 1, 31),
+        pay_date=date(2027, 1, 28),
+        unpaid_leave_pence=1234,
+    )
+    payroll.add_salary_revision(session, emp, date(2027, 1, 1), 4800000)
+    preview = payrun.rebuild_forecasts(session, emp, apply=False)
+    payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+    assert run.net_pence == 398766
+
+
+def test_legacy_leave_does_not_invent_a_missing_day_count(session, emp):
+    import json
+
+    from app.domain import payroll
+
+    emp.deduction_mode = "gross_only"
+    emp.salary_policy = "equal_monthly"
+    run = payrun.generate(
+        session,
+        emp,
+        start=date(2027, 1, 1),
+        end=date(2027, 1, 31),
+        pay_date=date(2027, 1, 28),
+        unpaid_leave_days=Decimal("2"),
+    )
+    inputs = json.loads(run.calculation_inputs)
+    inputs.pop("unpaid_leave_days", None)
+    inputs.pop("unpaid_leave_fixed_pence", None)
+    run.calculation_inputs = json.dumps(inputs)
+    payroll.add_salary_revision(session, emp, date(2027, 1, 1), 4800000)
+    for _ in range(2):
+        preview = payrun.rebuild_forecasts(session, emp, apply=False)
+        assert any("leave" in w.lower() and "unknown" in w.lower() for w in preview["warnings"])
+        payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+        assert run.net_pence == 372308

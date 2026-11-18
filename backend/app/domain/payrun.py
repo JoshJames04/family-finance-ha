@@ -385,6 +385,7 @@ def generate(
     ).first()
     if existing is not None:
         return existing
+    fixed_leave_pence = unpaid_leave_pence
     if unpaid_leave_days is not None:
         unpaid_leave_pence += unpaid_leave_for_days(session, employment, unpaid_leave_days, end)
     if employment.employment_type == "piecework":
@@ -517,6 +518,10 @@ def generate(
                 "algorithm": tax.CALCULATION_VERSION,
                 "payday_rule": employment.payday_rule,
                 "payroll_month": label_month.isoformat(),
+                "unpaid_leave_days": str(unpaid_leave_days)
+                if unpaid_leave_days is not None
+                else None,
+                "unpaid_leave_fixed_pence": fixed_leave_pence,
                 "taxable_pence": ded.taxable_gross_pence,
                 "pension_mode": PensionMode(employment.pension_mode).value,
                 "tax_code": code,
