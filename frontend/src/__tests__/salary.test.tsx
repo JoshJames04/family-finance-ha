@@ -38,6 +38,9 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
       let body: object | object[] = { items: [], total: 0 };
       if (method === "POST" && url.endsWith("/employments")) {
         body = { ...EMP, id: 7 };
+      } else if (method === "PATCH" && url.includes("/payslips/")) {
+        body = { ...(opts.payslips?.[0] ?? {}),
+          extracted: {components:JSON.parse(String(init?.body ?? '{}')).components} };
       } else if (method !== "GET") {
         body = { ok: true };
       } else if (url.includes("/api/v1/households")) {
@@ -244,4 +247,42 @@ it('passes gross-only mode through uploaded payslip confirmation', async () => {
   expect(screen.getByLabelText('Taxable pay this period (optional)')).toBeTruthy();
 });
 
+});
+
+
+describe('Uploaded payslip completeness', () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it('blocks partial OCR locally until every component has an explicit amount', async () => {
+    const calls: { url:string; method:string; body:string }[] = [];
+    stubFetch(calls, {employments:[{...EMP,deduction_mode:'gross_only'}], payrollRuns:[GROSS_ONLY_RUN],
+      payslips:[{id:1,payroll_run_id:5,original_name:'synthetic.pdf',size_bytes:100,
+        media_type:'application/pdf',status:'reviewed',extracted:{components:{base_salary:100000}},
+        warnings:[],overtime_findings:[]}]});
+    const user = userEvent.setup(); open();
+    await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+    await user.click(await screen.findByRole('button',{name:'Payslip'}));
+    await user.click(await screen.findByRole('button',{name:'Review'}));
+    await user.click(screen.getByRole('button',{name:'Save review'}));
+    const saved = calls.find(c => c.method === 'PATCH' && c.url.includes('/payslips/'));
+    expect(saved).toBeDefined();
+    expect(JSON.parse(saved!.body).components).toEqual({base_salary:100000});
+    await user.type(screen.getByLabelText('Payslip gross'),'1000');
+    await user.type(screen.getByLabelText('Payslip net entitlement'),'1000');
+    await user.click(screen.getByRole('button',{name:'Confirm actuals'}));
+    expect(calls.some(c => c.method === 'POST' && c.url.endsWith('/confirm'))).toBe(false);
+    for (const label of ['Overtime','Bonus','Allowance','Unpaid leave','Pension','Tax',
+      'National Insurance','Student loan']) await user.type(screen.getByLabelText(label),'0');
+    const noncash = screen.queryByLabelText('Non-cash share award');
+    if (noncash) await user.type(noncash,'0');
+    await user.click(screen.getByRole('button',{name:'Confirm actuals'}));
+    await waitFor(() => {
+      const request = calls.find(c => c.method === 'POST' && c.url.endsWith('/confirm'));
+      expect(request).toBeDefined();
+      const body = JSON.parse(request!.body);
+      expect(body.actuals.base_salary).toBe(100000);
+      expect(body.actuals.overtime).toBe(0);
+      expect(Object.keys(body.actuals).length).toBeGreaterThanOrEqual(9);
+      expect(body.taxable_pence).toBeUndefined();
+    });
+  });
 });

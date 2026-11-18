@@ -1224,14 +1224,12 @@ function PayslipDialog({ run, empId, grossOnly, onOpenChange, onSaved }: {
     try { printed = confirmationFacts(facts, grossOnly); } catch (err) { toast.error((err as Error).message); return; }
     let values: Record<string, number>;
     try {
-      values = Object.fromEntries(Object.entries(actuals)
-        .filter(([, value]) => value.trim() !== "")
-        .map(([key, value]) => [key, poundsToPence(value)]));
+      values = Object.fromEntries(Object.entries(KIND_LABEL).map(([kind, label]) => {
+        const value = actuals[kind];
+        if (!value?.trim()) throw new Error(`Enter ${label}, including zero`);
+        return [kind, poundsToPence(value)];
+      }));
     } catch (err) { toast.error((err as Error).message); return; }
-    if (!Object.keys(values).length) {
-      toast.error("Enter at least one signed actual component");
-      return;
-    }
     api.post("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}/confirm", {
       path: { emp_id: empId, run_id: run.id, payslip_id: reviewing.id },
       body: { actuals: values, ...printed },
@@ -1283,7 +1281,7 @@ function PayslipDialog({ run, empId, grossOnly, onOpenChange, onSaved }: {
       {reviewing && (
         <Dialog open onOpenChange={(open) => { if (!open) setReviewing(null); }}
           title={`Review ${reviewing.original_name}`}
-          description="Enter signed actual component values. Saving review does not reconcile until you confirm.">
+          description="Enter signed totals for every category, including zero for unused categories. Saving review does not reconcile until you confirm.">
           <div className="grid gap-3">
             {!!reviewing.warnings?.length && (
               <ul className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] text-fg">
