@@ -1028,7 +1028,7 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
     !existing, [employment.id]);
   const [editedShares, setShares] = useState<string | null>(existing?.shares_owned ?? null);
   const current = [...(revisions.data ?? [])]
-    .filter((revision) => revision.effective_date <= toISODate(new Date()))
+    .filter((revision) => revision.effective_date <= date)
     .sort((a, b) => b.effective_date.localeCompare(a.effective_date))[0];
   const shares = editedShares ?? current?.shares_owned ?? "0";
   const sharesReady = Boolean(existing) || (revisions.data !== null && !revisions.error);

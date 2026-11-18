@@ -1,7 +1,7 @@
 /** #296: salary is an effective-dated series — the card shows the
  * dated history, "New salary" records a revision from a date, and
  * adding an employment can seed its first revision. */
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -137,6 +137,29 @@ describe("Salary", () => {
       expect(c).toBeDefined();
       expect(JSON.parse(c!.body).annual_salary).toBe("46000");
       expect(JSON.parse(c!.body).shares_owned).toBe("123.4567");
+    });
+  });
+
+  it("uses holdings effective on a new salary date and preserves an explicit holding", async () => {
+    const calls: {url:string;method:string;body:string}[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup(); open();
+    await user.click(await screen.findByRole('button', {name:'New salary'}));
+    const shares = screen.getByLabelText('Shares owned') as HTMLInputElement;
+    await waitFor(() => expect(shares.value).toBe('123.4567'));
+    fireEvent.change(screen.getByLabelText('Effective from'), {target:{value:'2025-10-01'}});
+    expect(shares.value).toBe('0');
+    fireEvent.change(screen.getByLabelText('Effective from'), {target:{value:'2027-05-01'}});
+    expect(shares.value).toBe('123.4567');
+    await user.clear(shares);
+    await user.type(shares, '42.5');
+    fireEvent.change(screen.getByLabelText('Effective from'), {target:{value:'2025-10-01'}});
+    expect(shares.value).toBe('42.5');
+    await user.type(screen.getByLabelText(/Annual salary/), '48000');
+    await user.click(screen.getByRole('button', {name:'Save salary'}));
+    await waitFor(() => {
+      const saved = calls.find(call => call.method === 'POST' && call.url.endsWith('/salary-revisions'));
+      expect(JSON.parse(saved!.body).shares_owned).toBe('42.5');
     });
   });
 
