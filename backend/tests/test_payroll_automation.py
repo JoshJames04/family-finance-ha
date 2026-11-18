@@ -74,6 +74,30 @@ def test_incomplete_setup_does_not_undo_salary_edit(session, employment):
     assert payroll.salary_at(session, employment.id, date(2025, 4, 1)) == 3600000
 
 
+def test_clearing_payday_withdraws_old_unmatched_employment_estimates(session, employment):
+    from app.domain import payroll_automation, schedule
+    from app.persistence.models import Account, ExpectedMovement, ExpectedSource
+
+    account = Account(
+        household_id=employment.household_id,
+        name="Synthetic income",
+        type="current",
+        opening_date=date(2025, 1, 1),
+    )
+    session.add(account)
+    session.flush()
+    employment.paid_into_account_id = account.id
+    schedule.rematerialize_employment(session, employment, today=date(2025, 4, 1))
+    query = select(ExpectedMovement).where(
+        ExpectedMovement.source_type == ExpectedSource.employment
+    )
+    assert list(session.scalars(query))
+    employment.payday_rule = None
+    result = payroll_automation.refresh(session, employment, today=date(2025, 4, 1))
+    assert result["issues"]
+    assert list(session.scalars(query)) == []
+
+
 def test_overtime_approval_and_edit_refresh_without_manual_apply(
     session, household, employment, monkeypatch
 ):

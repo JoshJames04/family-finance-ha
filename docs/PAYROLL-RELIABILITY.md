@@ -89,6 +89,8 @@ Starter cutoff periods that end before employment begins are skipped without
 blocking subsequent payroll; equal-monthly salary still covers calendar-month work.
 The explicit preview/apply API remains available for diagnostics and still rejects
 changed inputs between preview and apply.
+Clearing the payday removes unmatched projected salary estimates from the old rule;
+matched evidence and recorded payroll remain protected.
 
 Breakdown has equal monthly-payroll and employer columns on wide screens, stacking
 on small screens. The year selector covers all employers. Monthly totals use the
