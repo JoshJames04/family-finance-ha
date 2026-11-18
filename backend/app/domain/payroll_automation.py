@@ -130,6 +130,7 @@ def refresh(
         return result
     if not employment.payday_rule:
         result["issues"].append("Configure a payday before payroll can be calculated")
+        schedule.withdraw_employment_estimates(session, employment, today)
         return result
     try:
         rule = pay_calendar.parse_rule(employment.payday_rule)
