@@ -129,3 +129,7 @@ outage behaviour are covered by the dedicated banking tests.
 
 Employer rows show pay date, net and status. Expand a row to see its earning period,
 gross, component details, forecast variance and optional amount-checking action.
+
+Automatic setup scans the preceding nominal period when a forward payday shift
+lands in today. Final cutoff windows are tested against the earning window, so
+leavers retain payable final salary/overtime without an invented empty month.
