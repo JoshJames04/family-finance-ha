@@ -130,3 +130,36 @@ fresh PAT.
 - `GET /api/v1/admin/backups` + `/download` →
   `POST /api/v1/admin/restore/upload` → restart; boot applies the
   pending restore before migrations open the engine.
+
+### Historical annotation preservation
+
+Settings → Historical notes shows the active administrator's private archive.
+Search covers full note text, original year, sheet, cell and timestamp. Text is
+retained without truncation or interpretation. Missing original source evidence
+is displayed as **retained extraction, source workbook not reverified**. This is
+preservation of a retained copy, not evidence of a verified workbook import.
+
+Before importing, back up the target, verify the backup, and rehearse with an
+isolated copy. Never commit source material, an import manifest or response bodies
+to the repository or CI. Keep all source identity and mapping decisions private.
+
+`PUT /api/v1/historical-notes` accepts a JSON object containing `source_sha256`
+(the retained source hash, not a fresh verification), `provenance_status` set to
+`retained_extraction_unverified`, and `notes`. Each note requires `source_key`,
+`sheet_index`, `sheet_name`, `year`, `worksheet_part`, `cell_reference` and `text`;
+`thread_id` and `timestamp` may be null. No current-record mappings are accepted.
+Use the intended household and authenticated administrator profile. Validation
+rejects duplicates, unknown fields, blank text and out-of-bounds values before
+writing. Limits: 100 notes, 100,000 characters per note, 2 MB request body.
+
+An identical repeat returns the same digest without changing rows. Different
+content cannot overwrite an existing archive. Keep the returned digest privately:
+`DELETE /api/v1/historical-notes?digest=...` removes only that owner's unchanged
+archive and conflicts on a stale digest. Re-import only after an intentional
+rollback. Chunks in existing `app_meta` storage respect its 1,024-character value
+limit and commit atomically; no schema migration is needed. Backups include them.
+
+After rehearsal, compare every source key and full text, context and provenance
+against the approved retained inventory. Verify the archive in the app, repeat
+the import, rehearse rollback, and restore the archive. Production preservation
+and independently verified current-record mappings remain separate sign-off work.

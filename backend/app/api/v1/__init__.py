@@ -20,6 +20,7 @@ from app.api.v1 import (
     forecast,
     goals,
     households,
+    historical_notes,
     imports,
     integration,
     loans,
@@ -40,6 +41,7 @@ from app.api.v1 import (
 )
 
 v1_router = APIRouter()
+v1_router.include_router(historical_notes.router)
 v1_router.include_router(households.router)
 v1_router.include_router(accounts.router)
 v1_router.include_router(budgets.router)
