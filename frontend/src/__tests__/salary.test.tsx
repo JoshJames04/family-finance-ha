@@ -28,7 +28,7 @@ const REVISIONS = [
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
-  opts: { employments?: object[] } = {}) {
+  opts: { employments?: object[]; payrollRuns?: object[]; payslips?: object[] } = {}) {
   const employments = opts.employments ?? [EMP];
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -48,8 +48,10 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
         body = [];
       } else if (url.includes("/salary-revisions")) {
         body = REVISIONS;
+      } else if (url.includes("/payslips")) {
+        body = opts.payslips ?? [];
       } else if (url.includes("/payroll-runs")) {
-        body = [];
+        body = opts.payrollRuns ?? [];
       } else if (url.match(/\/employments\/\d+\/salary/)) {
         body = { annual_salary_pence: 4500000, hourly_rate_pence: 2308 };
       } else if (url.includes("/api/v1/employments")) {
@@ -210,4 +212,36 @@ describe("Payroll cutoff", () => {
       expect(JSON.parse(JSON.parse(call!.body).payday_rule).cutoff_day).toBe(18);
     });
   });
+});
+
+
+const GROSS_ONLY_RUN = {id:5, employment_id:1, period_start:'2026-04-01',
+  period_end:'2026-04-30', pay_date:'2026-04-28', status:'forecast', tax_year:'2026-27',
+  rule_set_year:null, rule_set_version:0, gross_pence:100000, net_pence:100000,
+  components:[{id:1,kind:'base_salary',forecast_pence:100000,actual_pence:null}]};
+
+describe('Gross-only confirmation paths', () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+it('passes gross-only mode through the manual reconciliation dialog', async () => {
+  stubFetch([], {employments:[{...EMP,deduction_mode:'gross_only'}], payrollRuns:[GROSS_ONLY_RUN]});
+  const user = userEvent.setup();
+  open();
+  await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+  await user.click(await screen.findByRole('button',{name:'Reconcile'}));
+  expect(screen.getByLabelText('Taxable pay this period (optional)')).toBeTruthy();
+});
+
+it('passes gross-only mode through uploaded payslip confirmation', async () => {
+  stubFetch([], {employments:[{...EMP,deduction_mode:'gross_only'}], payrollRuns:[GROSS_ONLY_RUN],
+    payslips:[{id:1,payroll_run_id:5,original_name:'synthetic.pdf',size_bytes:100,
+      media_type:'application/pdf',status:'reviewed',extracted:{},warnings:[],overtime_findings:[]}]});
+  const user = userEvent.setup();
+  open();
+  await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+  await user.click(await screen.findByRole('button',{name:'Payslip'}));
+  await user.click(await screen.findByRole('button',{name:'Review'}));
+  expect(screen.getByLabelText('Taxable pay this period (optional)')).toBeTruthy();
+});
+
 });

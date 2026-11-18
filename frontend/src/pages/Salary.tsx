@@ -974,12 +974,14 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
         <ReconcileDialog
           run={reconciling}
           empId={e.id}
+          grossOnly={e.deduction_mode === "gross_only"}
           onOpenChange={(o) => { if (!o) setReconciling(null); }}
           onSaved={onChanged}
         />
       )}
       {payslipRun && (
         <PayslipDialog run={payslipRun} empId={e.id}
+          grossOnly={e.deduction_mode === "gross_only"}
           onOpenChange={(open) => { if (!open) setPayslipRun(null); }}
           onSaved={onChanged} />
       )}
@@ -1168,9 +1170,10 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
   );
 }
 
-function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
+function PayslipDialog({ run, empId, grossOnly, onOpenChange, onSaved }: {
   run: Run;
   empId: number;
+  grossOnly: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
@@ -1217,7 +1220,7 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   const confirmReview = () => {
     if (!reviewing) return;
     let printed;
-    try { printed = confirmationFacts(facts); } catch (err) { toast.error((err as Error).message); return; }
+    try { printed = confirmationFacts(facts, grossOnly); } catch (err) { toast.error((err as Error).message); return; }
     let values: Record<string, number>;
     try {
       values = Object.fromEntries(Object.entries(actuals)
@@ -1308,7 +1311,7 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
                   onChange={(event) => setActuals((current) => ({ ...current, [kind]: event.target.value }))} />
               )}</Field>
             ))}
-            <PayrollFactsFields values={facts} onChange={setFacts} />
+            <PayrollFactsFields values={facts} onChange={setFacts} grossOnly={grossOnly} />
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={saveReview}>Save review</Button>
               <Button variant="primary" onClick={confirmReview}>Confirm actuals</Button>
@@ -1320,9 +1323,10 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   );
 }
 
-function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
+function ReconcileDialog({ run, empId, grossOnly, onOpenChange, onSaved }: {
   run: Run;
   empId: number;
+  grossOnly: boolean;
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
@@ -1341,7 +1345,7 @@ function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
     let printed;
     const body: Record<string, number> = {};
     try {
-      printed = confirmationFacts(facts);
+      printed = confirmationFacts(facts, grossOnly);
       for (const c of components) {
         const value = actuals[c.kind];
         if (!value?.trim()) throw new Error(`Enter Actual ${KIND_LABEL[c.kind] ?? c.kind}, including zero`);
@@ -1384,7 +1388,7 @@ function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
             />
           </div>
         ))}
-        <PayrollFactsFields values={facts} onChange={setFacts} />
+        <PayrollFactsFields values={facts} onChange={setFacts} grossOnly={grossOnly} />
       </form>
     </Dialog>
   );

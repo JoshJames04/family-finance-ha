@@ -236,8 +236,6 @@ def prepare_year(
             continue
         if not e.is_active:
             continue
-        if e.end_date is not None and e.end_date < date(year, 1, 1):
-            continue  # ended before the year
         employment_start = e.start_date
         if employment_start is None and e.salary_revisions:
             employment_start = min(revision.effective_date for revision in e.salary_revisions)
@@ -367,16 +365,29 @@ def prepare_year(
         for m in range(1, 13):
             month_start = date(year, m, 1)
             end = date(year, m, calendar.monthrange(year, m)[1])
-            if "cutoff_day" in e.payday_rule and e.salary_policy != "equal_monthly":
+            cutoff_salary = "cutoff_day" in e.payday_rule and e.salary_policy == "equal_monthly"
+            work_start = month_start
+            if "cutoff_day" in e.payday_rule:
                 window = pay_calendar.period(pay_calendar.parse_calendar(e.payday_rule), year, m)
-                month_start, end = window.start, window.cutoff
+                work_start = window.start
+                if not cutoff_salary:
+                    month_start, end = window.start, window.cutoff
             if employment_start is not None and end < employment_start:
                 continue
             start = max(month_start, employment_start or month_start)
-            if e.end_date is not None and start > e.end_date:
-                break  # ended mid-year
-            if e.end_date is not None and end > e.end_date:
+            # A leaver can still have final overtime in the next month's
+            # cutoff window, including January after a December departure.
+            if e.end_date is not None and (work_start if cutoff_salary else start) > e.end_date:
+                break
+            if e.end_date is not None and end > e.end_date and not cutoff_salary:
                 end = e.end_date
+            if (
+                cutoff_salary
+                and e.end_date is not None
+                and e.end_date < month_start
+                and not ot.approved_total_pence(session, e.id, work_start, e.end_date)
+            ):
+                continue  # No salary or approved final overtime to pay.
             if e.employment_type == "piecework":
                 has_work = session.scalar(
                     select(DeliveryEntry.id)

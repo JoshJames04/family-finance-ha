@@ -21,7 +21,8 @@ Recorded historical payments are not recalculated on an upgrade.
   salary / 365 days until changed. Equal monthly instalments use annual / 12,
   with calendar-day proration for partial months and effective-dated salary changes.
   The overtime cutoff selects work entries, independently of the calendar month
-  used for equal monthly base salary.
+  used for equal monthly base salary. Final approved cutoff-window overtime is
+  retained after employment ends, even when the next payroll month has no base pay.
 - A regular shifted cash payday retains its configured nominal PAYE date when
   the cash date exactly matches the configured shift. Irregular payments retain
   their cash date. Bank transactions always retain their real dates.
@@ -44,7 +45,8 @@ components are not assumed to match. An aggregate is allocated once even if the
 forecast contains multiple lines of the same kind. Original forecast lines remain
 available for variance reporting. Positive refunds retain their sign.
 
-Enter taxable pay separately. NI earnings and the paired taxable/PAYE YTD figures
+PAYE employers must enter taxable pay separately. Gross-only employers may leave
+unreported taxable pay blank; no value is invented. NI earnings and the paired taxable/PAYE YTD figures
 are optional when unavailable; an unknown amount is not zero. A pension refund
 may be reported in gross additions without being taxable. YTD uses verified facts,
 never a reconstruction using the employer's current pension settings. A verified

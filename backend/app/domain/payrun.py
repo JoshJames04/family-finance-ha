@@ -402,7 +402,11 @@ def generate(
             salary_start = max(salary_start, employment.start_date)
         if employment.end_date is not None:
             salary_end = min(salary_end, employment.end_date)
-        base = dom.gross_for_period(session, employment.id, salary_start, salary_end)
+        base = (
+            0
+            if employment.salary_policy == "equal_monthly" and salary_end < salary_start
+            else dom.gross_for_period(session, employment.id, salary_start, salary_end)
+        )
     ot_pay = ot.approved_total_pence(session, employment.id, start, end)
     earnings = base + ot_pay + bonus_pence + allowance_pence
     taxable_gross = earnings - unpaid_leave_pence

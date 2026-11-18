@@ -35,3 +35,5 @@
 - Local combined preview deployed and real forecast preview verified without changing confirmed actuals or bank data. Synthetic preview/apply and incorrect-net rejection verified through the local API. Rendered confirmation/review controls inspected. Bonus feature integration remains a separate review slice.
 
 - Local legacy rule-year collision and unsigned unpaid-leave cases reproduced, fixed and covered. Offline API contract fuzzing rejects generated bank tokens without contacting the provider.
+
+- Native Codex findings reproduced and fixed: final cutoff-window overtime for equal-monthly leavers (including December/January), and gross-only optional taxable pay in both confirmation dialogs. Latest focused backend suite: 164 passed; frontend: 252 passed with typecheck/build. Full reviewed backend verification is running separately.

@@ -360,3 +360,65 @@ def test_unsigned_legacy_unpaid_leave_must_not_silently_become_extra_income(sess
     session.flush()
     with pytest.raises(PayrollError, match="sign|unsigned|legacy"):
         payrun.rebuild_forecasts(session, emp, apply=False)
+
+
+def _leaver_with_final_overtime(session, emp, work_date, end_date):
+    from app.domain import overtime
+
+    emp.salary_policy = "equal_monthly"
+    emp.deduction_mode = "gross_only"
+    emp.start_date = date(2024, 1, 1)
+    emp.end_date = end_date
+    emp.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    entry = overtime.create_entry(session, emp, work_date=work_date, hours=Decimal("4"))
+    overtime.submit(entry)
+    overtime.approve(entry)
+    session.flush()
+    assert entry.pay_pence == 11076
+    return entry
+
+
+def test_equal_monthly_leaver_receives_final_cutoff_overtime_without_base(session, emp):
+    _leaver_with_final_overtime(session, emp, date(2025, 1, 17), date(2025, 1, 20))
+    run = payrun.generate(
+        session, emp, start=date(2025, 2, 1), end=date(2025, 2, 28), pay_date=date(2025, 2, 28)
+    )
+    assert run.gross_pence == run.net_pence == 11076
+    assert run.period_start == date(2025, 1, 16)
+    assert run.period_end == date(2025, 1, 20)
+    assert sum(c.forecast_pence for c in run.components if c.kind is K.base_salary) == 0
+
+
+@pytest.mark.parametrize(
+    "work_date,end_date,payday",
+    [
+        (date(2025, 1, 17), date(2025, 1, 20), date(2025, 2, 28)),
+        (date(2024, 12, 17), date(2024, 12, 20), date(2025, 1, 28)),
+    ],
+)
+def test_prepare_year_preserves_final_cutoff_overtime_for_leavers(
+    session, household, emp, work_date, end_date, payday
+):
+    from app.api import schemas
+    from app.api.v1 import employments
+
+    _leaver_with_final_overtime(session, emp, work_date, end_date)
+    employments.prepare_year(schemas.PrepareYearIn(year=2025), household, session, "Test", None)
+    run = session.scalar(
+        select(PayrollRun).where(PayrollRun.employment_id == emp.id, PayrollRun.pay_date == payday)
+    )
+    assert run is not None
+    assert run.gross_pence == run.net_pence == 11076
+
+
+def test_prepare_year_does_not_create_an_empty_month_after_leaving(session, household, emp):
+    from app.api import schemas
+    from app.api.v1 import employments
+
+    emp.salary_policy = "equal_monthly"
+    emp.deduction_mode = "gross_only"
+    emp.start_date = date(2024, 1, 1)
+    emp.end_date = date(2024, 12, 20)
+    emp.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    employments.prepare_year(schemas.PrepareYearIn(year=2025), household, session, "Test", None)
+    assert session.scalar(select(PayrollRun.id).where(PayrollRun.employment_id == emp.id)) is None
