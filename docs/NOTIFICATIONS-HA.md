@@ -40,6 +40,10 @@ The app stores household-specific grants in its existing settings table and audi
 each change with the authenticated administrator's identity. A service token or
 spoofed profile header cannot manage grants. Only the authenticated HA machine
 context receives them; they never become a household member's permissions.
+Explicitly unprotected standalone development mode (`FF_ENV=dev`, ingress off)
+also accepts its existing selected administrator profile for these Settings.
+That development exception excludes requests carrying a service token and never
+applies in production, CI or ingress mode.
 Deactivated profiles, archived destination accounts and changed destination owners
 stop reads immediately. Events created with the new grant support retain their
 original profile and destination scope internally; changing either cannot relabel

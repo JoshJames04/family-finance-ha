@@ -203,6 +203,10 @@ grants authorize payroll events and named days-to-payday discovery; general bank
 reads, private account events and mutation permissions do not change. Only a
 resolved administrator session or trusted ingress identity can select grants;
 the machine token and standalone compatibility profile header cannot manage them.
+The explicit unprotected standalone development environment (`env=dev`, ingress
+off) permits its existing selected administrator profile in Settings. Requests
+carrying an admin/service token are excluded from that compatibility exception;
+production, CI and ingress still require the resolved administrator identity.
 Changes persist in `app_meta`, are audited with the administrator profile ID and
 apply on the next read. Deactivation, archival and ownership changes fail closed;
 new payroll events preserve original scope metadata, excluded from every payload.

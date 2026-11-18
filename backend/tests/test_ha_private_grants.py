@@ -370,3 +370,19 @@ def test_owner_keeps_historical_events_after_changing_pay_destination(granted_cl
     events = client.get("/api/v1/integration/events", headers=owner).json()["events"]
     assert [event["seq"] for event in events] == [ids["event"]]
     assert client.get("/api/v1/integration/events", headers=SERVICE).json()["events"] == []
+
+
+@pytest.mark.parametrize("environment,expected", [("dev", 200), ("prod", 403), ("ci", 403)])
+def test_standalone_dev_grant_settings_accept_only_explicit_admin_compat(
+    granted_client, environment, expected
+):
+    client, app, ids = granted_client
+    app.state.settings.ingress = False
+    app.state.settings.env = environment
+    body = {"profile_ids": [ids["owner"]], "account_ids": [ids["account"]]}
+    admin = {"X-Profile-Id": "1"}
+    assert client.get(PATH, headers=admin).status_code == expected
+    assert client.put(PATH, headers=admin, json=body).status_code == expected
+    assert client.get(PATH, headers={"X-Profile-Id": str(ids["owner"])}).status_code == 403
+    assert client.put(PATH, headers={**SERVICE, **admin}, json=body).status_code == 403
+    assert client.get(PATH, headers={**SERVICE, **admin}).status_code == 403
