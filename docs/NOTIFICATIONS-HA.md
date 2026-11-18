@@ -23,12 +23,18 @@ private account; a profile selection alone never grants a destination account.
 Nothing is selected on an existing or new installation. Save requires a privacy
 confirmation; **Revoke all private access** removes the grants on the next poll.
 
-These grants cover payroll event reads only, including existing payroll approaching
-and payslip review events. They do not expose private balances, transactions,
-general account events or other families, and do not add numeric payday sensors.
+These grants cover payroll events, including existing payroll approaching and
+payslip review events, plus named days-to-next-payday discovery. Payday discovery
+uses the canonical adjusted payday rule, active employment dates and current
+profile/destination grants, appends after the legacy discovery prefix and uses
+stable `employment:<id>` identities. It includes employer labels and day counts
+in either event detail mode; event redaction does not change numeric discovery.
+These grants do not expose private balances, transactions, general account events
+or other financial metrics.
 The separate payroll writer proposal (#531) adds overtime-recorded and estimate
 change events; its events use this same authorization boundary once integrated.
-Private numeric criteria in #535 need separate integration with these grants.
+The separate numeric-family controls in #535 expose the discovered payday values
+as opt-in HA sensors; this PR does not duplicate those adapter controls.
 
 The app stores household-specific grants in its existing settings table and audits
 each change with the authenticated administrator's identity. A service token or
@@ -40,7 +46,7 @@ original profile and destination scope internally; changing either cannot relabe
 old events. Legacy private payroll events without that snapshot remain excluded
 from granted service reads. Internal scope metadata never enters HA payloads.
 
-Safe mode still excludes names, hours and financial amounts after authorization;
+Safe event mode still excludes names, hours and financial amounts after authorization;
 Detailed mode adds permitted detail and never substitutes for a read grant.
 Even Safe private IDs and dates may persist in HA recorder, automation traces,
 backups and notifications. Revoking access or returning to Safe cannot erase

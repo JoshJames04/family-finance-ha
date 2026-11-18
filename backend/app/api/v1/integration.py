@@ -18,11 +18,21 @@ from sqlalchemy import select
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, AdminDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import accounts, contributions, goals, ha_grants, outbox, rbac
+from app.domain import (
+    accounts,
+    contributions,
+    goals,
+    ha_grants,
+    outbox,
+    pay_calendar,
+    paydays,
+    rbac,
+)
 from app.domain.money import Money
 from app.persistence.models import (
     Account,
     AppMeta,
+    Employment,
     ExpectedMovement,
     ExpectedSource,
     IntegrationEvent,
@@ -36,6 +46,7 @@ router = APIRouter(prefix="/integration", tags=["integration"])
 
 @router.get("/items", response_model=schemas.IntegrationItemsOut)
 def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
+          request: Request = None,  # type: ignore[assignment]
           limit: Annotated[int, Query(ge=1, le=100)] = 100) -> schemas.IntegrationItemsOut:
     """Opt-in HA discovery; cap entities and apply ledger visibility first."""
     visible = [a for a in session.scalars(select(Account).where(
@@ -70,6 +81,31 @@ def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
         seen.add(key)
         result.append(schemas.IntegrationItemOut(family="bills", id=key, name=movement.label,
                       value=(movement.expected_date - today).days, unit="d"))
+    # Append after the complete legacy prefix: a payroll destination grant never
+    # makes its account balance, cash flow or unrelated records visible.
+    if request is not None and getattr(request.state, "service_authenticated", False):
+        for employment in session.scalars(select(Employment).where(
+                Employment.household_id == household.id, Employment.is_active.is_(True))
+                .order_by(Employment.id)):
+            if (not ha_grants.profile_allowed(session, household.id, employment.profile_id)
+                    or not employment.payday_rule
+                    or (employment.start_date is not None and employment.start_date > today)):
+                continue
+            if employment.paid_into_account_id is not None:
+                destination = session.get(Account, employment.paid_into_account_id)
+                if destination is None or not ha_grants.account_allowed(
+                        session, household.id, destination):
+                    continue
+            try:
+                due = paydays.next_payday(pay_calendar.parse_rule(employment.payday_rule),
+                                         after=today - timedelta(days=1))
+            except (ValueError, KeyError, TypeError):
+                continue
+            if employment.end_date is not None and due > employment.end_date:
+                continue
+            result.append(schemas.IntegrationItemOut(
+                family="paydays", id=f"employment:{employment.id}",
+                name=f"{employment.employer} · Next payday", value=(due - today).days, unit="d"))
     return schemas.IntegrationItemsOut(items=result[:limit])
 
 

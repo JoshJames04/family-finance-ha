@@ -100,7 +100,7 @@ export function IntegrationGrants() {
             <input type="checkbox" checked={accounts.includes(a.id)} onChange={() => setAccounts(toggle(accounts, a.id))} />Account {a.name}
           </label>)}
         </fieldset>
-        <p className="text-[13px] text-fg-subtle">Private IDs and dates may reach the event bus, recorder, automation traces and notification recipients. Detailed mode also exposes names and amounts. Revocation stops future reads; it cannot erase copies already stored by Home Assistant.</p>
+        <p className="text-[13px] text-fg-subtle">Private IDs and dates may reach the event bus, recorder, automation traces and notification recipients. Payday discovery includes employer labels and day counts in either event mode. Detailed events also expose names and amounts. Revocation stops future reads; it cannot erase copies already stored by Home Assistant.</p>
         <div className="flex flex-wrap gap-2">
           <Button disabled={saving} onClick={() => setConfirming(true)}>Save read access</Button>
           <Button variant="ghost" disabled={saving || !((settings.profile_ids?.length ?? 0) || (settings.account_ids?.length ?? 0))} onClick={() => void save([], [])}>Revoke all private access</Button>

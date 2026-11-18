@@ -110,10 +110,13 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
             and not (ha_service and ha_grants.event_allowed(session, event))):
         return False
     original_scope = event.payload.get("_ha_scope")
+    current_scope = ha_grants.scope(session, event) if isinstance(original_scope, dict) else None
     # Ownership/destination changes cannot relabel a historical private event.
     if (isinstance(original_scope, dict)
-            and ha_grants.scope(session, event) != original_scope
-            and any(original_scope.get(k) is not None for k in ("owner", "account_owner"))):
+            and current_scope != original_scope
+            and any(original_scope.get(k) is not None for k in ("owner", "account_owner"))
+            and (ha_service or current_scope is None or original_scope.get("owner") != profile_id
+                 or current_scope.get("owner") != profile_id)):
         return all_scopes
     if ha_service and ha_grants.event_allowed(session, event):
         return True

@@ -131,7 +131,7 @@ dedicated synthetic-data volume).
 
 Home Assistant private payroll reads are off by default. A signed-in administrator
 can select named payroll profiles and private pay destinations in Settings, then
-revoke access at any time. Grants apply only to payroll events and never permit
+revoke access at any time. Grants cover payroll events and payday discovery and never permit
 private banking reads or payroll edits. Human payroll changes require their owner,
 including for administrators. See [HA payroll privacy](docs/NOTIFICATIONS-HA.md#private-payroll-reads)
 for Safe/Detailed behavior, retained HA history and existing service actions.

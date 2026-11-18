@@ -164,6 +164,13 @@ def test_ownership_and_active_identity_changes_do_not_reveal_history(granted_cli
             s.get(UserProfile, ids["owner"]).is_active = False
         s.commit()
     assert client.get("/api/v1/integration/events", headers=SERVICE).json()["events"] == []
+    if change == "profile":
+        assert (
+            client.get("/api/v1/integration/events", headers={"X-Remote-User-Id": "other"}).json()[
+                "events"
+            ]
+            == []
+        )
 
 
 def test_standalone_service_uses_token_not_compat_profile_header(granted_client):
@@ -257,3 +264,109 @@ def test_grants_cannot_select_other_household_resources(granted_client):
         client.put(PATH, headers=ADMIN, json={"profile_ids": [pid], "account_ids": []}).status_code
         == 422
     )
+
+
+def test_payday_discovery_requires_grants_keeps_legacy_prefix_and_revokes(
+    granted_client, monkeypatch
+):
+    from app.api.v1 import integration
+
+    class Today(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 18)
+
+    monkeypatch.setattr(integration, "date", Today)
+    client, app, ids = granted_client
+    with Session(app.state.engine) as s:
+        s.get(Employment, ids["employment"]).payday_rule = '{"kind":"fixed_day","day":22}'
+        shared = Account(
+            household_id=ids["household"],
+            name="Shared",
+            type="joint",
+            opening_date=date(2026, 1, 1),
+        )
+        s.add(shared)
+        s.commit()
+    path = "/api/v1/integration/items"
+    baseline = client.get(path, headers=SERVICE).json()["items"]
+    assert len(baseline) == 1 and baseline[0]["family"] == "accounts"
+    assert (
+        client.put(
+            PATH, headers=ADMIN, json={"profile_ids": [ids["owner"]], "account_ids": []}
+        ).status_code
+        == 200
+    )
+    assert client.get(path, headers=SERVICE).json()["items"] == baseline
+    grant = {"profile_ids": [ids["owner"]], "account_ids": [ids["account"]]}
+    assert client.put(PATH, headers=ADMIN, json=grant).status_code == 200
+    result = client.get(path, headers={**SERVICE, "X-Profile-Id": str(ids["other"])}).json()[
+        "items"
+    ]
+    assert result[:-1] == baseline
+    assert result[-1] == {
+        "family": "paydays",
+        "id": f"employment:{ids['employment']}",
+        "name": "Synthetic employer · Next payday",
+        "value": 2,
+        "unit": "d",
+    }
+    assert client.get(path + "?limit=1", headers=SERVICE).json()["items"] == baseline
+    assert client.get(path, headers={"X-Remote-User-Id": "other"}).json()["items"] == baseline
+    assert (
+        client.put(PATH, headers=ADMIN, json={"profile_ids": [], "account_ids": []}).status_code
+        == 200
+    )
+    assert client.get(path, headers=SERVICE).json()["items"] == baseline
+
+
+@pytest.mark.parametrize("change", ["owner", "destination_owner", "end", "start", "inactive"])
+def test_payday_discovery_rechecks_current_scope_and_employment_dates(granted_client, change):
+    client, app, ids = granted_client
+    with Session(app.state.engine) as s:
+        s.get(Employment, ids["employment"]).payday_rule = '{"kind":"fixed_day","day":22}'
+        s.commit()
+    grant = {"profile_ids": [ids["owner"]], "account_ids": [ids["account"]]}
+    assert client.put(PATH, headers=ADMIN, json=grant).status_code == 200
+    assert client.get("/api/v1/integration/items", headers=SERVICE).json()["items"]
+    with Session(app.state.engine) as s:
+        e = s.get(Employment, ids["employment"])
+        if change == "owner":
+            e.profile_id = ids["other"]
+        elif change == "destination_owner":
+            s.get(Account, ids["account"]).owner_profile_id = ids["other"]
+        elif change == "end":
+            e.end_date = date(2020, 1, 1)
+        elif change == "start":
+            e.start_date = date(2030, 1, 1)
+        else:
+            e.is_active = False
+        s.commit()
+    assert client.get("/api/v1/integration/items", headers=SERVICE).json()["items"] == []
+    if change in {"owner", "destination_owner"}:
+        # Discovery is current state: an explicit fresh grant can expose the
+        # current payday, while historical event snapshots retain their scope.
+        grant["profile_ids"] = [ids["other"] if change == "owner" else ids["owner"]]
+        assert client.put(PATH, headers=ADMIN, json=grant).status_code == 200
+        current = client.get("/api/v1/integration/items", headers=SERVICE).json()["items"]
+        assert current[0]["id"] == f"employment:{ids['employment']}"
+
+
+def test_owner_keeps_historical_events_after_changing_pay_destination(granted_client):
+    client, app, ids = granted_client
+    with Session(app.state.engine) as s:
+        account = Account(
+            household_id=ids["household"],
+            name="New pay destination",
+            owner_profile_id=ids["owner"],
+            type="personal",
+            opening_date=date.today(),
+        )
+        s.add(account)
+        s.flush()
+        s.get(Employment, ids["employment"]).paid_into_account_id = account.id
+        s.commit()
+    owner = {"X-Remote-User-Id": "owner"}
+    events = client.get("/api/v1/integration/events", headers=owner).json()["events"]
+    assert [event["seq"] for event in events] == [ids["event"]]
+    assert client.get("/api/v1/integration/events", headers=SERVICE).json()["events"] == []

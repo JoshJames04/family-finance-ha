@@ -5665,7 +5665,7 @@ export interface components {
              * Family
              * @enum {string}
              */
-            family: "bills" | "accounts" | "goals";
+            family: "bills" | "accounts" | "goals" | "paydays";
             /** Id */
             id: string;
             /** Name */

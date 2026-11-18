@@ -2050,7 +2050,7 @@ class IntegrationFeedOut(BaseModel):
 
 
 class IntegrationItemOut(BaseModel):
-    family: Literal["bills", "accounts", "goals"]
+    family: Literal["bills", "accounts", "goals", "paydays"]
     id: str
     name: str
     value: int | Decimal
