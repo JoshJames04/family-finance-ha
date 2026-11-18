@@ -74,6 +74,8 @@ affected forecasts for review without changing their amounts. Use Salary → Bre
 requires the same saved inputs and preserves run identity. Changed inputs require
 a new preview. Regular cash dates follow the current payday rule; saved calendar
 provenance preserves explicit one-off dates and the payroll month for leavers.
+Prepared and received payroll periods keep covering their income while a payday
+edit awaits rebuilding, so no second generic salary is projected.
 The preview shows old and new cash dates. A change in pay frequency needs explicit
 new periods. Actuals, correction runs, bank matches and manual overrides are
 preserved and reported as exclusions. Dependent ambiguous history stops the rebuild.

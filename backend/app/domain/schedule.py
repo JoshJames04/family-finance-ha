@@ -380,16 +380,42 @@ def rematerialize_employment(
         _prune_employment_rows(session, survivors)
         return 0
     horizon = today + timedelta(days=horizon_days)
-    covered = {
-        r.pay_date
-        for r in session.scalars(
+    runs = list(
+        session.scalars(
             select(PayrollRun).where(
                 PayrollRun.employment_id == employment.id,
-                PayrollRun.pay_date >= today,
                 PayrollRun.status != PayrollRunStatus.corrected,
             )
         )
-    }
+    )
+    covered = {run.pay_date for run in runs}
+    # A prepared/received payroll period owns its income even while a new
+    # payday rule awaits deliberate rebuilding. Do not add a second salary.
+    for run in runs:
+        try:
+            snapshot = json.loads(run.calculation_inputs or "{}")
+            label = date.fromisoformat(
+                snapshot.get("payroll_month", run.period_end.replace(day=1).isoformat())
+            )
+        except (ValueError, TypeError, AttributeError):
+            snapshot = {}
+            label = run.period_end.replace(day=1)
+        if run.pay_date >= today and snapshot.get("payday_rule"):
+            try:
+                old_rule = pay_calendar.parse_rule(snapshot["payday_rule"])
+            except (ValueError, TypeError, KeyError):
+                _prune_employment_rows(session, survivors)
+                return 0  # Preserve known runs until ambiguous periods are reviewed.
+            periodic = {paydays.RuleKind.weekly, paydays.RuleKind.nightly}
+            if old_rule.kind != rule.kind and (old_rule.kind in periodic or rule.kind in periodic):
+                _prune_employment_rows(session, survivors)
+                return 0  # Frequency transitions require explicit new periods.
+        if rule.kind is paydays.RuleKind.weekly:
+            assert rule.weekday is not None
+            nominal = run.statutory_pay_date or run.pay_date
+            covered.add(nominal - timedelta(days=nominal.weekday()) + timedelta(days=rule.weekday))
+        else:
+            covered.add(paydays.pay_date(rule, label.year, label.month))
     end = employment.end_date or horizon
     n = 0
     d = today - timedelta(days=1)

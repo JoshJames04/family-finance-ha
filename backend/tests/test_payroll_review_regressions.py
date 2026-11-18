@@ -634,3 +634,201 @@ def test_legacy_leave_does_not_invent_a_missing_day_count(session, emp):
         assert any("leave" in w.lower() and "unknown" in w.lower() for w in preview["warnings"])
         payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
         assert run.net_pence == 372308
+
+
+@pytest.mark.parametrize("day", [25, 31])
+def test_payday_edit_does_not_add_a_second_salary_before_rebuild(session, household, emp, day):
+    from app.api import schemas
+    from app.api.v1 import employments
+    from app.domain import schedule
+    from app.persistence.models import Account, ExpectedMovement, ExpectedSource
+
+    account = Account(
+        household_id=household.id,
+        name="Synthetic pay account",
+        type="personal",
+        opening_date=date(2026, 1, 1),
+    )
+    session.add(account)
+    session.flush()
+    emp.paid_into_account_id = account.id
+    run = _future_regular_forecast(session, emp)
+    employments.patch_employment(
+        emp.id,
+        schemas.EmploymentPatch(payday_rule=f'{{"kind":"fixed_day","day":{day},"adjust":"none"}}'),
+        household,
+        session,
+        "Test",
+        None,
+    )
+    for _ in range(2):
+        schedule.rematerialize_employment(session, emp, today=date(2027, 1, 1), horizon_days=31)
+        rows = list(
+            session.scalars(
+                select(ExpectedMovement).where(
+                    ExpectedMovement.account_id == account.id,
+                    ExpectedMovement.expected_date >= date(2027, 1, 1),
+                    ExpectedMovement.expected_date <= date(2027, 1, 31),
+                )
+            )
+        )
+        assert len(rows) == 1 and rows[0].source_type is ExpectedSource.payroll_run
+        assert rows[0].expected_date == date(2027, 1, 28)
+    preview = payrun.rebuild_forecasts(session, emp, apply=False)
+    payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+    schedule.rematerialize_employment(session, emp, today=date(2027, 1, 1), horizon_days=31)
+    rows = list(
+        session.scalars(
+            select(ExpectedMovement).where(
+                ExpectedMovement.account_id == account.id,
+                ExpectedMovement.expected_date >= date(2027, 1, 1),
+                ExpectedMovement.expected_date <= date(2027, 1, 31),
+            )
+        )
+    )
+    assert len(rows) == 1 and rows[0].expected_date == date(2027, 1, day)
+    assert run.id == rows[0].source_id
+
+
+def test_covered_payroll_month_accounts_for_cash_shift_into_previous_month(session, household, emp):
+    from app.domain import schedule
+    from app.persistence.models import Account, ExpectedMovement, ExpectedSource
+
+    account = Account(
+        household_id=household.id,
+        name="Synthetic shifted pay",
+        type="personal",
+        opening_date=date(2026, 1, 1),
+    )
+    session.add(account)
+    session.flush()
+    emp.paid_into_account_id = account.id
+    emp.deduction_mode = "gross_only"
+    emp.salary_policy = "equal_monthly"
+    emp.payday_rule = '{"kind":"fixed_day","day":28,"adjust":"none"}'
+    run = payrun.generate(
+        session, emp, start=date(2027, 5, 1), end=date(2027, 5, 31), pay_date=date(2027, 5, 28)
+    )
+    schedule.rematerialize_payroll_run(session, run, today=date(2027, 4, 1))
+    emp.payday_rule = '{"kind":"fixed_day","day":1,"adjust":"previous"}'
+    schedule.rematerialize_employment(session, emp, today=date(2027, 4, 1), horizon_days=60)
+    assert not session.scalar(
+        select(ExpectedMovement.id).where(
+            ExpectedMovement.source_type == ExpectedSource.employment,
+            ExpectedMovement.source_id == emp.id,
+            ExpectedMovement.expected_date == date(2027, 4, 30),
+        )
+    )
+
+
+def test_paid_salary_month_does_not_get_a_new_generic_estimate_after_rule_change(
+    session, household, emp
+):
+    from app.domain import schedule
+    from app.persistence.models import Account, ExpectedMovement, ExpectedSource
+    from tests.payroll_helpers import confirm
+
+    account = Account(
+        household_id=household.id,
+        name="Synthetic received pay",
+        type="personal",
+        opening_date=date(2026, 1, 1),
+    )
+    session.add(account)
+    session.flush()
+    emp.paid_into_account_id = account.id
+    emp.deduction_mode = "gross_only"
+    emp.salary_policy = "equal_monthly"
+    emp.payday_rule = '{"kind":"fixed_day","day":10,"adjust":"none"}'
+    run = payrun.generate(
+        session, emp, start=date(2026, 11, 1), end=date(2026, 11, 30), pay_date=date(2026, 11, 10)
+    )
+    confirm(session, run)
+    emp.payday_rule = '{"kind":"fixed_day","day":28,"adjust":"none"}'
+    schedule.rematerialize_employment(session, emp, today=date(2026, 11, 18), horizon_days=30)
+    assert not session.scalar(
+        select(ExpectedMovement.id).where(
+            ExpectedMovement.source_type == ExpectedSource.employment,
+            ExpectedMovement.source_id == emp.id,
+            ExpectedMovement.expected_date == date(2026, 11, 28),
+        )
+    )
+    assert run.pay_date == date(2026, 11, 10) and run.status is PayrollRunStatus.reconciled
+
+
+@pytest.mark.parametrize("was_weekly", [False, True])
+def test_frequency_change_defers_generic_estimates_while_old_forecasts_exist(
+    session, household, emp, was_weekly
+):
+    from app.domain import schedule
+    from app.persistence.models import Account, ExpectedMovement, ExpectedSource
+
+    account = Account(
+        household_id=household.id,
+        name="Synthetic frequency transition",
+        type="personal",
+        opening_date=date(2026, 1, 1),
+    )
+    session.add(account)
+    session.flush()
+    emp.paid_into_account_id = account.id
+    emp.deduction_mode = "gross_only"
+    emp.payday_rule = (
+        '{"kind":"weekly","weekday":4,"adjust":"none"}'
+        if was_weekly
+        else '{"kind":"fixed_day","day":28,"adjust":"none"}'
+    )
+    payday = date(2027, 1, 29) if was_weekly else date(2027, 1, 28)
+    run = payrun.generate(
+        session,
+        emp,
+        start=date(2027, 1, 23) if was_weekly else date(2027, 1, 1),
+        end=payday if was_weekly else date(2027, 1, 31),
+        pay_date=payday,
+    )
+    schedule.rematerialize_payroll_run(session, run, today=date(2027, 1, 1))
+    emp.payday_rule = (
+        '{"kind":"fixed_day","day":25,"adjust":"none"}'
+        if was_weekly
+        else '{"kind":"weekly","weekday":1,"adjust":"none"}'
+    )
+    schedule.rematerialize_employment(session, emp, today=date(2027, 1, 1), horizon_days=60)
+    assert not list(
+        session.scalars(
+            select(ExpectedMovement.id).where(
+                ExpectedMovement.source_type == ExpectedSource.employment,
+                ExpectedMovement.source_id == emp.id,
+            )
+        )
+    )
+    assert run.pay_date == payday
+
+
+def test_weekly_payday_edit_keeps_the_prepared_week_covered(session, household, emp):
+    from app.domain import schedule
+    from app.persistence.models import Account, ExpectedMovement, ExpectedSource
+
+    account = Account(
+        household_id=household.id,
+        name="Synthetic weekly pay",
+        type="personal",
+        opening_date=date(2026, 1, 1),
+    )
+    session.add(account)
+    session.flush()
+    emp.paid_into_account_id = account.id
+    emp.deduction_mode = "gross_only"
+    emp.payday_rule = '{"kind":"weekly","weekday":4,"adjust":"none"}'
+    run = payrun.generate(
+        session, emp, start=date(2027, 1, 23), end=date(2027, 1, 29), pay_date=date(2027, 1, 29)
+    )
+    schedule.rematerialize_payroll_run(session, run, today=date(2027, 1, 25))
+    emp.payday_rule = '{"kind":"weekly","weekday":1,"adjust":"none"}'
+    schedule.rematerialize_employment(session, emp, today=date(2027, 1, 25), horizon_days=7)
+    assert not session.scalar(
+        select(ExpectedMovement.id).where(
+            ExpectedMovement.source_type == ExpectedSource.employment,
+            ExpectedMovement.source_id == emp.id,
+            ExpectedMovement.expected_date == date(2027, 1, 26),
+        )
+    )
