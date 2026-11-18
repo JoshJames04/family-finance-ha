@@ -327,3 +327,36 @@ def test_rebuild_orders_dependencies_by_tax_date_even_for_legacy_unpaid_rows(ses
     early.forecast_stale = irregular.forecast_stale = True
     preview = payrun.rebuild_forecasts(session, emp, apply=False)
     assert [c["run_id"] for c in preview["changes"]] == [irregular.id, early.id]
+
+
+def test_future_fallback_ignores_legacy_slash_rule_years(session, emp):
+    from app.domain import payroll
+    from app.persistence.models import TaxRuleSet
+
+    session.add(
+        TaxRuleSet(tax_year="2027/28", jurisdiction=emp.jurisdiction, version=1, params="{}")
+    )
+    payroll.add_tax_code_revision(session, emp, date(2027, 1, 1), "1257L M1")
+    run = payrun.generate(
+        session,
+        emp,
+        start=date(2027, 4, 1),
+        end=date(2027, 4, 30),
+        pay_date=date(2027, 4, 28),
+        allow_stale_rules=True,
+    )
+    assert run.rule_set_year == "2026-27" and run.rule_set_version == 3
+
+
+@pytest.mark.parametrize("signed", [None, False])
+def test_unsigned_legacy_unpaid_leave_must_not_silently_become_extra_income(session, emp, signed):
+    from app.persistence.models import PayrollComponent
+
+    run = prior(session, emp, status=PayrollRunStatus.forecast)
+    run.signed_components = signed
+    run.components.append(
+        PayrollComponent(kind=K.unpaid_leave, label="Legacy unsigned leave", forecast_pence=10000)
+    )
+    session.flush()
+    with pytest.raises(PayrollError, match="sign|unsigned|legacy"):
+        payrun.rebuild_forecasts(session, emp, apply=False)

@@ -28,6 +28,8 @@ Recorded historical payments are not recalculated on an upgrade.
 - Only monthly and weekly calculations are implemented. Unpublished historical
   years, unknown NI categories and unknown loan plans fail explicitly. Future
   estimates may explicitly use older published rules, with the rule year pinned.
+  Legacy slash-labelled imports never displace published canonical rule versions.
+  Ambiguous unsigned positive unpaid leave must be reviewed before rebuilding.
 
 New rule versions append published period thresholds without changing previous
 parameter rows. Calculation snapshots identify the formula method and the actual
@@ -105,3 +107,7 @@ pension policies and missing bank history cannot be inferred from a tax formula.
 The backend session fixture migrates an empty database once per test worker and
 copies it for each test. No test data is shared; explicit migration roundtrips
 remain independent tests.
+
+The API contract fuzzer rejects synthetic bank credentials locally. It does not
+send generated credentials to a real banking provider; successful provider and
+outage behaviour are covered by the dedicated banking tests.

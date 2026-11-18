@@ -31,5 +31,7 @@
 
 - Shared formulas, explicit actuals/YTD/date evidence, correction chains, guarded rebuild and dependency invalidation implemented.
 - Independent review findings reproduced and covered: cumulative BR/NT, band-boundary selection, Plan 5 start date, protected piecework, fiscal ordering, missing PAYE/YTD periods, immutable reopen and rebuild collisions.
-- Verification: full backend 1,973 passed; frontend 248 passed; lint/mypy/typecheck/build passed. Migration up/down/up and retained database triggers covered in the suite.
-- Local combined preview and ready-for-review PR are the final delivery steps. Bonus feature integration remains a separate review slice.
+- Verification: full backend 1,978 passed; final strengthened signature guard covered by 85 targeted tests; frontend 248 passed; lint/mypy/typecheck/build passed. Migration up/down/up and retained database triggers covered in the suite.
+- Local combined preview deployed and real forecast preview verified without changing confirmed actuals or bank data. Synthetic preview/apply and incorrect-net rejection verified through the local API. Rendered confirmation/review controls inspected. Bonus feature integration remains a separate review slice.
+
+- Local legacy rule-year collision and unsigned unpaid-leave cases reproduced, fixed and covered. Offline API contract fuzzing rejects generated bank tokens without contacting the provider.

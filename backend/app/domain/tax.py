@@ -196,15 +196,28 @@ def rule_set(session: Session, tax_year: str, jurisdiction: TaxJurisdiction) -> 
     return row
 
 
-def latest_rule_set(session: Session, jurisdiction: TaxJurisdiction) -> TaxRuleSet | None:
-    """Newest rule set for a jurisdiction regardless of year â€” the
-    fallback for forecasting beyond published HMRC tables."""
-    return session.execute(
+def latest_rule_set(
+    session: Session, jurisdiction: TaxJurisdiction, *, not_after: str | None = None
+) -> TaxRuleSet | None:
+    """Latest published canonical rules, bounded by the forecast tax year.
+
+    Legacy slash-labelled imports remain available for history but must not
+    displace the versioned statutory tables used to calculate forecasts.
+    """
+    rows = session.scalars(
         select(TaxRuleSet)
         .where(TaxRuleSet.jurisdiction == jurisdiction)
         .order_by(TaxRuleSet.tax_year.desc(), TaxRuleSet.version.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    )
+    return next(
+        (
+            row
+            for row in rows
+            if re.fullmatch(r"\d{4}-\d{2}", row.tax_year)
+            and (not_after is None or row.tax_year <= not_after)
+        ),
+        None,
+    )
 
 
 def _allowance(

@@ -146,6 +146,11 @@ def rebuild_forecasts(
                     f"Run {run.id}: bank matches, actuals, correction or overrides preserved"
                 )
                 continue
+            if run.signed_components is not True and any(
+                c.kind is PayrollComponentKind.unpaid_leave and c.forecast_pence > 0
+                for c in run.components
+            ):
+                raise PayrollError("review the sign of legacy unpaid leave before rebuilding")
             with session.begin_nested():
                 adjustments = {
                     kind: sum(c.forecast_pence for c in run.components if c.kind is kind)

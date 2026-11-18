@@ -164,7 +164,14 @@ def flag_outdated_forecasts(session: Session, employment: Employment) -> None:
                 employment.jurisdiction,
             )
         except TaxError:
-            continue  # Explicit future forecasts retain their pinned older rules.
+            fallback = tax.latest_rule_set(
+                session,
+                employment.jurisdiction,
+                not_after=tax.tax_year_for(effective_pay_date(employment, run)),
+            )
+            if fallback is None:
+                continue
+            rules = fallback
         if run.rule_set_year != rules.tax_year or run.rule_set_version != rules.version:
             run.forecast_stale = True
 
@@ -415,7 +422,7 @@ def generate(
             # computed it and can be regenerated when rates land.
             if not allow_stale_rules:
                 raise
-            fallback = tax.latest_rule_set(session, employment.jurisdiction)
+            fallback = tax.latest_rule_set(session, employment.jurisdiction, not_after=tax_year)
             if fallback is None or fallback.tax_year > tax_year:
                 raise
             rules = fallback
