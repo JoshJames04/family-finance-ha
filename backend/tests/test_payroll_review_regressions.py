@@ -422,3 +422,134 @@ def test_prepare_year_does_not_create_an_empty_month_after_leaving(session, hous
     emp.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
     employments.prepare_year(schemas.PrepareYearIn(year=2025), household, session, "Test", None)
     assert session.scalar(select(PayrollRun.id).where(PayrollRun.employment_id == emp.id)) is None
+
+
+def _future_regular_forecast(session, emp):
+    from app.domain import schedule
+
+    emp.deduction_mode = "gross_only"
+    emp.salary_policy = "equal_monthly"
+    emp.payday_rule = '{"kind":"fixed_day","day":28,"adjust":"none"}'
+    run = payrun.generate(
+        session, emp, start=date(2027, 1, 1), end=date(2027, 1, 31), pay_date=date(2027, 1, 28)
+    )
+    schedule.rematerialize_payroll_run(session, run, today=date(2026, 1, 1))
+    return run
+
+
+def test_rebuild_moves_regular_cash_date_and_projection_after_rule_change(session, emp):
+    from app.persistence.models import ExpectedMovement, ExpectedSource
+
+    run = _future_regular_forecast(session, emp)
+    emp.payday_rule = '{"kind":"fixed_day","day":25,"adjust":"none"}'
+    preview = payrun.rebuild_forecasts(session, emp, apply=False)
+    change = next(c for c in preview["changes"] if c["run_id"] == run.id)
+    assert change["old_pay_date"] == "2027-01-28"
+    assert change["new_pay_date"] == "2027-01-25"
+    assert run.pay_date == date(2027, 1, 28)
+    payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+    assert run.pay_date == run.statutory_pay_date == date(2027, 1, 25)
+    rows = list(
+        session.scalars(
+            select(ExpectedMovement).where(
+                ExpectedMovement.source_type == ExpectedSource.payroll_run,
+                ExpectedMovement.source_id == run.id,
+            )
+        )
+    )
+    assert len(rows) == 1 and rows[0].expected_date == date(2027, 1, 25)
+
+
+def test_payday_edit_preserves_legacy_calendar_provenance_before_rebuild(session, household, emp):
+    import json
+
+    from app.api import schemas
+    from app.api.v1 import employments
+
+    run = _future_regular_forecast(session, emp)
+    snapshot = json.loads(run.calculation_inputs)
+    snapshot.pop("payday_rule", None)
+    snapshot.pop("payroll_month", None)
+    run.calculation_inputs = json.dumps(snapshot)
+    employments.patch_employment(
+        emp.id,
+        schemas.EmploymentPatch(payday_rule='{"kind":"fixed_day","day":25,"adjust":"none"}'),
+        household,
+        session,
+        "Test",
+        None,
+    )
+    preview = payrun.rebuild_forecasts(session, emp, apply=False)
+    assert preview["changes"][0]["new_pay_date"] == "2027-01-25"
+
+
+def test_irregular_forecast_date_is_preserved_when_regular_rule_changes(session, emp):
+    emp.deduction_mode = "gross_only"
+    emp.payday_rule = '{"kind":"fixed_day","day":28,"adjust":"none"}'
+    run = payrun.generate(
+        session, emp, start=date(2027, 1, 1), end=date(2027, 1, 31), pay_date=date(2027, 1, 20)
+    )
+    emp.payday_rule = '{"kind":"fixed_day","day":25,"adjust":"none"}'
+    preview = payrun.rebuild_forecasts(session, emp, apply=False)
+    payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+    assert run.pay_date == date(2027, 1, 20)
+
+
+def test_rebuild_keeps_leavers_payroll_month_after_cutoff_clips_work_period(session, emp):
+    _leaver_with_final_overtime(session, emp, date(2025, 1, 17), date(2025, 1, 20))
+    run = payrun.generate(
+        session, emp, start=date(2025, 2, 1), end=date(2025, 2, 28), pay_date=date(2025, 2, 28)
+    )
+    preview = payrun.rebuild_forecasts(session, emp, apply=False)
+    payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+    assert run.gross_pence == run.net_pence == 11076
+    assert run.pay_date == date(2025, 2, 28)
+
+
+def test_empty_piecework_keeps_identity_without_projecting_zero_income(session, emp):
+    from app.domain import schedule
+    from app.persistence.models import DeliveryEntry, ExpectedMovement, ExpectedSource
+
+    emp.employment_type = "piecework"
+    emp.deduction_mode = "gross_only"
+    emp.payday_rule = '{"kind":"fixed_day","day":28,"adjust":"none"}'
+    entry = DeliveryEntry(
+        employment_id=emp.id,
+        work_date=date(2027, 1, 8),
+        hours=Decimal("4"),
+        hourly_rate_pence=1500,
+        deliveries=0,
+        delivery_rate_pence=0,
+        tips_pence=0,
+    )
+    session.add(entry)
+    session.flush()
+    run, _ = payrun.sync_piecework_run(session, emp, entry.work_date)
+    rid = run.id
+    schedule.rematerialize_payroll_run(session, run)
+    session.delete(entry)
+    session.flush()
+    empty, _ = payrun.sync_piecework_run(session, emp, date(2027, 1, 8))
+    assert empty.id == rid and empty.gross_pence == empty.net_pence == 0
+    schedule.rematerialize_payroll_run(session, empty)
+    assert not list(
+        session.scalars(
+            select(ExpectedMovement).where(
+                ExpectedMovement.source_type == ExpectedSource.payroll_run,
+                ExpectedMovement.source_id == rid,
+            )
+        )
+    )
+
+
+def test_irregular_date_stays_explicit_after_matching_an_intermediate_regular_rule(session, emp):
+    emp.deduction_mode = "gross_only"
+    emp.payday_rule = '{"kind":"fixed_day","day":28,"adjust":"none"}'
+    run = payrun.generate(
+        session, emp, start=date(2027, 1, 1), end=date(2027, 1, 31), pay_date=date(2027, 1, 20)
+    )
+    for day in (20, 25):
+        emp.payday_rule = f'{{"kind":"fixed_day","day":{day},"adjust":"none"}}'
+        preview = payrun.rebuild_forecasts(session, emp, apply=False)
+        payrun.rebuild_forecasts(session, emp, apply=True, fingerprint=preview["fingerprint"])
+        assert run.pay_date == date(2027, 1, 20)

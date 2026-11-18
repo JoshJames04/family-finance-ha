@@ -515,6 +515,8 @@ def generate(
         calculation_inputs=json.dumps(
             {
                 "algorithm": tax.CALCULATION_VERSION,
+                "payday_rule": employment.payday_rule,
+                "payroll_month": label_month.isoformat(),
                 "taxable_pence": ded.taxable_gross_pence,
                 "pension_mode": PensionMode(employment.pension_mode).value,
                 "tax_code": code,
@@ -823,9 +825,10 @@ def sync_piecework_run(
     Delivery entries feed runs at generation time; this keeps them in
     step when entries are logged/edited/deleted (issue #305). Returns
     (new_run, superseded_run) — the caller rematerializes both into
-    the expected-income schedule. The superseded forecast run is
-    deleted (forecasts are disposable); a *reconciled* covering run is
-    never touched — it raises PayrollError so the caller surfaces a
+    the expected-income schedule. Mutable forecasts retain their ID,
+    including an empty period after the last shift is removed; no zero
+    income is projected. A reconciled covering run is never touched —
+    it raises PayrollError so the caller surfaces a
     correction path instead of silently losing pay."""
     if employment.employment_type != "piecework":
         return None, None

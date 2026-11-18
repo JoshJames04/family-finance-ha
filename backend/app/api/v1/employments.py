@@ -31,6 +31,7 @@ from app.persistence.models import (
     OvertimeEntry,
     OvertimeStatus,
     PayrollRun,
+    PayrollRunStatus,
     SalaryRevision,
     UserProfile,
 )
@@ -498,6 +499,19 @@ def patch_employment(
             or not rbac.write_allowed(acct.owner_profile_id, profile)
         ):
             raise HTTPException(404, "paid-into account not found")
+    if "payday_rule" in changed and changed["payday_rule"] != e.payday_rule:
+        # Capture the old calendar before changing it, including legacy imports.
+        for run in session.scalars(select(PayrollRun).where(PayrollRun.employment_id == e.id)):
+            if run.status is PayrollRunStatus.forecast:
+                try:
+                    snapshot = json.loads(run.calculation_inputs or "{}")
+                except (ValueError, TypeError):
+                    snapshot = {}
+                if not isinstance(snapshot, dict):
+                    snapshot = {}
+                snapshot.setdefault("payday_rule", e.payday_rule)
+                snapshot.setdefault("payroll_month", run.period_end.replace(day=1).isoformat())
+                run.calculation_inputs = json.dumps(snapshot, sort_keys=True)
     for k, v in changed.items():
         setattr(e, k, v)
     session.flush()

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import calendar
 import hashlib
 import json
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -28,6 +30,48 @@ from app.persistence.models import (
     TaxCodeRevision,
     TaxRuleSet,
 )
+
+
+def _forecast_calendar(employment: Employment, run: PayrollRun) -> tuple[date, date, date, bool]:
+    """Preserve payroll month and one-off dates while updating regular paydays."""
+    from app.domain import pay_calendar, paydays
+
+    try:
+        snapshot = json.loads(run.calculation_inputs or "{}")
+        label = date.fromisoformat(
+            snapshot.get("payroll_month", run.period_end.replace(day=1).isoformat())
+        )
+        end = run.period_end
+        if employment.payday_rule and "cutoff_day" in employment.payday_rule:
+            end = label.replace(day=calendar.monthrange(label.year, label.month)[1])
+        old_rule = snapshot.get("payday_rule", employment.payday_rule)
+        if not old_rule or not employment.payday_rule:
+            return label, run.pay_date, end, True
+        old = pay_calendar.parse_rule(old_rule)
+        new = pay_calendar.parse_rule(employment.payday_rule)
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise PayrollError(
+            "configure a valid payday rule and forecast calendar before rebuilding"
+        ) from exc
+    periodic = {paydays.RuleKind.weekly, paydays.RuleKind.nightly}
+    if old.kind in periodic or new.kind in periodic:
+        if old.kind != new.kind or old.weekday != new.weekday:
+            raise PayrollError(
+                "pay frequency changed; review and create the new payroll periods explicitly"
+            )
+        if snapshot.get("cash_date_override") is True:
+            return label, run.pay_date, end, True
+        if old.kind is paydays.RuleKind.weekly:
+            nominal = run.statutory_pay_date or run.period_end
+            if paydays.adjust(nominal, old.adjust) == run.pay_date:
+                return label, paydays.adjust(nominal, new.adjust), end, False
+        return label, run.pay_date, end, True
+    if (
+        snapshot.get("cash_date_override") is True
+        or paydays.pay_date(old, label.year, label.month) != run.pay_date
+    ):
+        return label, run.pay_date, end, True  # Deliberate one-off forecast date.
+    return label, paydays.pay_date(new, label.year, label.month), end, False
 
 
 def rebuild_forecasts(
@@ -117,6 +161,43 @@ def rebuild_forecasts(
         raise PayrollError("payroll inputs changed; preview the changes again before applying")
     changes: list[dict[str, Any]] = []
     warnings: list[str] = []
+    overridden_ids = set(
+        session.scalars(
+            select(PayrollOverride.run_id).where(PayrollOverride.run_id.in_([r.id for r in runs]))
+        )
+    )
+    matched_ids = set(
+        session.scalars(
+            select(ExpectedMovement.source_id)
+            .join(ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id)
+            .where(
+                ExpectedMovement.source_type == ExpectedSource.payroll_run,
+                ExpectedMovement.source_id.in_([r.id for r in runs]),
+            )
+        )
+    )
+    protected_ids = {
+        r.id
+        for r in runs
+        if r.status is not PayrollRunStatus.forecast
+        or r.id in overridden_ids
+        or r.id in matched_ids
+        or r.corrects_id is not None
+        or any(c.actual_pence is not None for c in r.components)
+    }
+    calendars = {
+        r.id: _forecast_calendar(employment, r)
+        for r in runs
+        if r.id not in protected_ids and (only_run_id is None or r.id == only_run_id)
+    }
+    runs.sort(
+        key=lambda r: (
+            payrun.statutory_date_for(employment, calendars[r.id][1], calendars[r.id][0])
+            if r.id in calendars
+            else payrun.effective_pay_date(employment, r),
+            r.id,
+        )
+    )
     nested = session.begin_nested()
     try:
         for run in runs:
@@ -124,28 +205,12 @@ def rebuild_forecasts(
                 only_run_id is not None and run.id != only_run_id
             ):
                 continue
-            matched = session.scalar(
-                select(ExpectedMatch.id)
-                .join(ExpectedMovement, ExpectedMovement.id == ExpectedMatch.movement_id)
-                .where(
-                    ExpectedMovement.source_type == ExpectedSource.payroll_run,
-                    ExpectedMovement.source_id == run.id,
-                )
-                .limit(1)
-            )
-            overridden = session.scalar(
-                select(PayrollOverride.id).where(PayrollOverride.run_id == run.id).limit(1)
-            )
-            if (
-                matched is not None
-                or overridden is not None
-                or run.corrects_id is not None
-                or any(c.actual_pence is not None for c in run.components)
-            ):
+            if run.id in protected_ids:
                 warnings.append(
                     f"Run {run.id}: bank matches, actuals, correction or overrides preserved"
                 )
                 continue
+            _, cash_date, generation_end, cash_override = calendars[run.id]
             if run.signed_components is not True and any(
                 c.kind is PayrollComponentKind.unpaid_leave and c.forecast_pence > 0
                 for c in run.components
@@ -166,8 +231,8 @@ def rebuild_forecasts(
                     session,
                     employment,
                     start=run.period_start,
-                    end=run.period_end,
-                    pay_date=run.pay_date,
+                    end=generation_end,
+                    pay_date=cash_date,
                     bonus_pence=adjustments[PayrollComponentKind.bonus],
                     allowance_pence=adjustments[PayrollComponentKind.allowance],
                     unpaid_leave_pence=-adjustments[PayrollComponentKind.unpaid_leave],
@@ -175,6 +240,9 @@ def rebuild_forecasts(
                     emit_event=False,
                     replacement_for=run.id,
                 )
+                snapshot = json.loads(new.calculation_inputs or "{}")
+                snapshot["cash_date_override"] = cash_override
+                new.calculation_inputs = json.dumps(snapshot, sort_keys=True)
                 if new.id in {r.id for r in runs}:
                     raise PayrollError(
                         "rebuild overlaps an existing payroll run; correct the period explicitly"
@@ -191,7 +259,9 @@ def rebuild_forecasts(
                 changes.append(
                     dict(
                         run_id=run.id,
-                        pay_date=run.pay_date.isoformat(),
+                        pay_date=new.pay_date.isoformat(),
+                        old_pay_date=run.pay_date.isoformat(),
+                        new_pay_date=new.pay_date.isoformat(),
                         old_period_start=run.period_start.isoformat(),
                         old_period_end=run.period_end.isoformat(),
                         new_period_start=new.period_start.isoformat(),
@@ -204,6 +274,7 @@ def rebuild_forecasts(
                 )
                 run.status = PayrollRunStatus.forecast
                 for field in (
+                    "pay_date",
                     "period_start",
                     "period_end",
                     "gross_pence",

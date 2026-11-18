@@ -66,7 +66,10 @@ Configuration changes, overtime approvals/edits and confirmed corrections mark
 affected forecasts for review without changing their amounts. Use Salary → Breakdown
 → **Review forecasts**. Preview makes no persistent changes. **Apply forecast changes**
 requires the same saved inputs and preserves run identity. Changed inputs require
-a new preview. Actuals, correction runs, bank matches and manual overrides are
+a new preview. Regular cash dates follow the current payday rule; saved calendar
+provenance preserves explicit one-off dates and the payroll month for leavers.
+The preview shows old and new cash dates. A change in pay frequency needs explicit
+new periods. Actuals, correction runs, bank matches and manual overrides are
 preserved and reported as exclusions. Dependent ambiguous history stops the rebuild.
 
 Existing forecasts are marked for review on upgrade. Later formula/rule-version
@@ -75,6 +78,7 @@ flag estimates without changing their amounts. Rebuilding is deliberate,
 not a silent rewrite. Reconciled history always requires a linked correction, including the legacy
 Reopen action. A piecework forecast retains its identity when work entries change;
 removing its last entry leaves a zero forecast instead of deleting its identity.
+That empty period emits no expected-income movement.
 
 ## Five local manual checks
 

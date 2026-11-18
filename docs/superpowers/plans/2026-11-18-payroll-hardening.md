@@ -37,3 +37,5 @@
 - Local legacy rule-year collision and unsigned unpaid-leave cases reproduced, fixed and covered. Offline API contract fuzzing rejects generated bank tokens without contacting the provider.
 
 - Native Codex findings reproduced and fixed: final cutoff-window overtime for equal-monthly leavers (including December/January), and gross-only optional taxable pay in both confirmation dialogs. Latest focused backend suite: 164 passed; frontend: 252 passed with typecheck/build. Full reviewed backend verification is running separately.
+
+- Second native review: regular forecast cash dates now follow corrected payday rules; saved original calendar and payroll-month provenance retain one-off dates and leaver cutoffs. Empty piecework rows retain identity but no longer emit zero income. Reproduced calendar cases pass; affected backend suite 174 passed; frontend 252 passed with typecheck/build. Prior full reviewed backend suite passed 1,983 tests; a final full run will include these calendar cases.

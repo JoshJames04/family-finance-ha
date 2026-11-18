@@ -884,7 +884,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
   const [reconciling, setReconciling] = useState<Run | null>(null);
   const [payslipRun, setPayslipRun] = useState<Run | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
-  const [rebuild, setRebuild] = useState<{fingerprint:string; changes:{run_id:number;pay_date:string;old_net_pence:number;new_net_pence:number;old_period_start:string;old_period_end:string;new_period_start:string;new_period_end:string}[]; warnings:string[]} | null>(null);
+  const [rebuild, setRebuild] = useState<{fingerprint:string; changes:{run_id:number;pay_date:string;old_pay_date:string;new_pay_date:string;old_net_pence:number;new_net_pence:number;old_period_start:string;old_period_end:string;new_period_start:string;new_period_end:string}[]; warnings:string[]} | null>(null);
   const [rebuildBusy, setRebuildBusy] = useState(false);
   const rebuildForecasts = (apply = false) => {
     setRebuildBusy(true);
@@ -967,6 +967,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
         {rebuild.warnings.map(w => <p key={w} className="text-sm text-warning">{w}</p>)}
         {!rebuild.changes.length && <p>No eligible forecasts to rebuild.</p>}
         {rebuild.changes.map(c => <div key={c.run_id} className="py-2 text-sm"><p>{formatSmartDate(c.pay_date)}: {formatPence(c.old_net_pence)} → {formatPence(c.new_net_pence)}</p>
+          {c.old_pay_date !== c.new_pay_date && <p className="text-xs text-fg-muted">Pay date: {formatSmartDate(c.old_pay_date)} → {formatSmartDate(c.new_pay_date)}</p>}
           {(c.old_period_start !== c.new_period_start || c.old_period_end !== c.new_period_end) && <p className="text-xs text-fg-muted">Work window: {c.old_period_start}–{c.old_period_end} → {c.new_period_start}–{c.new_period_end}</p>}
         </div>)}
       </Dialog>}

@@ -184,6 +184,14 @@ def rematerialize_payroll_run(
     actual = payroll_totals.totals_for_run(run).actual_net_pence
     confidence = Confidence.scheduled if actual is not None else Confidence.estimated
     amount = actual if actual is not None else run.net_pence
+    if (
+        amount == 0
+        and run.status is PayrollRunStatus.forecast
+        and run.employment.employment_type == "piecework"
+    ):
+        # Keep the payroll identity for history/reuse, without a fictitious receipt.
+        session.flush()
+        return 0
     # Reuse the estimate's identity when bank money already matched it.
     # The same applies to a correction replacing a matched prior run.
     superseded = list(
