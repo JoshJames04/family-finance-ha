@@ -28,11 +28,13 @@ from app.domain.tax import Deductions, PensionMode, TaxError
 from app.persistence.models import (
     DeliveryEntry,
     Employment,
+    EmploymentBonus,
     PayrollComponent,
     PayrollComponentKind,
     PayrollOverride,
     PayrollRun,
     PayrollRunStatus,
+    TaxRuleSet,
 )
 
 EARNING = {PayrollComponentKind.base_salary,
@@ -139,9 +141,90 @@ def generate(
     else:
         base = dom.gross_for_period(session, employment.id, start, end)
     ot_pay = ot.approved_total_pence(session, employment.id, start, end)
+    planned = list(
+        session.scalars(
+            select(EmploymentBonus).where(
+                EmploymentBonus.employment_id == employment.id,
+                EmploymentBonus.pay_month == end.replace(day=1),
+            )
+        )
+    )
+    planned_bonus = sum(b.gross_pence for b in planned)
+    if (
+        planned
+        and session.scalar(
+            select(PayrollRun.id)
+            .where(
+                PayrollRun.employment_id == employment.id,
+                PayrollRun.status != PayrollRunStatus.corrected,
+                PayrollRun.period_end >= end.replace(day=1),
+                PayrollRun.period_end
+                <= end.replace(day=calendar.monthrange(end.year, end.month)[1]),
+            )
+            .limit(1)
+        )
+        is not None
+    ):
+        raise PayrollError(
+            "a payroll already contains this month's bonuses; edit it instead of creating another"
+        )
+    noncash = sum(b.noncash_pence for b in planned)
+    bonus_pence += planned_bonus
     earnings = base + ot_pay + bonus_pence + allowance_pence
     taxable_gross = earnings - unpaid_leave_pence
 
+    ded, rules = deductions_for_pay(
+        session, employment, taxable_gross, end, pay_date, allow_stale_rules=allow_stale_rules
+    )
+    pension_pence = ded.pension_pence
+    tax_year = tax.tax_year_for(pay_date)
+    net = ded.net_pence - noncash
+
+    run = PayrollRun(
+        employment_id=employment.id, period_start=start,
+        period_end=end, pay_date=pay_date,
+        status=PayrollRunStatus.forecast, tax_year=tax_year,
+        rule_set_year=rules.tax_year if rules is not None else None,
+        rule_set_version=rules.version if rules is not None else 0,
+        gross_pence=earnings, net_pence=net,
+        planned_bonus_pence=planned_bonus, noncash_bonus_pence=noncash)
+    _component(run, PayrollComponentKind.base_salary,
+               "Base salary", base)
+    if ot_pay:
+        _component(run, PayrollComponentKind.overtime,
+                   "Approved overtime", ot_pay)
+    if bonus_pence:
+        _component(run, PayrollComponentKind.bonus, "Bonus",
+                   bonus_pence)
+    if allowance_pence:
+        _component(run, PayrollComponentKind.allowance,
+                   "Allowance", allowance_pence)
+    if unpaid_leave_pence:
+        _component(run, PayrollComponentKind.unpaid_leave,
+                   "Unpaid leave", -unpaid_leave_pence)
+    if pension_pence:
+        _component(run, PayrollComponentKind.pension,
+                   f"Pension ({PensionMode(employment.pension_mode).value})",
+                   -pension_pence)
+    _component(run, PayrollComponentKind.tax, "PAYE income tax",
+               -ded.tax_pence)
+    _component(run, PayrollComponentKind.ni, "National Insurance",
+               -ded.ni_pence)
+    if ded.student_loan_pence:
+        _component(run, PayrollComponentKind.student_loan,
+                   f"Student loan ({employment.student_loan_plan.value})",
+                   -ded.student_loan_pence)
+    if noncash:
+        _component(run, PayrollComponentKind.noncash, "Non-cash share award", -noncash)
+    session.add(run)
+    session.flush()
+    _emit_transition(session, run, "generated")
+    return run
+
+
+def deductions_for_pay(session: Session, employment: Employment, taxable_gross: int,
+                       end: date, pay_date: date, *, allow_stale_rules: bool = False
+                       ) -> tuple[Deductions, TaxRuleSet | None]:
     # Pension % applies on post-leave pensionable gross (issue #83).
     pension_pence = pension_pence_for(employment, taxable_gross)
     tax_year = tax.tax_year_for(pay_date)
@@ -240,45 +323,7 @@ def generate(
             student_loan_plan=employment.student_loan_plan.value,
             pension_mode=PensionMode(employment.pension_mode),
             pension_pence=pension_pence)
-    net = ded.net_pence
-
-    run = PayrollRun(
-        employment_id=employment.id, period_start=start,
-        period_end=end, pay_date=pay_date,
-        status=PayrollRunStatus.forecast, tax_year=tax_year,
-        rule_set_year=rules.tax_year if rules is not None else None,
-        rule_set_version=rules.version if rules is not None else 0,
-        gross_pence=earnings, net_pence=net)
-    _component(run, PayrollComponentKind.base_salary,
-               "Base salary", base)
-    if ot_pay:
-        _component(run, PayrollComponentKind.overtime,
-                   "Approved overtime", ot_pay)
-    if bonus_pence:
-        _component(run, PayrollComponentKind.bonus, "Bonus",
-                   bonus_pence)
-    if allowance_pence:
-        _component(run, PayrollComponentKind.allowance,
-                   "Allowance", allowance_pence)
-    if unpaid_leave_pence:
-        _component(run, PayrollComponentKind.unpaid_leave,
-                   "Unpaid leave", -unpaid_leave_pence)
-    if pension_pence:
-        _component(run, PayrollComponentKind.pension,
-                   f"Pension ({PensionMode(employment.pension_mode).value})",
-                   -pension_pence)
-    _component(run, PayrollComponentKind.tax, "PAYE income tax",
-               -ded.tax_pence)
-    _component(run, PayrollComponentKind.ni, "National Insurance",
-               -ded.ni_pence)
-    if ded.student_loan_pence:
-        _component(run, PayrollComponentKind.student_loan,
-                   f"Student loan ({employment.student_loan_plan.value})",
-                   -ded.student_loan_pence)
-    session.add(run)
-    session.flush()
-    _emit_transition(session, run, "generated")
-    return run
+    return ded, rules
 
 
 def reconcile(
@@ -346,6 +391,8 @@ def correct(session: Session, run: PayrollRun) -> PayrollRun:
                      is not None else run.gross_pence),
         net_pence=(totals.actual_net_pence if totals.actual_net_pence
                    is not None else run.net_pence),
+        planned_bonus_pence=run.planned_bonus_pence,
+        noncash_bonus_pence=run.noncash_bonus_pence,
         corrects_id=run.id)
     session.add(new)
     for c in run.components:

@@ -635,6 +635,12 @@ class RestoreAccepted(BaseModel):
 
 
 class EmploymentIn(BaseModel):
+    initial_shares_owned: Decimal = Field(
+        default=Decimal("0"), ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
+    share_payment_method: Literal["payroll_cash", "payroll_noncash", "outside_payroll"] = (
+        "payroll_cash"
+    )
     profile_id: int
     employer: str = Field(min_length=1, max_length=200)
     jurisdiction: TaxJurisdiction = TaxJurisdiction.england_wales
@@ -657,16 +663,16 @@ class EmploymentIn(BaseModel):
     replacement_end_date: date | None = None
     replacement_confirmed: bool = False
     start_date: date | None = None
-    work_days_per_week: Decimal = Field(default=Decimal("5"), gt=0,
-                                        le=7)
+    work_days_per_week: Decimal = Field(default=Decimal("5"), gt=0, le=7)
 
 
 class EmploymentPatch(BaseModel):
-    employer: str | None = Field(default=None, min_length=1,
-                                 max_length=200)
+    share_payment_method: Literal["payroll_cash", "payroll_noncash", "outside_payroll"] | None = (
+        None
+    )
+    employer: str | None = Field(default=None, min_length=1, max_length=200)
     jurisdiction: TaxJurisdiction | None = None
-    ni_category: str | None = Field(default=None, min_length=1,
-                                    max_length=2)
+    ni_category: str | None = Field(default=None, min_length=1, max_length=2)
     student_loan_plan: StudentLoanPlan | None = None
     pension_scheme_ref: str | None = Field(default=None,
                                            max_length=128)
@@ -692,10 +698,14 @@ class EmploymentPatch(BaseModel):
                 and self.end_date < self.start_date:
             raise ValueError("employment end date cannot precede start date")
         return self
+
     start_date: date | None = None
 
 
 class EmploymentOut(BaseModel):
+    share_payment_method: Literal["payroll_cash", "payroll_noncash", "outside_payroll"] = (
+        "payroll_cash"
+    )
     model_config = ConfigDict(from_attributes=True)
     id: int
     household_id: int
@@ -788,15 +798,55 @@ class PrepareYearOut(BaseModel):
 
 
 class SalaryRevisionIn(BaseModel):
+    shares_owned: Decimal = Field(
+        default=Decimal("0"), ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
     effective_date: date
     annual_salary: Money
     notes: str | None = Field(default=None, max_length=2000)
 
 
 class SalaryRevisionPatch(BaseModel):
+    shares_owned: Decimal | None = Field(
+        default=None, ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
     effective_date: date | None = None
     annual_salary: Money | None = None
     notes: str | None = Field(default=None, max_length=2000)
+
+
+class EmploymentBonusIn(BaseModel):
+    pay_month: date
+    label: str = Field(default="Bonus", min_length=1, max_length=200)
+    salary_percentage: Decimal | None = Field(default=None, ge=0, le=10000, decimal_places=4)
+    share_value: Money | None = None
+    manual_amount: Money = Field(default_factory=lambda: Money.of_pence(0))
+
+    @field_validator("share_value", "manual_amount")
+    @classmethod
+    def bonus_money_nonnegative(cls, value: Money | None) -> Money | None:
+        if value is not None and value.pence < 0:
+            raise ValueError("bonus inputs cannot be negative")
+        return value
+
+
+class EmploymentBonusOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    pay_month: date_t
+    pay_date: date_t
+    label: str
+    salary_percentage: Decimal | None
+    share_value_pence: int | None
+    manual_pence: int
+    salary_basis_pence: int
+    shares_owned: Decimal
+    salary_bonus_pence: int
+    share_bonus_pence: int
+    gross_pence: int
+    noncash_pence: int
+    share_payment_method: str
 
 
 class TaxCodeRevisionIn(BaseModel):
@@ -806,6 +856,9 @@ class TaxCodeRevisionIn(BaseModel):
 
 
 class SalaryRevisionOut(BaseModel):
+    shares_owned: Decimal = Field(
+        default=Decimal("0"), ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
     model_config = ConfigDict(from_attributes=True)
     id: int
     employment_id: int

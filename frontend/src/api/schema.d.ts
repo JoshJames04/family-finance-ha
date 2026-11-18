@@ -1103,6 +1103,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/bonuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Bonuses */
+        get: operations["list_bonuses_api_v1_employments__emp_id__bonuses_get"];
+        put?: never;
+        /** Add Bonus */
+        post: operations["add_bonus_api_v1_employments__emp_id__bonuses_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/bonuses/{bonus_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Bonus */
+        delete: operations["delete_bonus_api_v1_employments__emp_id__bonuses__bonus_id__delete"];
+        options?: never;
+        head?: never;
+        /** Edit Bonus */
+        patch: operations["edit_bonus_api_v1_employments__emp_id__bonuses__bonus_id__patch"];
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/salary-revisions/{rev_id}": {
         parameters: {
             query?: never;
@@ -4996,8 +5032,81 @@ export interface components {
             /** Events Delivered */
             events_delivered: number;
         };
+        /** EmploymentBonusIn */
+        EmploymentBonusIn: {
+            /**
+             * Pay Month
+             * Format: date
+             */
+            pay_month: string;
+            /**
+             * Label
+             * @default Bonus
+             */
+            label: string;
+            /** Salary Percentage */
+            salary_percentage?: number | string | null;
+            /** Share Value */
+            share_value?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Money */
+            manual_amount?: number | string | {
+                pence: number;
+            };
+        };
+        /** EmploymentBonusOut */
+        EmploymentBonusOut: {
+            /** Id */
+            id: number;
+            /** Employment Id */
+            employment_id: number;
+            /**
+             * Pay Month
+             * Format: date
+             */
+            pay_month: string;
+            /**
+             * Pay Date
+             * Format: date
+             */
+            pay_date: string;
+            /** Label */
+            label: string;
+            /** Salary Percentage */
+            salary_percentage: string | null;
+            /** Share Value Pence */
+            share_value_pence: number | null;
+            /** Manual Pence */
+            manual_pence: number;
+            /** Salary Basis Pence */
+            salary_basis_pence: number;
+            /** Shares Owned */
+            shares_owned: string;
+            /** Salary Bonus Pence */
+            salary_bonus_pence: number;
+            /** Share Bonus Pence */
+            share_bonus_pence: number;
+            /** Gross Pence */
+            gross_pence: number;
+            /** Noncash Pence */
+            noncash_pence: number;
+            /** Share Payment Method */
+            share_payment_method: string;
+        };
         /** EmploymentIn */
         EmploymentIn: {
+            /**
+             * Initial Shares Owned
+             * @default 0
+             */
+            initial_shares_owned: number | string;
+            /**
+             * Share Payment Method
+             * @default payroll_cash
+             * @enum {string}
+             */
+            share_payment_method: "payroll_cash" | "payroll_noncash" | "outside_payroll";
             /** Profile Id */
             profile_id: number;
             /** Employer */
@@ -5074,6 +5183,12 @@ export interface components {
         };
         /** EmploymentOut */
         EmploymentOut: {
+            /**
+             * Share Payment Method
+             * @default payroll_cash
+             * @enum {string}
+             */
+            share_payment_method: "payroll_cash" | "payroll_noncash" | "outside_payroll";
             /** Id */
             id: number;
             /** Household Id */
@@ -5114,6 +5229,8 @@ export interface components {
         };
         /** EmploymentPatch */
         EmploymentPatch: {
+            /** Share Payment Method */
+            share_payment_method?: ("payroll_cash" | "payroll_noncash" | "outside_payroll") | null;
             /** Employer */
             employer?: string | null;
             jurisdiction?: components["schemas"]["TaxJurisdiction"] | null;
@@ -6352,7 +6469,7 @@ export interface components {
          * PayrollComponentKind
          * @enum {string}
          */
-        PayrollComponentKind: "base_salary" | "overtime" | "bonus" | "allowance" | "unpaid_leave" | "pension" | "tax" | "ni" | "student_loan";
+        PayrollComponentKind: "base_salary" | "overtime" | "bonus" | "allowance" | "unpaid_leave" | "pension" | "tax" | "ni" | "student_loan" | "noncash";
         /** PayrollComponentOut */
         PayrollComponentOut: {
             /** Id */
@@ -6907,6 +7024,11 @@ export interface components {
         /** SalaryRevisionIn */
         SalaryRevisionIn: {
             /**
+             * Shares Owned
+             * @default 0
+             */
+            shares_owned: number | string;
+            /**
              * Effective Date
              * Format: date
              */
@@ -6920,6 +7042,11 @@ export interface components {
         };
         /** SalaryRevisionOut */
         SalaryRevisionOut: {
+            /**
+             * Shares Owned
+             * @default 0
+             */
+            shares_owned: string;
             /** Id */
             id: number;
             /** Employment Id */
@@ -6936,6 +7063,8 @@ export interface components {
         };
         /** SalaryRevisionPatch */
         SalaryRevisionPatch: {
+            /** Shares Owned */
+            shares_owned?: number | string | null;
             /** Effective Date */
             effective_date?: string | null;
             /** Annual Salary */
@@ -10463,6 +10592,153 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SalaryRevisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_bonuses_api_v1_employments__emp_id__bonuses_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentBonusOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_bonus_api_v1_employments__emp_id__bonuses_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmploymentBonusIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentBonusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_bonus_api_v1_employments__emp_id__bonuses__bonus_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                bonus_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_bonus_api_v1_employments__emp_id__bonuses__bonus_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                bonus_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmploymentBonusIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentBonusOut"];
                 };
             };
             /** @description Validation Error */

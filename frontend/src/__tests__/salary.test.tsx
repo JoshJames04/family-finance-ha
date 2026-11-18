@@ -6,6 +6,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { Salary } from "../pages/Salary";
+import { undoToast } from "../lib/toast";
+
+vi.mock("../lib/toast", () => ({ undoToast: vi.fn() }));
 
 const EMP = {
   id: 1, profile_id: 1, employer: "Acme Ltd", jurisdiction: "england_wales",
@@ -22,7 +25,7 @@ const PROFILES = [
 
 const REVISIONS = [
   { id: 2, employment_id: 1, effective_date: "2026-04-06",
-    annual_salary_pence: 4500000, notes: "April pay rise" },
+    annual_salary_pence: 4500000, shares_owned: "123.4567", notes: "April pay rise" },
   { id: 1, employment_id: 1, effective_date: "2025-09-01",
     annual_salary_pence: 4200000, notes: null },
 ];
@@ -44,6 +47,8 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
         body = { items: [{ id: 1, name: "Home" }], total: 1 };
       } else if (url.includes("/api/v1/profiles")) {
         body = { items: PROFILES, total: PROFILES.length };
+      } else if (url.includes("/bonuses")) {
+        body = [];
       } else if (url.includes("/tax-code-revisions")) {
         body = [];
       } else if (url.includes("/salary-revisions")) {
@@ -74,6 +79,8 @@ describe("Salary", () => {
       expect(screen.getAllByText("£45,000.00").length).toBeGreaterThan(0));
     expect(screen.getByText(/from 6 Apr/)).toBeTruthy();
     expect(screen.getByText(/April pay rise/)).toBeTruthy();
+    expect(screen.getByText(/123.4567 shares/)).toBeTruthy();
+    expect(screen.getByText(/0 shares/)).toBeTruthy();
     expect(screen.getByText(/from 1 Sept 2025/)).toBeTruthy();
   });
 
@@ -84,6 +91,10 @@ describe("Salary", () => {
     open();
     await user.click(await screen.findByRole("button", { name: "New salary" }));
     await user.type(screen.getByLabelText(/Annual salary/), "48000");
+    const shares = screen.getByLabelText("Shares owned");
+    expect((shares as HTMLInputElement).value).toBe("123.4567");
+    await user.clear(shares);
+    await user.type(shares, "200.1234");
     await user.click(screen.getByRole("button", { name: "Save salary" }));
     await waitFor(() => {
       const c = calls.find((x) =>
@@ -91,6 +102,7 @@ describe("Salary", () => {
       expect(c).toBeDefined();
       const body = JSON.parse(c!.body);
       expect(body.annual_salary).toBe("48000");
+      expect(body.shares_owned).toBe("200.1234");
       expect(body.effective_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
   });
@@ -113,6 +125,7 @@ describe("Salary", () => {
         x.url.includes("/employments/1/salary-revisions/2"));
       expect(c).toBeDefined();
       expect(JSON.parse(c!.body).annual_salary).toBe("46000");
+      expect(JSON.parse(c!.body).shares_owned).toBe("123.4567");
     });
   });
 
@@ -126,6 +139,9 @@ describe("Salary", () => {
     await waitFor(() => expect(calls.some((x) =>
       x.method === "DELETE" &&
       x.url.includes("/employments/1/salary-revisions/2"))).toBe(true));
+    await vi.mocked(undoToast).mock.calls.at(-1)![1]();
+    const restored = calls.find((x) => x.method === "POST" && x.url.endsWith("/salary-revisions"));
+    expect(JSON.parse(restored!.body).shares_owned).toBe("123.4567");
   });
 
   it("adding an employment can seed its first salary revision", async () => {
@@ -137,6 +153,9 @@ describe("Salary", () => {
     await user.click(addBtn!);
     await user.type(screen.getByLabelText("Employer"), "New Corp");
     await user.type(screen.getByLabelText(/Annual salary/), "30000");
+    await user.clear(screen.getByLabelText("Initial shares owned"));
+    await user.type(screen.getByLabelText("Initial shares owned"), "250.125");
+    await user.selectOptions(screen.getByLabelText("Share payment method"), "payroll_noncash");
     // Page actions are aria-hidden behind the open dialog; the only
     // visible "Add employment" is the dialog's submit.
     await user.click(screen.getByRole("button", { name: "Add employment" }));
@@ -147,7 +166,23 @@ describe("Salary", () => {
         x.method === "POST" && x.url.endsWith("/employments"));
       expect(employment).toBeDefined();
       expect(JSON.parse(employment!.body).initial_salary).toBe("30000");
+      expect(JSON.parse(employment!.body).initial_shares_owned).toBe("250.125");
+      expect(JSON.parse(employment!.body).share_payment_method).toBe("payroll_noncash");
     });
+  });
+
+  it("rejects negative holdings and more than four decimal places", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "New salary" }));
+    await user.type(screen.getByLabelText(/Annual salary/), "48000");
+    const shares = screen.getByLabelText("Shares owned");
+    for (const value of ["-1", "1.12345"]) {
+      await user.clear(shares);
+      await user.type(shares, value);
+      expect((screen.getByRole("button", { name: "Save salary" }) as HTMLButtonElement).disabled).toBe(true);
+    }
   });
 
   it("serializes a selected fixed payday without exposing JSON", async () => {

@@ -17,9 +17,9 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.api.payroll_scope import authorize_employment
+from app.domain import bonuses, pay_calendar, paydays, payrun, rbac, schedule
 from app.domain import budgets as budget_dom
 from app.domain import overtime as ot
-from app.domain import pay_calendar, paydays, payrun, rbac, schedule
 from app.domain import payroll as dom
 from app.persistence.models import (
     Account,
@@ -28,6 +28,7 @@ from app.persistence.models import (
     DeliveryCharge,
     DeliveryEntry,
     Employment,
+    EmploymentBonus,
     OvertimeEntry,
     OvertimeStatus,
     PayrollRun,
@@ -72,6 +73,8 @@ def create_employment(
     body: schemas.EmploymentIn, household: HouseholdDep,
     session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.EmploymentOut:
+    if body.initial_shares_owned and body.initial_salary is None:
+        raise HTTPException(422, "initial shares require an initial salary revision")
     if not rbac.write_allowed(body.profile_id, profile):
         raise HTTPException(403, "role cannot mutate this scope")
     p = session.get(UserProfile, body.profile_id)
@@ -104,6 +107,7 @@ def create_employment(
             raise HTTPException(404, "paid-into account not found")
     e = Employment(household_id=household.id,
                    profile_id=p.id, employer=body.employer,
+                   share_payment_method=body.share_payment_method,
                    employment_type=body.employment_type,
                    jurisdiction=body.jurisdiction,
                    ni_category=body.ni_category,
@@ -126,7 +130,7 @@ def create_employment(
         dom.add_salary_revision(
             session, e,
             body.initial_salary_effective_date or body.start_date or date.today(),
-            body.initial_salary.pence)
+            body.initial_salary.pence, shares_owned=body.initial_shares_owned)
     if body.initial_tax_code is not None:
         dom.add_tax_code_revision(
             session, e,
@@ -395,6 +399,8 @@ def patch_employment(
 ) -> schemas.EmploymentOut:
     e = _get(session, household.id, emp_id)
     changed = body.model_dump(exclude_unset=True)
+    if "share_payment_method" in changed and changed["share_payment_method"] is None:
+        raise HTTPException(422, "share payment method cannot be empty")
     if "end_date" in changed and changed["end_date"] is not None \
             and e.start_date is not None \
             and changed["end_date"] < e.start_date:
@@ -435,24 +441,148 @@ def list_salary_revisions(
             for r in e.salary_revisions]
 
 
-@router.post("/{emp_id}/salary-revisions",
-             response_model=schemas.SalaryRevisionOut, status_code=201)
+@router.get("/{emp_id}/bonuses", response_model=list[schemas.EmploymentBonusOut])
+def list_bonuses(
+    emp_id: int, household: HouseholdDep, session: SessionDep
+) -> list[schemas.EmploymentBonusOut]:
+    e = _get(session, household.id, emp_id)
+    return [
+        schemas.EmploymentBonusOut.model_validate(row)
+        for row in session.scalars(
+            select(EmploymentBonus)
+            .where(EmploymentBonus.employment_id == e.id)
+            .order_by(EmploymentBonus.pay_month.desc(), EmploymentBonus.id)
+        )
+    ]
+
+
+def _save_bonus(
+    emp_id: int,
+    body: schemas.EmploymentBonusIn,
+    household_id: int,
+    session: Session,
+    profile: UserProfile | None,
+    existing: EmploymentBonus | None = None,
+) -> EmploymentBonus:
+    if profile is not None and profile.id != _get(session, household_id, emp_id).profile_id:
+        raise HTTPException(403, "only the payroll owner may change bonuses")
+    return bonuses.save(
+        session,
+        _get(session, household_id, emp_id),
+        pay_month=body.pay_month,
+        label=body.label,
+        salary_percentage=body.salary_percentage,
+        share_value_pence=body.share_value.pence if body.share_value is not None else None,
+        manual_pence=body.manual_amount.pence,
+        existing=existing,
+    )
+
+
+def _bonus(session: Session, emp_id: int, bonus_id: int) -> EmploymentBonus:
+    row = session.get(EmploymentBonus, bonus_id)
+    if row is None or row.employment_id != emp_id:
+        raise HTTPException(404, "bonus not found")
+    return row
+
+
+@router.post("/{emp_id}/bonuses", response_model=schemas.EmploymentBonusOut, status_code=201)
+def add_bonus(
+    emp_id: int,
+    body: schemas.EmploymentBonusIn,
+    household: HouseholdDep,
+    session: SessionDep,
+    actor: ActorDep,
+    profile: ProfileDep,
+) -> schemas.EmploymentBonusOut:
+    row = _save_bonus(emp_id, body, household.id, session, profile)
+    emit(
+        session,
+        household.id,
+        actor,
+        "create",
+        "employment_bonus",
+        row.id,
+        {"employment_id": emp_id},
+    )
+    return schemas.EmploymentBonusOut.model_validate(row)
+
+
+@router.patch("/{emp_id}/bonuses/{bonus_id}", response_model=schemas.EmploymentBonusOut)
+def edit_bonus(
+    emp_id: int,
+    bonus_id: int,
+    body: schemas.EmploymentBonusIn,
+    household: HouseholdDep,
+    session: SessionDep,
+    actor: ActorDep,
+    profile: ProfileDep,
+) -> schemas.EmploymentBonusOut:
+    row = _save_bonus(
+        emp_id, body, household.id, session, profile, _bonus(session, emp_id, bonus_id))
+    emit(
+        session,
+        household.id,
+        actor,
+        "update",
+        "employment_bonus",
+        row.id,
+        {"employment_id": emp_id},
+    )
+    return schemas.EmploymentBonusOut.model_validate(row)
+
+
+@router.delete("/{emp_id}/bonuses/{bonus_id}", status_code=204)
+def delete_bonus(
+    emp_id: int, bonus_id: int, household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    profile: ProfileDep,
+) -> None:
+    if profile is not None and profile.id != _get(session, household.id, emp_id).profile_id:
+        raise HTTPException(403, "only the payroll owner may change bonuses")
+    bonuses.remove(session, _get(session, household.id, emp_id), _bonus(session, emp_id, bonus_id))
+    emit(
+        session,
+        household.id,
+        actor,
+        "delete",
+        "employment_bonus",
+        bonus_id,
+        {"employment_id": emp_id},
+    )
+
+
+@router.post(
+    "/{emp_id}/salary-revisions", response_model=schemas.SalaryRevisionOut, status_code=201
+)
 def add_salary_revision(
-    emp_id: int, body: schemas.SalaryRevisionIn,
-    household: HouseholdDep, session: SessionDep, actor: ActorDep,
+    emp_id: int,
+    body: schemas.SalaryRevisionIn,
+    household: HouseholdDep,
+    session: SessionDep,
+    actor: ActorDep,
 ) -> schemas.SalaryRevisionOut:
     e = _get(session, household.id, emp_id)
-    rev = dom.add_salary_revision(session, e, body.effective_date,
-                                  body.annual_salary.pence, body.notes)
+    rev = dom.add_salary_revision(
+        session,
+        e,
+        body.effective_date,
+        body.annual_salary.pence,
+        body.notes,
+        shares_owned=body.shares_owned,
+    )
     schedule.rematerialize_employment(session, e)
-    emit(session, household.id, actor, "create", "salary_revision",
-         rev.id, {"employment_id": e.id,
-                  "effective_date": str(rev.effective_date)})
+    emit(
+        session,
+        household.id,
+        actor,
+        "create",
+        "salary_revision",
+        rev.id,
+        {"employment_id": e.id, "effective_date": str(rev.effective_date)},
+    )
     return schemas.SalaryRevisionOut.model_validate(rev)
 
 
-def _get_revision(session: Session, household_id: int, emp_id: int,
-                  rev_id: int) -> SalaryRevision:
+def _get_revision(session: Session, household_id: int, emp_id: int, rev_id: int) -> SalaryRevision:
     e = _get(session, household_id, emp_id)
     rev = session.get(SalaryRevision, rev_id)
     if rev is None or rev.employment_id != e.id:
@@ -471,7 +601,8 @@ def patch_salary_revision(
     dom.update_salary_revision(
         session, rev,
         effective_date=changed.get("effective_date"),
-        annual_pence=changed.get("annual_salary"),
+        annual_pence=body.annual_salary.pence if body.annual_salary is not None else None,
+        shares_owned=body.shares_owned,
         notes=changed.get("notes", ...))
     schedule.rematerialize_employment(session, _get(session, household.id, emp_id))
     emit(session, household.id, actor, "update", "salary_revision",

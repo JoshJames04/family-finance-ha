@@ -38,38 +38,62 @@ def create_employment(session: Session, employment: Employment) -> None:
 
 
 def add_salary_revision(
-    session: Session, employment: Employment, effective_date: date,
-    annual_pence: int, notes: str | None = None,
+    session: Session,
+    employment: Employment,
+    effective_date: date,
+    annual_pence: int,
+    notes: str | None = None,
+    *,
+    shares_owned: Decimal = Decimal("0"),
 ) -> SalaryRevision:
+    if (
+        not shares_owned.is_finite()
+        or shares_owned < 0
+        or shares_owned > Decimal("9999999999.9999")
+        or shares_owned != shares_owned.quantize(Decimal("0.0001"))
+    ):
+        raise PayrollError("shares owned must be non-negative with at most four decimal places")
     if annual_pence < 0:
         raise PayrollError("annual salary cannot be negative")
-    if _revision_on(session, SalaryRevision, employment.id,
-                    effective_date) is not None:
-        raise PayrollError(
-            f"salary revision already exists on {effective_date}")
-    rev = SalaryRevision(employment_id=employment.id,
-                         effective_date=effective_date,
-                         annual_salary_pence=annual_pence, notes=notes)
+    if _revision_on(session, SalaryRevision, employment.id, effective_date) is not None:
+        raise PayrollError(f"salary revision already exists on {effective_date}")
+    rev = SalaryRevision(
+        employment_id=employment.id,
+        effective_date=effective_date,
+        annual_salary_pence=annual_pence,
+        notes=notes,
+        shares_owned=shares_owned,
+    )
     session.add(rev)
     session.flush()
     return rev
 
 
 def update_salary_revision(
-    session: Session, rev: SalaryRevision, *,
+    session: Session,
+    rev: SalaryRevision,
+    *,
     effective_date: date | None = None,
     annual_pence: int | None = None,
     notes: str | EllipsisType | None = ...,
+    shares_owned: Decimal | None = None,
 ) -> SalaryRevision:
     """Correct a revision's figure, date or note in place."""
+    if shares_owned is not None:
+        if (
+            not shares_owned.is_finite()
+            or shares_owned < 0
+            or shares_owned > Decimal("9999999999.9999")
+            or shares_owned != shares_owned.quantize(Decimal("0.0001"))
+        ):
+            raise PayrollError("shares owned must be non-negative with at most four decimal places")
+        rev.shares_owned = shares_owned
     if annual_pence is not None and annual_pence < 0:
         raise PayrollError("annual salary cannot be negative")
     if effective_date is not None and effective_date != rev.effective_date:
-        clash = _revision_on(session, SalaryRevision, rev.employment_id,
-                             effective_date)
+        clash = _revision_on(session, SalaryRevision, rev.employment_id, effective_date)
         if clash is not None and clash.id != rev.id:
-            raise PayrollError(
-                f"salary revision already exists on {effective_date}")
+            raise PayrollError(f"salary revision already exists on {effective_date}")
         rev.effective_date = effective_date
     if annual_pence is not None:
         rev.annual_salary_pence = annual_pence
@@ -80,7 +104,8 @@ def update_salary_revision(
 
 
 def delete_salary_revision(
-    session: Session, rev: SalaryRevision,
+    session: Session,
+    rev: SalaryRevision,
 ) -> None:
     """Remove a revision; an employment must keep at least one."""
     remaining = session.execute(
@@ -196,3 +221,4 @@ def gross_for_period(
         days = (seg_end - seg_start).days
         total += int(rev.annual_salary_pence) * days // DAYS_PER_YEAR
     return total
+
