@@ -10,9 +10,9 @@
 
 ## Tasks
 
-- [ ] Preserve and evaluate the existing YTD safety patch/tests; integrate the hardened engine without dropping those safeguards.
-- [ ] Keep only bonus-required migrations in this PR, with one migration head after the engine migration.
-- [ ] Add failing UI tests for Add bonus placement, type-dependent fields, switching type without hidden values, existing combined-entry preservation, validation and month aggregation.
-- [ ] Move bonus controls to employer configuration; remove bulky repeated bonus sections from Breakdown and use existing padding/spacing tokens.
-- [ ] Wire bonus changes into shared automatic forecast refresh while retaining immutable basis snapshots, non-cash/outside-payroll distinctions and protected actuals.
+- [x] Preserve and evaluate the existing YTD safety patch/tests; integrate the hardened engine without dropping those safeguards.
+- [x] Keep only bonus-required migrations in this PR, with one migration head after the engine migration.
+- [x] Add failing UI tests for Add bonus placement, type-dependent fields, switching type without hidden values, existing combined-entry preservation, validation and month aggregation.
+- [x] Move bonus controls to employer configuration; remove bulky repeated bonus sections from Breakdown and use existing padding/spacing tokens.
+- [x] Wire bonus changes into shared automatic forecast refresh while retaining immutable basis snapshots, non-cash/outside-payroll distinctions and protected actuals.
 - [ ] Run full backend/frontend and migration checks; update PR #540, closing tags and Josh's review request. Verify the combined local preview.

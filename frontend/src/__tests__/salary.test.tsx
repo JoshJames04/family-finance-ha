@@ -1,7 +1,7 @@
 /** #296: salary is an effective-dated series — the card shows the
  * dated history, "New salary" records a revision from a date, and
  * adding an employment can seed its first revision. */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -31,7 +31,7 @@ const REVISIONS = [
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
-  opts: { employments?: object[]; revisionsReady?: Promise<void> } = {}) {
+  opts: { employments?: object[]; revisionsReady?: Promise<void>; payrollRuns?: object[]; payslips?: object[] } = {}) {
   const employments = opts.employments ?? [EMP];
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -41,6 +41,9 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
       let body: object | object[] = { items: [], total: 0 };
       if (method === "POST" && url.endsWith("/employments")) {
         body = { ...EMP, id: 7 };
+      } else if (method === "PATCH" && url.includes("/payslips/")) {
+        body = { ...(opts.payslips?.[0] ?? {}),
+          extracted: {components:JSON.parse(String(init?.body ?? '{}')).components} };
       } else if (method !== "GET") {
         body = { ok: true };
       } else if (url.includes("/api/v1/households")) {
@@ -58,8 +61,11 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
             status: 200, headers: { "Content-Type": "application/json" },
           }));
         }
+
+      } else if (url.includes("/payslips")) {
+        body = opts.payslips ?? [];
       } else if (url.includes("/payroll-runs")) {
-        body = [];
+        body = opts.payrollRuns ?? [];
       } else if (url.match(/\/employments\/\d+\/salary/)) {
         body = { annual_salary_pence: 4500000, hourly_rate_pence: 2308 };
       } else if (url.includes("/api/v1/employments")) {
@@ -284,5 +290,103 @@ describe("Bonus placement", () => {
     await user.click(screen.getByRole("button", {name:"Cancel"}));
     await user.click(screen.getByRole("button", {name:"Breakdown"}));
     expect(screen.queryByRole("button", {name:"Add bonus"})).toBeNull();
+
+  });
+});
+
+const GROSS_ONLY_RUN = {id:5, employment_id:1, period_start:'2026-04-01',
+  period_end:'2026-04-30', pay_date:'2026-04-28', status:'forecast', tax_year:'2026-27',
+  rule_set_year:null, rule_set_version:0, gross_pence:100000, net_pence:100000,
+  components:[{id:1,kind:'base_salary',forecast_pence:100000,actual_pence:null}]};
+
+describe('Gross-only confirmation paths', () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+it('passes gross-only mode through the manual reconciliation dialog', async () => {
+  stubFetch([], {employments:[{...EMP,deduction_mode:'gross_only'}], payrollRuns:[GROSS_ONLY_RUN]});
+  const user = userEvent.setup();
+  open();
+  await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+  await user.click(await screen.findByRole('button',{name:'Check amounts'}));
+  expect(screen.getByLabelText('Taxable pay this period (optional)')).toBeTruthy();
+});
+
+it('passes gross-only mode through uploaded payslip confirmation', async () => {
+  stubFetch([], {employments:[{...EMP,deduction_mode:'gross_only'}], payrollRuns:[GROSS_ONLY_RUN],
+    payslips:[{id:1,payroll_run_id:5,original_name:'synthetic.pdf',size_bytes:100,
+      media_type:'application/pdf',status:'reviewed',extracted:{},warnings:[],overtime_findings:[]}]});
+  const user = userEvent.setup();
+  open();
+  await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+  await user.click(await screen.findByRole('button',{name:'Payslip'}));
+  await user.click(await screen.findByRole('button',{name:'Review'}));
+  expect(screen.getByLabelText('Taxable pay this period (optional)')).toBeTruthy();
+});
+
+});
+
+
+describe('Uploaded payslip completeness', () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it('blocks partial OCR locally until every component has an explicit amount', async () => {
+    const calls: { url:string; method:string; body:string }[] = [];
+    stubFetch(calls, {employments:[{...EMP,deduction_mode:'gross_only'}], payrollRuns:[GROSS_ONLY_RUN],
+      payslips:[{id:1,payroll_run_id:5,original_name:'synthetic.pdf',size_bytes:100,
+        media_type:'application/pdf',status:'reviewed',extracted:{components:{base_salary:100000}},
+        warnings:[],overtime_findings:[]}]});
+    const user = userEvent.setup(); open();
+    await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+    await user.click(await screen.findByRole('button',{name:'Payslip'}));
+    await user.click(await screen.findByRole('button',{name:'Review'}));
+    await user.click(screen.getByRole('button',{name:'Save review'}));
+    const saved = calls.find(c => c.method === 'PATCH' && c.url.includes('/payslips/'));
+    expect(saved).toBeDefined();
+    expect(JSON.parse(saved!.body).components).toEqual({base_salary:100000});
+    await user.type(screen.getByLabelText('Payslip gross'),'1000');
+    await user.type(screen.getByLabelText('Payslip net entitlement'),'1000');
+    await user.click(screen.getByRole('button',{name:'Confirm actuals'}));
+    expect(calls.some(c => c.method === 'POST' && c.url.endsWith('/confirm'))).toBe(false);
+    for (const label of ['Overtime','Bonus','Allowance','Unpaid leave','Pension','Tax',
+      'National Insurance','Student loan']) await user.type(screen.getByLabelText(label),'0');
+    const noncash = screen.queryByLabelText('Non-cash share award');
+    if (noncash) await user.type(noncash,'0');
+    await user.click(screen.getByRole('button',{name:'Confirm actuals'}));
+    await waitFor(() => {
+      const request = calls.find(c => c.method === 'POST' && c.url.endsWith('/confirm'));
+      expect(request).toBeDefined();
+      const body = JSON.parse(request!.body);
+      expect(body.actuals.base_salary).toBe(100000);
+      expect(body.actuals.overtime).toBe(0);
+      expect(Object.keys(body.actuals).length).toBeGreaterThanOrEqual(9);
+      expect(body.taxable_pence).toBeUndefined();
+    });
+  });
+});
+
+describe("Automatic compact payroll", () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("refreshes on opening Breakdown and groups cutoff payroll by pay month", async () => {
+    const calls: {url:string;method:string;body:string}[] = [];
+    stubFetch(calls, {payrollRuns:[{...GROSS_ONLY_RUN, period_start:'2026-03-16',
+      period_end:'2026-04-15', statutory_pay_date:'2026-04-28'}]});
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole('button',{name:'Breakdown'}));
+    expect(await screen.findByLabelText('Payroll year')).toBeTruthy();
+    await waitFor(() => expect(calls.some(c => c.method === 'POST' && c.url.endsWith('/1/refresh-payroll'))).toBe(true));
+    const summary = screen.getByRole('region', {name:'Monthly payroll summary'});
+    expect(within(summary).getByText('2026-04')).toBeTruthy();
+    expect(within(summary).queryByText('2026-03')).toBeNull();
+    expect(screen.queryByRole('button',{name:'Add run'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'Review forecasts'})).toBeNull();
+  });
+});
+describe("Historical payroll links", () => {
+  afterEach(() => {cleanup(); vi.restoreAllMocks();});
+  it("selects the linked payroll year instead of hiding an old run", async () => {
+    stubFetch([], {payrollRuns:[{...GROSS_ONLY_RUN, pay_date:'2025-04-28', statutory_pay_date:'2025-04-28', period_start:'2025-04-01', period_end:'2025-04-30'}]});
+    render(<MemoryRouter initialEntries={['/?run_id=5']}><Salary /></MemoryRouter>);
+    await waitFor(() => expect((screen.getByLabelText('Payroll year') as HTMLSelectElement).value).toBe('2025'));
+    expect(screen.getByRole('button', {name:'Payslip'})).toBeTruthy();
   });
 });

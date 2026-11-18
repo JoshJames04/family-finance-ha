@@ -54,8 +54,9 @@ not grant write access. Tests use synthetic employers/amounts, never live payrol
 
 ## Upgrade and review order
 
-Prefer merging PR #535 before this feature. The identical nullable occasion-date
-migration from that PR is included as the prerequisite to `0072_employer_bonuses`,
-so both merge orders still converge on one migration chain. It does not infer dates.
+Review and merge payroll hardening PR #543 before bonus PR #540. Bonus migration
+`0074_employer_bonuses` follows `0073_payroll_verified_inputs`; unrelated occasion-date
+work is not a prerequisite. Both PRs target develop; the bonus branch includes the
+engine prerequisite so it can be tested independently before review.
 Back up before upgrade. A schema downgrade refuses to drop recorded bonus history;
 restore a verified pre-upgrade backup for rollback instead of deleting history.

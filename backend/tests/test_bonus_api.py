@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
 from app.main import create_app
+from tests.payroll_helpers import confirmation_payload
 
 
 @pytest.fixture()
@@ -59,7 +60,9 @@ def test_bonus_crud_updates_one_run_and_rejects_locked_changes(api):
     assert runs[0]["gross_pence"] == run["gross_pence"] + 10000
     assert (
         c.post(
-            path + f"/payroll-runs/{run['id']}/reconcile", headers=h, json={"actuals": {}}
+            path + f"/payroll-runs/{run['id']}/reconcile",
+            headers=h,
+            json=confirmation_payload(runs[0]),
         ).status_code
         == 200
     )

@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.domain import bonuses, payroll, payrun
 from app.persistence.models import Employment, EmploymentBonus, PayrollRun, UserProfile
+from tests.payroll_helpers import confirm
 
 
 @pytest.fixture()
@@ -56,12 +57,14 @@ def test_bonus_parts_and_multiple_entries_share_one_payroll(session, employer):
 
 
 def test_salary_revision_inherits_effective_holding_unless_explicit_zero(session, employer):
-    future = payroll.add_salary_revision(session, employer, date(2025, 8, 1), 7_000_000,
-                                          shares_owned=Decimal("500"))
+    future = payroll.add_salary_revision(
+        session, employer, date(2025, 8, 1), 7_000_000, shares_owned=Decimal("500")
+    )
     middle = payroll.add_salary_revision(session, employer, date(2025, 5, 1), 6_500_000)
     assert middle.shares_owned == Decimal("250")
-    zero = payroll.add_salary_revision(session, employer, date(2025, 9, 1), 7_500_000,
-                                       shares_owned=Decimal("0"))
+    zero = payroll.add_salary_revision(
+        session, employer, date(2025, 9, 1), 7_500_000, shares_owned=Decimal("0")
+    )
     assert zero.shares_owned == Decimal("0")
     assert future.shares_owned == Decimal("500")
 
@@ -74,6 +77,7 @@ def test_bonus_rounding_matches_the_money_policy():
 
 
 def test_share_and_salary_basis_uses_adjusted_payday_and_snapshot(session, employer):
+    payroll.add_tax_code_revision(session, employer, date(2025, 4, 1), "1257L M1")
     payroll.add_salary_revision(
         session, employer, date(2025, 6, 28), 9_000_000, shares_owned=Decimal("500")
     )
@@ -100,7 +104,7 @@ def test_locked_run_rejects_bonus_without_mutation(session, employer):
     original = payrun.generate(
         session, employer, start=date(2025, 4, 1), end=date(2025, 4, 30), pay_date=date(2025, 4, 28)
     )
-    payrun.reconcile(session, original, {})
+    confirm(session, original)
     with pytest.raises(payroll.PayrollError, match="reconciled"):
         bonuses.save(session, employer, pay_month=date(2025, 4, 1), manual_pence=100)
     assert session.scalars(select(EmploymentBonus)).all() == []
@@ -120,17 +124,18 @@ def test_correction_preserves_planned_bonus_before_edit_and_delete(session, empl
     bonus = bonuses.save(session, employer, pay_month=date(2025, 4, 1), manual_pence=100_000)
     original = session.scalar(select(PayrollRun))
     original_gross = original.gross_pence
-    payrun.reconcile(session, original, {})
+    confirm(session, original)
     corrected = payrun.correct(session, original)
     assert corrected.planned_bonus_pence == 100_000
-    bonuses.save(
-        session, employer, pay_month=date(2025, 4, 1), manual_pence=200_000, existing=bonus
-    )
-    assert corrected.gross_pence == original_gross + 100_000
-    assert sum(c.forecast_pence for c in corrected.components) == corrected.net_pence
-    bonuses.remove(session, employer, bonus)
-    assert corrected.gross_pence == original_gross - 100_000
-    assert corrected.planned_bonus_pence == 0
+    with pytest.raises(payroll.PayrollError, match="correction|reconciled|protected"):
+        bonuses.save(
+            session, employer, pay_month=date(2025, 4, 1), manual_pence=200_000, existing=bonus
+        )
+    with pytest.raises(payroll.PayrollError, match="correction|reconciled|protected"):
+        bonuses.remove(session, employer, bonus)
+    assert corrected.gross_pence == original_gross
+    assert corrected.planned_bonus_pence == 100_000
+    assert original.gross_pence == original_gross
 
 
 def test_incomplete_imported_components_cannot_recalculate_bonus(session, employer):
@@ -181,11 +186,12 @@ def test_noncash_award_is_taxable_but_not_cash_and_survives_correction(session, 
     assert run.gross_pence == cash_gross
     assert run.net_pence == cash_net - 375_000
     assert sum(c.forecast_pence for c in run.components) == run.net_pence
-    payrun.reconcile(session, run, {})
+    confirm(session, run)
     replacement = payrun.correct(session, run)
     assert replacement.noncash_bonus_pence == 375_000
-    bonuses.remove(session, employer, bonus)
-    assert replacement.noncash_bonus_pence == 0
+    with pytest.raises(payroll.PayrollError, match="correction|reconciled|protected"):
+        bonuses.remove(session, employer, bonus)
+    assert replacement.noncash_bonus_pence == 375_000
     assert sum(c.forecast_pence for c in replacement.components) == replacement.net_pence
 
 

@@ -14,7 +14,6 @@ from app.domain.payroll import PayrollError
 from app.persistence.models import (
     Employment,
     EmploymentBonus,
-    PayrollComponent,
     PayrollComponentKind,
     PayrollOverride,
     PayrollRun,
@@ -184,18 +183,8 @@ def remove(session: Session, employment: Employment, row: EmploymentBonus) -> No
     refresh(session, employment, month)
 
 
-def _set_component(
-    session: Session, run: PayrollRun, kind: PayrollComponentKind, label: str, amount: int
-) -> None:
-    row = next((c for c in run.components if c.kind == kind), None)
-    if row is None:
-        if amount:
-            run.components.append(PayrollComponent(kind=kind, label=label, forecast_pence=amount))
-    else:
-        row.forecast_pence = amount
-
-
 def refresh(session: Session, employment: Employment, month: date) -> None:
+    """Bonus planning uses the same guarded payroll rebuild as automatic forecasts."""
     from app.domain import payrun, schedule
 
     start, end, pay = _payment(employment, month)
@@ -211,49 +200,16 @@ def refresh(session: Session, employment: Employment, month: date) -> None:
         payrun.generate(
             session, employment, start=start, end=end, pay_date=pay, allow_stale_rules=True
         )
-    # Recalculate later open forecasts as well: cumulative PAYE depends on earlier pay.
-    for run in _runs(session, employment, month):
-        entries = list(
-            session.scalars(
-                select(EmploymentBonus).where(
-                    EmploymentBonus.employment_id == employment.id,
-                    EmploymentBonus.pay_month == run.period_end.replace(day=1),
-                )
+    for run in sorted(
+        _runs(session, employment, month),
+        key=lambda r: (payrun.effective_pay_date(employment, r), r.id),
+    ):
+        preview = payrun.rebuild_forecasts(session, employment, apply=False, only_run_id=run.id)
+        if not preview["changes"]:
+            raise PayrollError(
+                "payroll has protected history or manual adjustments; use a correction"
             )
+        payrun.rebuild_forecasts(
+            session, employment, apply=True, fingerprint=preview["fingerprint"], only_run_id=run.id
         )
-        planned = sum(row.gross_pence for row in entries)
-        noncash = sum(row.noncash_pence for row in entries)
-        old_bonus = next(
-            (c.forecast_pence for c in run.components if c.kind == PayrollComponentKind.bonus), 0
-        )
-        _set_component(
-            session,
-            run,
-            PayrollComponentKind.bonus,
-            "Bonus",
-            old_bonus + planned - run.planned_bonus_pence,
-        )
-        run.gross_pence += planned - run.planned_bonus_pence
-        run.planned_bonus_pence, run.noncash_bonus_pence = planned, noncash
-        taxable = sum(
-            c.forecast_pence
-            for c in run.components
-            if c.kind in payrun.EARNING | {PayrollComponentKind.unpaid_leave}
-        )
-        ded, rules = payrun.deductions_for_pay(
-            session, employment, taxable, run.period_end, run.pay_date, allow_stale_rules=True
-        )
-        for kind, label, amount in (
-            (PayrollComponentKind.tax, "PAYE income tax", -ded.tax_pence),
-            (PayrollComponentKind.ni, "National Insurance", -ded.ni_pence),
-            (PayrollComponentKind.pension, "Pension", -ded.pension_pence),
-            (PayrollComponentKind.student_loan, "Student loan", -ded.student_loan_pence),
-            (PayrollComponentKind.noncash, "Non-cash share award", -noncash),
-        ):
-            _set_component(session, run, kind, label, amount)
-        run.net_pence = ded.net_pence - noncash
-        run.rule_set_year = rules.tax_year if rules else None
-        run.rule_set_version = rules.version if rules else 0
-        session.flush()
-        schedule.rematerialize_payroll_run(session, run)
     schedule.rematerialize_employment(session, employment)

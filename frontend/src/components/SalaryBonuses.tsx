@@ -99,7 +99,7 @@ export function BonusDialog({ employmentId, employer, sharePaymentMethod, existi
   const [shareValue, setShareValue] = useState(initial?.share_value ?? "");
   const [manual, setManual] = useState(initial?.manual_amount ?? "");
   type BonusType = "salary" | "shares" | "manual";
-  const [type, setType] = useState<BonusType>(!initial || initial.salary_percentage ? "salary" : initial?.share_value ? "shares" : "manual");
+  const [type, setType] = useState<BonusType>(!initial || Number(initial.salary_percentage) > 0 ? "salary" : Number(initial.share_value) > 0 ? "shares" : "manual");
   const mixed = !!initial && [initial.salary_percentage, initial.share_value, initial.manual_amount].filter(value => Number(value) > 0).length > 1;
   const changeType = (next: BonusType) => {
     if (!mixed) { setSalary(""); setShareValue(""); setManual(""); }
