@@ -95,6 +95,9 @@ on small screens. The year selector covers all employers. Monthly totals use the
 statutory payroll pay month, not the beginning of a cutoff earning window. Add run
 is no longer a routine action; optional payslip checking remains available when
 independent evidence needs recording or correction.
+Overtime detail combines recorded hours at the same hourly rate for all payroll
+years, while different rates and partial actuals stay separate. It sums the stored
+line amounts without recalculating pay or changing original payslip components.
 
 ## Five local manual checks
 
