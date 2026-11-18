@@ -33,3 +33,6 @@ def authorize_employment(request: Request, household: HouseholdDep,
     if request.method not in {"GET", "HEAD", "OPTIONS"} and not rbac.write_allowed(
             employment.profile_id, profile):
         raise HTTPException(403, "role cannot mutate this scope")
+    if (request.method not in {"GET", "HEAD", "OPTIONS"} and profile is not None
+            and profile.id != employment.profile_id):
+        raise HTTPException(403, "only the payroll owner may change this employment")

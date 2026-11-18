@@ -10,9 +10,48 @@ financial calculations and committed transitions.
 Configure the app URL, household ID and the app's service token. The integration
 sends the token as `X-Admin-Token`; it never invents a household member or an admin
 profile. A rejected token enters HA reauthentication. The token grants only the
-server's explicit service allowlist and shared resource scope. Existing HA actions
+server's explicit service allowlist and shared resource scope by default. Existing HA actions
 for adding a shared transaction or recording permitted overtime remain audited by
 the app; unauthorised private resources are rejected.
+
+### Private payroll reads
+
+An authenticated household administrator can opt in at **Settings > Home Assistant
+events > Private read access**. Select named payroll profiles and approve each
+private pay destination. Both selections are required when payroll lands in a
+private account; a profile selection alone never grants a destination account.
+Nothing is selected on an existing or new installation. Save requires a privacy
+confirmation; **Revoke all private access** removes the grants on the next poll.
+
+These grants cover payroll event reads only, including existing payroll approaching
+and payslip review events. They do not expose private balances, transactions,
+general account events or other families, and do not add numeric payday sensors.
+The separate payroll writer proposal (#531) adds overtime-recorded and estimate
+change events; its events use this same authorization boundary once integrated.
+Private numeric criteria in #535 need separate integration with these grants.
+
+The app stores household-specific grants in its existing settings table and audits
+each change with the authenticated administrator's identity. A service token or
+spoofed profile header cannot manage grants. Only the authenticated HA machine
+context receives them; they never become a household member's permissions.
+Deactivated profiles, archived destination accounts and changed destination owners
+stop reads immediately. Events created with the new grant support retain their
+original profile and destination scope internally; changing either cannot relabel
+old events. Legacy private payroll events without that snapshot remain excluded
+from granted service reads. Internal scope metadata never enters HA payloads.
+
+Safe mode still excludes names, hours and financial amounts after authorization;
+Detailed mode adds permitted detail and never substitutes for a read grant.
+Even Safe private IDs and dates may persist in HA recorder, automation traces,
+backups and notifications. Revoking access or returning to Safe cannot erase
+copies already retained outside the app.
+
+Human payroll changes require the employment owner's identity, including for
+administrators: creating an employment for someone else, changing their salary,
+overtime, payslip or run, and ending/replacing their employment are denied. Bulk
+year preparation generates payroll only for its caller's employments. The existing
+service action to record overtime against a shared destination remains a distinct,
+audited action; selecting private read grants never extends it to private payroll.
 
 Safe event detail is the app default. An app administrator can select **Safe** or
 **Detailed** in Settings. Detailed mode can place names and monetary values in the

@@ -197,6 +197,25 @@ unavailable to the service. Other token-authenticated mutations are rejected in
 ingress mode. Rule evaluation and notification listing are scoped to shared
 resources plus the target member's accounts.
 
+Private HA payroll reads are a separate default-deny administrator opt-in under
+Settings. Household-specific named profile grants plus private payroll destination
+grants authorize only payroll events on the integration feed; general banking
+reads, private account events and mutation permissions do not change. Only a
+resolved administrator session or trusted ingress identity can select grants;
+the machine token and standalone compatibility profile header cannot manage them.
+Changes persist in `app_meta`, are audited with the administrator profile ID and
+apply on the next read. Deactivation, archival and ownership changes fail closed;
+new payroll events preserve original scope metadata, excluded from every payload.
+Legacy private events without original snapshots remain unavailable to the service.
+Safe/Detailed controls redact authorized payloads; they never authorize a private
+read. HA's recorder, traces and notification destinations can retain earlier data.
+
+Human payroll mutations are owner-only even for administrators. The shared payroll
+authorization dependency covers salary, overtime, runs and payslip routes; creation
+and bulk year preparation enforce the same owner restriction. Existing shared-
+destination HA overtime recording remains its own audited service capability and
+cannot use these read grants to write private payroll.
+
 
 Canonical financial-event snapshots remain internal database state. Shared budget
 and energy events aggregate shared scopes only; seasonal, payslip and expected

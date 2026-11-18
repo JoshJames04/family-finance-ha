@@ -72,7 +72,8 @@ def create_employment(
     body: schemas.EmploymentIn, household: HouseholdDep,
     session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.EmploymentOut:
-    if not rbac.write_allowed(body.profile_id, profile):
+    if (not rbac.write_allowed(body.profile_id, profile)
+            or (profile is not None and profile.id != body.profile_id)):
         raise HTTPException(403, "role cannot mutate this scope")
     p = session.get(UserProfile, body.profile_id)
     if p is None or p.household_id != household.id:
@@ -199,7 +200,8 @@ def prepare_year(
         select(Employment).where(
             Employment.household_id == household.id)).all()
     for e in emps:
-        if not rbac.write_allowed(e.profile_id, profile):
+        if (not rbac.write_allowed(e.profile_id, profile)
+                or (profile is not None and profile.id != e.profile_id)):
             continue
         if not e.is_active:
             continue

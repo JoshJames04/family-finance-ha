@@ -1937,6 +1937,24 @@ export interface paths {
         patch: operations["patch_settings_api_v1_integration_settings_patch"];
         trace?: never;
     };
+    "/api/v1/integration/private-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Grants */
+        get: operations["get_grants_api_v1_integration_private_grants_get"];
+        /** Put Grants */
+        put: operations["put_grants_api_v1_integration_private_grants_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/monthly": {
         parameters: {
             query?: never;
@@ -5615,6 +5633,31 @@ export interface components {
             events: components["schemas"]["IntegrationEventOut"][];
             /** Next Cursor */
             next_cursor: number;
+        };
+        /** IntegrationGrantOption */
+        IntegrationGrantOption: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /** IntegrationGrantsIn */
+        IntegrationGrantsIn: {
+            /** Profile Ids */
+            profile_ids?: number[];
+            /** Account Ids */
+            account_ids?: number[];
+        };
+        /** IntegrationGrantsOut */
+        IntegrationGrantsOut: {
+            /** Profile Ids */
+            profile_ids?: number[];
+            /** Account Ids */
+            account_ids?: number[];
+            /** Profiles */
+            profiles: components["schemas"]["IntegrationGrantOption"][];
+            /** Accounts */
+            accounts: components["schemas"]["IntegrationGrantOption"][];
         };
         /** IntegrationItemOut */
         IntegrationItemOut: {
@@ -12546,6 +12589,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntegrationSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_grants_api_v1_integration_private_grants_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationGrantsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_grants_api_v1_integration_private_grants_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationGrantsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationGrantsOut"];
                 };
             };
             /** @description Validation Error */

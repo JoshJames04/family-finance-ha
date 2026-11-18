@@ -8,24 +8,27 @@ the settings surface).
 """
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, AdminDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import accounts, contributions, goals, outbox, rbac
+from app.domain import accounts, contributions, goals, ha_grants, outbox, rbac
 from app.domain.money import Money
 from app.persistence.models import (
     Account,
+    AppMeta,
     ExpectedMovement,
     ExpectedSource,
     IntegrationEvent,
     Role,
     SavingsGoal,
+    UserProfile,
 )
 
 router = APIRouter(prefix="/integration", tags=["integration"])
@@ -81,6 +84,7 @@ def _out(ev: IntegrationEvent, detailed: bool) -> schemas.IntegrationEventOut:
 
 @router.get("/events", response_model=schemas.IntegrationFeedOut)
 def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = None,
+           request: Request = None,  # type: ignore[assignment]
            after: Annotated[int, Query(ge=0)] = 0,
            limit: Annotated[int, Query(ge=1, le=500)] = 100,
            latest: Annotated[bool, Query()] = False,
@@ -88,15 +92,17 @@ def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = N
     """Ordered event drain — HA polls from its persisted cursor."""
     profile_id = profile.id if profile and profile.role != Role.viewer else None
     all_scopes = profile is not None and profile.role == Role.admin
+    ha_service = request is not None and getattr(request.state, "service_authenticated", False)
     if latest:
         return schemas.IntegrationFeedOut(events=[], next_cursor=outbox.latest_visible_cursor(
-            session, household.id, profile_id, all_scopes=all_scopes))
+            session, household.id, profile_id, all_scopes=all_scopes, ha_service=ha_service))
     detailed = outbox.detail_enabled(session)
     rows, cursor = outbox.feed(session, household.id,
                                after=after, limit=limit)
     return schemas.IntegrationFeedOut(
         events=[_out(e, detailed) for e in rows
-                if outbox.event_visible(session, e, profile_id, all_scopes=all_scopes)],
+                if outbox.event_visible(session, e, profile_id, all_scopes=all_scopes,
+                                        ha_service=ha_service)],
         next_cursor=cursor)
 
 
@@ -125,3 +131,53 @@ def patch_settings(body: schemas.IntegrationSettingsPatch,
          "integration_settings", 0,
          {"old": old, "new": body.detail})
     return schemas.IntegrationSettingsOut(detail=body.detail)
+
+
+def _grant_admin(profile: UserProfile | None, household_id: int, request: Request) -> UserProfile:
+    if (profile is None or profile.role != Role.admin or profile.household_id != household_id
+            or getattr(request.state, "profile_id", None) != profile.id):
+        raise HTTPException(403, "an authenticated household administrator is required")
+    return profile
+
+
+@router.get("/private-grants", response_model=schemas.IntegrationGrantsOut)
+def get_grants(household: HouseholdDep, session: SessionDep,
+               profile: ProfileDep, request: Request) -> schemas.IntegrationGrantsOut:
+    _grant_admin(profile, household.id, request)
+    profiles = list(session.scalars(select(UserProfile).where(
+        UserProfile.household_id == household.id, UserProfile.is_active.is_(True))
+        .order_by(UserProfile.id)))
+    private_accounts = list(session.scalars(select(Account).where(
+        Account.household_id == household.id, Account.archived.is_(False),
+        Account.owner_profile_id.is_not(None)).order_by(Account.id)))
+    return schemas.IntegrationGrantsOut(
+        profile_ids=[p.id for p in profiles
+                     if ha_grants.profile_allowed(session, household.id, p.id)],
+        account_ids=[a.id for a in private_accounts
+                     if ha_grants.account_allowed(session, household.id, a)],
+        profiles=[schemas.IntegrationGrantOption(id=p.id, name=p.display_name) for p in profiles],
+        accounts=[schemas.IntegrationGrantOption(id=a.id, name=a.name) for a in private_accounts])
+
+
+@router.put("/private-grants", response_model=schemas.IntegrationGrantsOut)
+def put_grants(body: schemas.IntegrationGrantsIn, household: HouseholdDep, session: SessionDep,
+               profile: ProfileDep, request: Request) -> schemas.IntegrationGrantsOut:
+    admin = _grant_admin(profile, household.id, request)
+    options = get_grants(household, session, profile, request)
+    if (set(body.profile_ids) - {p.id for p in options.profiles}
+            or set(body.account_ids) - {a.id for a in options.accounts}):
+        raise HTTPException(422, "select active profiles and private accounts from this household")
+    previous = ha_grants.stored(session, household.id)
+    accounts_by_id = {a.id: a for a in session.scalars(select(Account).where(
+        Account.household_id == household.id, Account.id.in_(body.account_ids)))}
+    value = {"profile_ids": sorted(set(body.profile_ids)), "accounts": {
+        str(aid): accounts_by_id[aid].owner_profile_id for aid in sorted(set(body.account_ids))}}
+    row = session.get(AppMeta, ha_grants.key(household.id))
+    if row is None:
+        session.add(AppMeta(key=ha_grants.key(household.id), value=json.dumps(value)))
+    else:
+        row.value = json.dumps(value)
+    session.flush()
+    emit(session, household.id, f"profile:{admin.id}", "integration_grants",
+         "integration_settings", 0, {"old": previous, "new": value})
+    return get_grants(household, session, profile, request)
