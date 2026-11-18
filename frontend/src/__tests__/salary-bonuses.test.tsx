@@ -35,30 +35,33 @@ describe("employer bonuses", () => {
     expect(screen.getByText(/£45,000.00/)).toBeTruthy();
     expect(screen.getByText(/£8,350.00/)).toBeTruthy();
   });
-  it("posts all three additive parts for the selected employer and month", async () => {
+  it("shows one bonus value and clears hidden values when the type changes", async () => {
     const changed = setup();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Add bonus" }));
+    await user.click(screen.getByRole("button", {name:"Add bonus"}));
     await user.type(screen.getByLabelText("Pay month"), "2026-12");
     await user.type(screen.getByLabelText("Salary percentage (%)"), "10");
+    expect(screen.queryByLabelText("Value per share (£)")).toBeNull();
+    expect(screen.queryByLabelText("Manual gross amount (£)")).toBeNull();
+    await user.selectOptions(screen.getByLabelText("Bonus type"), "shares");
     await user.type(screen.getByLabelText("Value per share (£)"), "15");
-    await user.clear(screen.getByLabelText("Manual gross amount (£)"));
+    await user.selectOptions(screen.getByLabelText("Bonus type"), "manual");
     await user.type(screen.getByLabelText("Manual gross amount (£)"), "100");
-    await user.click(screen.getByRole("button", { name: "Save bonus" }));
+    await user.click(screen.getByRole("button", {name:"Save bonus"}));
     await waitFor(() => expect(changed).toHaveBeenCalled());
-    const post = calls.find((c) => c.method === "POST")!;
-    expect(post.url).toContain("/employments/1/bonuses");
-    expect(JSON.parse(post.body)).toMatchObject({ pay_month: "2026-12-01", salary_percentage: "10", share_value: "15", manual_amount: "100" });
-  });
-  it("prefills and patches an individual entry then deletes only that entry", async () => {
+    const post = calls.find(c => c.method === "POST")!;
+    expect(JSON.parse(post.body)).toMatchObject({pay_month:"2026-12-01", salary_percentage:null, share_value:null, manual_amount:"100"});
+  });  it("prefills and patches an individual entry then deletes only that entry", async () => {
     setup();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Edit Year-end" }));
+    await user.selectOptions(screen.getByLabelText("Bonus type"), "shares");
     expect((screen.getByLabelText("Value per share (£)") as HTMLInputElement).value).toBe("15");
     await user.clear(screen.getByLabelText("Bonus label"));
     await user.type(screen.getByLabelText("Bonus label"), "Updated");
     await user.click(screen.getByRole("button", { name: "Save bonus" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.url.endsWith("/bonuses/3"))).toBe(true));
+    expect(JSON.parse(calls.find(c => c.method === "PATCH")!.body)).toMatchObject({salary_percentage:"10", share_value:"15", manual_amount:"100"});
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await user.click(screen.getByRole("button", { name: "Delete Year-end" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith("/bonuses/3"))).toBe(true));
@@ -68,6 +71,7 @@ describe("employer bonuses", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Add bonus" }));
     await user.type(screen.getByLabelText("Pay month"), "2026-12");
+    await user.selectOptions(screen.getByLabelText("Bonus type"), "manual");
     await user.clear(screen.getByLabelText("Manual gross amount (£)"));
     await user.type(screen.getByLabelText("Manual gross amount (£)"), "100");
     await user.click(screen.getByRole("button", { name: "Save bonus" }));
@@ -78,9 +82,11 @@ describe("employer bonuses", () => {
     setup(false, "outside_payroll");
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Add bonus" }));
+    await user.selectOptions(screen.getByLabelText("Bonus type"), "shares");
     expect((screen.getByLabelText("Value per share (£)") as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText(/Record separate share sales outside payroll/)).toBeTruthy();
     await user.type(screen.getByLabelText("Pay month"), "2026-12");
+    await user.selectOptions(screen.getByLabelText("Bonus type"), "manual");
     await user.clear(screen.getByLabelText("Manual gross amount (£)"));
     await user.type(screen.getByLabelText("Manual gross amount (£)"), "100");
     await user.click(screen.getByRole("button", { name: "Save bonus" }));
@@ -91,6 +97,7 @@ describe("employer bonuses", () => {
     setup(false, "payroll_noncash");
     expect(await screen.findByText(/Includes £3,750.00 non-cash shares/)).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("button", { name: "Add bonus" }));
+    await userEvent.setup().selectOptions(screen.getByLabelText("Bonus type"), "shares");
     expect(screen.getByText(/Non-cash award value per effective share/)).toBeTruthy();
   });
 });

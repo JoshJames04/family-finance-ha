@@ -11,7 +11,7 @@ import { useApi } from "../api/useApi";
 import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
-import { SalaryBonuses, SharePaymentPicker, type SharePaymentMethod } from "../components/SalaryBonuses";
+import { BonusDialog, SalaryBonuses, SharePaymentPicker, type SharePaymentMethod } from "../components/SalaryBonuses";
 import { Panel } from "../components/Panel";
 import { Badge, type BadgeTone } from "../components/Badge";
 import { Money } from "../components/Money";
@@ -641,6 +641,7 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
   const missingAccount = accounts.data !== null && !accounts.data.items.some((a) => a.id === e.paid_into_account_id && !a.archived);
   const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
+  const [bonusOpen, setBonusOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [endConfirmed, setEndConfirmed] = useState(false);
   const revs = [...(revisions.data ?? [])].sort(
@@ -677,13 +678,14 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
             <Badge tone="warning" className="mt-2">gross-only — tax is not estimated</Badge>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button size="icon-sm" variant="ghost"
             aria-label={`Edit ${e.employer}`} onClick={() => setEditing(true)}><Pencil /></Button>
           {!ending && !e.end_date && (
             <Button size="sm" variant="secondary" onClick={onEnding}>End employment</Button>
           )}
           <Button size="sm" variant="secondary" onClick={() => setSalaryOpen(true)}>New salary</Button>
+          <Button size="sm" variant="secondary" onClick={() => setBonusOpen(true)}>Add bonus</Button>
           <Button size="icon-sm" variant="ghost" aria-label={`Delete ${e.employer}`}
             onClick={onDelete}><Trash2 /></Button>
         </div>
@@ -743,7 +745,8 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
           <li className="text-fg-subtle">No salary recorded yet.</li>
         )}
       </ul>
-      <SalaryBonuses employmentId={e.id} employer={e.employer} sharePaymentMethod={e.share_payment_method ?? "payroll_cash"} rev={rev} onChanged={onChanged} />
+      {bonusOpen && <BonusDialog employmentId={e.id} employer={e.employer} sharePaymentMethod={e.share_payment_method ?? "payroll_cash"} onClose={() => setBonusOpen(false)} onSaved={onChanged} />}
+      <SalaryBonuses hideAdd employmentId={e.id} employer={e.employer} sharePaymentMethod={e.share_payment_method ?? "payroll_cash"} rev={rev} onChanged={onChanged} />
       {salaryOpen && (
         <SalaryRevisionDialog employment={e}
           onOpenChange={(o) => { if (!o) setSalaryOpen(false); }}
@@ -958,7 +961,6 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
           onOpenChange={(open) => { if (!open) setPayslipRun(null); }}
           onSaved={onChanged} />
       )}
-      <SalaryBonuses employmentId={e.id} employer={e.employer} sharePaymentMethod={e.share_payment_method ?? "payroll_cash"} rev={rev} onChanged={onChanged} />
       {salaryOpen && (
         <SalaryRevisionDialog
           employment={e}

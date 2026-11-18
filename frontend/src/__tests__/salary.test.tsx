@@ -270,3 +270,19 @@ describe("Payroll cutoff", () => {
     });
   });
 });
+
+describe("Bonus placement", () => {
+  afterEach(() => {cleanup(); vi.restoreAllMocks();});
+  it("offers Add bonus beside New salary in employer configuration only", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    open();
+    const bonus = await screen.findByRole("button", {name:"Add bonus"});
+    expect(bonus.parentElement).toBe(screen.getByRole("button", {name:"New salary"}).parentElement);
+    await user.click(bonus);
+    expect(screen.getByRole("dialog", {name:"Add bonus — Acme Ltd"})).toBeTruthy();
+    await user.click(screen.getByRole("button", {name:"Cancel"}));
+    await user.click(screen.getByRole("button", {name:"Breakdown"}));
+    expect(screen.queryByRole("button", {name:"Add bonus"})).toBeNull();
+  });
+});

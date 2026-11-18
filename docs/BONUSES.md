@@ -5,14 +5,17 @@ history. A new salary revision carries the holding effective today into the form
 check its effective date and holding when recording a historical or future change.
 Existing rows start with zero shares; no holding is guessed from transactions.
 
-Use **Add bonus** on the employer to choose a payment month. Each entry can add:
+Use **Add bonus** next to **New salary** in employer configuration. Choose the
+payment month and a bonus type; only its value field is shown. Each new entry adds one of:
 
 - A percentage of annual salary effective on the adjusted payment date.
 - Shares held on that date multiplied by the entered value per share.
 - A manually entered gross amount.
 
 For example, 250 shares at £15 add £3,750 gross. Entries in the same month add
-together in one payroll run. The configured monthly payday, cutoff and employment
+together in one payroll run. Existing combined entries retain all their parts when
+edited; the form states what will be kept. Switching the type of a new or single-part
+entry clears hidden values, so an invisible amount cannot change its gross pay. The configured monthly payday, cutoff and employment
 dates apply, including early bank-day adjustments. Weekly/nightly pay needs a
 dated payroll run instead of this monthly action. Unknown future bonuses are not
 invented or repeated into later years: add their values when known.
