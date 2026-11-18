@@ -205,3 +205,70 @@ def test_outside_payroll_share_proceeds_are_rejected_without_payroll_mutation(se
     entry = bonuses.save(session, employer, pay_month=date(2025, 4, 1), manual_pence=10_000)
     assert entry.gross_pence == 10_000
     assert entry.noncash_pence == 0
+
+
+@pytest.mark.parametrize("cutoff", [False, True])
+@pytest.mark.parametrize("policy", ["annual_daily", "equal_monthly"])
+def test_final_bonus_can_be_paid_after_leaving_and_edited_once(session, employer, cutoff, policy):
+    employer.start_date = date(2025, 4, 1)
+    employer.end_date = date(2025, 4, 20)
+    employer.salary_policy = policy
+    employer.deduction_mode = "gross_only"
+    if cutoff:
+        employer.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    month = date(2025, 5 if cutoff else 4, 1)
+    entry = bonuses.save(session, employer, pay_month=month, manual_pence=10_000)
+    run = session.scalar(select(PayrollRun))
+    assert run.pay_date == date(2025, month.month, 28)
+    assert run.period_end == date(2025, 4, 20)
+    assert run.planned_bonus_pence == 10_000
+    bonuses.save(session, employer, pay_month=month, manual_pence=20_000, existing=entry)
+    assert run.planned_bonus_pence == 20_000
+    assert len(session.scalars(select(PayrollRun)).all()) == 1
+    bonuses.remove(session, employer, entry)
+    assert run.planned_bonus_pence == 0
+    with pytest.raises(payroll.PayrollError, match="outside"):
+        bonuses.save(session, employer, pay_month=date(2025, 6, 1), manual_pence=100)
+
+
+def test_final_cutoff_run_does_not_repeat_previous_month_bonus(session, employer):
+    employer.start_date = date(2025, 4, 1)
+    employer.end_date = date(2025, 4, 20)
+    employer.deduction_mode = "gross_only"
+    employer.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    bonuses.save(session, employer, pay_month=date(2025, 4, 1), manual_pence=10_000)
+    final = payrun.generate(
+        session, employer, start=date(2025, 5, 1), end=date(2025, 5, 31), pay_date=date(2025, 5, 28)
+    )
+    assert final.period_end == date(2025, 4, 20)
+    assert final.planned_bonus_pence == 0
+
+
+def test_final_cutoff_correction_protects_bonus_from_edit_and_removal(session, employer):
+    employer.start_date = date(2025, 4, 1)
+    employer.end_date = date(2025, 4, 20)
+    employer.deduction_mode = "gross_only"
+    employer.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    entry = bonuses.save(session, employer, pay_month=date(2025, 5, 1), manual_pence=10_000)
+    original = session.scalar(select(PayrollRun))
+    confirm(session, original)
+    replacement = payrun.correct(session, original)
+    with pytest.raises(payroll.PayrollError, match="correction|protected"):
+        bonuses.save(
+            session, employer, pay_month=entry.pay_month, manual_pence=20_000, existing=entry
+        )
+    with pytest.raises(payroll.PayrollError, match="correction|protected"):
+        bonuses.remove(session, employer, entry)
+    assert entry.gross_pence == 10_000
+    assert replacement.planned_bonus_pence == 10_000
+
+
+def test_monthly_salary_starter_can_receive_bonus_after_overtime_cutoff(session, employer):
+    employer.start_date = date(2025, 4, 20)
+    employer.salary_policy = "equal_monthly"
+    employer.deduction_mode = "gross_only"
+    employer.payday_rule = '{"cutoff_day":15,"pay_rule":{"kind":"fixed_day","day":28}}'
+    entry = bonuses.save(session, employer, pay_month=date(2025, 4, 1), manual_pence=10_000)
+    run = session.scalar(select(PayrollRun))
+    assert run.planned_bonus_pence == entry.gross_pence == 10_000
+    assert run.gross_pence > entry.gross_pence

@@ -23,20 +23,24 @@ from app.persistence.models import (
 
 
 def _runs(session: Session, employment: Employment, month: date) -> list[PayrollRun]:
-    return list(
-        session.scalars(
+    from app.domain.payrun import payroll_month
+
+    return [
+        r
+        for r in session.scalars(
             select(PayrollRun)
             .where(
                 PayrollRun.employment_id == employment.id,
-                PayrollRun.period_end >= month,
                 PayrollRun.status != PayrollRunStatus.corrected,
             )
             .order_by(PayrollRun.pay_date, PayrollRun.id)
         )
-    )
+        if payroll_month(r) >= month
+    ]
 
 
 def _editable(session: Session, employment: Employment, month: date) -> None:
+    from app.domain import payroll_rebuild
     from app.domain.payrun import EARNING
 
     for run in _runs(session, employment, month):
@@ -58,6 +62,8 @@ def _editable(session: Session, employment: Employment, month: date) -> None:
             raise PayrollError(
                 "payroll has multiple imported bonus components; correct it manually"
             )
+        if run.id in payroll_rebuild.protected_run_ids(session, [run]):
+            raise PayrollError("payroll has protected evidence or a pending correction")
 
 
 def _payment(employment: Employment, month: date) -> tuple[date, date, date]:
@@ -82,23 +88,23 @@ def _payment(employment: Employment, month: date) -> tuple[date, date, date]:
             "monthly bonuses require a monthly payday; use a dated payroll run for weekly pay"
         )
     start, end = month, month.replace(day=calendar.monthrange(month.year, month.month)[1])
+    generation_end = end
     if "cutoff_day" in employment.payday_rule:
         window = pay_calendar.period(
             pay_calendar.parse_calendar(employment.payday_rule), month.year, month.month
         )
         start, end = window.start, window.cutoff
+        if employment.salary_policy == "equal_monthly":
+            end = max(end, generation_end)  # Salary can start after the overtime cutoff.
     if employment.start_date:
         start = max(start, employment.start_date)
     if employment.end_date and end > employment.end_date:
         end = employment.end_date
     pay = paydays.pay_date(rule, month.year, month.month)
-    if (
-        end < start
-        or (employment.start_date and pay < employment.start_date)
-        or (employment.end_date and pay > employment.end_date)
-    ):
+    if end < start or (employment.start_date and pay < employment.start_date):
         raise PayrollError("bonus month is outside the employment dates")
-    return start, end, pay
+    # generate() derives/clips the earning window itself. Keep its month label intact.
+    return max(month, employment.start_date or month), generation_end, pay
 
 
 def _pence(value: Decimal) -> int:
@@ -132,9 +138,9 @@ def save(
         raise PayrollError("bonus label must contain 1 to 200 characters")
     _editable(session, employment, pay_month)
     _, _, pay = _payment(employment, pay_month)
-    covering = [
-        r for r in _runs(session, employment, pay_month) if r.period_end.replace(day=1) == pay_month
-    ]
+    from app.domain.payrun import payroll_month
+
+    covering = [r for r in _runs(session, employment, pay_month) if payroll_month(r) == pay_month]
     if len(covering) > 1 or any(r.pay_date != pay for r in covering):
         raise PayrollError(
             "existing payroll does not match this monthly payday; correct its period/date first"
@@ -189,9 +195,7 @@ def refresh(session: Session, employment: Employment, month: date) -> None:
 
     start, end, pay = _payment(employment, month)
     active = _runs(session, employment, month)
-    covering = [
-        r for r in active if r.period_end.year == month.year and r.period_end.month == month.month
-    ]
+    covering = [r for r in active if payrun.payroll_month(r) == month]
     if len(covering) > 1:
         raise PayrollError(
             "multiple payroll runs cover this month; correct the payroll period first"

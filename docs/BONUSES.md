@@ -19,6 +19,9 @@ entry clears hidden values, so an invisible amount cannot change its gross pay. 
 dates apply, including early bank-day adjustments. Weekly/nightly pay needs a
 dated payroll run instead of this monthly action. Unknown future bonuses are not
 invented or repeated into later years: add their values when known.
+Final pay can fall after the employment end date when the earning period overlaps
+employment. A clipped cutoff period retains its original payroll month, so its
+bonus is included once and a previous month's bonus is not repeated.
 
 Each entry saves its salary, holding, share method, payment date and calculated
 parts. Changing salary history or employer settings does not silently rewrite that
@@ -28,6 +31,8 @@ components, pending corrections, bank matches, incomplete imported earnings and
 manual overrides are protected. The planner changes eligible forecasts; use
 explicit payslip correction for confirmed amounts. Later reconciled pay also prevents
 rewriting an earlier cumulative tax basis.
+Linked corrections retain the original payroll-month label, including final cutoff
+periods ending in the preceding month. Protection is checked before any bonus edit.
 
 The month uses the existing PAYE/NI, pension and student-loan configuration. Later
 open forecasts recalculate cumulative PAYE after an earlier bonus changes. Net
@@ -46,6 +51,8 @@ Share methods are employer-specific:
 - **Handled outside payroll:** share values cannot be added to payroll here.
   Record sale proceeds separately; payroll must not guess Capital Gains Tax,
   acquisition costs or share-scheme exemptions. Cash bonuses remain available.
+  If an existing entry contains payroll shares, changing the employer to this method
+  blocks saving that entry rather than silently removing its saved share value.
 
 See [HMRC cash bonus guidance](https://www.gov.uk/expenses-and-benefits-bonuses/what-to-report-and-pay)
 and [employee share schemes](https://www.gov.uk/tax-employee-share-schemes).

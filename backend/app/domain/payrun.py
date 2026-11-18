@@ -102,6 +102,14 @@ def _emit_transition(session: Session, run: PayrollRun, transition: str) -> None
     )
 
 
+def payroll_month(run: PayrollRun) -> date:
+    """The earning window may be clipped into the preceding calendar month."""
+    snapshot = json.loads(run.calculation_inputs or "{}")
+    return date.fromisoformat(
+        snapshot.get("payroll_month", run.period_end.replace(day=1).isoformat())
+    )
+
+
 def statutory_date_for(employment: Employment, cash_date: date, label_month: date) -> date:
     """CWG2 regular-payday exception only when cash matches the configured shift.
     Irregular payments retain their actual date. Never move the bank transaction.
@@ -427,25 +435,19 @@ def generate(
         session.scalars(
             select(EmploymentBonus).where(
                 EmploymentBonus.employment_id == employment.id,
-                EmploymentBonus.pay_month == end.replace(day=1),
+                EmploymentBonus.pay_month == label_month,
             )
         )
     )
     planned_bonus = sum(b.gross_pence for b in planned)
-    if (
-        planned
-        and session.scalar(
-            select(PayrollRun.id)
-            .where(
+    if planned and any(
+        payroll_month(r) == label_month
+        for r in session.scalars(
+            select(PayrollRun).where(
                 PayrollRun.employment_id == employment.id,
                 PayrollRun.status != PayrollRunStatus.corrected,
-                PayrollRun.period_end >= end.replace(day=1),
-                PayrollRun.period_end
-                <= end.replace(day=calendar.monthrange(end.year, end.month)[1]),
             )
-            .limit(1)
         )
-        is not None
     ):
         raise PayrollError(
             "a payroll already contains this month's bonuses; edit it instead of creating another"
@@ -772,7 +774,7 @@ def correct(session: Session, run: PayrollRun) -> PayrollRun:
         noncash_bonus_pence=run.noncash_bonus_pence,
         corrects_id=run.id,
         statutory_pay_date=run.statutory_pay_date,
-        calculation_inputs=None,
+        calculation_inputs=json.dumps({"payroll_month": payroll_month(run).isoformat()}),
         forecast_stale=True,
         signed_components=run.signed_components,
     )
