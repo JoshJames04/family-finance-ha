@@ -100,4 +100,11 @@ describe("employer bonuses", () => {
     await userEvent.setup().selectOptions(screen.getByLabelText("Bonus type"), "shares");
     expect(screen.getByText(/Non-cash award value per effective share/)).toBeTruthy();
   });
+  it("does not silently drop an existing share part when the employer moves outside payroll", async () => {
+    setup(false, "outside_payroll");
+    await userEvent.setup().click(await screen.findByRole("button", {name:"Edit Year-end"}));
+    expect(screen.getByRole("alert").textContent).toContain("outside payroll");
+    expect((screen.getByRole("button", {name:"Save bonus"}) as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.some(call => call.method === "PATCH")).toBe(false);
+  });
 });

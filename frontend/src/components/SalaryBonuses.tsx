@@ -107,7 +107,8 @@ export function BonusDialog({ employmentId, employer, sharePaymentMethod, existi
   };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const valid = /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && label.trim()
+  const incompatibleShares = Number(initial?.share_value) > 0 && sharePaymentMethod === "outside_payroll";
+  const valid = !incompatibleShares && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && label.trim()
     && (!salary || percentage.test(salary)) && (!shareValue || money.test(shareValue))
     && (!manual || money.test(manual)) && [salary, sharePaymentMethod === "outside_payroll" ? "" : shareValue, manual].some((value) => Number(value) > 0);
   const submit = async (event: React.FormEvent) => {
@@ -134,6 +135,11 @@ export function BonusDialog({ employmentId, employer, sharePaymentMethod, existi
       footer={<><Button className="min-h-11" variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button className="min-h-11" variant="primary" type="submit" form="ff-bonus" disabled={!valid || busy}>{busy ? "Saving…" : "Save bonus"}</Button></>}>
       <form id="ff-bonus" onSubmit={submit} className="grid gap-4">
         {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
+        {incompatibleShares && <p role="alert" className="rounded-lg bg-surface-2 p-3 text-sm">
+          This entry includes shares, but the employer now handles shares outside payroll.
+          Restore its payroll share method before editing, or remove and recreate the entry without shares.
+          The saved amounts have been preserved.
+        </p>}
         <Field label="Pay month" hint={existing ? "To move this bonus, delete it and add a new entry in the correct month." : undefined}>{(id) => <Input id={id} className="min-h-11" type="month" required disabled={Boolean(existing)} value={month} onChange={(e) => setMonth(e.target.value)} />}</Field>
         <Field label="Bonus label">{(id) => <Input id={id} className="min-h-11" maxLength={200} required value={label} onChange={(e) => setLabel(e.target.value)} />}</Field>
         <Field label="Bonus type">{(id) => <Select id={id} className="min-h-11" value={type} onChange={e => changeType(e.target.value as BonusType)}>
