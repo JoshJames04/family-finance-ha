@@ -27,6 +27,12 @@ Scheduled npm updates keep `@types/node` on the application's Node 22 API line;
 its major upgrades require a deliberate runtime/toolchain change. Patch and
 minor typings updates remain enabled.
 
+Scheduled npm version updates are grouped into one `npm-dependencies` PR per
+weekly run. Python and GitHub Actions retain their existing update policies.
+The grouping takes effect when this configuration reaches `main`, where
+Dependabot reads it; security-update routing remains as described above. See
+the [Dependabot grouping reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#groups--).
+
 ```
 feature PR ──► develop ──► release PR develop→main ──► tag vX.Y.Z
      │              │              │                    │
