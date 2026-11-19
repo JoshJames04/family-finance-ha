@@ -13,7 +13,7 @@ import { useApi } from "../api/useApi";
 import type { components } from "../api/schema";
 import {
   pickBudgetFor, reportFigure, reportSectionTotal, useAccounts, useBudgetDetail,
-  useBudgets, useCategories, useMonthlyReport, useProjection, useReady, useUpcoming,
+  useBudgets, useCategories, useMonthlyReport, useReady, useUpcoming,
 } from "../api/hooks";
 import { Select } from "../components/Field";
 import { DataView } from "../components/DataView";
@@ -24,6 +24,7 @@ import { IconTile, Progress, Ring, Stat } from "../components/Display";
 import { ErrorState, Skeleton } from "../components/Feedback";
 import { ProjectionChart } from "../components/ProjectionChart";
 import { useShell } from "../shell/ShellContext";
+import { useDashboardAccount, useDashboardProjection } from "./DashboardAccount";
 import {
   daysUntil, formatDayMonth, formatMonthOf, formatPence, formatPenceWhole,
   formatPercent, formatRelativeDays, formatSmartDate, formatWeekdayDayMonth,
@@ -51,8 +52,10 @@ const viewAll = (to: string, label = "View all") => (
 
 function SafeToSpendWidget({ title }: { title: string }) {
   const accounts = useAccounts();
+  const selection = useDashboardAccount();
   const [accountId, setAccountId] = useState<number | null>(null);
-  const projection = useProjection(accountId);
+  const projection = useDashboardProjection(accountId);
+  const active = selection?.accounts ?? accounts.data?.items.filter(a => !a.archived) ?? [];
   const p = projection.data as Projection | null;
   const days = p?.next_payday ? Math.max(1, daysUntil(p.next_payday)) : null;
   return (
@@ -60,10 +63,12 @@ function SafeToSpendWidget({ title }: { title: string }) {
       <div aria-hidden className="pointer-events-none absolute -top-16 -right-16 size-64 rounded-full bg-white/10" />
       <div aria-hidden className="pointer-events-none absolute -right-4 -bottom-24 size-48 rounded-full bg-white/[0.06]" />
       <h2 className="relative text-[14px] font-medium text-white/85">{title}</h2>
-      {(accounts.data?.items.filter((a) => !a.archived).length ?? 0) > 1 && (
-        <Select aria-label="Safe to spend account" value={accountId ?? accounts.data?.items.find((a) => !a.archived)?.id ?? ""}
-          onChange={(e) => setAccountId(Number(e.target.value))} wrapperClassName="relative mt-2 max-w-64">
-          {accounts.data?.items.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+      {active.length > (selection ? 0 : 1) && (
+        <Select aria-label="Safe to spend account" value={selection ? selection.accountId ?? "" : accountId ?? active[0]?.id ?? ""}
+          disabled={selection?.loading || !!selection?.error}
+          onChange={(e) => selection ? selection.select(Number(e.target.value)) : setAccountId(Number(e.target.value))} wrapperClassName="relative mt-2 max-w-64">
+          {selection && <option value="" disabled>Choose an account</option>}
+          {active.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </Select>
       )}
       {projection.accountName && <p className="relative mt-1 text-[13px] text-white/85">{projection.accountName}</p>}
@@ -81,7 +86,9 @@ function SafeToSpendWidget({ title }: { title: string }) {
           <div className="h-12 w-56 animate-pulse rounded-lg bg-white/20" />
           <div className="h-4 w-64 animate-pulse rounded bg-white/15" />
         </div>
-      ) : !p && projection.error ? null : !p ? (
+      ) : !p && projection.error ? null : !p && selection && active.length > 0 ? (
+        <p className="relative mt-3 text-[15px] text-white/90">Choose an account to see what's safe to spend.</p>
+      ) : !p ? (
         <div className="relative mt-3">
           <p className="text-[15px] text-white/90">Add an account to see what's safe to spend.</p>
           <Link to="/accounts" className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-[13.5px] font-semibold text-zinc-900">
@@ -210,7 +217,8 @@ function MonthKpisWidget({ title }: { title: string }) {
 /* ---------------- forecast ---------------- */
 
 function ForecastWidget({ title }: { title: string }) {
-  const projection = useProjection();
+  const selection = useDashboardAccount();
+  const projection = useDashboardProjection();
   return (
     <Panel
       title={title}
@@ -218,7 +226,7 @@ function ForecastWidget({ title }: { title: string }) {
       actions={viewAll("/forecast", "Details")}
       className="h-full"
     >
-      <DataView state={projection} empty="No projection yet." emptyDescription="Add an account with a balance to forecast." loading={<Skeleton className="h-[220px] w-full" />}>
+      <DataView state={projection} empty={selection?.accounts.length && selection.accountId === null ? "Choose an account above to see its forecast." : "No projection yet."} emptyDescription="" loading={<Skeleton className="h-[220px] w-full" />}>
         {(p: Projection) => <ProjectionChart projection={p} />}
       </DataView>
     </Panel>

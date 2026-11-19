@@ -34,10 +34,11 @@ export function useCategories() {
 }
 
 /** Projection for the first (primary) account unless one is given. */
-export function useProjection(accountId?: number | null) {
+export function useProjection(accountId?: number | null, { autoSelect = true } = {}) {
   const accounts = useAccounts();
-  const id = accountId ?? accounts.data?.items.find((a) => !a.archived)?.id
-    ?? accounts.data?.items[0]?.id ?? null;
+  const id = accountId ?? (autoSelect
+    ? accounts.data?.items.find((a) => !a.archived)?.id ?? accounts.data?.items[0]?.id ?? null
+    : null);
   const projection = useApi(
     () => api.get("/api/v1/accounts/{account_id}/projection",
       { path: { account_id: id! } }),
