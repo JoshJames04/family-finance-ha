@@ -18,7 +18,7 @@ release pipeline (multi-arch GHCR image + GitHub release).
 - Harden payroll forecasts and statutory deductions, preserve verified payslip
   actuals, and refresh eligible forecasts automatically after source changes.
   Combine overtime display lines with the same hourly rate (#542, PR #543).
-- Restore employer bonus entry and salary shareholding workflows, with one
+- Support employer bonus entry and salary shareholding workflows, with one
   selected bonus type per entry and combined pay-month deductions (#537).
 - Default Overview projections to the signed-in member's unique current salary
   payment account. Prompt when a usable destination cannot be determined;

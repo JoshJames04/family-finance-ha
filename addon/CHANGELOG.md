@@ -6,7 +6,7 @@
 
 - Harden payroll deductions and automatic forecast refreshes while preserving
   verified payslip actuals. Combine overtime lines at the same hourly rate.
-- Restore employer bonus and salary shareholding workflows with compact entry
+- Support employer bonus and salary shareholding workflows with compact entry
   controls and combined pay-month deductions.
 - Default Overview to the signed-in member's salary payment account, prompting
   when no unique account is available. Keep both projections aligned.
