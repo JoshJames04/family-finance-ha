@@ -23,7 +23,7 @@ Use the [installed-release checklist](LIVE-ACCEPTANCE.md) to record results.
 | #414 | Saved non-default layout through routes, refresh and fresh HA login, including failed-save recovery. |
 | #477 | Supported physical mobile-device layout/overflow acceptance. |
 | #432, #441 | Broader requested automation targeting/family work plus actual visual-editor screenshots, multi-target filtering, trigger variables and live delivery. Synthetic tests are separate evidence. |
-| #360 | Map sixteen recovered source comments to verified app records with private provenance. Do not guess destinations or publish workbook contents. |
+| #360 | Installed-release acceptance is blocked on supported historical-note storage (PR #538), followed by private source verification and preservation with provenance. BudgetLine has no annotation field. Do not guess destinations or publish workbook contents. |
 
 Keep the original personal Family Finance Project V2 board current alongside
 issue and PR evidence. The publishing App cannot manage this personal board;

@@ -134,8 +134,14 @@ landscape, including bottom safe-area padding. Check All and a personal Budget.
   access disabled. Use only event types documented as implemented in the current
   catalogue. Keep screenshots private or recreate synthetic records before public
   attachment. Follow [the automation recipes](NOTIFICATIONS-HA.md).
-- **#360/#351:** Privately approve each recovered note's current budget/year/category
-  destination, or explicit preservation as unmatched historical context. Verify
+- **#360/#351 — blocked on storage support:** The installed v1.5.0 release cannot
+  retain these recovered budget comments through a supported archive workflow;
+  BudgetLine has no annotation field. Do not attempt this acceptance or mark it
+  passed yet. First review, integrate and release the private historical-note
+  archive in PR #538 (or another reviewed supported preservation capability).
+  Then use its import/preservation workflow to store each note with provenance,
+  privately approving verified associations or explicit unmatched historical
+  context. Do not claim a BudgetLine annotation was created. Verify
   all sixteen survive with provenance. Restore the backup into a disposable local
   test instance with copied provider credentials disabled, then confirm the notes
   remain viewable there. Never restore over the live database for acceptance: it
