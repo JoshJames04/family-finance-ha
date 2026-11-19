@@ -60,6 +60,41 @@ net entitlement in confirmation. Match one or more bank receipts separately usin
 the existing expected-payment matching workflow. Confirmation does not assert that
 a bank payment has been independently verified.
 
+### Recovering previously verified legacy inputs
+
+An identified payroll owner can attach missing verified payslip metadata to an
+already reconciled legacy run with
+`POST /employments/{emp_id}/payroll-runs/{run_id}/verify-inputs`. Supply the printed
+`payslip_gross_pence`, `payslip_net_pence`, separately verified `taxable_pence`
+(required for PAYE), optional `niable_pence`, optional paired `ytd_taxable_pence`
+and `ytd_tax_pence`, and the private source document's 64-character `source_sha256`.
+This is an explicit evidence recovery operation; it never infers missing facts.
+The digest identifies the independently reviewed source and does not upload it.
+
+Every existing component must have an actual amount, and the signed component
+totals and recorded actual totals must agree with the payslip. Ambiguous positive
+legacy deductions, corrected or forecast runs and conflicting verified facts are
+rejected. Independently evidenced pension returns may appear in gross additions.
+Legacy payslips can present a negative leave adjustment as a post-gross deduction;
+recovery accepts gross before or after that adjustment only when the independent
+printed gross also matches the recorded actual gross and every component sums to
+printed net. It does not reclassify the line or derive taxable pay from its label.
+Existing component identities, labels, rates, actuals and forecasts are preserved,
+along with run amounts and bank matching evidence. Changing actuals or previously
+verified facts still requires the correction workflow. Repeating the same facts
+is safe and does not create a duplicate evidence audit event.
+
+The operation serializes with payroll writers before reading the current run and
+records the actor, source digest and newly attached field names in the audit log,
+without source paths, document text or financial payloads. It automatically marks
+later forecasts stale and attempts the normal guarded refresh. The response
+contains `run` and `refresh` (including any unresolved `issues`). Evidence remains
+saved if other missing history or setup prevents forecasting; those issues must
+be resolved from independent evidence. Employer salary policy remains an explicit
+setting and is never inferred from recovered payslip amounts. A trusted offline
+operator can use `domain.payroll_evidence.verify_inputs` against a disposable
+copy with the same validation and audit behavior; direct SQL repair is unnecessary.
+
 ## Reviewing forecasts
 
 Leave entered as days retains its original day count separately from fixed cash

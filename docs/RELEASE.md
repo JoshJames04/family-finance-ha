@@ -90,6 +90,10 @@ roundtrip does not replace backup verification for operational rollback.
 
 ## Releasing
 
+Never enable auto-merge on a live release PR. Even when all checks and reviews
+pass, hold the release for the owner's explicit approval of that version and
+publication. Approval of development PRs does not approve the live release.
+
 1. Ensure `develop` is green and the changelog is updated.
 2. `python scripts/version.py set X.Y.Z` on a `release/<ver>` or
    `chore/` branch → PR to `develop` (the version bump lands on

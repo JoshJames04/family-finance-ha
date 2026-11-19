@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Recover missing verified payslip inputs through an audited owner-only path,
+  preserving historical actuals and refreshing eligible forecasts (#552).
+- Show overtime hours and rates with exact per-entry pay and payroll cutoff
+  handling; refresh older forecast breakdowns automatically (#553).
+
 ## 1.5.1
 
 - Harden payroll deductions and automatic forecast refreshes while preserving

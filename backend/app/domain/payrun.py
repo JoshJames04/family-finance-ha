@@ -50,6 +50,7 @@ DEDUCTION = {
     PayrollComponentKind.ni,
     PayrollComponentKind.student_loan,
 }
+OVERTIME_BREAKDOWN_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,15 @@ def flag_outdated_forecasts(session: Session, employment: Employment) -> None:
         except (ValueError, TypeError):
             snapshot = {}
         if snapshot.get("algorithm") != tax.CALCULATION_VERSION:
+            run.forecast_stale = True
+            continue
+        if (
+            snapshot.get("overtime_breakdown_version") != OVERTIME_BREAKDOWN_VERSION
+            and (
+                any(c.kind is PayrollComponentKind.overtime for c in run.components)
+                or ot.approved_entries(session, employment.id, run.period_start, run.period_end)
+            )
+        ):
             run.forecast_stale = True
             continue
         if employment.deduction_mode == "gross_only":
@@ -430,7 +440,12 @@ def generate(
             if employment.salary_policy == "equal_monthly" and salary_end < salary_start
             else dom.gross_for_period(session, employment.id, salary_start, salary_end)
         )
-    ot_pay = ot.approved_total_pence(session, employment.id, start, end)
+    overtime_groups: dict[Decimal, tuple[Decimal, int]] = {}
+    for entry in ot.approved_entries(session, employment.id, start, end):
+        rate = Decimal(entry.hourly_rate_pence) * entry.multiplier_bps / Decimal(1_000_000)
+        hours, pence = overtime_groups.get(rate, (Decimal(0), 0))
+        overtime_groups[rate] = (hours + entry.hours, pence + entry.pay_pence)
+    ot_pay = sum(pence for _, pence in overtime_groups.values())
     planned = list(
         session.scalars(
             select(EmploymentBonus).where(
@@ -563,6 +578,7 @@ def generate(
         calculation_inputs=json.dumps(
             {
                 "algorithm": tax.CALCULATION_VERSION,
+                "overtime_breakdown_version": OVERTIME_BREAKDOWN_VERSION,
                 "payday_rule": employment.payday_rule,
                 "payroll_month": label_month.isoformat(),
                 "unpaid_leave_days": str(unpaid_leave_days)
@@ -585,8 +601,10 @@ def generate(
         ),
     )
     _component(run, PayrollComponentKind.base_salary, "Base salary", base)
-    if ot_pay:
-        _component(run, PayrollComponentKind.overtime, "Approved overtime", ot_pay)
+    for rate, (hours, pence) in overtime_groups.items():
+        unit = 'hour' if hours == 1 else 'hours'
+        _component(run, PayrollComponentKind.overtime,
+                   f"{hours.normalize():f} {unit} @ £{rate.normalize():f}", pence)
     if bonus_pence:
         _component(run, PayrollComponentKind.bonus, "Bonus", bonus_pence)
     if allowance_pence:

@@ -17,7 +17,16 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.api.payroll_scope import authorize_employment
-from app.domain import bonuses, pay_calendar, paydays, payroll_automation, payrun, rbac, schedule
+from app.domain import (
+    bonuses,
+    pay_calendar,
+    paydays,
+    payroll_automation,
+    payroll_evidence,
+    payrun,
+    rbac,
+    schedule,
+)
 from app.domain import budgets as budget_dom
 from app.domain import overtime as ot
 from app.domain import payroll as dom
@@ -1287,6 +1296,32 @@ def get_payroll_run(
 ) -> schemas.PayrollRunOut:
     _get(session, household.id, emp_id)
     return schemas.PayrollRunOut.model_validate(_run(session, emp_id, run_id))
+
+
+@router.post("/{emp_id}/payroll-runs/{run_id}/verify-inputs",
+             response_model=schemas.PayrollVerifyInputsOut)
+def verify_payroll_inputs(
+    emp_id: int,
+    run_id: int,
+    body: schemas.PayrollVerifyInputsIn,
+    household: HouseholdDep,
+    session: SessionDep,
+    actor: ActorDep,
+    profile: ProfileDep,
+) -> schemas.PayrollVerifyInputsOut:
+    employment = _get(session, household.id, emp_id)
+    if profile is None or profile.id != employment.profile_id:
+        raise HTTPException(403, "only the identified payroll owner may verify inputs")
+    _run(session, emp_id, run_id)
+    run, refresh = payroll_evidence.verify_inputs(
+        session, employment, run_id,
+        actor=f"profile:{profile.id}" if actor == "anonymous" else actor,
+        **body.model_dump(),
+    )
+    return schemas.PayrollVerifyInputsOut(
+        run=schemas.PayrollRunOut.model_validate(run),
+        refresh=schemas.PayrollRefreshOut.model_validate(refresh),
+    )
 
 
 @router.post("/{emp_id}/payroll-runs/{run_id}/reconcile", response_model=schemas.PayrollRunOut)

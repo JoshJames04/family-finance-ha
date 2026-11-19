@@ -1386,6 +1386,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/verify-inputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Payroll Inputs */
+        post: operations["verify_payroll_inputs_api_v1_employments__emp_id__payroll_runs__run_id__verify_inputs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/payroll-runs/{run_id}/reconcile": {
         parameters: {
             query?: never;
@@ -6816,6 +6833,31 @@ export interface components {
          * @enum {string}
          */
         PayrollRunStatus: "forecast" | "reconciled" | "corrected";
+        /**
+         * PayrollVerifyInputsIn
+         * @description Previously checked payslip facts; attaches metadata without changing actuals.
+         */
+        PayrollVerifyInputsIn: {
+            /** Payslip Gross Pence */
+            payslip_gross_pence: number;
+            /** Payslip Net Pence */
+            payslip_net_pence: number;
+            /** Taxable Pence */
+            taxable_pence?: number | null;
+            /** Niable Pence */
+            niable_pence?: number | null;
+            /** Ytd Taxable Pence */
+            ytd_taxable_pence?: number | null;
+            /** Ytd Tax Pence */
+            ytd_tax_pence?: number | null;
+            /** Source Sha256 */
+            source_sha256: string;
+        };
+        /** PayrollVerifyInputsOut */
+        PayrollVerifyInputsOut: {
+            run: components["schemas"]["PayrollRunOut"];
+            refresh: components["schemas"]["PayrollRefreshOut"];
+        };
         /** PayslipConfirmIn */
         PayslipConfirmIn: {
             /** Actuals */
@@ -11820,6 +11862,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_payroll_inputs_api_v1_employments__emp_id__payroll_runs__run_id__verify_inputs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayrollVerifyInputsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollVerifyInputsOut"];
                 };
             };
             /** @description Validation Error */
