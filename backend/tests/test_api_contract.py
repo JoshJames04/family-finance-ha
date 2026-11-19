@@ -39,6 +39,26 @@ def _contract_persistence() -> None:
     init_session_factory(_app.state.engine)
 
 
+@pytest.fixture(autouse=True)
+def _reject_generated_bank_tokens():
+    """Contract fuzzing must never send synthetic credentials to a real bank.
+
+    Successful provider responses and outages have separate bank integration
+    tests. Generated credentials here deterministically exercise the 401 path.
+    """
+    from app.api.v1.banks import _validator
+    from app.domain.banks import TokenInvalid
+
+    def reject(token):
+        raise TokenInvalid("synthetic contract token")
+
+    _app.dependency_overrides[_validator] = lambda: reject
+    try:
+        yield
+    finally:
+        _app.dependency_overrides.pop(_validator, None)
+
+
 # ---------- spec ↔ implementation parity -------------------------
 
 def _fresh_app() -> Any:

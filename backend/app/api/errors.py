@@ -14,29 +14,31 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 log = logging.getLogger(__name__)
 
 
-def problem(status: int, title: str, detail: str | None = None,
-            type_: str = "about:blank", **extra: Any) -> JSONResponse:
+def problem(
+    status: int, title: str, detail: str | None = None, type_: str = "about:blank", **extra: Any
+) -> JSONResponse:
     body: dict[str, Any] = {"type": type_, "title": title, "status": status}
     if detail:
         body["detail"] = detail
     body.update(extra)
-    return JSONResponse(body, status_code=status,
-                        media_type="application/problem+json")
+    return JSONResponse(body, status_code=status, media_type="application/problem+json")
 
 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_exc(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-        return problem(exc.status_code,
-                       str(exc.detail) if exc.detail else "HTTP error",
-                       type_="about:blank")
+        return problem(
+            exc.status_code, str(exc.detail) if exc.detail else "HTTP error", type_="about:blank"
+        )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_exc(_: Request,
-                             exc: RequestValidationError) -> JSONResponse:
-        return problem(422, "Validation failed",
-                       detail="Request failed schema validation",
-                       errors=jsonable_encoder(exc.errors()))
+    async def validation_exc(_: Request, exc: RequestValidationError) -> JSONResponse:
+        return problem(
+            422,
+            "Validation failed",
+            detail="Request failed schema validation",
+            errors=jsonable_encoder(exc.errors()),
+        )
 
     # Domain-rule violations → 409 Conflict
     from app.domain.accounts import AccountNotEmptyError
@@ -55,18 +57,33 @@ def install_error_handlers(app: FastAPI) -> None:
     from app.domain.refunds import RefundError
     from app.domain.seasonal import SeasonalError
     from app.domain.subscriptions import SubscriptionError
+    from app.domain.tax import TaxError
     from app.domain.transactions import InvalidTransitionError
     from app.domain.transfer_rules import TransferRuleError
     from app.domain.transfers import TransferError
 
     domain_conflicts = (
-        AccountNotEmptyError, BudgetError, CategoryCycleError,
-        PayrollError, PeriodLockedError, ReconciledImmutableError,
-        RefundError, InvalidTransitionError, TransferError,
-        TransferRuleError, MatchError, GoalError, LoanError,
-        SeasonalError, SubscriptionError, DetectionError, EnergyError,
+        AccountNotEmptyError,
+        BudgetError,
+        CategoryCycleError,
+        PayrollError,
+        TaxError,
+        PeriodLockedError,
+        ReconciledImmutableError,
+        RefundError,
+        InvalidTransitionError,
+        TransferError,
+        TransferRuleError,
+        MatchError,
+        GoalError,
+        LoanError,
+        SeasonalError,
+        SubscriptionError,
+        DetectionError,
+        EnergyError,
     )
     for exc_type in domain_conflicts:
+
         @app.exception_handler(exc_type)
         async def domain_exc(_: Request, exc: Exception) -> JSONResponse:
             return problem(409, "Domain rule violated", detail=str(exc))
@@ -75,17 +92,14 @@ def install_error_handlers(app: FastAPI) -> None:
     # header param) hit OverflowError at the SQLite boundary — a
     # client validation failure, not a server fault → 422.
     @app.exception_handler(OverflowError)
-    async def overflow_exc(_: Request,
-                           exc: OverflowError) -> JSONResponse:
-        return problem(422, "Validation failed",
-                       detail="identifier or value out of range")
+    async def overflow_exc(_: Request, exc: OverflowError) -> JSONResponse:
+        return problem(422, "Validation failed", detail="identifier or value out of range")
 
     # Uniqueness/FK violations (e.g. transaction dedup key) → 409.
     from sqlalchemy.exc import IntegrityError
 
     @app.exception_handler(IntegrityError)
-    async def integrity_exc(_: Request,
-                            exc: IntegrityError) -> JSONResponse:
+    async def integrity_exc(_: Request, exc: IntegrityError) -> JSONResponse:
         return problem(409, "Conflict with existing data")
 
     @app.exception_handler(Exception)
@@ -97,7 +111,7 @@ def install_error_handlers(app: FastAPI) -> None:
             # SQLite busy/lock timeouts are the contention signal the
             # diagnostics surface tracks — count them separately.
             from sqlalchemy.exc import OperationalError
-            if isinstance(exc, OperationalError) and "locked" in str(
-                    exc).lower():
+
+            if isinstance(exc, OperationalError) and "locked" in str(exc).lower():
                 tele.db_locked_total += 1
         return problem(500, "Internal server error")

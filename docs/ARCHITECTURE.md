@@ -583,3 +583,9 @@ commit that records the running cursor/run, before provider I/O. Completion does
 not clear that flag again: a new concurrent refresh requested during I/O remains
 queued for its own later run. A successful manual attempt therefore satisfies an
 older queued request without causing a redundant immediate scheduled pull.
+
+Payroll automation (domain.payroll_automation) creates future salaried periods and
+uses the guarded payroll rebuild for source-change, startup and daily refreshes.
+Savepoints preserve valid source edits if calculation inputs are incomplete.
+It never manufactures historical actuals or changes independent bank/payslip evidence.
+The owner-scoped refresh POST supports opening Breakdown; GET remains read-only.
