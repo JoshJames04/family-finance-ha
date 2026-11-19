@@ -66,6 +66,9 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
 - **Dashboard customisation** — widget order and visibility persist per member.
   Failed saves remain clearly marked as unsaved, with Retry and Revert; drafts
   survive navigation and reload in the same browser tab.
+  Safe to spend and Balance forecast share an account selector, initially using
+  the signed-in member's current salary payment account. Missing or ambiguous
+  salary destinations prompt for an account instead of guessing.
 
 ## Architecture at a glance
 
