@@ -489,3 +489,36 @@ def test_text_category_types_preserve_leading_zero_uids(database, tmp_path, cate
     with closing(sqlite3.connect(database)) as db, db:
         assert db.execute("SELECT id, external_category_uid FROM bank_account_mapping ORDER BY id"
                           ).fetchall() == [(7, ""), (8, "001")]
+
+
+@pytest.mark.parametrize("constraint_kind", ["unique", "column_not_null"])
+@pytest.mark.parametrize("policy", ["IGNORE", "REPLACE"])
+def test_conflict_policy_is_preserved_by_refusing_rebuild(
+    database, tmp_path, constraint_kind, policy
+):
+    from app.persistence.bank_mapping_repair import repair
+
+    legacy(database)
+    engine = sa.create_engine(f"sqlite:///{database}")
+    with engine.begin() as conn:
+        table = sa.Table("bank_account_mapping", sa.MetaData(), autoload_with=conn)
+        if constraint_kind == "unique":
+            constraint = next(c for c in table.constraints if isinstance(c, sa.UniqueConstraint))
+            constraint.dialect_options["sqlite"]["on_conflict"] = policy
+        else:
+            table.c.external_label.dialect_options["sqlite"]["on_conflict_not_null"] = policy
+        with Operations(MigrationContext.configure(conn)).batch_alter_table(
+            "bank_account_mapping", recreate="always", copy_from=table
+        ):
+            pass
+    engine.dispose()
+    mapping(database)
+    with closing(sqlite3.connect(database)) as db, db:
+        assert f"ON CONFLICT {policy}" in db.execute(
+            "SELECT sql FROM sqlite_master WHERE name='bank_account_mapping'"
+        ).fetchone()[0]
+    before = dump(database)
+    with pytest.raises(RuntimeError, match="conflict policy"):
+        repair(database, tmp_path / "backups")
+    assert dump(database) == before
+    assert not (tmp_path / "backups").exists()

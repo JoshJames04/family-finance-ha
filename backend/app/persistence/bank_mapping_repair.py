@@ -122,6 +122,10 @@ def repair(path: Path, backup_dir: Path) -> Path | None:
                     "SELECT sql FROM sqlite_master WHERE type='table' "
                     "AND name='bank_account_mapping'"
                 ).scalar_one()
+                if re.search(r"\bON\s+CONFLICT\b", table_sql, re.IGNORECASE):
+                    raise RuntimeError(
+                        "Custom mapping conflict policy; investigate before rebuilding"
+                    )
                 if re.search(r"\b(AUTOINCREMENT|STRICT)\b|\bWITHOUT\s+ROWID\b",
                              table_sql, re.IGNORECASE):
                     raise RuntimeError(

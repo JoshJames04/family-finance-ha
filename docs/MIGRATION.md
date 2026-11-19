@@ -231,7 +231,10 @@ keys, mapping triggers, unnamed mapping checks, expression/descending indexes,
 custom column/index collations, AUTOINCREMENT/STRICT/WITHOUT ROWID table options
 or existing foreign-key violations also block rebuilding. These definitions,
 including AUTOINCREMENT's retained ID high-water mark, may not survive schema
-reflection faithfully. The raw DDL token checks are deliberately conservative.
+reflection faithfully. Explicit `ON CONFLICT` policies on table or column
+constraints are also refused before backup or mutation because reflection can
+silently replace them with SQLite's default policy. The raw DDL token checks are
+deliberately conservative.
 The table must have exactly the supported three-column unique constraint;
 additional unique constraints are refused before normalisation, including
 `ON CONFLICT REPLACE` constraints that could otherwise delete rows. Ordinary
