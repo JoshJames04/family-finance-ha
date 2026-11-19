@@ -42,6 +42,11 @@ def _diagnose(conn: Connection) -> Diagnosis:
     inspector = sa.inspect(conn)
     column = next(c for c in inspector.get_columns("bank_account_mapping")
                   if c["name"] == "external_category_uid")
+    if not isinstance(column["type"], sa.String):
+        raise RuntimeError(
+            "Unexpected mapping category column type; investigate schema provenance "
+            "and original provider identifiers before repair"
+        )
     keys = inspector.get_unique_constraints("bank_account_mapping")
     if (len(keys) != 1 or keys[0]["name"] != "uq_mapping_conn_ext" or
             keys[0]["column_names"] !=

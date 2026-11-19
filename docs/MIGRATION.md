@@ -238,6 +238,14 @@ additional unique constraints are refused before normalisation, including
 supported indexes remain intact. Investigate these cases; do not delete mappings
 or constraints merely to make the repair pass.
 
+The category column must have a textual type reflected as SQLAlchemy `String`,
+including SQLite `TEXT`, `VARCHAR` and `CHAR`. Numeric and other declared types
+are refused by both diagnosis and repair before backup or mutation. Numeric
+affinity may already have changed a provider UID such as `001` into `1`; changing
+the column type cannot recover the original identifier. Investigate original
+provider identifiers instead of casting or inferring values. Accepted text types
+retain their declared type and preserve leading zeroes during constraint repair.
+
 Only unambiguous NULL category values become empty strings. The table is rebuilt
 with `NOT NULL DEFAULT ''`, retaining its existing unique key, indexes and foreign
 keys. Mapping IDs, account links, other columns, related rows, transaction history

@@ -440,3 +440,52 @@ def test_unexpected_mapping_row_loss_rolls_back_before_commit(database, tmp_path
     with pytest.raises(RuntimeError, match="row count"):
         repair(database, tmp_path / "backups")
     assert dump(database) == before
+
+
+@pytest.mark.parametrize("category_type", [sa.Integer(), sa.Numeric()])
+@pytest.mark.parametrize("operation", ["diagnose", "repair"])
+def test_numeric_category_type_is_refused_without_reinterpreting_uids(
+    database, tmp_path, category_type, operation
+):
+    from app.persistence import bank_mapping_repair
+
+    engine = sa.create_engine(f"sqlite:///{database}")
+    with engine.begin() as conn, Operations(MigrationContext.configure(conn)).batch_alter_table(
+        "bank_account_mapping"
+    ) as batch:
+        batch.alter_column("external_category_uid", existing_type=sa.String(64),
+                           type_=category_type, nullable=True, server_default=None)
+    engine.dispose()
+    mapping(database)
+    mapping(database, row_id=8, category="001")
+    with closing(sqlite3.connect(database)) as db, db:
+        assert db.execute("SELECT external_category_uid FROM bank_account_mapping WHERE id=8"
+                          ).fetchone() == (1,)
+    before = dump(database)
+    with pytest.raises(RuntimeError, match="category.*type"):
+        if operation == "diagnose":
+            bank_mapping_repair.diagnose(database)
+        else:
+            bank_mapping_repair.repair(database, tmp_path / "backups")
+    assert dump(database) == before
+    assert not (tmp_path / "backups").exists()
+
+
+@pytest.mark.parametrize("category_type", [sa.Text(), sa.String(64), sa.CHAR(64)])
+def test_text_category_types_preserve_leading_zero_uids(database, tmp_path, category_type):
+    from app.persistence.bank_mapping_repair import diagnose, repair
+
+    engine = sa.create_engine(f"sqlite:///{database}")
+    with engine.begin() as conn, Operations(MigrationContext.configure(conn)).batch_alter_table(
+        "bank_account_mapping"
+    ) as batch:
+        batch.alter_column("external_category_uid", existing_type=sa.String(64),
+                           type_=category_type, nullable=True, server_default=None)
+    engine.dispose()
+    mapping(database)
+    mapping(database, row_id=8, category="001")
+    assert diagnose(database)["needs_repair"] is True
+    assert repair(database, tmp_path / "backups") is not None
+    with closing(sqlite3.connect(database)) as db, db:
+        assert db.execute("SELECT id, external_category_uid FROM bank_account_mapping ORDER BY id"
+                          ).fetchall() == [(7, ""), (8, "001")]
