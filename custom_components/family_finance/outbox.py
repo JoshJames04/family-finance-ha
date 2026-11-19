@@ -36,7 +36,7 @@ EVENT_TYPES = {
         "budget.locked",
     ],
     "subscriptions": ["subscription.price_observed"],
-    "goals": ["goal.milestone"],
+    "goals": ["goal.milestone", "goal.completed", "goal.behind_plan", "goal.target_approaching"],
     "payroll": [
         "payroll.generated",
         "payroll.reconciled",

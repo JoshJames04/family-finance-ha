@@ -209,4 +209,5 @@ def test_real_goal_contributions_emit_threshold_crossings_once(session, househol
         row.entity_id == goal.id and row.payload["owner_profile_id"] == e.profile_id for row in rows
     )
     goals.emit_contribution_milestones(session, credit)
-    assert len(list(session.scalars(select(IntegrationEvent)))) == 4
+    assert len(list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.milestone")))) == 4

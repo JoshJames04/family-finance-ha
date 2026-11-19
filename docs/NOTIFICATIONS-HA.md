@@ -53,11 +53,51 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Payroll | `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
 | Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance` |
 | Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
-| Goals | `goal.milestone` from a real committed inbound contribution crossing; per-goal numeric percent supports other visual thresholds |
+| Goals | `goal.milestone` / `goal.completed` from real contributions; `goal.behind_plan` from canonical on-track deterioration; `goal.target_approaching` in the default three-day deadline window; per-goal numeric percent supports other visual thresholds |
 
 A matched payment emits `movement.partial` while an outstanding amount remains.
 Only a payment that completes the obligation emits `movement.settled`; replaying
 an already matched transaction emits neither event again.
+
+A real contribution first reaching a goal's target also emits `goal.completed`
+once per goal, alongside the compatible 100-percent milestone. A later contribution,
+replayed pairing or no-op poll does not repeat completion. Rollback removes the
+contribution and its event together. This does not infer completion from an opening
+balance, a target edit, or an existing funded goal at installation. Detailed mode
+adds the goal `name`, `amount_pence`, `amount_gbp`, `target_pence` and `currency`;
+Safe mode retains only source/status/date/currency. Account ownership applies in
+both modes. For a completion notification, use an Event trigger for
+`family_finance_goals_event` with `event_type: goal.completed` and the intended
+`config_entry_id`; optionally select stable `entity_id` values in a Template
+condition. Detailed actions can use `{{ trigger.event.data.name }}` and
+`{{ trigger.event.data.amount_gbp }}`. Actual editor and delivery acceptance are
+still required under #441.
+
+Completion dates and funded amounts come from the chronological contribution
+ledger, even when transfers are linked out of date order. Linking a future-dated
+credit seeds current progress without firing early; the durable scheduler emits
+completion when that credit becomes effective, with its actual crossing date.
+An already funded installation still seeds quietly instead of replaying history.
+New goal events retain their original private owner internally, so making the
+account shared later cannot disclose an old private notification payload. This
+internal scope marker is never included in either Safe or Detailed feed data.
+
+The scheduler also evaluates active goals without requiring a notification rule.
+`goal.behind_plan` fires when the canonical on-track calculation changes from true
+to false. Initial existing behind-plan data seeds a quiet baseline; an undated
+goal is unknown, not behind. Staying behind does not repeat the event; recovering
+and later falling behind creates a new transition. A fully funded goal does not
+generate a behind-plan warning after its deadline. `goal.target_approaching`
+fires once per goal and target date in the default three-calendar-day window,
+including the due date. Returning from downtime inside that window catches up;
+past deadlines, future-start, inactive, undated and already funded goals do not
+produce an approaching event. No historical deadline is replayed after the window.
+The app scheduler's calendar date drives the window, with `lead_days: 3` and
+`expected_date` in the payload; arbitrary user-configured lead days are not yet
+provided by this event. Safe mode keeps status/dates/lead time/currency; Detailed
+mode adds the current goal name, funded amount, target and remaining pence. Both
+the prior-state snapshot and deadline deduplication persist transactionally across
+restarts. These are goal-plan signals, never evidence of a missed bank payment.
 
 Use only types implemented by the installed app version. An available event entity
 is a stream endpoint, not evidence that every conceivable transition exists.
