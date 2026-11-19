@@ -14,7 +14,12 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import Connection
 
-from app.persistence.migrate import alembic_config, current_revision
+from app.persistence.migrate import (
+    alembic_config,
+    current_revision,
+    current_revisions,
+    downgrade_one,
+)
 
 _DUMMY = alembic_config("sqlite:///:memory:")
 REVISIONS = [r.revision for r in reversed(list(
@@ -63,23 +68,25 @@ def _seed_transactions(conn: Connection) -> None:
         " 'manual')"))
 
 
-class TestLinearChain:
+class TestMigrationGraph:
     def test_full_up_down_chain(self, cfg: Config) -> None:
         command.upgrade(cfg, "head")
         eng = _eng(cfg)
         assert current_revision(eng) == REVISIONS[-1]
-        # walk down one revision at a time, then back up
-        for _ in REVISIONS:
-            command.downgrade(cfg, "-1")
+        # Traverse every historical downgrade in one Alembic run. Branch-aware
+        # single-node steps are pinned separately by the merge-graph tests.
+        command.downgrade(cfg, "base")
         assert current_revision(_eng(cfg)) is None
         command.upgrade(cfg, "head")
         assert current_revision(_eng(cfg)) == REVISIONS[-1]
 
     def test_step_down_preserves_tables(self, cfg: Config) -> None:
         command.upgrade(cfg, "head")
-        command.downgrade(cfg, "-1")  # reverse the latest revision
+        downgrade_one(cfg)  # reverse the latest node, retaining both parent branches
         eng = _eng(cfg)
-        assert current_revision(eng) == REVISIONS[-2]
+        parents = ScriptDirectory.from_config(cfg).get_revision(REVISIONS[-1]).down_revision
+        expected = set(parents if isinstance(parents, tuple) else [parents])
+        assert set(current_revisions(eng)) == expected
         with eng.connect() as conn:
             assert conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -234,7 +241,7 @@ def test_transfer_rule_ids_never_reuse_retained_history(cfg: Config) -> None:
                 "SELECT source_id FROM expected_movement WHERE label='Retained'"
             )).scalar_one() == 99
             assert not conn.execute(text("PRAGMA foreign_key_check")).all()
-    command.downgrade(cfg, "-1")
+    downgrade_one(cfg)
     command.upgrade(cfg, "head")
     with _eng(cfg).connect() as conn:
         assert conn.execute(text("SELECT id FROM transfer_rule")).scalar_one() == 101

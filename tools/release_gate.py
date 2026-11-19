@@ -47,10 +47,11 @@ def check_alembic_heads() -> tuple[str, str]:
 
 def check_migration_roundtrip() -> tuple[str, str]:
     from alembic import command  # noqa: E402
+    from app.persistence.migrate import downgrade_one
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _alembic_cfg(f"sqlite:///{tmp}/rt.db")
         command.upgrade(cfg, "head")
-        command.downgrade(cfg, "-1")
+        downgrade_one(cfg)
         command.upgrade(cfg, "head")
     return PASS, "upgrade->downgrade->upgrade clean on scratch DB"
 
