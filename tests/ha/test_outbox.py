@@ -95,3 +95,5 @@ def test_item_selection_is_opt_in_rename_stable_and_capped():
     )
     assert family_for("payroll.generated") == "payroll"
     assert family_for("gift.paid") == "gifts"
+    assert family_for("loan.balance_changed") == "loans"
+    assert family_for("loan.fully_repaid") == "loans"
