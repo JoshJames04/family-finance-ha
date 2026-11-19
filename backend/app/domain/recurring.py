@@ -17,7 +17,9 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain import outbox
 from app.persistence.models import (
+    Account,
     Frequency,
     RecurringCommitment,
     Transaction,
@@ -66,6 +68,18 @@ def occurrences(c: RecurringCommitment, horizon: date) -> Iterator[date]:
         yield d
         count += 1
         d = advance(d, c.frequency, anchor_dom)
+
+
+def emit_lifecycle(session: Session, c: RecurringCommitment, event_type: str) -> None:
+    """Write only record facts; notes and formula text never enter the event bus."""
+    account = session.get(Account, c.account_id)
+    outbox.emit(session, c.household_id, event_type,
+                entity_kind="commitment", entity_id=c.id,
+                payload={"_scope_owner_profile_id": account.owner_profile_id if account else None,
+                         "name": c.name, "amount_pence": c.amount_pence,
+                         "expected_date": c.next_date.isoformat(),
+                         "frequency": c.frequency.value,
+                         "status": "active" if c.active else "paused"})
 
 
 def materialise(
