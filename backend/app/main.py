@@ -26,7 +26,7 @@ from app.core.health import (
 )
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.core.settings import Settings
-from app.domain import appconfig, outbox, schedule, vault
+from app.domain import appconfig, outbox, payroll_automation, vault
 from app.domain import banks as bankdom
 from app.persistence import backup
 from app.persistence.engine import create_app_engine, integrity_check
@@ -103,7 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Existing installs repair forecasts on upgrade, even with the
             # periodic scheduler disabled. No provider I/O in this transaction.
             with Session(engine) as projection_session:
-                schedule.rematerialize_employments(projection_session)
+                payroll_automation.refresh_all(projection_session)
                 projection_session.commit()
             last_projection_day = date.today()
 
@@ -176,7 +176,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 interval = appconfig.effective_sync_interval_minutes(
                     s, settings)[0]
                 if last_projection_day != date.today():
-                    schedule.rematerialize_employments(s)
+                    payroll_automation.refresh_all(s)
                     s.commit()  # Release the writer before provider I/O.
                     last_projection_day = date.today()
                 scheduler.sync_tick(

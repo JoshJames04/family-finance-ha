@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import budgets, energy, outbox, seasonal
+from app.domain import budgets, energy, goals, outbox, seasonal
 from app.persistence.models import (
     Account,
     AppMeta,
@@ -117,6 +117,7 @@ def evaluate_seasonal(session: Session, household_id: int, *, today: date | None
     for event in session.scalars(
         select(SeasonalEvent).where(SeasonalEvent.household_id == household_id)
     ):
+        seasonal.emit_approaching(session, event, today=today)
         totals = seasonal.totals(session, event)
         current = {
             "owner": event.owner_profile_id,
@@ -339,4 +340,5 @@ def evaluate_household(session: Session, household_id: int, *, today: date | Non
     evaluate_seasonal(session, household_id, today=today)
     evaluate_energy(session, household_id, today=today)
     evaluate_payslips(session, household_id, today=today)
+    goals.evaluate_automation(session, household_id, today=today)
     evaluate_paydays(session, household_id, today=today)

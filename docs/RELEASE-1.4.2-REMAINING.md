@@ -1,5 +1,8 @@
 # Work remaining after release 1.4.2
 
+**Historical snapshot, superseded by the [current remaining-work checklist](RELEASE-1.5.0-REMAINING.md).**
+Use that checklist for current acceptance work and project-board access policy.
+
 Tracking snapshot: 12 November 2026. This is the expected position after release
 PR #474 merges into `main`; it is not a claim that publication or live acceptance
 has already happened. Version preparation #473 must reach `develop` first.
@@ -29,16 +32,16 @@ The four dashboard/payday/sync issues above remain open deliberately: their
 descriptions explicitly require actual installation evidence. A closing keyword
 must not turn missing acceptance into a completed task.
 
-## Project board access
+## Historical project board access
 
-The personal **Family Finance** Project V2 board is the repository's intended
-status source. Its publishing GitHub App returns **Resource not accessible by
-integration** when reading it. Josh requested bot-only access, so no personal
-credential fallback was used. Issue records and PR references were updated;
-the table above records intended board changes, not successful board writes.
+At the 12 November snapshot, the publishing GitHub App returned **Resource not
+accessible by integration** for the personal **Family Finance** Project V2 board.
+The owner required bot-only access at that time, so no personal credential
+fallback was used. Issue records and PR references were updated; the table above
+recorded intended board changes, not successful board writes.
 
-Once supported bot access exists, reconcile all board items against current issue
-states, move release-completed items to Done after promotion, apply the remaining
-statuses above, and keep parent #432 active while #441 or broader acceptance is
-unfinished. Do not mark an epic Done solely because its implementation children
-closed.
+This historical restriction is superseded by the explicit owner-authorised
+project-board workflow in the [current checklist](RELEASE-1.5.0-REMAINING.md).
+Do not apply this snapshot's statuses to today's board. Keep parent #432 active
+while #441 or broader acceptance is unfinished; implementation alone does not
+complete an epic's acceptance.

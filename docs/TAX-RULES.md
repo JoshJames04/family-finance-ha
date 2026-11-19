@@ -18,9 +18,9 @@ engine in `backend/app/domain/tax.py` is a pure function of
 
 ## Parameter format
 
-All money is integer **pence per annum**; rates are **basis points**
-(2000 = 20%); monthly thresholds derive as `annual // 12` and every
-deduction floors to the penny per HMRC convention.
+Money is integer **pence**; rates are **basis points** (2000 = 20%).
+Annual tax bands and loan thresholds are separate from published period NI
+thresholds. PAYE, NI and loan rounding differ; see [payroll reliability](PAYROLL-RELIABILITY.md).
 
 ```json
 {
@@ -30,7 +30,8 @@ deduction floors to the penny per HMRC convention.
   "bands": [{"limit": 3770000, "rate": 2000}, {"limit": null, "rate": 4500}],
   "ni": {"primary_threshold": 1257000,
          "upper_earnings_limit": 5027000,
-         "categories": {"A": [below_rate_bps, above_uel_bps]}},
+         "categories": {"A": [below_rate_bps, above_uel_bps]},
+         "period_thresholds": {"12": [104800, 418900], "52": [24200, 96700]}},
   "student_loans": {"plan2": [threshold_pence, rate_bps]}
 }
 ```
@@ -57,7 +58,7 @@ for that year:
 2. **Correction to an existing year** — append a new entry with the same
    `tax_year`/`jurisdiction` and `version = previous + 1`. `rule_set()`
    picks the highest version automatically; historical runs are
-   reproduced by pinning the older version.
+   preserved as stored outputs with their parameter version and calculation provenance.
 3. **Verify** — run `pytest backend/tests/test_tax_engine.py`. Golden
    values must be recomputed from the *published* parameters and updated
    in the same commit as the data change. The meta-test
@@ -78,9 +79,8 @@ for that year:
   postgraduate.
 - Pension modes: none, relief at source (no payroll effect), net pay
   (reduces taxable only), salary sacrifice (reduces tax and NI gross).
-- Weekly/fortnightly pay frequencies are expressed in *periods per
-  year* — the engine takes `months` pro-rata so 13/26/52-period years
-  only need a period-count parameter change, not new code.
+- Monthly (12) and weekly (52) frequencies are supported. Other frequencies
+  require their own validated statutory period rules and are rejected.
 
 ## November 2026 corrections
 
@@ -104,3 +104,11 @@ The regression goldens are independently hand-calculated examples, supported by
 and the [HMRC tax-table routines, section 3.7](https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/386401/payenominal.pdf)
 (including the rule that K-code refund amounts are unaffected by the withholding
 limit). This remains bounded test evidence, rather than full HMRC certification.
+
+## November 2026 formula hardening
+
+Latest parameter versions include published weekly/monthly NI thresholds.
+[Payroll reliability](PAYROLL-RELIABILITY.md) documents PAYE v24 free pay,
+rounding, the all-code withholding limit, loan deductions, verified source
+bases, correction handling and the five local acceptance checks. The older
+2017 Free of Tax specification is not the specification for ordinary PAYE.

@@ -18,7 +18,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import categorise, contributions, settle
+from app.domain import banking_events, categorise, contributions, settle
 from app.domain.expected_matches import (
     SALARY_SOURCES,
     acyclic_transaction_ids,
@@ -210,6 +210,11 @@ def reconcile_account(session: Session, account: Account,
         else:
             queued += 1
         session.add(r)
+        session.flush()
+        event_type = "transaction.reconciled" if auto else "transaction.review_required"
+        banking_events.transaction_changed(session, txn, event_type,
+                                           status="reconciled" if auto else "pending_review",
+                                           dedup_key=f"{event_type}:{r.id}")
     session.flush()
     return ReconStats(len(txns), matched, queued)
 
@@ -256,6 +261,8 @@ def confirm(session: Session, r: Reconciliation) -> None:
     r.status = ReconStatus.matched
     r.resolved_at = datetime.now()
     txn.status = TransactionStatus.reconciled
+    banking_events.transaction_changed(session, txn, "transaction.reconciled",
+                                       dedup_key=f"transaction.reconciled:{r.id}")
     session.flush()
 
 

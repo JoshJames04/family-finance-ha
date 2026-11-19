@@ -614,6 +614,8 @@ class Employment(TimestampMixin, Base):
     profile_id: Mapped[int] = mapped_column(
         ForeignKey("user_profile.id"), nullable=False, index=True)
     employer: Mapped[str] = mapped_column(String(200), nullable=False)
+    share_payment_method: Mapped[str] = mapped_column(
+        String(24), default="payroll_cash", server_default="payroll_cash", nullable=False)
     jurisdiction: Mapped[TaxJurisdiction] = mapped_column(
         Enum(TaxJurisdiction), nullable=False)
     ni_category: Mapped[str] = mapped_column(
@@ -656,6 +658,9 @@ class Employment(TimestampMixin, Base):
         nullable=False)
     deduction_mode: Mapped[str] = mapped_column(
         String(20), default="paye", server_default="paye", nullable=False)
+    # Preserve the existing daily convention until the owner chooses otherwise.
+    salary_policy: Mapped[str] = mapped_column(
+        String(20), default="annual_daily", server_default="annual_daily", nullable=False)
 
     profile: Mapped[UserProfile] = relationship()
     salary_revisions: Mapped[list[SalaryRevision]] = relationship(
@@ -685,6 +690,8 @@ class SalaryRevision(Base):
     effective_date: Mapped[date_t] = mapped_column(Date, nullable=False)
     annual_salary_pence: Mapped[int] = mapped_column(Integer,
                                                    nullable=False)
+    shares_owned: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), default=Decimal("0"), server_default="0", nullable=False)
     notes: Mapped[str | None] = mapped_column(String(2000),
                                               nullable=True)
 
@@ -879,6 +886,7 @@ class PayrollComponentKind(enum.StrEnum):
     tax = "tax"
     ni = "ni"
     student_loan = "student_loan"
+    noncash = "noncash"
 
 
 class PayrollRun(TimestampMixin, Base):
@@ -909,16 +917,56 @@ class PayrollRun(TimestampMixin, Base):
     tax_year: Mapped[str] = mapped_column(String(9), nullable=False)
     rule_set_year: Mapped[str | None] = mapped_column(
         String(9), nullable=True)
-    rule_set_version: Mapped[int] = mapped_column(Integer,
-                                                  nullable=False)
+    rule_set_version: Mapped[int] = mapped_column(Integer, nullable=False)
     gross_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     net_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    planned_bonus_pence: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    noncash_bonus_pence: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     corrects_id: Mapped[int | None] = mapped_column(
         ForeignKey("payroll_run.id"), nullable=True)
+    statutory_pay_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    calculation_inputs: Mapped[str | None] = mapped_column(Text, nullable=True)
+    forecast_stale: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False)
+    verified_taxable_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_gross_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_net_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    signed_components: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    verified_niable_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_ytd_taxable_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_ytd_tax_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     employment: Mapped[Employment] = relationship()
     components: Mapped[list[PayrollComponent]] = relationship(
-        back_populates="run", cascade="all, delete-orphan")
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class EmploymentBonus(TimestampMixin, Base):
+    """One employer/month bonus with the saved effective salary/share basis."""
+
+    __tablename__ = "employment_bonus"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employment_id: Mapped[int] = mapped_column(
+        ForeignKey("employment.id"), nullable=False, index=True
+    )
+    pay_month: Mapped[date_t] = mapped_column(Date, nullable=False)
+    pay_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    salary_percentage: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    share_value_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    manual_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    salary_basis_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    shares_owned: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    salary_bonus_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    share_bonus_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    gross_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    noncash_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    share_payment_method: Mapped[str] = mapped_column(String(24), nullable=False)
 
 
 class PayrollComponent(Base):
@@ -926,18 +974,14 @@ class PayrollComponent(Base):
 
     __tablename__ = "payroll_component"
     __table_args__ = (
-        UniqueConstraint("run_id", "kind", "label",
-                         name="uq_paycomp_run_kind_label"),
+        UniqueConstraint("run_id", "kind", "label", name="uq_paycomp_run_kind_label"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    run_id: Mapped[int] = mapped_column(
-        ForeignKey("payroll_run.id"), nullable=False, index=True)
-    kind: Mapped[PayrollComponentKind] = mapped_column(
-        Enum(PayrollComponentKind), nullable=False)
+    run_id: Mapped[int] = mapped_column(ForeignKey("payroll_run.id"), nullable=False, index=True)
+    kind: Mapped[PayrollComponentKind] = mapped_column(Enum(PayrollComponentKind), nullable=False)
     label: Mapped[str] = mapped_column(String(200), nullable=False)
-    forecast_pence: Mapped[int] = mapped_column(Integer,
-                                                nullable=False)
+    forecast_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     actual_pence: Mapped[int | None] = mapped_column(Integer,
                                                      nullable=True)
 
@@ -1299,6 +1343,7 @@ class SeasonalEvent(TimestampMixin, Base):
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     type: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    event_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
     budget_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     savings_goal_id: Mapped[int | None] = mapped_column(
         ForeignKey("savings_goal.id"), nullable=True)
