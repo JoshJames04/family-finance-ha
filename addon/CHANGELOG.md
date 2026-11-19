@@ -8,6 +8,8 @@
   preserving historical actuals and refreshing eligible forecasts (#552).
 - Show overtime hours and rates with exact per-entry pay and payroll cutoff
   handling; refresh older forecast breakdowns automatically (#553).
+- Diagnose legacy bank-mapping constraint drift and provide guarded repair with
+  verified backup, collision checks and data-preservation safeguards (#550).
 
 ## 1.5.1
 

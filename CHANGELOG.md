@@ -22,6 +22,9 @@ release pipeline (multi-arch GHCR image + GitHub release).
 - Show approved overtime hours grouped by exact snapshotted rate. Preserve
   per-entry pence rounding and cutoff windows, and refresh older unprotected
   forecast breakdowns automatically (#553).
+- Add read-only diagnostics and explicit verified-backup repair for legacy bank
+  mapping category-key constraints, refusing ambiguous data and unsupported
+  schema without discarding mappings or weakening constraints (#550).
 
 ## [1.5.1] — 2026-11-19
 
