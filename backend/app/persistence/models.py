@@ -656,6 +656,9 @@ class Employment(TimestampMixin, Base):
         nullable=False)
     deduction_mode: Mapped[str] = mapped_column(
         String(20), default="paye", server_default="paye", nullable=False)
+    # Preserve the existing daily convention until the owner chooses otherwise.
+    salary_policy: Mapped[str] = mapped_column(
+        String(20), default="annual_daily", server_default="annual_daily", nullable=False)
 
     profile: Mapped[UserProfile] = relationship()
     salary_revisions: Mapped[list[SalaryRevision]] = relationship(
@@ -915,6 +918,17 @@ class PayrollRun(TimestampMixin, Base):
     net_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     corrects_id: Mapped[int | None] = mapped_column(
         ForeignKey("payroll_run.id"), nullable=True)
+    statutory_pay_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    calculation_inputs: Mapped[str | None] = mapped_column(Text, nullable=True)
+    forecast_stale: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False)
+    verified_taxable_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_gross_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_net_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    signed_components: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    verified_niable_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_ytd_taxable_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_ytd_tax_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     employment: Mapped[Employment] = relationship()
     components: Mapped[list[PayrollComponent]] = relationship(

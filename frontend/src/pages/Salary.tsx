@@ -1,15 +1,16 @@
 /** Salary: employments with current pay figures, payroll run history
  * with per-component forecast-vs-actual breakdown, payslip reconcile
- * for forecast runs, and add-run / add-employment flows. */
+ * for optional evidence checks, and automatic payroll generation. */
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
 import { Briefcase, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
-import { api } from "../api/client";
+import { api, getProfileId } from "../api/client";
 import { useApi } from "../api/useApi";
 import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
+import { PayrollFactsFields, confirmationFacts, poundsToPence } from "../components/PayrollConfirmation";
 import { DataView } from "../components/DataView";
 import { Panel } from "../components/Panel";
 import { Badge, type BadgeTone } from "../components/Badge";
@@ -20,6 +21,7 @@ import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Stat } from "../components/Display";
 import { ErrorState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
+import { groupOvertimeComponents } from "../lib/payrollComponents";
 import {
   formatDayMonth, formatPence, formatSmartDate, toISODate,
 } from "../lib/format";
@@ -228,7 +230,7 @@ export function Salary() {
   const [rev, setRev] = useState(0);
   const [tab, setTab] = useState<"employers" | "breakdown" | "worklog">(params.has("run_id") ? "breakdown" : "employers");
   const [addingEmp, setAddingEmp] = useState(false);
-  const [addingRun, setAddingRun] = useState<Employment | null>(null);
+  const [year, setYear] = useState(String(new Date().getFullYear()));
   const employments = useApi(() => api.get("/api/v1/employments"), ready, [rev]);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const refresh = () => setRev((r) => r + 1);
@@ -247,6 +249,16 @@ export function Salary() {
       api.get("/api/v1/employments/{emp_id}/payroll-runs",
         { path: { emp_id: e.id } }))),
     ready && items.length > 0, [rev, employmentIds]);
+  const [openedRunId, setOpenedRunId] = useState<string | null>(null);
+  useEffect(() => {
+    const runId = params.get("run_id");
+    if (!runId || openedRunId === runId) return;
+    const target = (runsAll.data ?? []).flat().find(run => String(run.id) === runId);
+    if (target) {
+      setYear((target.statutory_pay_date ?? target.pay_date).slice(0, 4));
+      setOpenedRunId(runId);
+    }
+  }, [params, runsAll.data, openedRunId]);
   const horizon = (runsAll.data ?? []).flat()
     .reduce<string | null>(
       (m, r) => (m === null || r.pay_date > m ? r.pay_date : m), null);
@@ -273,9 +285,7 @@ export function Salary() {
           </button>
         ))}
       </div>
-      {tab === "breakdown" && (
-        <MonthlyPayrollSummary runs={(runsAll.data ?? []).flat()} />
-      )}
+
       <DataView
         state={{ ...employments, data: items }}
         empty="No employments yet"
@@ -299,18 +309,22 @@ export function Salary() {
             <WorkLogView employment={piecework} onChanged={refresh} />
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <MonthlyPayrollSummary runs={(runsAll.data ?? []).flat()} year={year} onYearChange={setYear} />
+            <div className="grid gap-4">
             {list.map((e) => (
               <EmploymentCard
                 key={e.id}
                 employment={e}
                 profileName={profiles.data?.items.find((p: Profile) => p.id === e.profile_id)?.display_name ?? null}
                 rev={rev}
-                onAddRun={() => setAddingRun(e)}
+                year={year}
+                onRefreshed={runsAll.refetch}
                 showSalaryActions={false}
                 onChanged={refresh}
               />
             ))}
+            </div>
           </div>
         )}
       </DataView>
@@ -318,7 +332,7 @@ export function Salary() {
       <AddEmploymentDialog open={addingEmp} onOpenChange={setAddingEmp}
         profiles={profiles.data?.items ?? []}
         employments={items} onSaved={refresh} />
-      {addingRun && <AddRunDialog employment={addingRun} onOpenChange={(o) => { if (!o) setAddingRun(null); }} onSaved={refresh} />}
+
     </div>
   );
 }
@@ -461,65 +475,54 @@ function WorkLogView({ employment, onChanged }: {
   );
 }
 
-function MonthlyPayrollSummary({ runs }: { runs: Run[] }) {
+function MonthlyPayrollSummary({ runs, year, onYearChange }: {
+  runs: Run[]; year: string; onYearChange: (year: string) => void;
+}) {
   const groups = new Map<string, Run[]>();
   for (const run of activeRuns(runs)) {
-    const key = run.period_start.slice(0, 7);
+    const key = (run.statutory_pay_date ?? run.pay_date).slice(0, 7);
     groups.set(key, [...(groups.get(key) ?? []), run]);
   }
-  const months = [...groups.entries()].sort(([a], [b]) => b.localeCompare(a));
-  if (!months.length) return null;
+  const years = [...new Set([year, String(new Date().getFullYear()),
+    ...[...groups.keys()].map(key => key.slice(0, 4))])].sort().reverse();
+  const months = [...groups.entries()].filter(([key]) => key.startsWith(year))
+    .sort(([a], [b]) => b.localeCompare(a));
   return (
-    <section aria-label="Monthly payroll summary" className="mb-5">
-      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-fg-subtle">
-        Monthly payroll summary
-      </h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {months.map(([month, monthRuns]) => {
-          const totals = monthRuns.reduce((acc, run) => {
-            const values = runAmounts(run);
-            acc.forecastGross += values.forecastGross;
-            acc.forecastNet += values.forecastNet;
-            if (values.actualGross !== null && values.actualNet !== null) {
-              acc.actualGross += values.actualGross;
-              acc.actualNet += values.actualNet;
-              acc.effectiveGross += values.actualGross;
-              acc.effectiveNet += values.actualNet;
-              acc.actualRuns++;
-            } else {
-              acc.effectiveGross += values.forecastGross;
-              acc.effectiveNet += values.forecastNet;
-            }
-            return acc;
-          }, {
-            forecastGross: 0, forecastNet: 0, actualGross: 0, actualNet: 0,
-            effectiveGross: 0, effectiveNet: 0, actualRuns: 0,
-          });
-          const mixed = totals.actualRuns > 0 && totals.actualRuns < monthRuns.length;
-          return (
-            <div key={month} className="rounded-xl border border-border bg-surface px-4 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[13px] font-medium">{month}</span>
-                <Badge tone={mixed ? "warning" : totals.actualRuns ? "success" : "info"}>
-                  {mixed ? "mixed actual / forecast" : totals.actualRuns ? "actual" : "forecast"}
-                </Badge>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-3 text-[12px]">
-                <span><span className="block text-fg-subtle">Effective gross</span>
-                  <Money pence={totals.effectiveGross} />
-                  {mixed && <span className="block text-fg-subtle">actual <Money pence={totals.actualGross} /> · forecast <Money pence={totals.forecastGross} /></span>}</span>
-                <span><span className="block text-fg-subtle">Effective net</span>
-                  <Money pence={totals.effectiveNet} />
-                  {mixed && <span className="block text-fg-subtle">actual <Money pence={totals.actualNet} /> · forecast <Money pence={totals.forecastNet} /></span>}</span>
-              </div>
-            </div>
-          );
-        })}
+    <section aria-label="Monthly payroll summary" className="min-w-0 rounded-xl border border-border bg-surface">
+      <div className="flex items-center justify-between gap-4 border-b border-border p-4">
+        <div><h2 className="text-sm font-semibold">Monthly payroll</h2>
+          <p className="text-xs text-fg-subtle">All employers · grouped by pay month</p></div>
+        <Select aria-label="Payroll year" value={year} onChange={e => onYearChange(e.target.value)} className="w-28">
+          {years.map(value => <option key={value} value={value}>{value}</option>)}
+        </Select>
       </div>
+      <div className="overflow-x-auto"><table className="ff-table w-full text-[13px]">
+        <thead><tr className="border-b border-border text-left text-xs text-fg-subtle">
+          <th className="p-3 font-medium">Month</th><th className="p-3 text-right font-medium">Gross</th>
+          <th className="p-3 text-right font-medium">Net</th><th className="p-3 font-medium">Status</th>
+        </tr></thead>
+        <tbody>{months.map(([month, monthRuns]) => {
+          const totals = monthRuns.reduce((sum, run) => {
+            const values = runAmounts(run);
+            return {gross:sum.gross + (values.actualGross ?? values.forecastGross),
+              net:sum.net + (values.actualNet ?? values.forecastNet),
+              actual:sum.actual + (values.actualNet !== null ? 1 : 0)};
+          }, {gross:0, net:0, actual:0});
+          const mixed = totals.actual > 0 && totals.actual < monthRuns.length;
+          return <tr key={month} className="border-b border-border last:border-0">
+            <td className="p-3 font-medium">{month}</td>
+            <td className="p-3 text-right"><Money pence={totals.gross} /></td>
+            <td className="p-3 text-right font-medium"><Money pence={totals.net} /></td>
+            <td className="p-3"><Badge tone={mixed ? "warning" : totals.actual ? "success" : "info"}>
+              {mixed ? "mixed actual / forecast" : totals.actual ? "actual" : "forecast"}
+            </Badge></td>
+          </tr>;
+        })}</tbody>
+      </table></div>
+      {!months.length && <p className="p-4 text-sm text-fg-subtle">No payroll for {year}.</p>}
     </section>
   );
 }
-
 /** Employers tab: 50/50 — employer list left, the selected
  * employer's salary history and settings right. */
 function EmployersView({ employments, rev, onChanged }: {
@@ -639,6 +642,7 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
   const missingAccount = accounts.data !== null && !accounts.data.items.some((a) => a.id === e.paid_into_account_id && !a.archived);
   const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
+
   const [editing, setEditing] = useState(false);
   const [endConfirmed, setEndConfirmed] = useState(false);
   const revs = [...(revisions.data ?? [])].sort(
@@ -769,6 +773,7 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
 }) {
   const [employer, setEmployer] = useState(e.employer);
   const [hours, setHours] = useState(String(e.contracted_hours));
+  const [salaryPolicy, setSalaryPolicy] = useState<"annual_daily" | "equal_monthly">(e.salary_policy === "equal_monthly" ? "equal_monthly" : "annual_daily");
   const [endDate, setEndDate] = useState(e.end_date ?? "");
   const [paydayRule, setPaydayRule] = useState(e.payday_rule ?? "");
   const [paidInto, setPaidInto] = useState(
@@ -789,6 +794,7 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
       body: {
         employer: employer.trim(),
         contracted_hours: hours,
+        salary_policy: salaryPolicy,
         end_date: endDate || null,
         payday_rule: paydayRule || null,
         paid_into_account_id: paidInto ? Number(paidInto) : null,
@@ -839,6 +845,12 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
             </Select>
           )}</Field>
         </div>
+        <Field label="Salary calculation" hint="Changing this affects forecasts only. Choose the method used by your employer.">{id => (
+          <Select id={id} value={salaryPolicy} onChange={ev => setSalaryPolicy(ev.target.value as "annual_daily" | "equal_monthly")}>
+            <option value="annual_daily">Annual salary / 365 days (existing method)</option>
+            <option value="equal_monthly">Equal monthly instalments (annual / 12)</option>
+          </Select>
+        )}</Field>
         <PaydayPicker value={paydayRule} onChange={setPaydayRule} />
         <Field label="Paid into"
           hint="The account salary lands in — required for paydays to appear in that account's forecast.">{(id) => (
@@ -855,14 +867,16 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
   );
 }
 
-function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryActions = true, onChanged }: {
+function EmploymentCard({ employment: e, profileName, rev, year, onRefreshed, showSalaryActions = true, onChanged }: {
   employment: Employment;
   profileName: string | null;
   rev: number;
-  onAddRun: () => void;
+  year: string;
+  onRefreshed: () => void;
   showSalaryActions?: boolean;
   onChanged: () => void;
 }) {
+  const [params] = useSearchParams();
   const salary = useApi(
     () => api.get("/api/v1/employments/{emp_id}/salary",
       { path: { emp_id: e.id }, query: { on: toISODate(new Date()) } }),
@@ -874,7 +888,18 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
   const [reconciling, setReconciling] = useState<Run | null>(null);
   const [payslipRun, setPayslipRun] = useState<Run | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
-  const sorted = [...(runs.data ?? [])].sort((a, b) => b.pay_date.localeCompare(a.pay_date));
+  const automation = useApi(async () => {
+    const result = await api.post("/api/v1/employments/{emp_id}/refresh-payroll", {path:{emp_id:e.id}});
+    runs.refetch();
+    onRefreshed();
+    return result;
+  }, getProfileId() === null || getProfileId() === e.profile_id, [e.id, rev]);
+  const active = activeRuns(runs.data ?? []);
+  const visible = (run: Run) => (run.statutory_pay_date ?? run.pay_date).startsWith(year);
+  const linked = (run: Run) => params.get("run_id") === String(run.id);
+  const sorted = (runs.data ?? []).filter(run => visible(run) && (active.includes(run) || linked(run)))
+    .sort((a,b) => b.pay_date.localeCompare(a.pay_date));
+  const history = (runs.data ?? []).filter(run => visible(run) && !active.includes(run) && !linked(run));
 
   return (
     <Panel flush>
@@ -891,7 +916,7 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
           )}
         </div>
         <div className="flex items-center gap-5">
-          {salary.data && (
+          {showSalaryActions && salary.data && (
             <div className="text-right">
               <p className="tnum text-[17px] font-semibold"><Money pence={salary.data.annual_salary_pence} /></p>
               <p className="text-[11.5px] text-fg-subtle">per year · {formatPence(salary.data.hourly_rate_pence)}/hr</p>
@@ -902,11 +927,14 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
               New salary
             </Button>
           )}
-          <Button size="sm" variant="secondary" onClick={onAddRun}><Plus /> Add run</Button>
+
+
         </div>
       </div>
 
       <div className="border-t border-border">
+        {automation.error && <ErrorState message={automation.error} onRetry={automation.refetch} />}
+        {!!automation.data?.issues?.length && <p role="status" className="px-4 py-2 text-xs text-warning">{automation.data.issues.join(" · ")}</p>}
         {runs.error && <ErrorState message={runs.error} onRetry={runs.refetch} />}
         {runs.error && !(runs.data?.length) ? null : (runs.data ?? []).length === 0 ? (
           <p className="px-4 py-6 text-center text-[13px] text-fg-subtle">
@@ -918,10 +946,8 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
             <thead className="text-left text-[12px] text-fg-subtle">
               <tr className="h-9 border-b border-border">
                 <th className="w-8 pl-4"><span className="sr-only">Expand</span></th>
-                <th className="px-3 font-medium">Period</th>
-                <th className="hidden px-3 font-medium sm:table-cell">Pay date</th>
-                <th className="px-3 text-right font-medium">Gross</th>
-                <th className="hidden px-3 text-right font-medium sm:table-cell">Net</th>
+                <th className="px-3 font-medium">Pay date</th>
+                <th className="px-3 text-right font-medium">Net</th>
                 <th className="px-3 font-medium">Status</th>
                 <th className="w-px pr-4"><span className="sr-only">Actions</span></th>
               </tr>
@@ -938,16 +964,25 @@ function EmploymentCard({ employment: e, profileName, rev, onAddRun, showSalaryA
         )}
       </div>
 
+      {!!history.length && <details className="border-t border-border p-4">
+        <summary className="cursor-pointer text-xs text-fg-muted">Earlier versions and withdrawn forecasts ({history.length})</summary>
+        <div className="mt-3 overflow-x-auto"><table className="ff-table w-full text-[13px]"><tbody>
+          {history.map(run => <RunRow key={run.id} run={run} empId={e.id}
+            onReconcile={() => setReconciling(run)} onPayslip={() => setPayslipRun(run)} />)}
+        </tbody></table></div>
+      </details>}
       {reconciling && (
         <ReconcileDialog
           run={reconciling}
           empId={e.id}
+          grossOnly={e.deduction_mode === "gross_only"}
           onOpenChange={(o) => { if (!o) setReconciling(null); }}
           onSaved={onChanged}
         />
       )}
       {payslipRun && (
         <PayslipDialog run={payslipRun} empId={e.id}
+          grossOnly={e.deduction_mode === "gross_only"}
           onOpenChange={(open) => { if (!open) setPayslipRun(null); }}
           onSaved={onChanged} />
       )}
@@ -1048,7 +1083,7 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
     () => api.get("/api/v1/employments/{emp_id}/payroll-runs/{run_id}",
       { path: { emp_id: empId, run_id: r.id } }),
     open, [open]);
-  const components = detail.data?.components ?? r.components ?? [];
+  const components = groupOvertimeComponents(detail.data?.components ?? r.components ?? []);
   const amounts = runAmounts(r);
   return (
     <>
@@ -1056,51 +1091,40 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
         className="cursor-pointer border-b border-border hover:bg-surface-2/60"
         onClick={() => setOpen((o) => !o)}
       >
-        <td className="pl-4 text-fg-subtle">
-          <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+        <td className="pl-3 text-fg-subtle">
+          <Button size="icon-sm" variant="ghost" aria-expanded={open}
+            aria-label={`${open ? "Hide" : "Show"} payroll details for ${r.pay_date}`}
+            onClick={event => {event.stopPropagation(); setOpen(value => !value);}}>
+            <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+          </Button>
         </td>
-        <td className="px-3 py-2.5 font-medium">
-          {formatDayMonth(r.period_start)} – {formatSmartDate(r.period_end)}
-          <span className="ml-2 text-[11.5px] text-fg-subtle">{r.tax_year}</span>
-          {r.rule_set_year && r.rule_set_year !== r.tax_year && (
-            <span className="ml-2 text-[11px] text-warning">using {r.rule_set_year} tax rules</span>
-          )}
+        <td className="whitespace-nowrap px-3 py-2.5 font-medium">{formatSmartDate(r.pay_date)}</td>
+        <td className="tnum whitespace-nowrap px-3 text-right font-medium"><Money pence={amounts.actualNet ?? amounts.forecastNet} /></td>
+        <td className="px-3"><Badge tone={RUN_TONE[r.status]}>{r.status}</Badge>
+          {r.forecast_stale && <Badge tone="warning">Forecast needs review</Badge>}
+          {r.status === "forecast" && r.rule_set_year && r.rule_set_year !== r.tax_year &&
+            <span className="block text-[11px] text-warning">using {r.rule_set_year} rules</span>}
         </td>
-        <td className="hidden px-3 text-fg-muted sm:table-cell">{formatSmartDate(r.pay_date)}</td>
-        <td className="tnum px-3 text-right font-medium">
-          <span className="block"><Money pence={amounts.forecastGross} /></span>
-          {amounts.actualGross !== null && (
-            <span className="block text-[11px] text-success"><Money pence={amounts.actualGross} /> actual</span>
-          )}
-        </td>
-        <td className="tnum hidden px-3 text-right sm:table-cell">
-          <span className="block"><Money pence={amounts.forecastNet} /></span>
-          {amounts.actualNet !== null && (
-            <>
-              <span className="block text-[11px] text-success"><Money pence={amounts.actualNet} /> actual</span>
-              <span className="block text-[11px] text-fg-muted">
-                variance <Money pence={amounts.actualNet - amounts.forecastNet} signed tone="variance" />
-              </span>
-            </>
-          )}
-        </td>
-        <td className="px-3"><Badge tone={RUN_TONE[r.status]}>{r.status}</Badge></td>
         <td className="pr-4 text-right">
           <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onPayslip(); }}>
             Payslip
           </Button>
-          {r.status === "forecast" && (
-            <>
-              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onReconcile(); }}>
-                Reconcile
-              </Button>
-            </>
-          )}
         </td>
       </tr>
       {open && (
         <tr className="border-b border-border bg-surface-2/40">
-          <td colSpan={7} className="px-4 py-3">
+          <td colSpan={5} className="px-4 py-3">
+            <p className="mb-3 text-xs text-fg-muted">Earning period: {formatSmartDate(r.period_start)} – {formatSmartDate(r.period_end)} · {r.tax_year}</p>
+            <dl className="mb-3 grid grid-cols-2 gap-3 text-xs">
+              <div><dt className="text-fg-subtle">Forecast gross</dt><dd><Money pence={amounts.forecastGross} /></dd></div>
+              <div><dt className="text-fg-subtle">Forecast net</dt><dd><Money pence={amounts.forecastNet} /></dd></div>
+              {amounts.actualGross !== null && <div><dt className="text-fg-subtle">Actual gross</dt><dd><Money pence={amounts.actualGross} /></dd></div>}
+              {amounts.actualNet !== null && <div><dt className="text-fg-subtle">Actual net</dt><dd><Money pence={amounts.actualNet} /> · variance <Money pence={amounts.actualNet - amounts.forecastNet} signed /></dd></div>}
+            </dl>
+            {r.status === "forecast" && <Button size="sm" variant="secondary" className="mb-3" onClick={onReconcile}>Check amounts</Button>}
+            {r.statutory_pay_date && r.statutory_pay_date !== r.pay_date && <p className="mb-2 text-xs text-fg-muted">PAYE date: {formatSmartDate(r.statutory_pay_date)} · cash received: {formatSmartDate(r.pay_date)}</p>}
+            {r.verified_taxable_pence != null && <p className="mb-2 text-xs text-fg-muted">Verified taxable pay: {formatPence(r.verified_taxable_pence)}{r.verified_ytd_taxable_pence != null ? ` · taxable pay to date: ${formatPence(r.verified_ytd_taxable_pence)}` : ""}{r.verified_ytd_tax_pence != null ? ` · PAYE to date: ${formatPence(r.verified_ytd_tax_pence)}` : ""}</p>}
+
             {detail.loading ? (
               <Skeleton className="h-16 w-full" />
             ) : components.length === 0 ? (
@@ -1133,9 +1157,10 @@ function RunRow({ run: r, empId, onReconcile, onPayslip }: {
   );
 }
 
-function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
+function PayslipDialog({ run, empId, grossOnly, onOpenChange, onSaved }: {
   run: Run;
   empId: number;
+  grossOnly: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
@@ -1144,6 +1169,8 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState<Payslip | null>(null);
   const [actuals, setActuals] = useState<Record<string, string>>({});
+  const [facts, setFacts] = useState<Record<string, string>>({});
+  useEffect(() => { setFacts({}); }, [reviewing?.id]);
   const basePath = `/api/v1/employments/${empId}/payroll-runs/${run.id}/payslips`;
   const load = () => api.get("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips", {
     path: { emp_id: empId, run_id: run.id },
@@ -1162,9 +1189,12 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   };
   const saveReview = () => {
     if (!reviewing) return;
-    const values = Object.fromEntries(Object.entries(actuals)
-      .filter(([, value]) => value.trim() !== "")
-      .map(([key, value]) => [key, Math.round(Number(value) * 100)]));
+    let values: Record<string, number>;
+    try {
+      values = Object.fromEntries(Object.entries(actuals)
+        .filter(([, value]) => value.trim() !== "")
+        .map(([key, value]) => [key, poundsToPence(value)]));
+    } catch (err) { toast.error((err as Error).message); return; }
     api.patch("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}", {
       path: { emp_id: empId, run_id: run.id, payslip_id: reviewing.id },
       body: { components: values, warnings: reviewing.warnings },
@@ -1176,16 +1206,19 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   };
   const confirmReview = () => {
     if (!reviewing) return;
-    const values = Object.fromEntries(Object.entries(actuals)
-      .filter(([, value]) => value.trim() !== "")
-      .map(([key, value]) => [key, Math.round(Number(value) * 100)]));
-    if (!Object.keys(values).length) {
-      toast.error("Enter at least one signed actual component");
-      return;
-    }
+    let printed;
+    try { printed = confirmationFacts(facts, grossOnly); } catch (err) { toast.error((err as Error).message); return; }
+    let values: Record<string, number>;
+    try {
+      values = Object.fromEntries(Object.entries(KIND_LABEL).map(([kind, label]) => {
+        const value = actuals[kind];
+        if (!value?.trim()) throw new Error(`Enter ${label}, including zero`);
+        return [kind, poundsToPence(value)];
+      }));
+    } catch (err) { toast.error((err as Error).message); return; }
     api.post("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/payslips/{payslip_id}/confirm", {
       path: { emp_id: empId, run_id: run.id, payslip_id: reviewing.id },
-      body: { actuals: values },
+      body: { actuals: values, ...printed },
     }).then((value) => {
       setRows((existing) => existing.map((row) => row.id === reviewing.id ? value : row));
       setReviewing(value);
@@ -1234,7 +1267,7 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
       {reviewing && (
         <Dialog open onOpenChange={(open) => { if (!open) setReviewing(null); }}
           title={`Review ${reviewing.original_name}`}
-          description="Enter signed actual component values. Saving review does not reconcile until you confirm.">
+          description="Enter signed totals for every category, including zero for unused categories. Saving review does not reconcile until you confirm.">
           <div className="grid gap-3">
             {!!reviewing.warnings?.length && (
               <ul className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] text-fg">
@@ -1263,6 +1296,7 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
                   onChange={(event) => setActuals((current) => ({ ...current, [kind]: event.target.value }))} />
               )}</Field>
             ))}
+            <PayrollFactsFields values={facts} onChange={setFacts} grossOnly={grossOnly} />
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={saveReview}>Save review</Button>
               <Button variant="primary" onClick={confirmReview}>Confirm actuals</Button>
@@ -1274,25 +1308,39 @@ function PayslipDialog({ run, empId, onOpenChange, onSaved }: {
   );
 }
 
-function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
+function ReconcileDialog({ run, empId, grossOnly, onOpenChange, onSaved }: {
   run: Run;
   empId: number;
+  grossOnly: boolean;
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
-  const components = run.components ?? [];
+  const grouped = new Map<string, {id:number; kind:string; forecast_pence:number}>();
+  for (const c of run.components ?? []) {
+    const previous = grouped.get(c.kind);
+    grouped.set(c.kind, { id:c.id, kind:c.kind, forecast_pence:(previous?.forecast_pence ?? 0)+c.forecast_pence });
+  }
+  for (const kind of Object.keys(KIND_LABEL)) if (!grouped.has(kind)) grouped.set(kind, {id:0,kind,forecast_pence:0});
+  const components = [...grouped.values()];
   const [actuals, setActuals] = useState<Record<string, string>>({});
+  const [facts, setFacts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    let printed;
     const body: Record<string, number> = {};
-    for (const [k, v] of Object.entries(actuals)) {
-      if (v.trim()) body[k] = Math.round(Number(v) * 100);
-    }
+    try {
+      printed = confirmationFacts(facts, grossOnly);
+      for (const c of components) {
+        const value = actuals[c.kind];
+        if (!value?.trim()) throw new Error(`Enter Actual ${KIND_LABEL[c.kind] ?? c.kind}, including zero`);
+        body[c.kind] = poundsToPence(value);
+      }
+    } catch (err) { toast.error((err as Error).message); return; }
+    setBusy(true);
     api.post("/api/v1/employments/{emp_id}/payroll-runs/{run_id}/reconcile", {
       path: { emp_id: empId, run_id: run.id },
-      body: { actuals: body },
+      body: { actuals: body, ...printed },
     })
       .then(() => { toast.success("Run reconciled against payslip"); onSaved(); onOpenChange(false); })
       .catch((err: Error) => { toast.error(err.message); setBusy(false); });
@@ -1300,17 +1348,17 @@ function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
   return (
     <Dialog open onOpenChange={onOpenChange}
       title={`Reconcile payslip — ${formatDayMonth(run.pay_date)}`}
-      description="Enter the actual figures from the payslip. Anything left blank is assumed correct."
+      description="Enter signed totals for every category, including zero. Negative deductions and positive refunds must match the printed payslip totals."
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-reconcile" disabled={busy}>{busy ? "Reconciling…" : "Reconcile"}</Button>
       </>}>
       <form id="ff-reconcile" onSubmit={submit} className="grid gap-3">
         {components.length === 0 && (
-          <p className="text-[13px] text-fg-subtle">No components on this run — confirm to mark it reconciled as-is.</p>
+          <p className="text-[13px] text-fg-subtle">Enter the complete payslip breakdown before confirming.</p>
         )}
         {components.map((c) => (
-          <div key={c.id} className="grid grid-cols-[1fr_140px] items-center gap-3">
+          <div key={c.kind} className="grid grid-cols-[1fr_140px] items-center gap-3">
             <span className="text-[13px]">
               {KIND_LABEL[c.kind] ?? c.kind}
               <span className="block text-[11.5px] text-fg-subtle">forecast {formatPence(c.forecast_pence)}</span>
@@ -1325,52 +1373,7 @@ function ReconcileDialog({ run, empId, onOpenChange, onSaved }: {
             />
           </div>
         ))}
-      </form>
-    </Dialog>
-  );
-}
-
-function AddRunDialog({ employment, onOpenChange, onSaved }: {
-  employment: Employment;
-  onOpenChange: (o: boolean) => void;
-  onSaved: () => void;
-}) {
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [payDate, setPayDate] = useState("");
-  const [bonus, setBonus] = useState("");
-  const [busy, setBusy] = useState(false);
-  const valid = start && end && payDate;
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!valid) return;
-    setBusy(true);
-    api.post("/api/v1/employments/{emp_id}/payroll-runs", {
-      path: { emp_id: employment.id },
-      body: {
-        period_start: start,
-        period_end: end,
-        pay_date: payDate,
-        bonus: bonus || null,
-      },
-    })
-      .then(() => { toast.success("Payroll run added"); onSaved(); onOpenChange(false); })
-      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
-  };
-  return (
-    <Dialog open onOpenChange={onOpenChange} title={`New payroll run — ${employment.employer}`}
-      description="The engine computes gross, tax, NI and deductions for the period."
-      footer={<>
-        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button variant="primary" type="submit" form="ff-add-run" disabled={!valid || busy}>{busy ? "Adding…" : "Add run"}</Button>
-      </>}>
-      <form id="ff-add-run" onSubmit={submit} className="grid gap-4">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Period start">{(id) => <Input id={id} type="date" value={start} onChange={(e) => setStart(e.target.value)} />}</Field>
-          <Field label="Period end">{(id) => <Input id={id} type="date" value={end} onChange={(e) => setEnd(e.target.value)} />}</Field>
-          <Field label="Pay date">{(id) => <Input id={id} type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />}</Field>
-        </div>
-        <Field label="One-off bonus (£)" hint="Optional.">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={bonus} onChange={(e) => setBonus(e.target.value.trim())} />}</Field>
+        <PayrollFactsFields values={facts} onChange={setFacts} grossOnly={grossOnly} />
       </form>
     </Dialog>
   );
@@ -1425,6 +1428,7 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
         jurisdiction: "england_wales",
         ni_category: "A",
         student_loan_plan: "none",
+        salary_policy: "annual_daily",
         pension_mode: "none",
         pension_employee_bps: 0,
         pension_fixed_pence: 0,
