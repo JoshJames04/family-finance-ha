@@ -48,7 +48,11 @@ also accepts its existing selected administrator profile for these Settings.
 That development exception excludes requests carrying a service token and never
 applies in production, CI or ingress mode.
 Deactivated profiles, archived destination accounts and changed destination owners
-stop reads immediately. Events created with the new grant support retain their
+stop reads immediately. Grants name profiles and destinations, not individual jobs.
+Deactivating an employment removes its upcoming payday discovery but does not revoke
+granted payroll history for that member and destination. Revoke the grants to stop
+those machine history reads; the owning member retains their own history.
+Events created with the new grant support retain their
 original profile and destination scope internally; changing either cannot relabel
 old events. Legacy private payroll events without that snapshot remain excluded
 from granted service reads. Internal scope metadata never enters HA payloads.

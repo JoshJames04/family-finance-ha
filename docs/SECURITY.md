@@ -208,8 +208,12 @@ off) permits its existing selected administrator profile in Settings. Requests
 carrying an admin/service token are excluded from that compatibility exception;
 production, CI and ingress still require the resolved administrator identity.
 Changes persist in `app_meta`, are audited with the administrator profile ID and
-apply on the next read. Deactivation, archival and ownership changes fail closed;
-new payroll events preserve original scope metadata, excluded from every payload.
+apply on the next read. Profile deactivation, account archival and ownership changes
+fail closed. Employment activity controls upcoming payday discovery, not the
+profile-and-destination grant over historical payroll events. Deactivating a job
+does not revoke that granted history; explicitly revoke the grants to stop machine
+history reads. The owning member retains their own history independently of HA grants.
+New payroll events preserve original scope metadata, excluded from every payload.
 Legacy private events without original snapshots remain unavailable to the service.
 Safe/Detailed controls redact authorized payloads; they never authorize a private
 read. HA's recorder, traces and notification destinations can retain earlier data.

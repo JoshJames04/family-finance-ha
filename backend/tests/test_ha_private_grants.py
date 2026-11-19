@@ -10,7 +10,17 @@ from sqlalchemy.orm import Session
 from app.core.settings import Settings
 from app.domain import outbox
 from app.main import create_app
-from app.persistence.models import Account, AuditEvent, Employment, Household, Role, UserProfile
+from app.persistence.models import (
+    Account,
+    AuditEvent,
+    Employment,
+    Household,
+    PayrollRun,
+    PayrollRunStatus,
+    Payslip,
+    Role,
+    UserProfile,
+)
 
 
 @pytest.fixture()
@@ -386,6 +396,72 @@ def test_owner_keeps_historical_events_after_changing_pay_destination(granted_cl
     events = client.get("/api/v1/integration/events", headers=owner).json()["events"]
     assert [event["seq"] for event in events] == [ids["event"]]
     assert client.get("/api/v1/integration/events", headers=SERVICE).json()["events"] == []
+
+
+@pytest.mark.parametrize("detail", ["safe", "detailed"])
+def test_inactive_job_keeps_profile_granted_history_until_grants_are_revoked(
+    granted_client, detail
+):
+    client, app, ids = granted_client
+    event_ids = [ids["event"]]
+    with Session(app.state.engine) as s:
+        s.get(Employment, ids["employment"]).payday_rule = "last_friday"
+        run = PayrollRun(
+            employment_id=ids["employment"],
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
+            pay_date=date(2026, 1, 30),
+            status=PayrollRunStatus.reconciled,
+            tax_year="2025/26",
+            rule_set_version=1,
+            gross_pence=10000,
+            net_pence=9000,
+        )
+        s.add(run)
+        s.flush()
+        slip = Payslip(
+            household_id=ids["household"], payroll_run_id=run.id,
+            original_name="Synthetic.pdf", private_path="/synthetic/private",
+            sha256="a" * 64, size_bytes=1, media_type="application/pdf",
+        )
+        s.add(slip)
+        s.flush()
+        for kind, entity_id, event_type in [
+            ("payroll_run", run.id, "payroll.reconciled"),
+            ("payslip", slip.id, "payslip.review_required"),
+        ]:
+            event = outbox.emit(s, ids["household"], event_type,
+                                entity_kind=kind, entity_id=entity_id,
+                                payload={"date": "2026-01-30", "amount_pence": 9000})
+            event_ids.append(event.id)
+        s.commit()
+    grant = {"profile_ids": [ids["owner"]], "account_ids": [ids["account"]]}
+    assert client.put(PATH, headers=ADMIN, json=grant).status_code == 200
+    assert client.patch("/api/v1/integration/settings", headers=ADMIN,
+                        json={"detail": detail}).status_code == 200
+    feed_path = "/api/v1/integration/events"
+
+    def sequences(headers):
+        return [event["seq"] for event in client.get(feed_path, headers=headers).json()["events"]]
+
+    assert sequences(SERVICE) == event_ids
+    items_path = "/api/v1/integration/items"
+    assert client.get(items_path, headers=SERVICE).json()["items"][0]["family"] == "paydays"
+    owner = {"X-Remote-User-Id": "owner"}
+    assert client.patch(f"/api/v1/employments/{ids['employment']}", headers=owner,
+                        json={"is_active": False}).status_code == 200
+    assert client.get(items_path, headers=SERVICE).json()["items"] == []
+    # Grants name the member and destination, so an inactive job keeps its history.
+    assert sequences(SERVICE) == event_ids
+    assert client.get(feed_path + "?latest=true", headers=SERVICE).json()["next_cursor"] == max(
+        event_ids
+    )
+    assert sequences(owner) == event_ids
+    assert client.put(PATH, headers=ADMIN,
+                      json={"profile_ids": [], "account_ids": []}).status_code == 200
+    assert sequences(SERVICE) == []
+    assert client.get(feed_path + "?latest=true", headers=SERVICE).json()["next_cursor"] == 0
+    assert sequences(owner) == event_ids
 
 
 @pytest.mark.parametrize("environment,expected", [("dev", 200), ("prod", 403), ("ci", 403)])
