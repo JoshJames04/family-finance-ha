@@ -7,6 +7,7 @@ import { isIngress } from "../ingress";
 import { toISODate } from "../lib/format";
 
 type Account = components["schemas"]["AccountOut"];
+type Employment = components["schemas"]["EmploymentOut"];
 interface Selection {
   accounts: Account[];
   accountId: number | null;
@@ -18,15 +19,26 @@ interface Selection {
 const AccountContext = createContext<Selection | null>(null);
 export const useDashboardAccount = () => useContext(AccountContext);
 
-export function DashboardAccountProvider({ children }: { children: ReactNode }) {
+export function DashboardAccountProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
   const identity = useIdentity();
   const ingress = isIngress();
-  const ready = identity.data !== null;
+  const ready = enabled && identity.data !== null;
   const me = useApi(() => api.get("/api/v1/auth/me"), ready && ingress);
   const profileId = ingress ? me.data?.id ?? null : ready ? getProfileId() : null;
   const accounts = useAccounts();
-  const jobs = useApi(() => api.get("/api/v1/employments"),
-    ready && profileId !== null, [profileId]);
+  const jobs = useApi(async () => {
+    const incomplete = "Employment list is incomplete. Retry loading salary settings.";
+    const items: Employment[] = [];
+    for (let page = 1; ; page++) {
+      const result = await api.get("/api/v1/employments", { query: { page, size: 200 } });
+      if (!Array.isArray(result.items) || !Number.isSafeInteger(result.total) || result.total < 0) {
+        throw new Error(incomplete);
+      }
+      items.push(...result.items);
+      if (items.length >= result.total) return { ...result, items };
+      if (result.items.length === 0) throw new Error(incomplete);
+    }
+  }, ready && profileId !== null, [profileId]);
   const scope = `${getHouseholdId()}:${profileId}`;
   const [manual, setManual] = useState<{ scope: string; id: number } | null>(null);
   useEffect(() => {
@@ -42,7 +54,7 @@ export function DashboardAccountProvider({ children }: { children: ReactNode }) 
       && e.paid_into_account_id !== null && available.has(e.paid_into_account_id))
     .map(e => e.paid_into_account_id!));
   const error = identity.error ?? (ingress ? me.error : null) ?? accounts.error ?? jobs.error;
-  const loading = !error && (!ready || accounts.loading || (ingress && me.loading)
+  const loading = enabled && !error && (!ready || accounts.loading || (ingress && me.loading)
     || (profileId !== null && jobs.loading));
   const selected = manual?.scope === scope && available.has(manual.id) ? manual.id : null;
   const accountId = loading || error ? null

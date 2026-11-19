@@ -25,7 +25,7 @@ const response = (body: unknown, status = 200) => new Response(JSON.stringify(bo
 });
 
 function setup(jobs = [job], options: {
-  employmentRead?: () => Promise<Response>; accountRows?: typeof accounts;
+  employmentRead?: (url: string) => Promise<Response>; accountRows?: typeof accounts; visible?: string[];
 } = {}) {
   const projections: number[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -42,12 +42,12 @@ function setup(jobs = [job], options: {
     }
     if (url.includes("/profiles/me/dashboard")) return response({ role: "admin", layout: {
       order: ["safe-to-spend", "forecast"],
-      hidden: WIDGETS.map(w => w.id).filter(id => !["safe-to-spend", "forecast"].includes(id)),
+      hidden: WIDGETS.map(w => w.id).filter(id => !(options.visible ?? ["safe-to-spend", "forecast"]).includes(id)),
     } });
     if (url.includes("/auth/me")) return response(profiles[0]);
     if (url.includes("/profiles")) return response({ items: profiles, total: 2 });
     if (url.includes("/households")) return response({ items: [{ id: 1, name: "Synthetic" }], total: 1 });
-    if (url.includes("/employments")) return options.employmentRead?.()
+    if (url.includes("/employments")) return options.employmentRead?.(url)
       ?? response({ items: jobs, total: jobs.length });
     if (url.includes("/accounts")) return response({ items: options.accountRows ?? accounts, total: 3 });
     return response({ items: [], total: 0 });
@@ -71,7 +71,7 @@ it("defaults both Overview widgets to my salary account rather than the first vi
   await waitFor(() => expect(selector().value).toBe("2"));
   await waitFor(() => expect(requested.length).toBeGreaterThan(0));
   expect(new Set(requested)).toEqual(new Set([2]));
-  expect(await within(document.querySelector('[data-widget="forecast"]')!).findByText(/My salary account/)).toBeTruthy();
+  expect(await within(document.querySelector('[data-widget="forecast"]')!).findByText(/My salary account · Lowest/)).toBeTruthy();
 });
 
 it("uses authenticated HA identity instead of a stale stored member", async () => {
@@ -141,7 +141,7 @@ it("switches both widgets together and restores the salary default on a new visi
   const first = dashboard();
   await waitFor(() => expect(selector().value).toBe("2"));
   await userEvent.setup().selectOptions(selector(), "3");
-  await waitFor(() => expect(within(document.querySelector('[data-widget="forecast"]')!).getByText(/Shared account/)).toBeTruthy());
+  await waitFor(() => expect(within(document.querySelector('[data-widget="forecast"]')!).getByText(/Shared account · Lowest/)).toBeTruthy());
   first.unmount();
   dashboard();
   await waitFor(() => expect(selector().value).toBe("2"));
@@ -158,4 +158,84 @@ it("does not revive a previous member's manual selection after switching members
   localStorage.setItem("ff.profileId", "10");
   view.rerender(<MemoryRouter><Dashboard /></MemoryRouter>);
   await waitFor(() => expect(selector().value).toBe("2"));
+});
+
+it("allows an explicit account choice with only the forecast widget visible", async () => {
+  setup([], { visible: ["forecast"] });
+  dashboard();
+  const forecastAccount = await screen.findByRole("combobox", { name: "Forecast account" });
+  await waitFor(() => expect((forecastAccount as HTMLSelectElement).disabled).toBe(false));
+  await userEvent.setup().selectOptions(forecastAccount, "3");
+  expect(await within(document.querySelector('[data-widget="forecast"]')!).findByText(/Shared account · Lowest/)).toBeTruthy();
+});
+
+it("finds a current salary account after a full page of historical jobs", async () => {
+  const history = Array.from({ length: 200 }, (_, id) => ({ ...job, id, is_active: false }));
+  const requested = setup([job], { employmentRead: async url => {
+    const page = Number(new URL(url, "http://localhost").searchParams.get("page") ?? 1);
+    return response({ items: page === 1 ? history : [job], total: 201, page, size: 200 });
+  } });
+  dashboard();
+  await waitFor(() => expect(selector().value).toBe("2"));
+  await waitFor(() => expect(requested.length).toBeGreaterThan(0));
+  expect(new Set(requested)).toEqual(new Set([2]));
+});
+
+it("does not assume a unique salary account before the last employment page arrives", async () => {
+  const history = Array.from({ length: 199 }, (_, id) => ({ ...job, id: id + 2, is_active: false }));
+  let finish!: (value: Response) => void;
+  const secondPage = new Promise<Response>(resolve => { finish = resolve; });
+  let secondAsked = false;
+  const requested = setup([job], { employmentRead: async url => {
+    if (new URL(url, "http://localhost").searchParams.get("page") === "2") {
+      secondAsked = true; return secondPage;
+    }
+    return response({ items: [job, ...history], total: 201, page: 1, size: 200 });
+  } });
+  dashboard();
+  await waitFor(() => expect(secondAsked).toBe(true));
+  expect(requested).toEqual([]);
+  finish(response({ items: [{ ...job, id: 202, paid_into_account_id: 3 }], total: 201, page: 2, size: 200 }));
+  await screen.findByText("Choose an account to see what's safe to spend.");
+  expect(requested).toEqual([]);
+});
+
+it("fails visibly rather than choosing from an incomplete employment result", async () => {
+  const requested = setup([job], { employmentRead: async url => {
+    const page = Number(new URL(url, "http://localhost").searchParams.get("page") ?? 1);
+    return response({ items: page === 1 ? [job] : [], total: 2, page, size: 200 });
+  } });
+  dashboard();
+  await screen.findAllByText(/Employment list is incomplete/, {}, { timeout: 8000 });
+  expect(requested).toEqual([]);
+}, 10000);
+
+it("retries a failed salary lookup and selects the recovered account", async () => {
+  let failed = true;
+  setup([job], { employmentRead: async () => failed
+    ? response({ detail: "Payroll lookup unavailable" }, 400)
+    : response({ items: [job], total: 1 }) });
+  dashboard();
+  await screen.findAllByText(/Payroll lookup unavailable/);
+  failed = false;
+  await userEvent.setup().click(screen.getAllByRole("button", { name: "Retry" })[0]!);
+  await waitFor(() => expect(selector().value).toBe("2"));
+  await screen.findByText(/My salary account · Lowest/);
+});
+
+it("rejects missing pagination metadata without using a partial salary list", async () => {
+  const requested = setup([job], { employmentRead: async url => {
+    const page = Number(new URL(url, "http://localhost").searchParams.get("page") ?? 1);
+    return response(page === 1 ? { items: [job] } : { items: [], total: 0 });
+  } });
+  dashboard();
+  await screen.findAllByText(/Employment list is incomplete/, {}, { timeout: 8000 });
+  expect(requested).toEqual([]);
+}, 10000);
+
+it("does not read payroll when both projection widgets are hidden", async () => {
+  setup([job], { visible: ["accounts"] });
+  dashboard();
+  await screen.findByRole("heading", { name: "Accounts" });
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/employments"))).toBe(false);
 });

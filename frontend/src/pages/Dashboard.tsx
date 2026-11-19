@@ -151,7 +151,7 @@ export function Dashboard() {
       )}
       {!customising && status}
       <ReviewCallout />
-      <DashboardAccountProvider>
+      <DashboardAccountProvider enabled={visible.some(w => w.id === "safe-to-spend" || w.id === "forecast")}>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {layout === null && (
           <>

@@ -229,6 +229,9 @@ Its initial value is the signed-in member's unique active, accessible salary
 payment account, derived only from currently active employments. Distinct salary
 destinations or no eligible destination require an explicit selection; no first
 account projection is fetched while identity or salary setup is unresolved.
+All employment pages are read before deciding whether a destination is unique.
+The forecast also exposes the shared selector, so hiding Safe to spend cannot
+prevent an explicit account choice.
 Ingress uses `/auth/me`, never a browser-stored profile ID. Temporary switching
 affects both widgets for the visit, resets on member changes and is discarded if
 its account becomes unavailable. Other projection callers retain their existing

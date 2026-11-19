@@ -226,6 +226,14 @@ function ForecastWidget({ title }: { title: string }) {
       actions={viewAll("/forecast", "Details")}
       className="h-full"
     >
+      {selection && selection.accounts.length > 0 && (
+        <Select aria-label="Forecast account" value={selection.accountId ?? ""}
+          disabled={selection.loading || !!selection.error}
+          onChange={e => selection.select(Number(e.target.value))} wrapperClassName="mb-3 max-w-64">
+          <option value="" disabled>Choose an account</option>
+          {selection.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </Select>
+      )}
       <DataView state={projection} empty={selection?.accounts.length && selection.accountId === null ? "Choose an account above to see its forecast." : "No projection yet."} emptyDescription="" loading={<Skeleton className="h-[220px] w-full" />}>
         {(p: Projection) => <ProjectionChart projection={p} />}
       </DataView>
