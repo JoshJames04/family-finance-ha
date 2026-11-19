@@ -46,7 +46,7 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Family | Canonical transition types / source |
 | --- | --- |
 | Bills | `movement.settled`, `movement.partial`, `movement.overdue` from settlement/overdue processing |
-| Banking | `transaction.imported` from a committed imported transaction |
+| Banking | `transaction.imported`, `transaction.settled`, `transaction.review_required`, `transaction.reconciled`, `transaction.refund_linked`, `transaction.transfer_linked`, `account.balance_changed`, `connection.revoked`, `connection.disconnected` from canonical banking writers |
 | Subscriptions | `subscription.price_observed` from an observed price |
 | Ops | `sync.failed`, `sync.completed`, `sync.recovered`, `data.stale`; `backup.created` / `backup.failed` from real backup outcomes |
 | Budgets | `budget.approved`, `budget.locked`, `budget.usage`, `budget.over`, `budget.remaining_changed` from canonical lifecycle/financial changes |
@@ -104,6 +104,59 @@ is a stream endpoint, not evidence that every conceivable transition exists.
 Detailed transaction events can include `payee`, `amount_pence`, `account_id` and
 `date`; subscription observations can include `payee`, `amount_pence`, `old_pence`
 and `date`. Safe mode excludes names and monetary detail server-side.
+
+Banking transitions distinguish provider settlement (`transaction.settled`: a new
+explicitly cleared feed row or an actual pending-to-cleared change, including manual
+clearing)
+from an accepted expected-payment match (`transaction.reconciled`). An ambiguous
+persisted reconciliation proposal or fuzzy import-overlap candidate emits
+`transaction.review_required`; an import alone proves neither settlement nor
+reconciliation. Unknown/missing provider statuses do not emit settlement merely
+because legacy ledger ingest defaults a new row to cleared. Replayed provider rows
+retain local reconciled/void states and do not produce another settlement event.
+Provider overlap candidates with the same account/source/reference retain their
+original review object across replay, including after resolution or later edits
+to local/provider fields; they do not create duplicate ledger rows or review notifications. Reference-free
+feeds cannot prove replay identity and retain a separate candidate per observation.
+Refund and transfer events require the actual canonical link; labels and equal
+amounts alone are insufficient. Transfers publish one event for each leg using
+that transaction's scope, without copying another leg's account or transaction ID.
+Existing account/transaction IDs remain stable across provider resync and renames.
+
+`account.balance_changed` compares a known persisted provider balance with its new
+observation for a linked account or Space. First observation seeds the baseline;
+unchanged refreshes stay quiet, while a later return to an older value is a new
+change. Detailed mode includes `old_balance_pence` and `balance_pence`; safe mode
+omits them. This is a provider snapshot signal, not fabricated ledger activity.
+Standalone balance refresh, discovery, reauthentication and disconnect share the
+transaction sync connection owner and commit before releasing it. This includes
+Connect reviving an existing revoked row; genuinely new or unrelated connections
+remain independent. Overlapping requests return retryable 409 without provider
+calls or credential mutations, preventing duplicate/stale-prior balance events
+and successful in-flight syncs overwriting a concurrent disconnect.
+Connection revocation fires on a persisted 401/403 transition; transient failures
+do not imply revocation. Explicit user removal emits `connection.disconnected`.
+Repeated removal stays quiet based on revoked state and actual credential removal,
+independent of the recorded error message.
+Late provider errors cannot revive a persisted revoked connection, whether the
+credential remains or was removed, including responses in a stale request session.
+Only explicit successful reauthentication reopens the connection lifecycle.
+Connection events are separately scoped to each mapped account and contain no
+provider identifiers, labels, credentials or error text. An unmapped connection
+has no provable member scope, so its event is visible only to an all-scopes admin.
+Every hook shares the state writer's transaction: rollback removes its events.
+New banking events, including imports, retain their original account ownership as
+internal scope metadata. Making a private account shared later cannot disclose
+those earlier events; current ownership still applies as an additional restriction.
+The internal owner marker is removed in both Safe and Detailed payloads. Events
+written before this ownership snapshot existed retain the legacy visibility policy;
+historical ownership cannot be reconstructed from the current account alone.
+
+Use the visual Event trigger with `family_finance_banking_event`, select the
+desired `event_type`, and optionally match its local `entity_kind` / `entity_id`.
+Numeric account entities remain available for visual balance threshold triggers.
+Named multi-account/member controls and real visual-editor acceptance remain
+tracked separately in #432 / #441.
 
 The eight existing device trigger names remain: bill due, bill overdue, sync
 failed, goal milestone, low balance, notification pending, payday and payslip

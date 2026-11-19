@@ -9,6 +9,7 @@ FAMILY_PREFIXES = {
     "movement": "bills",
     "transaction": "banking",
     "account": "banking",
+    "connection": "banking",
     "budget": "budgets",
     "subscription": "subscriptions",
     "goal": "goals",
@@ -27,7 +28,11 @@ EVENT_TYPES = {
         "movement.partial",
         "movement.overdue",
     ],
-    "banking": ["transaction.imported"],
+    "banking": [
+        "transaction.imported", "transaction.settled", "transaction.review_required",
+        "transaction.reconciled", "transaction.refund_linked", "transaction.transfer_linked",
+        "account.balance_changed", "connection.revoked", "connection.disconnected",
+    ],
     "budgets": [
         "budget.usage",
         "budget.over",
