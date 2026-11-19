@@ -26,6 +26,12 @@ Employer-specific [bonus planning](docs/BONUSES.md) supports salary percentages,
 
 ## What it does
 
+- **Historical notes** — an administrator can privately view and search retained
+  annotations in Settings, preserving original year, sheet and cell context.
+  Archives remain explicitly unverified until the original source is available;
+  no current finance records are linked by guesswork. See
+  [the preservation procedure](docs/MIGRATION.md#historical-annotation-preservation).
+
 The [specialist finance audit disposition](docs/FINANCE-HISTORICAL-AUDIT.md)
 documents payroll cutoffs, private salary and savings boundaries, versioned
 tax corrections, loan attribution, and seasonal actual versus committed budgets.
