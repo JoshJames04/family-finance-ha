@@ -109,4 +109,7 @@ def transition(
             f"{txn.date} falls inside locked period {p.label!r}"
         )
     txn.status = to
+    if to == TransactionStatus.cleared:
+        from app.domain import banking_events
+        banking_events.transaction_changed(session, txn, "transaction.settled")
     session.flush()

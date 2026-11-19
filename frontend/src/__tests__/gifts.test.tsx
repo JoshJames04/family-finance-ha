@@ -1,7 +1,7 @@
 /** Fixed-dataset tests for #97: recipient grouping with per-gift +
  * per-recipient variance, lifecycle transition + pay POST the right
  * endpoints, status badges render. */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -53,15 +53,29 @@ const GIFT = { id: 12, event_id: 4, recipient: "Sam", idea: "Book",
   purchase_status: "planned", payment_status: "unpaid",
   transaction_id: null, notes: null };
 
-function stubFetch(posts: { url: string; body: string }[]) {
+function stubFetch(posts: { url: string; body: string }[], failedSaves = 0, failedRefresh = false) {
+  const events = EVENTS.map(event => ({ ...event, event_date: null as string | null }));
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
       const url = String(input);
       const method = init?.method ?? "GET";
+      if (method === "PATCH") {
+        posts.push({ url, body: String(init?.body) });
+        if (failedSaves-- > 0) return Promise.resolve(new Response(
+          JSON.stringify({ detail: "Temporary save failure" }), {
+            status: 503, headers: { "Content-Type": "application/json" } }));
+        const edited = events[0]!;
+        edited.event_date = JSON.parse(String(init?.body)).event_date;
+        return Promise.resolve(new Response(JSON.stringify(edited), {
+          status: 200, headers: { "Content-Type": "application/json" } }));
+      }
       if (method === "POST") {
         posts.push({ url, body: String(init?.body) });
         return Promise.resolve(new Response(JSON.stringify(GIFT), {
           status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (failedRefresh && posts.length > 0 && url.endsWith("/api/v1/seasonal-events")) {
+        return Promise.resolve(new Response("unavailable", { status: 503 }));
       }
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
@@ -72,7 +86,7 @@ function stubFetch(posts: { url: string; body: string }[]) {
           : url.includes("/gifts")
             ? GIFTS
             : url.includes("/api/v1/seasonal-events")
-              ? EVENTS
+              ? events
               : { items: [], total: 0 };
       return Promise.resolve(new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json" } }));
@@ -81,6 +95,50 @@ function stubFetch(posts: { url: string; body: string }[]) {
 
 describe("Gifts", () => {
   afterEach(cleanup);
+  it("saves and clears an explicit date without guessing an existing occasion date", async () => {
+    const writes: { url: string; body: string }[] = [];
+    stubFetch(writes);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Gifts /></MemoryRouter>);
+    const input = await screen.findByLabelText("Event date");
+    expect((input as HTMLInputElement).value).toBe("");
+    fireEvent.change(input, { target: { value: "2026-12-20" } });
+    await user.click(screen.getByRole("button", { name: "Save event date" }));
+    await waitFor(() => expect(writes[0]).toEqual({
+      url: expect.stringContaining("/seasonal-events/4/date"),
+      body: JSON.stringify({ event_date: "2026-12-20" }),
+    }));
+    fireEvent.change(input, { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: "Save event date" }));
+    await waitFor(() => expect(writes[1]?.body).toBe(JSON.stringify({ event_date: null })));
+  });
+  it("keeps an unsaved date visible after an error and allows retry", async () => {
+    const writes: { url: string; body: string }[] = [];
+    stubFetch(writes, 1);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Gifts /></MemoryRouter>);
+    const input = await screen.findByLabelText("Event date");
+    fireEvent.change(input, { target: { value: "2026-12-20" } });
+    await user.click(screen.getByRole("button", { name: "Save event date" }));
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect((input as HTMLInputElement).value).toBe("2026-12-20");
+    await user.click(screen.getByRole("button", { name: "Save event date" }));
+    await waitFor(() => expect(writes.length).toBe(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+  it("can clear a successfully saved date even when the refresh fails", async () => {
+    const writes: { url: string; body: string }[] = [];
+    stubFetch(writes, 0, true);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Gifts /></MemoryRouter>);
+    const input = await screen.findByLabelText("Event date");
+    fireEvent.change(input, { target: { value: "2026-12-20" } });
+    await user.click(screen.getByRole("button", { name: "Save event date" }));
+    await screen.findByRole("button", { name: "Save event date" });
+    fireEvent.change(input, { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: "Save event date" }));
+    await waitFor(() => expect(writes[1]?.body).toBe(JSON.stringify({ event_date: null })));
+  });
   it("shows historical notes and searches their context", async () => {
     stubFetch([]);
     const user = userEvent.setup();

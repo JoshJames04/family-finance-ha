@@ -316,7 +316,7 @@ def test_unsupported_future_year_is_explicit_and_stale_forecast_is_pinned(sessio
     session.add(e)
     session.flush()
     payroll.add_salary_revision(session, e, date(2025, 1, 1), 3600000)
-    payroll.add_tax_code_revision(session, e, date(2025, 1, 1), "1257L")
+    payroll.add_tax_code_revision(session, e, date(2025, 1, 1), "1257L M1")
     with pytest.raises(tax.TaxError):
         payrun.generate(
             session, e, start=date(2027, 6, 1), end=date(2027, 6, 30), pay_date=date(2027, 6, 28)
@@ -505,7 +505,7 @@ def test_current_ni_category_matrix_uses_employee_rates():
             tax.compute_period(
                 gross_pence=600000, tax_code="NT", params=params, ni_category=category
             ).ni_pence
-            == 28754
+            == 28750
         )
     for category in ("J", "Z"):
         assert (

@@ -14,7 +14,9 @@ from .services import async_register_services
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Create the coordinator, first-refresh, forward platforms."""
-    client = FamilyFinanceClient(async_get_clientsession(hass), dict(entry.data))
+    client = FamilyFinanceClient(async_get_clientsession(hass), {
+        **entry.data, "forecast_days": entry.options.get("forecast_days", 90),
+    })
     coordinator = FamilyFinanceCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
