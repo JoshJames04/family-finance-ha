@@ -269,6 +269,8 @@ def test_grants_cannot_select_other_household_resources(granted_client):
 @pytest.mark.parametrize("rule,days", [
     ('{"kind":"fixed_day","day":22}', 2),
     ("last_friday", 9),
+    ("last_day", 12),
+    ("last_working_day", 12),
 ])
 def test_payday_discovery_requires_grants_keeps_legacy_prefix_and_revokes(
     granted_client, monkeypatch, rule, days

@@ -26,7 +26,8 @@ confirmation; **Revoke all private access** removes the grants on the next poll.
 
 These grants cover payroll events, including existing payroll approaching and
 payslip review events, plus named days-to-next-payday discovery. Payday discovery
-uses the canonical adjusted payday rule (including legacy `last_friday`), active
+uses the canonical adjusted payday rule (including legacy `last_friday`,
+`last_day` and `last_working_day`), active
 employment dates and current
 profile/destination grants, appends after the legacy discovery prefix and uses
 stable `employment:<id>` identities. It includes employer labels and day counts
