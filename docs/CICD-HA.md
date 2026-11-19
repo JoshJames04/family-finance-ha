@@ -27,6 +27,12 @@ Scheduled npm updates keep `@types/node` on the application's Node 22 API line;
 its major upgrades require a deliberate runtime/toolchain change. Patch and
 minor typings updates remain enabled.
 
+TypeScript major updates also require an explicit compatibility review:
+`openapi-typescript` 7.13 requires TypeScript 5. Keep the compiler on its
+supported 5.x line until the API generator supports a newer major. Do not
+bypass peer checks with `--force` or `--legacy-peer-deps`; minor and patch
+updates remain grouped and enabled.
+
 Scheduled npm version updates are grouped into one `npm-dependencies` PR per
 weekly run. Python and GitHub Actions retain their existing update policies.
 The grouping takes effect when this configuration reaches `main`, where
