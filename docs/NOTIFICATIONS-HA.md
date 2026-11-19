@@ -116,7 +116,7 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Subscriptions | `subscription.price_observed` from an observed price; `subscription.created`, `subscription.cancelled`, `subscription.amount_changed`, `subscription.renewal_changed` from committed register changes |
 | Ops | `sync.failed`, `sync.completed`, `sync.recovered`, `data.stale`; `backup.created` / `backup.failed` from real backup outcomes |
 | Budgets | `budget.approved`, `budget.locked`, `budget.usage`, `budget.over`, `budget.remaining_changed` from canonical lifecycle/financial changes |
-| Payroll | `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
+| Payroll | `overtime.recorded`, `payroll.estimate_changed`, `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
 | Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance`, `seasonal.approaching` |
 | Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
 | Goals | `goal.milestone` / `goal.completed` from real contributions; `goal.behind_plan` from canonical on-track deterioration; `goal.target_approaching` in the default three-day deadline window; per-goal numeric percent supports other visual thresholds |
@@ -271,6 +271,44 @@ review. These remain summary transition signals, not item-specific outbox events
 First successful connection/reload seeds the summary baseline without replaying
 historical conditions. Each emitted event includes `config_entry_id`, and device
 triggers filter it so another configured household cannot activate the device.
+
+### Scoped payroll backend feed; private HA access pending
+
+`overtime.recorded` is emitted when a new draft overtime entry is committed,
+including the existing permitted app/HA action paths. It describes recorded hours
+and estimated overtime pay, not approval, a payslip or money received. Editing,
+submitting or approving that entry does not repeat its creation event. The opaque
+`entity_id` identifies its employment; Detailed payloads add the entry ID, hours,
+employer name and estimated pence. Hours and pay use the persisted two-decimal
+hours and final hourly rate, including higher-precision requests. Notes are never
+included.
+
+`payroll.estimate_changed` compares the previous and new canonical expected net
+amount for the same employment/pay date/destination during schedule regeneration.
+It covers regular employment estimates and forecast payroll runs, using their
+configured payroll period and salary policy rather than assuming annual salary
+divided by twelve. A first known
+value seeds quietly; unchanged regeneration emits nothing. A reconciled/actual
+amount is not labelled an estimate, and a missing estimate is never a fabricated
+zero. A changed payday/destination is not compared as though it were the same
+obligation. Detailed payloads contain old/new estimated pence and employer name;
+Safe mode keeps structural dates/status/source only. Rollback removes changes and
+events together. Event delivery/retry uses the existing durable cursor.
+
+Both types inherit the employment owner's visibility even when pay lands in a
+shared account. They are available through the authenticated, profile-aware backend
+feed. **The current HA service token has no private payroll grant and cannot read
+either new type**, in Safe or Detailed mode. The integration does not send a member
+identity, and it cannot impersonate an employment owner. These writer hooks are
+backend groundwork; they do not deliver a private payroll automation to HA.
+
+Admin-selected private read grants require the access-model decision in
+#532 (under #524/#432). Rich detail opt-in and named entity selection do not grant private
+access. The existing HA adapter can publish an authorised canonical payroll row,
+but mocked/harness publication proves that adapter behavior only; real service
+HTTP tests prove the current private denial. No private HA automation recipe is
+claimed until explicit access is designed, approved and tested. Renaming preserves
+the employment ID for authorised backend consumers.
 
 ## Cursor, retry and offline behaviour
 

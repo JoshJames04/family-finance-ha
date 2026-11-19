@@ -1,0 +1,239 @@
+"""Canonical payroll change events, never guessed salary receipts (#524)."""
+from datetime import date
+from decimal import Decimal
+
+import pytest
+from sqlalchemy import select
+
+from app.api.v1 import integration
+from app.domain import outbox, overtime, pay_calendar, paydays, payroll, schedule
+from app.persistence.models import (
+    Account,
+    Employment,
+    ExpectedMovement,
+    IntegrationEvent,
+    PayrollRun,
+    PayrollRunStatus,
+    Role,
+    UserProfile,
+)
+
+TODAY = date(2026, 1, 1)
+PAY = date(2026, 1, 28)
+
+
+def _employment(session, household):
+    owner = UserProfile(household_id=household.id, display_name="Owner", role=Role.member,
+                        ha_user_id="synthetic-payroll-owner")
+    account = Account(household_id=household.id, name="Shared destination", type="joint",
+                      opening_date=TODAY)
+    session.add_all([owner, account])
+    session.flush()
+    emp = Employment(household_id=household.id, profile_id=owner.id, employer="Synthetic employer",
+        jurisdiction="england_wales", contracted_hours=Decimal("37.5"), deduction_mode="gross_only",
+        paid_into_account_id=account.id, payday_rule=pay_calendar.serialize_rule(paydays.PaydayRule(
+            kind=paydays.RuleKind.fixed_day, day=28, adjust=paydays.ShiftPolicy.previous)))
+    session.add(emp)
+    session.flush()
+    payroll.add_salary_revision(session, emp, TODAY, 3_600_000)
+    return emp
+
+
+@pytest.fixture()
+def employment(session, household):
+    return _employment(session, household)
+
+
+def events(session, event_type):
+    return list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == event_type).order_by(IntegrationEvent.id)))
+
+
+def test_overtime_recorded_on_actual_create_not_edits_or_approval(session, employment):
+    entry = overtime.create_entry(session, employment, work_date=TODAY, hours=Decimal("2"),
+                                  notes="PRIVATE NOTES")
+    overtime.update_entry(session, entry, employment, hours=Decimal("2"))
+    overtime.submit(entry)
+    overtime.approve(entry)
+    rows = events(session, "overtime.recorded")
+    assert len(rows) == 1
+    assert rows[0].entity_kind == "employment" and rows[0].entity_id == employment.id
+    assert rows[0].payload["status"] == "draft"
+    assert "PRIVATE NOTES" not in str(rows[0].payload)
+    assert "paid" not in str(rows[0].payload)
+
+
+def test_overtime_event_uses_persisted_hours_and_pay(session, employment):
+    entry = overtime.create_entry(session, employment, work_date=TODAY,
+                                  hours=Decimal("2.345"), rate_pence=2000, multiplier_bps=15000)
+    session.refresh(entry)
+    event = events(session, "overtime.recorded")[0]
+    assert entry.hours == Decimal("2.35")
+    assert Decimal(event.payload["hours"]) == entry.hours
+    assert event.payload["amount_pence"] == entry.pay_pence == 7050
+
+
+def test_employment_estimate_changed_matches_canonical_values_and_replay(session, employment):
+    schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
+    assert events(session, "payroll.estimate_changed") == []
+    previous_amount = session.scalars(select(ExpectedMovement)).one().amount_pence
+    payroll.add_salary_revision(session, employment, date(2026, 1, 2), 4_200_000)
+    schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
+    schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
+    rows = events(session, "payroll.estimate_changed")
+    assert len(rows) == 1
+    assert rows[0].payload["old_pence"] == previous_amount
+    current = session.scalars(select(ExpectedMovement)).one()
+    assert rows[0].payload["amount_pence"] == current.amount_pence
+    assert current.amount_pence > previous_amount
+    assert rows[0].payload["status"] == "estimate"
+    assert rows[0].payload["expected_date"] == PAY.isoformat()
+
+
+def test_payroll_run_estimate_changed_excludes_first_and_actual_values(session, employment):
+    run = PayrollRun(employment_id=employment.id, period_start=TODAY, period_end=date(2026, 1, 31),
+        pay_date=PAY, status=PayrollRunStatus.forecast, tax_year="2025/26", rule_set_version=1,
+        gross_pence=300_000, net_pence=250_000)
+    session.add(run)
+    session.flush()
+    schedule.rematerialize_payroll_run(session, run, today=TODAY)
+    assert events(session, "payroll.estimate_changed") == []
+    run.net_pence = 255_000
+    schedule.rematerialize_payroll_run(session, run, today=TODAY)
+    schedule.rematerialize_payroll_run(session, run, today=TODAY)
+    assert len(events(session, "payroll.estimate_changed")) == 1
+    run.status = PayrollRunStatus.reconciled
+    run.net_pence = 257_000
+    schedule.rematerialize_payroll_run(session, run, today=TODAY)
+    assert len(events(session, "payroll.estimate_changed")) == 1
+
+
+@pytest.mark.parametrize("detailed", [False, True])
+def test_payroll_events_private_despite_shared_destination(
+        session, household, employment, detailed):
+    overtime.create_entry(session, employment, work_date=TODAY, hours=Decimal("2"), notes="SECRET")
+    schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
+    payroll.add_salary_revision(session, employment, date(2026, 1, 2), 4_200_000)
+    schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
+    if detailed:
+        outbox.set_detail(session, "detailed")
+    assert integration.events(household, session).events == []
+    owner = session.get(UserProfile, employment.profile_id)
+    visible = integration.events(household, session, owner).events
+    assert {e.event_type for e in visible} == {"overtime.recorded", "payroll.estimate_changed"}
+    for event in visible:
+        assert "SECRET" not in str(event.data)
+        assert ("name" in event.data) is detailed
+        if not detailed:
+            assert "hours" not in event.data and "amount_pence" not in event.data
+
+
+def test_payroll_writers_and_events_roll_back_together(session, household, employment):
+    session.commit()
+    overtime.create_entry(session, employment, work_date=TODAY, hours=Decimal("2"))
+    schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
+    payroll.add_salary_revision(session, employment, date(2026, 1, 2), 4_200_000)
+    schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
+    assert len(events(session, "overtime.recorded")) == 1
+    assert len(events(session, "payroll.estimate_changed")) == 1
+    session.rollback()
+    assert list(session.scalars(select(IntegrationEvent))) == []
+    assert list(session.scalars(select(ExpectedMovement))) == []
+
+
+def test_piecework_replacement_preserves_prior_net_estimate(session, household, employment):
+    from app.api import schemas
+    from app.api.v1 import employments
+    from app.domain.money import Money
+
+    employment.employment_type = "piecework"
+    day = date(2030, 1, 2)
+    first = schemas.DeliveryIn(work_date=day, hours=Decimal("1"),
+                               hourly_rate=Money.of_pence(1000))
+    created = employments.create_delivery(employment.id, first, household, session, "test")
+    assert events(session, "payroll.estimate_changed") == []
+    changed = schemas.DeliveryIn(work_date=day, hours=Decimal("2"),
+                                 hourly_rate=Money.of_pence(1000))
+    employments.patch_delivery(employment.id, created.id, changed, household, session, "test")
+    employments.patch_delivery(employment.id, created.id, changed, household, session, "test")
+    rows = events(session, "payroll.estimate_changed")
+    assert len(rows) == 1
+    assert rows[0].payload["old_pence"] == 1000
+    assert rows[0].payload["amount_pence"] == 2000
+    current = session.scalars(select(ExpectedMovement)).one()
+    assert current.amount_pence == rows[0].payload["amount_pence"]
+
+
+
+@pytest.mark.parametrize("detailed", [False, True])
+def test_real_ha_service_has_no_private_payroll_grant(tmp_path, monkeypatch, detailed):
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+
+    from app.api import auth
+    from app.core.settings import Settings
+    from app.main import create_app
+    from app.persistence.models import Household
+
+    monkeypatch.setattr(auth, "SUPERVISOR_IP", "testclient")
+    app = create_app(Settings.load({"FF_DATA_DIR": str(tmp_path), "FF_INGRESS": "true",
+        "FF_ADMIN_TOKEN": "synthetic-payroll-token", "FF_SCHEDULER_TICK_SECONDS": "0",
+        "FF_BACKUP_INTERVAL_HOURS": "0"}))
+    with TestClient(app) as client:
+        with Session(app.state.engine) as db:
+            home = Household(name="Synthetic")
+            db.add(home)
+            db.flush()
+            emp = _employment(db, home)
+            overtime.create_entry(db, emp, work_date=TODAY, hours=Decimal("2"), notes="SECRET")
+            schedule.rematerialize_employment(db, emp, today=TODAY, horizon_days=30)
+            payroll.add_salary_revision(db, emp, date(2026, 1, 2), 4_200_000)
+            schedule.rematerialize_employment(db, emp, today=TODAY, horizon_days=30)
+            if detailed:
+                outbox.set_detail(db, "detailed")
+            hid, pid = home.id, emp.profile_id
+            db.commit()
+        service = client.get("/api/v1/integration/events", headers={
+            "X-Admin-Token": "synthetic-payroll-token", "X-Household-Id": str(hid),
+            "X-Profile-Id": str(pid)})  # A service token cannot impersonate an owner.
+        assert service.status_code == 200
+        assert service.json()["events"] == []
+        owner = client.get("/api/v1/integration/events", headers={
+            "X-Remote-User-Id": "synthetic-payroll-owner", "X-Household-Id": str(hid)})
+        assert owner.status_code == 200
+        rows = owner.json()["events"]
+        assert {e["event_type"] for e in rows} == {"overtime.recorded", "payroll.estimate_changed"}
+        assert all(("name" in e["data"]) is detailed for e in rows)
+        assert "SECRET" not in owner.text
+
+
+def test_payslip_missing_overtime_event_matches_final_committed_rate(
+        session, household, employment):
+    import json
+
+    from app.api import schemas
+    from app.api.v1 import payslips
+    from app.persistence.models import DayType, OvertimeEntry, Payslip
+
+    run = PayrollRun(employment_id=employment.id, period_start=TODAY, period_end=date(2026, 1, 31),
+        pay_date=PAY, status=PayrollRunStatus.forecast, tax_year="2025/26", rule_set_version=1,
+        gross_pence=300_000, net_pence=250_000)
+    session.add(run)
+    session.flush()
+    slip = Payslip(household_id=household.id, payroll_run_id=run.id,
+        original_name="PRIVATE_DOCUMENT.pdf", private_path="synthetic-unused", sha256="0" * 64,
+        size_bytes=1, media_type="application/pdf", extracted_json=json.dumps({
+            "overtime_findings": [{"line_id": "synthetic", "status": "paid-extra",
+                "delta_hours": "2", "hourly_rate_pence": 2000, "multiplier_bps": 15000}]}))
+    session.add(slip)
+    session.flush()
+    result = payslips.resolve_overtime_finding(employment.id, run.id, slip.id, "synthetic",
+        schemas.OvertimeFindingResolveIn(action="add_missing", reason="Synthetic confirmation",
+                                         work_date=TODAY, day_type=DayType.weekday),
+        household, session, "test")
+    entry_id = result.overtime_findings[0]["resolution"]["created_entry_id"]
+    entry = session.get(OvertimeEntry, entry_id)
+    event = events(session, "overtime.recorded")[0]
+    assert event.payload["amount_pence"] == entry.pay_pence == 6000
+    assert "PRIVATE_DOCUMENT" not in str(event.payload)
+    assert "Payslip finding" not in str(event.payload)

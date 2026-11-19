@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select, true, update
 from sqlalchemy.orm import Session
 
-from app.domain import goals, pay_calendar, paydays, payroll_totals, payrun, transfer_rules
+from app.domain import goals, outbox, pay_calendar, paydays, payroll_totals, payrun, transfer_rules
 from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
     AmountKind,
@@ -168,17 +168,35 @@ def rematerialize_commitment(
     return n
 
 
+def _emit_payroll_estimate_change(session: Session, employment: Employment, pay_date: date,
+                                  previous: int | None, current: int, source: str) -> None:
+    """Compare known estimates for one dated obligation; first values seed quietly."""
+    if previous is None or previous == current:
+        return
+    outbox.emit(session, employment.household_id, "payroll.estimate_changed",
+        entity_kind="employment", entity_id=employment.id,
+        payload={"source": source, "status": "estimate", "expected_date": pay_date.isoformat(),
+                 "name": employment.employer, "amount_pence": current, "old_pence": previous})
+
+
 def rematerialize_payroll_run(
-    session: Session,
-    run: PayrollRun,
-    *,
-    today: date | None = None,
+    session: Session, run: PayrollRun, *,
+    today: date | None = None, previous_estimate: int | None = None,
 ) -> int:
     """Expected income on the run's pay date — estimated until the run
     is reconciled, scheduled after. Only future/mutable runs emit."""
     today = today or date.today()
-    survivors = _drop_future(session, ExpectedSource.payroll_run, run.id, today)
-    if run.status is PayrollRunStatus.corrected or run.pay_date < today:
+    if previous_estimate is None:
+        previous_estimate = session.scalar(select(ExpectedMovement.amount_pence).where(
+            ExpectedMovement.source_type == ExpectedSource.payroll_run,
+            ExpectedMovement.source_id == run.id,
+            ExpectedMovement.expected_date == run.pay_date,
+            ExpectedMovement.account_id == run.employment.paid_into_account_id,
+            ExpectedMovement.confidence == Confidence.estimated))
+    survivors = _drop_future(
+        session, ExpectedSource.payroll_run, run.id, today)
+    if run.status is PayrollRunStatus.corrected \
+            or run.pay_date < today:
         session.flush()
         return 0
     actual = payroll_totals.totals_for_run(run).actual_net_pence
@@ -220,6 +238,9 @@ def rematerialize_payroll_run(
         canonical.source_id = run.id
         canonical.account_id = run.employment.paid_into_account_id
         survivors[key] = canonical
+    if previous_estimate is None and canonical is not None \
+            and canonical.confidence == Confidence.estimated:
+        previous_estimate = canonical.amount_pence
     if canonical is not None:
         for previous in superseded:
             for match in session.scalars(
@@ -243,6 +264,9 @@ def rematerialize_payroll_run(
         source_id=run.id,
     )
     session.flush()
+    if confidence == Confidence.estimated:
+        _emit_payroll_estimate_change(session, run.employment, run.pay_date,
+                                      previous_estimate, amount, "payroll_run")
     return 1
 
 
@@ -440,18 +464,17 @@ def rematerialize_employment(
         estimate = _employment_net_estimate(session, employment, d)
         if estimate is None:
             continue
-        _upsert(
-            session,
-            survivors,
-            employment.household_id,
-            account_id=employment.paid_into_account_id,
-            expected_date=d,
-            amount_pence=estimate,
-            label=f"Salary — {employment.employer}",
-            confidence=Confidence.estimated,
-            source=ExpectedSource.employment,
-            source_id=employment.id,
-        )
+        previous = survivors.get((d, employment.paid_into_account_id))
+        prior_amount = (previous.amount_pence if previous is not None
+                        and previous.confidence == Confidence.estimated else None)
+        _upsert(session, survivors, employment.household_id,
+                account_id=employment.paid_into_account_id,
+                expected_date=d, amount_pence=estimate,
+                label=f"Salary — {employment.employer}",
+                confidence=Confidence.estimated,
+                source=ExpectedSource.employment,
+                source_id=employment.id)
+        _emit_payroll_estimate_change(session, employment, d, prior_amount, estimate, "employment")
         n += 1
     _prune_employment_rows(session, survivors)
     return n
