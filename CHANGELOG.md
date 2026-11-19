@@ -11,6 +11,13 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.3] — 2026-11-23
+
+### Fixed
+
+- Rebuild incomplete payroll forecasts from the affected payday and refresh dependent periods. Recover eligible missing salary lines when saving bonuses (#564, #566).
+- Use the Family Finance logo and icon in the Home Assistant custom integration (#565).
+
 ## [1.5.2] — 2026-11-21
 
 ### Fixed

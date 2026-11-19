@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.5.3
+
+- Rebuild incomplete payroll forecasts from the affected payday and refresh dependent periods. Recover eligible missing salary lines when saving bonuses (#564, #566).
+- Use the Family Finance logo and icon in the Home Assistant custom integration (#565).
+
 ## 1.5.2
 
 - Protect authored splits during automatic categorisation and transfer pairing,
