@@ -104,6 +104,7 @@ def create_entry(
         notes=notes, created_at=created_at, updated_at=created_at)
     session.add(e)
     session.flush()
+    session.refresh(e)  # Snapshot the stored Numeric(5, 2) hours and resulting pay.
     outbox.emit(session, employment.household_id, "overtime.recorded",
         entity_kind="employment", entity_id=employment.id,
         payload={"source": "overtime", "date": work_date.isoformat(), "status": e.status.value,

@@ -238,7 +238,9 @@ including the existing permitted app/HA action paths. It describes recorded hour
 and estimated overtime pay, not approval, a payslip or money received. Editing,
 submitting or approving that entry does not repeat its creation event. The opaque
 `entity_id` identifies its employment; Detailed payloads add the entry ID, hours,
-employer name and estimated pence. Notes are never included.
+employer name and estimated pence. Hours and pay use the persisted two-decimal
+hours and final hourly rate, including higher-precision requests. Notes are never
+included.
 
 `payroll.estimate_changed` compares the previous and new canonical expected net
 amount for the same employment/pay date/destination during schedule regeneration.

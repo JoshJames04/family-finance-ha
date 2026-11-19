@@ -63,6 +63,16 @@ def test_overtime_recorded_on_actual_create_not_edits_or_approval(session, emplo
     assert "paid" not in str(rows[0].payload)
 
 
+def test_overtime_event_uses_persisted_hours_and_pay(session, employment):
+    entry = overtime.create_entry(session, employment, work_date=TODAY,
+                                  hours=Decimal("2.345"), rate_pence=2000, multiplier_bps=15000)
+    session.refresh(entry)
+    event = events(session, "overtime.recorded")[0]
+    assert entry.hours == Decimal("2.35")
+    assert Decimal(event.payload["hours"]) == entry.hours
+    assert event.payload["amount_pence"] == entry.pay_pence == 7050
+
+
 def test_employment_estimate_changed_matches_canonical_values_and_replay(session, employment):
     schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
     assert events(session, "payroll.estimate_changed") == []
