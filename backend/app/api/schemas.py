@@ -968,6 +968,19 @@ class PayrollReconcileIn(BaseModel):
     statutory_pay_date: date_t | None = None
 
 
+class PayrollVerifyInputsIn(BaseModel):
+    """Previously checked payslip facts; attaches metadata without changing actuals."""
+
+    model_config = ConfigDict(extra="forbid")
+    payslip_gross_pence: int = Field(ge=0)
+    payslip_net_pence: int
+    taxable_pence: int | None = Field(default=None, ge=0)
+    niable_pence: int | None = Field(default=None, ge=0)
+    ytd_taxable_pence: int | None = Field(default=None, ge=0)
+    ytd_tax_pence: int | None = None
+    source_sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+
 class PayrollRebuildIn(BaseModel):
     apply: bool = False
     fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
@@ -2169,3 +2182,8 @@ class PayrollRefreshOut(BaseModel):
     generated: int
     updated: int
     issues: list[str]
+
+
+class PayrollVerifyInputsOut(BaseModel):
+    run: PayrollRunOut
+    refresh: PayrollRefreshOut

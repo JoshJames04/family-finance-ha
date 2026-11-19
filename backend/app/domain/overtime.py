@@ -271,16 +271,24 @@ def delete_entry(session: Session, entry: OvertimeEntry) -> None:
     session.flush()
 
 
-def approved_total_pence(
+def approved_entries(
     session: Session, employment_id: int,
     start: date, end: date,
-) -> int:
-    """Approved entries only — the figure a payroll run may consume."""
-    rows = session.execute(
+) -> list[OvertimeEntry]:
+    """The exact approved source entries consumed by a payroll window."""
+    return list(session.scalars(
         select(OvertimeEntry).where(
             OvertimeEntry.employment_id == employment_id,
             OvertimeEntry.status == OvertimeStatus.approved,
             OvertimeEntry.work_date >= start,
             OvertimeEntry.work_date <= end)
-    ).scalars().all()
-    return sum(entry_pay_pence(e) for e in rows)
+        .order_by(OvertimeEntry.work_date, OvertimeEntry.id)
+    ))
+
+
+def approved_total_pence(
+    session: Session, employment_id: int,
+    start: date, end: date,
+) -> int:
+    """Approved entries only — the figure a payroll run may consume."""
+    return sum(entry_pay_pence(e) for e in approved_entries(session, employment_id, start, end))

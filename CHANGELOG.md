@@ -11,6 +11,15 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+### Fixed
+
+- Add guarded, owner-only verification of legacy payslip inputs so missing
+  taxable/YTD evidence can be restored without rewriting actual payroll or bank
+  matches; refresh eligible forecasts automatically after verification (#552).
+- Show approved overtime hours grouped by exact snapshotted rate. Preserve
+  per-entry pence rounding and cutoff windows, and refresh older unprotected
+  forecast breakdowns automatically (#553).
+
 ## [1.5.1] — 2026-11-19
 
 ### Fixed
