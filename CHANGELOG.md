@@ -11,6 +11,8 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.2] — 2026-11-21
+
 ### Fixed
 
 - Automatic categorisation, provider mapping and transfer pairing
@@ -25,6 +27,10 @@ release pipeline (multi-arch GHCR image + GitHub release).
 - Add read-only diagnostics and explicit verified-backup repair for legacy bank
   mapping category-key constraints, refusing ambiguous data and unsupported
   schema without discarding mappings or weakening constraints (#550).
+
+### Changed
+
+- Update compatible frontend and test dependencies while retaining TypeScript 5.9 (#551).
 
 ## [1.5.1] — 2026-11-19
 
