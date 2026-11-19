@@ -11,8 +11,28 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-11-19
+
 ### Fixed
 
+- Harden payroll forecasts and statutory deductions, preserve verified payslip
+  actuals, and refresh eligible forecasts automatically after source changes.
+  Combine overtime display lines with the same hourly rate (#542, PR #543).
+- Restore employer bonus entry and salary shareholding workflows, with one
+  selected bonus type per entry and combined pay-month deductions (#537).
+- Default Overview projections to the signed-in member's unique current salary
+  payment account. Prompt when a usable destination cannot be determined;
+  keep manual switches temporary and both projections aligned (#544).
+- Scope banking merge candidates and balances to authorised accounts (#533),
+  and restore canonical banking, goal, loan, bill and subscription transitions
+  for Home Assistant automations (#520, #521, #522, #523, #525).
+- Enforce owner-only payroll edits and explicit Home Assistant payroll read
+  grants; preserve private historical notes with audited archive operations
+  (#532, PR #538).
+- Use explicit seasonal dates for approaching reminders and bounded financial
+  automation discovery (#530).
+- Isolate API contract tests from private local databases and update the
+  combined frontend dependency baseline (PRs #536, #518).
 - Join the seasonal-date and payroll/bonus migration branches with revision 0075,
   restoring normal startup and upgrades from either branch without rewriting
   existing migrations or household records (#546).
