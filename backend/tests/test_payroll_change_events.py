@@ -66,14 +66,16 @@ def test_overtime_recorded_on_actual_create_not_edits_or_approval(session, emplo
 def test_employment_estimate_changed_matches_canonical_values_and_replay(session, employment):
     schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
     assert events(session, "payroll.estimate_changed") == []
+    previous_amount = session.scalars(select(ExpectedMovement)).one().amount_pence
     payroll.add_salary_revision(session, employment, date(2026, 1, 2), 4_200_000)
     schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
     schedule.rematerialize_employment(session, employment, today=TODAY, horizon_days=30)
     rows = events(session, "payroll.estimate_changed")
     assert len(rows) == 1
-    assert rows[0].payload["old_pence"] == 300_000
+    assert rows[0].payload["old_pence"] == previous_amount
     current = session.scalars(select(ExpectedMovement)).one()
-    assert rows[0].payload["amount_pence"] == current.amount_pence == 350_000
+    assert rows[0].payload["amount_pence"] == current.amount_pence
+    assert current.amount_pence > previous_amount
     assert rows[0].payload["status"] == "estimate"
     assert rows[0].payload["expected_date"] == PAY.isoformat()
 

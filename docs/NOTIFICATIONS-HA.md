@@ -242,7 +242,9 @@ employer name and estimated pence. Notes are never included.
 
 `payroll.estimate_changed` compares the previous and new canonical expected net
 amount for the same employment/pay date/destination during schedule regeneration.
-It covers regular employment estimates and forecast payroll runs. A first known
+It covers regular employment estimates and forecast payroll runs, using their
+configured payroll period and salary policy rather than assuming annual salary
+divided by twelve. A first known
 value seeds quietly; unchanged regeneration emits nothing. A reconciled/actual
 amount is not labelled an estimate, and a missing estimate is never a fabricated
 zero. A changed payday/destination is not compared as though it were the same
