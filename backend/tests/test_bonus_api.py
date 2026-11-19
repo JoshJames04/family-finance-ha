@@ -1,7 +1,10 @@
 """Public month bonus API, validation, ownership and transactional rollback."""
 
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from app.core.settings import Settings
 from app.main import create_app
@@ -131,3 +134,90 @@ def test_method_and_holdings_validation(api):
         ).status_code
         == 422
     )
+
+
+@pytest.mark.parametrize("change", ["shares", "notes", "unchanged"])
+def test_nonpay_revision_save_preserves_forecast_rows_and_bonus_snapshots(api, change):
+    c, h, path, _ = api
+    bonus = c.post(
+        path + "/bonuses",
+        headers=h,
+        json={
+            "pay_month": "2025-04-01",
+            "share_value": "15",
+        },
+    )
+    assert bonus.status_code == 201, bonus.text
+    before = c.get(path + "/payroll-runs", headers=h).json()
+    revision = c.get(path + "/salary-revisions", headers=h).json()[0]
+    payroll_sql = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if "payroll_run" in statement.lower():
+            payroll_sql.append(statement)
+
+    event.listen(c.app.state.engine, "before_cursor_execute", capture)
+    try:
+        response = c.patch(
+            path + f"/salary-revisions/{revision['id']}",
+            headers=h,
+            json={
+                "effective_date": revision["effective_date"],
+                "annual_salary": str(revision["annual_salary_pence"] / 100),
+                "shares_owned": "300" if change == "shares" else revision["shares_owned"],
+                "notes": "Synthetic note" if change == "notes" else revision["notes"],
+            },
+        )
+    finally:
+        event.remove(c.app.state.engine, "before_cursor_execute", capture)
+    assert response.status_code == 200, response.text
+    assert not payroll_sql  # Constant work: no payroll scan or rebuild on this save path.
+    assert Decimal(response.json()["shares_owned"]) == Decimal(
+        "300" if change == "shares" else revision["shares_owned"]
+    )
+    assert c.get(path + "/payroll-runs", headers=h).json() == before
+    assert c.get(path + "/bonuses", headers=h).json() == [bonus.json()]
+    if change == "shares":
+        later = c.post(
+            path + "/bonuses",
+            headers=h,
+            json={
+                "pay_month": "2025-04-01",
+                "share_value": "15",
+            },
+        )
+        assert later.status_code == 201, later.text
+        assert Decimal(later.json()["shares_owned"]) == Decimal("300")
+        assert later.json()["share_bonus_pence"] == 450000
+
+
+@pytest.mark.parametrize("change", ["salary", "date"])
+def test_pay_revision_save_still_automatically_rebuilds_forecast(api, change):
+    c, h, path, _ = api
+    response = c.post(
+        path + "/bonuses",
+        headers=h,
+        json={
+            "pay_month": "2025-04-01",
+            "manual_amount": "100",
+        },
+    )
+    assert response.status_code == 201, response.text
+    before = c.get(path + "/payroll-runs", headers=h).json()[0]
+    revision = c.get(path + "/salary-revisions", headers=h).json()[0]
+    response = c.patch(
+        path + f"/salary-revisions/{revision['id']}",
+        headers=h,
+        json={
+            "annual_salary": "72000" if change == "salary" else "60000",
+            "effective_date": "2025-01-02" if change == "date" else "2025-01-01",
+            "shares_owned": "300",
+        },
+    )
+    assert response.status_code == 200, response.text
+    after = c.get(path + "/payroll-runs", headers=h).json()[0]
+    assert after["id"] == before["id"]
+    assert not after["forecast_stale"]
+    assert [r["id"] for r in after["components"]] != [r["id"] for r in before["components"]]
+    if change == "salary":
+        assert after["gross_pence"] > before["gross_pence"]

@@ -98,6 +98,7 @@ def update_salary_revision(
     shares_owned: Decimal | None = None,
 ) -> SalaryRevision:
     """Correct a revision's figure, date or note in place."""
+    previous_pay = (rev.effective_date, rev.annual_salary_pence)
     if shares_owned is not None:
         if (
             not shares_owned.is_finite()
@@ -118,7 +119,8 @@ def update_salary_revision(
         rev.annual_salary_pence = annual_pence
     if notes is not ...:
         rev.notes = notes
-    invalidate_forecasts(session, rev.employment_id)
+    if (rev.effective_date, rev.annual_salary_pence) != previous_pay:
+        invalidate_forecasts(session, rev.employment_id)
     session.flush()
     return rev
 

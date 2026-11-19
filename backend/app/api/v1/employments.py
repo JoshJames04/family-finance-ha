@@ -728,6 +728,7 @@ def patch_salary_revision(
     actor: ActorDep,
 ) -> schemas.SalaryRevisionOut:
     rev = _get_revision(session, household.id, emp_id, rev_id)
+    previous_pay = (rev.effective_date, rev.annual_salary_pence)
     changed = body.model_dump(exclude_unset=True)
     dom.update_salary_revision(
         session,
@@ -737,7 +738,8 @@ def patch_salary_revision(
         shares_owned=body.shares_owned,
         notes=changed.get("notes", ...),
     )
-    payroll_automation.refresh(session, _get(session, household.id, emp_id))
+    if (rev.effective_date, rev.annual_salary_pence) != previous_pay:
+        payroll_automation.refresh(session, _get(session, household.id, emp_id))
     emit(
         session,
         household.id,

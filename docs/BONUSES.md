@@ -4,6 +4,10 @@ In Salary, each employer has a **Share payment method** and dated salary/share
 history. A new salary revision defaults to the holding effective on its selected
 date. Changing that date updates the default until a holding is explicitly edited.
 Check the date and holding when recording a historical or future change.
+Editing only a revision's holding or notes saves without rebuilding payroll.
+Changing its salary amount or effective date still refreshes affected forecasts.
+New bonuses use the updated holding; existing bonus snapshots stay unchanged
+until explicitly edited.
 Existing rows start with zero shares; no holding is guessed from transactions.
 
 Use **Add bonus** next to **New salary** in employer configuration. Choose the

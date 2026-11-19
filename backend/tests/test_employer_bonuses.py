@@ -272,3 +272,33 @@ def test_monthly_salary_starter_can_receive_bonus_after_overtime_cutoff(session,
     run = session.scalar(select(PayrollRun))
     assert run.planned_bonus_pence == entry.gross_pence == 10_000
     assert run.gross_pence > entry.gross_pence
+
+
+@pytest.mark.parametrize("change", ["shares", "notes", "unchanged"])
+def test_nonpay_salary_edits_do_not_invalidate_forecasts(session, employer, change):
+    bonuses.save(session, employer, pay_month=date(2025, 4, 1), share_value_pence=1500)
+    run = session.scalar(select(PayrollRun))
+    revision = employer.salary_revisions[0]
+    payroll.update_salary_revision(
+        session,
+        revision,
+        effective_date=revision.effective_date,
+        annual_pence=revision.annual_salary_pence,
+        shares_owned=Decimal("300") if change == "shares" else revision.shares_owned,
+        notes="Synthetic note" if change == "notes" else revision.notes,
+    )
+    assert not run.forecast_stale
+
+
+@pytest.mark.parametrize("change", ["salary", "date"])
+def test_pay_salary_edits_still_invalidate_forecasts(session, employer, change):
+    bonuses.save(session, employer, pay_month=date(2025, 4, 1), manual_pence=100)
+    run = session.scalar(select(PayrollRun))
+    revision = employer.salary_revisions[0]
+    payroll.update_salary_revision(
+        session,
+        revision,
+        effective_date=date(2025, 1, 2) if change == "date" else revision.effective_date,
+        annual_pence=revision.annual_salary_pence + (10000 if change == "salary" else 0),
+    )
+    assert run.forecast_stale
