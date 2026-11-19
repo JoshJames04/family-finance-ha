@@ -1104,6 +1104,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employments/{emp_id}/refresh-payroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Payroll */
+        post: operations["refresh_payroll_api_v1_employments__emp_id__refresh_payroll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employments/{emp_id}/salary-revisions": {
         parameters: {
             query?: never;
@@ -1120,6 +1137,42 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/bonuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Bonuses */
+        get: operations["list_bonuses_api_v1_employments__emp_id__bonuses_get"];
+        put?: never;
+        /** Add Bonus */
+        post: operations["add_bonus_api_v1_employments__emp_id__bonuses_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/bonuses/{bonus_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Bonus */
+        delete: operations["delete_bonus_api_v1_employments__emp_id__bonuses__bonus_id__delete"];
+        options?: never;
+        head?: never;
+        /** Edit Bonus */
+        patch: operations["edit_bonus_api_v1_employments__emp_id__bonuses__bonus_id__patch"];
         trace?: never;
     };
     "/api/v1/employments/{emp_id}/salary-revisions/{rev_id}": {
@@ -1344,6 +1397,23 @@ export interface paths {
         put?: never;
         /** Reconcile Payroll Run */
         post: operations["reconcile_payroll_run_api_v1_employments__emp_id__payroll_runs__run_id__reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employments/{emp_id}/rebuild-forecasts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild Payroll Forecasts */
+        post: operations["rebuild_payroll_forecasts_api_v1_employments__emp_id__rebuild_forecasts_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2115,6 +2185,23 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seasonal-events/{eid}/date": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Set Event Date */
+        patch: operations["set_event_date_api_v1_seasonal_events__eid__date_patch"];
         trace?: never;
     };
     "/api/v1/seasonal-events/{eid}/totals": {
@@ -5015,8 +5102,81 @@ export interface components {
             /** Events Delivered */
             events_delivered: number;
         };
+        /** EmploymentBonusIn */
+        EmploymentBonusIn: {
+            /**
+             * Pay Month
+             * Format: date
+             */
+            pay_month: string;
+            /**
+             * Label
+             * @default Bonus
+             */
+            label: string;
+            /** Salary Percentage */
+            salary_percentage?: number | string | null;
+            /** Share Value */
+            share_value?: (number | string | {
+                pence: number;
+            }) | null;
+            /** Money */
+            manual_amount?: number | string | {
+                pence: number;
+            };
+        };
+        /** EmploymentBonusOut */
+        EmploymentBonusOut: {
+            /** Id */
+            id: number;
+            /** Employment Id */
+            employment_id: number;
+            /**
+             * Pay Month
+             * Format: date
+             */
+            pay_month: string;
+            /**
+             * Pay Date
+             * Format: date
+             */
+            pay_date: string;
+            /** Label */
+            label: string;
+            /** Salary Percentage */
+            salary_percentage: string | null;
+            /** Share Value Pence */
+            share_value_pence: number | null;
+            /** Manual Pence */
+            manual_pence: number;
+            /** Salary Basis Pence */
+            salary_basis_pence: number;
+            /** Shares Owned */
+            shares_owned: string;
+            /** Salary Bonus Pence */
+            salary_bonus_pence: number;
+            /** Share Bonus Pence */
+            share_bonus_pence: number;
+            /** Gross Pence */
+            gross_pence: number;
+            /** Noncash Pence */
+            noncash_pence: number;
+            /** Share Payment Method */
+            share_payment_method: string;
+        };
         /** EmploymentIn */
         EmploymentIn: {
+            /**
+             * Initial Shares Owned
+             * @default 0
+             */
+            initial_shares_owned: number | string;
+            /**
+             * Share Payment Method
+             * @default payroll_cash
+             * @enum {string}
+             */
+            share_payment_method: "payroll_cash" | "payroll_noncash" | "outside_payroll";
             /** Profile Id */
             profile_id: number;
             /** Employer */
@@ -5066,6 +5226,12 @@ export interface components {
              * @enum {string}
              */
             deduction_mode: "paye" | "gross_only";
+            /**
+             * Salary Policy
+             * @default annual_daily
+             * @enum {string}
+             */
+            salary_policy: "annual_daily" | "equal_monthly";
             /** Initial Salary */
             initial_salary?: (number | string | {
                 pence: number;
@@ -5093,6 +5259,12 @@ export interface components {
         };
         /** EmploymentOut */
         EmploymentOut: {
+            /**
+             * Share Payment Method
+             * @default payroll_cash
+             * @enum {string}
+             */
+            share_payment_method: "payroll_cash" | "payroll_noncash" | "outside_payroll";
             /** Id */
             id: number;
             /** Household Id */
@@ -5130,9 +5302,13 @@ export interface components {
             employment_type: string;
             /** Deduction Mode */
             deduction_mode: string;
+            /** Salary Policy */
+            salary_policy: string;
         };
         /** EmploymentPatch */
         EmploymentPatch: {
+            /** Share Payment Method */
+            share_payment_method?: ("payroll_cash" | "payroll_noncash" | "outside_payroll") | null;
             /** Employer */
             employer?: string | null;
             jurisdiction?: components["schemas"]["TaxJurisdiction"] | null;
@@ -5166,6 +5342,8 @@ export interface components {
             employment_type?: ("salaried" | "piecework") | null;
             /** Deduction Mode */
             deduction_mode?: ("paye" | "gross_only") | null;
+            /** Salary Policy */
+            salary_policy?: ("annual_daily" | "equal_monthly") | null;
             /** Start Date */
             start_date?: string | null;
         };
@@ -5673,7 +5851,7 @@ export interface components {
              * Family
              * @enum {string}
              */
-            family: "bills" | "accounts" | "goals";
+            family: "bills" | "accounts" | "goals" | "safe_to_spend" | "projected_balances" | "budget_remaining" | "budget_usage" | "seasonal_remaining" | "seasonal_usage" | "paydays" | "goal_funding" | "goal_dates" | "seasonal_dates";
             /** Id */
             id: string;
             /** Name */
@@ -5687,6 +5865,11 @@ export interface components {
         IntegrationItemsOut: {
             /** Items */
             items: components["schemas"]["IntegrationItemOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
         };
         /** IntegrationSettingsOut */
         IntegrationSettingsOut: {
@@ -6403,7 +6586,7 @@ export interface components {
          * PayrollComponentKind
          * @enum {string}
          */
-        PayrollComponentKind: "base_salary" | "overtime" | "bonus" | "allowance" | "unpaid_leave" | "pension" | "tax" | "ni" | "student_loan";
+        PayrollComponentKind: "base_salary" | "overtime" | "bonus" | "allowance" | "unpaid_leave" | "pension" | "tax" | "ni" | "student_loan" | "noncash";
         /** PayrollComponentOut */
         PayrollComponentOut: {
             /** Id */
@@ -6445,16 +6628,48 @@ export interface components {
             /** Actor */
             actor: string;
         };
+        /** PayrollRebuildIn */
+        PayrollRebuildIn: {
+            /**
+             * Apply
+             * @default false
+             */
+            apply: boolean;
+            /** Fingerprint */
+            fingerprint?: string | null;
+        };
         /**
          * PayrollReconcileIn
-         * @description actual amounts keyed by component kind, e.g. {"tax": 29500}.
-         *     Absent kinds are assumed to match forecast.
+         * @description Signed aggregate actuals per kind, with independent payslip totals.
          */
         PayrollReconcileIn: {
             /** Actuals */
             actuals?: {
                 [key: string]: number;
             };
+            /** Payslip Gross Pence */
+            payslip_gross_pence: number;
+            /** Payslip Net Pence */
+            payslip_net_pence: number;
+            /** Taxable Pence */
+            taxable_pence?: number | null;
+            /** Niable Pence */
+            niable_pence?: number | null;
+            /** Ytd Taxable Pence */
+            ytd_taxable_pence?: number | null;
+            /** Ytd Tax Pence */
+            ytd_tax_pence?: number | null;
+            /** Statutory Pay Date */
+            statutory_pay_date?: string | null;
+        };
+        /** PayrollRefreshOut */
+        PayrollRefreshOut: {
+            /** Generated */
+            generated: number;
+            /** Updated */
+            updated: number;
+            /** Issues */
+            issues: string[];
         };
         /** PayrollRunIn */
         PayrollRunIn: {
@@ -6522,6 +6737,27 @@ export interface components {
             net_pence: number;
             /** Corrects Id */
             corrects_id: number | null;
+            /** Statutory Pay Date */
+            statutory_pay_date?: string | null;
+            /**
+             * Forecast Stale
+             * @default false
+             */
+            forecast_stale: boolean;
+            /** Signed Components */
+            signed_components?: boolean | null;
+            /** Verified Gross Pence */
+            verified_gross_pence?: number | null;
+            /** Verified Net Pence */
+            verified_net_pence?: number | null;
+            /** Verified Taxable Pence */
+            verified_taxable_pence?: number | null;
+            /** Verified Niable Pence */
+            verified_niable_pence?: number | null;
+            /** Verified Ytd Taxable Pence */
+            verified_ytd_taxable_pence?: number | null;
+            /** Verified Ytd Tax Pence */
+            verified_ytd_tax_pence?: number | null;
             /**
              * Components
              * @default []
@@ -6543,6 +6779,20 @@ export interface components {
             actuals?: {
                 [key: string]: number;
             };
+            /** Payslip Gross Pence */
+            payslip_gross_pence: number;
+            /** Payslip Net Pence */
+            payslip_net_pence: number;
+            /** Taxable Pence */
+            taxable_pence?: number | null;
+            /** Niable Pence */
+            niable_pence?: number | null;
+            /** Ytd Taxable Pence */
+            ytd_taxable_pence?: number | null;
+            /** Ytd Tax Pence */
+            ytd_tax_pence?: number | null;
+            /** Statutory Pay Date */
+            statutory_pay_date?: string | null;
         };
         /** PayslipOut */
         PayslipOut: {
@@ -6957,6 +7207,8 @@ export interface components {
         };
         /** SalaryRevisionIn */
         SalaryRevisionIn: {
+            /** Shares Owned */
+            shares_owned?: number | string | null;
             /**
              * Effective Date
              * Format: date
@@ -6971,6 +7223,11 @@ export interface components {
         };
         /** SalaryRevisionOut */
         SalaryRevisionOut: {
+            /**
+             * Shares Owned
+             * @default 0
+             */
+            shares_owned: string;
             /** Id */
             id: number;
             /** Employment Id */
@@ -6987,6 +7244,8 @@ export interface components {
         };
         /** SalaryRevisionPatch */
         SalaryRevisionPatch: {
+            /** Shares Owned */
+            shares_owned?: number | string | null;
             /** Effective Date */
             effective_date?: string | null;
             /** Annual Salary */
@@ -7121,6 +7380,11 @@ export interface components {
             projection: components["schemas"]["ProjectionOut"];
             diff: components["schemas"]["ScenarioDiffOut"];
         };
+        /** SeasonalEventDatePatch */
+        SeasonalEventDatePatch: {
+            /** Event Date */
+            event_date: string | null;
+        };
         /** SeasonalEventIn */
         SeasonalEventIn: {
             /** Owner Profile Id */
@@ -7139,6 +7403,8 @@ export interface components {
             savings_goal_id?: number | null;
             /** Notes */
             notes?: string | null;
+            /** Event Date */
+            event_date?: string | null;
         };
         /** SeasonalEventOut */
         SeasonalEventOut: {
@@ -7158,6 +7424,8 @@ export interface components {
             savings_goal_id: number | null;
             /** Notes */
             notes: string | null;
+            /** Event Date */
+            event_date?: string | null;
         };
         /** StatementImportOut */
         StatementImportOut: {
@@ -10566,6 +10834,40 @@ export interface operations {
             };
         };
     };
+    refresh_payroll_api_v1_employments__emp_id__refresh_payroll_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRefreshOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_salary_revisions_api_v1_employments__emp_id__salary_revisions_get: {
         parameters: {
             query?: never;
@@ -10626,6 +10928,153 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SalaryRevisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_bonuses_api_v1_employments__emp_id__bonuses_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentBonusOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_bonus_api_v1_employments__emp_id__bonuses_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmploymentBonusIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentBonusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_bonus_api_v1_employments__emp_id__bonuses__bonus_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                bonus_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_bonus_api_v1_employments__emp_id__bonuses__bonus_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+                bonus_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmploymentBonusIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmploymentBonusOut"];
                 };
             };
             /** @description Validation Error */
@@ -11368,6 +11817,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PayrollRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rebuild_payroll_forecasts_api_v1_employments__emp_id__rebuild_forecasts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                emp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayrollRebuildIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -12589,6 +13079,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                offset?: number;
+                forecast_days?: number;
             };
             header?: {
                 "x-household-id"?: number | null;
@@ -13043,6 +13535,45 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeasonalEventOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_event_date_api_v1_seasonal_events__eid__date_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                eid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeasonalEventDatePatch"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

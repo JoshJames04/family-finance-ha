@@ -94,6 +94,7 @@ def create_event(
     e = SeasonalEvent(
         household_id=household.id, year=body.year, type=body.type,
         name=body.name, budget_pence=body.budget.pence,
+        event_date=body.event_date,
         owner_profile_id=body.owner_profile_id,
         savings_goal_id=body.savings_goal_id, notes=body.notes)
     session.add(e)
@@ -109,6 +110,21 @@ def get_event(
     eid: int, household: HouseholdDep, session: SessionDep,
 ) -> SeasonalEvent:
     return _event(session, household.id, eid)
+
+
+@router.patch("/{eid}/date", response_model=schemas.SeasonalEventOut)
+def set_event_date(
+    eid: int, body: schemas.SeasonalEventDatePatch, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep,
+) -> SeasonalEvent:
+    event = _event(session, household.id, eid)
+    if body.event_date is not None and body.event_date.year != event.year:
+        raise HTTPException(422, "event date must be within the event year")
+    if event.event_date != body.event_date:
+        event.event_date = body.event_date
+        emit(session, household.id, actor, "update", "seasonal_event", event.id,
+             {"fields": ["event_date"]})
+    return event
 
 
 @router.get("/{eid}/totals",

@@ -7,6 +7,7 @@ can replace the stdlib default transparently."""
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from datetime import date, datetime
 from functools import partial
 from typing import Annotated, NoReturn
@@ -92,20 +93,30 @@ def connect(
         BankConnection.provider == BankProvider(body.provider),
         BankConnection.status.in_(
             [ConnStatus.revoked, ConnStatus.pending])))
-    try:
-        c = banks.connect(
-            session, household.id, BankProvider(body.provider),
-            body.token.get_secret_value(), validate, ring,
-            existing=existing, label=body.label)
-    except TokenInvalid as e:
-        raise HTTPException(401, "token rejected by provider") from e
-    except TokenRejected as e:
-        raise HTTPException(422, str(e)) from e
-    except ConnError as e:
-        raise HTTPException(502, f"provider unreachable: {e}") from e
-    emit(session, household.id, actor, "bank_connect",
-         "bank_connection", c.id)
-    return schemas.BankConnectionOut.model_validate(c)
+    ownership = (claim(session, f"connection:{existing.id}")
+                 if existing is not None else nullcontext(True))
+    with ownership as acquired:
+        if not acquired:
+            raise HTTPException(409, "sync already running; retry reauthentication later")
+        if existing is not None:
+            session.refresh(existing)
+            if existing.status not in (ConnStatus.revoked, ConnStatus.pending):
+                raise HTTPException(409, "connection state changed; retry connection later")
+        try:
+            c = banks.connect(
+                session, household.id, BankProvider(body.provider),
+                body.token.get_secret_value(), validate, ring,
+                existing=existing, label=body.label)
+        except TokenInvalid as e:
+            raise HTTPException(401, "token rejected by provider") from e
+        except TokenRejected as e:
+            raise HTTPException(422, str(e)) from e
+        except ConnError as e:
+            raise HTTPException(502, f"provider unreachable: {e}") from e
+        emit(session, household.id, actor, "bank_connect",
+             "bank_connection", c.id)
+        session.commit()
+        return schemas.BankConnectionOut.model_validate(c)
 
 
 def _conn(session: Session, household_id: int,
@@ -144,18 +155,23 @@ def rotate(
     validate: ValidatorDep, ring: RingDep,
 ) -> schemas.BankConnectionOut:
     c = _conn(session, household.id, cid)
-    try:
-        banks.rotate(session, c, body.token.get_secret_value(),
-                     validate, ring)
-    except TokenInvalid as e:
-        raise HTTPException(401, "token rejected by provider") from e
-    except TokenRejected as e:
-        raise HTTPException(422, str(e)) from e
-    except ConnError as e:
-        raise HTTPException(502, f"provider unreachable: {e}") from e
-    emit(session, household.id, actor, "bank_rotate",
-         "bank_connection", c.id)
-    return schemas.BankConnectionOut.model_validate(c)
+    with claim(session, f"connection:{c.id}") as acquired:
+        if not acquired:
+            raise HTTPException(409, "sync already running; retry reauthentication later")
+        session.refresh(c)
+        try:
+            banks.rotate(session, c, body.token.get_secret_value(),
+                         validate, ring)
+        except TokenInvalid as e:
+            raise HTTPException(401, "token rejected by provider") from e
+        except TokenRejected as e:
+            raise HTTPException(422, str(e)) from e
+        except ConnError as e:
+            raise HTTPException(502, f"provider unreachable: {e}") from e
+        emit(session, household.id, actor, "bank_rotate",
+             "bank_connection", c.id)
+        session.commit()
+        return schemas.BankConnectionOut.model_validate(c)
 
 
 @router.post("/connections/{cid}/disconnect",
@@ -165,10 +181,15 @@ def disconnect(
     actor: ActorDep, ring: RingDep,
 ) -> schemas.BankConnectionOut:
     c = _conn(session, household.id, cid)
-    banks.disconnect(session, c, ring)
-    emit(session, household.id, actor, "bank_disconnect",
-         "bank_connection", c.id)
-    return schemas.BankConnectionOut.model_validate(c)
+    with claim(session, f"connection:{c.id}") as acquired:
+        if not acquired:
+            raise HTTPException(409, "sync already running; retry disconnect later")
+        session.refresh(c)
+        banks.disconnect(session, c, ring)
+        emit(session, household.id, actor, "bank_disconnect",
+             "bank_connection", c.id)
+        session.commit()
+        return schemas.BankConnectionOut.model_validate(c)
 
 
 @router.post("/connections/{cid}/discover",
@@ -180,14 +201,19 @@ def discover(
     """Re-runnable, idempotent discovery — proposes/renames/closes
     mappings from the provider's account list."""
     c = _conn(session, household.id, cid)
-    token = _read_token(session, c, ring)
-    try:
-        rows = discovery.discover(session, c, client, token)
-    except ConnError as e:
-        _raise_provider_error(session, c, e)
-    emit(session, household.id, actor, "bank_discover",
-         "bank_connection", c.id)
-    return [schemas.BankMappingOut.model_validate(m) for m in rows]
+    with claim(session, f"connection:{c.id}") as acquired:
+        if not acquired:
+            raise HTTPException(409, "sync already running; retry discovery later")
+        session.refresh(c)
+        token = _read_token(session, c, ring)
+        try:
+            rows = discovery.discover(session, c, client, token)
+        except ConnError as e:
+            _raise_provider_error(session, c, e)
+        emit(session, household.id, actor, "bank_discover",
+             "bank_connection", c.id)
+        session.commit()
+        return [schemas.BankMappingOut.model_validate(m) for m in rows]
 
 
 def _mapping(session: Session, household_id: int,
@@ -288,14 +314,19 @@ def sync_balances(
     """Point-in-time balance refresh on linked mappings — never
     writes to the ledger."""
     c = _conn(session, household.id, cid)
-    token = _read_token(session, c, ring)
-    try:
-        n = discovery.sync_balances(session, c, client, token)
-    except ConnError as e:
-        _raise_provider_error(session, c, e)
-    emit(session, household.id, actor, "bank_balance_sync",
-         "bank_connection", c.id)
-    return {"synced": n}
+    with claim(session, f"connection:{c.id}") as acquired:
+        if not acquired:
+            raise HTTPException(409, "sync already running; retry balance refresh later")
+        session.refresh(c)
+        token = _read_token(session, c, ring)
+        try:
+            n = discovery.sync_balances(session, c, client, token)
+        except ConnError as e:
+            _raise_provider_error(session, c, e)
+        emit(session, household.id, actor, "bank_balance_sync",
+             "bank_connection", c.id)
+        session.commit()
+        return {"synced": n}
 
 
 def _require_queue_worker(request: Request, *, retry_at: datetime | None = None) -> None:
@@ -325,8 +356,11 @@ def sync_transactions(
     c = _conn(session, household.id, cid)
     with claim(session, f"connection:{c.id}") as acquired:
         if acquired:
-            return _sync_transactions(cid, household, session, actor, ring, client,
-                                      request, historical_since)
+            session.refresh(c)
+            result = _sync_transactions(cid, household, session, actor, ring, client,
+                                        request, historical_since)
+            session.commit()
+            return result
         if not banks.syncable(c):
             raise HTTPException(422, "connection is revoked — re-authenticate first")
         if historical_since is not None:

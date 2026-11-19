@@ -20,6 +20,7 @@ function stub(overrides: (url: string) => Response | Promise<Response> | undefin
       : url.includes("/budgets") ? { items: [budget] }
       : url.includes("/categories") ? { items: [{ id: 1, name: "Food" }] }
       : url.includes("annualised") ? { total_annualised_pence: 12000 }
+      : url.includes("/bonuses") ? []
       : { items: [], total: 0 };
     return Promise.resolve(response(body));
   });
@@ -120,7 +121,7 @@ it("salary names missing forecast prerequisites and offers dated tax-code repair
   vi.spyOn(globalThis,"fetch").mockImplementation((input,init) => {
     const url=String(input);
     if(init?.method === "POST") { saved=JSON.parse(String(init.body)); return Promise.resolve(response({id:1})); }
-    return Promise.resolve(response(url.includes("households") ? {items:[{id:1,name:"Home"}]} : url.includes("salary-revisions") ? [{effective_date:"2099-01-01",annual_salary_pence:3000000}] : url.includes("tax-code-revisions") || url.includes("payroll-runs") ? [] : /\/employments(?:\?|$)/.test(url) ? {items:[emp]} : {items:[]}));
+    return Promise.resolve(response(url.includes("households") ? {items:[{id:1,name:"Home"}]} : url.includes("salary-revisions") ? [{id:1,effective_date:"2099-01-01",annual_salary_pence:3000000}] : url.includes("tax-code-revisions") || url.includes("payroll-runs") || url.includes("/bonuses") ? [] : /\/employments(?:\?|$)/.test(url) ? {items:[emp]} : {items:[]}));
   });
   render(<MemoryRouter><Salary /></MemoryRouter>);
   expect(await screen.findByText(/Missing salary effective/)).toBeTruthy();

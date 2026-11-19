@@ -9,6 +9,7 @@ FAMILY_PREFIXES = {
     "movement": "bills",
     "transaction": "banking",
     "account": "banking",
+    "connection": "banking",
     "budget": "budgets",
     "subscription": "subscriptions",
     "goal": "goals",
@@ -27,7 +28,11 @@ EVENT_TYPES = {
         "movement.partial",
         "movement.overdue",
     ],
-    "banking": ["transaction.imported"],
+    "banking": [
+        "transaction.imported", "transaction.settled", "transaction.review_required",
+        "transaction.reconciled", "transaction.refund_linked", "transaction.transfer_linked",
+        "account.balance_changed", "connection.revoked", "connection.disconnected",
+    ],
     "budgets": [
         "budget.usage",
         "budget.over",
@@ -36,7 +41,7 @@ EVENT_TYPES = {
         "budget.locked",
     ],
     "subscriptions": ["subscription.price_observed"],
-    "goals": ["goal.milestone"],
+    "goals": ["goal.milestone", "goal.completed", "goal.behind_plan", "goal.target_approaching"],
     "payroll": [
         "payroll.generated",
         "payroll.reconciled",
@@ -44,7 +49,7 @@ EVENT_TYPES = {
         "payslip.review_required",
         "payslip.state_changed",
     ],
-    "gifts": ["gift.purchased", "gift.paid", "seasonal.variance"],
+    "gifts": ["gift.purchased", "gift.paid", "seasonal.variance", "seasonal.approaching"],
     "energy": ["energy.variance", "energy.reading_updated"],
     "ops": [
         "sync.failed",

@@ -18,7 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.domain import appconfig
+from app.domain import appconfig, payroll_totals
 from app.domain.money import Money
 from app.persistence.models import (
     AccountType,
@@ -191,6 +191,7 @@ class TransactionPatch(BaseModel):
 class TransactionCorrect(BaseModel):
     """Correction request for a reconciled transaction (issue #124):
     the reason is mandatory — corrections are audit events, not edits."""
+
     reason: str = Field(min_length=1, max_length=500)
     payee: str | None = Field(default=None, min_length=1, max_length=200)
     category_id: int | None = None
@@ -204,8 +205,8 @@ class TransactionSplitIn(BaseModel):
 
 class TransactionSplitsPut(BaseModel):
     """Whole-set replace for a transaction's splits (issue #289)."""
-    splits: list[TransactionSplitIn] = Field(min_length=0,
-                                           max_length=50)
+
+    splits: list[TransactionSplitIn] = Field(min_length=0, max_length=50)
 
 
 class TransactionSplitOut(BaseModel):
@@ -284,6 +285,7 @@ class CommitmentIn(BaseModel):
 class CommitmentPatch(BaseModel):
     """Editable fields of a recurring commitment. Schedule-affecting
     changes regenerate the commitment's future expected rows."""
+
     name: str | None = Field(default=None, min_length=1, max_length=200)
     account_id: int | None = None
     category_id: int | None = None
@@ -536,6 +538,7 @@ class DashboardLayoutIn(BaseModel):
     """Per-member dashboard arrangement (issue #123): widget order +
     hidden set. Keys are client-side registry ids — the API stores the
     arrangement opaquely and bounds its size."""
+
     order: list[str] = Field(default_factory=list, max_length=50)
     hidden: list[str] = Field(default_factory=list, max_length=50)
 
@@ -547,8 +550,7 @@ class DashboardOut(BaseModel):
 
 class ProfilePatch(BaseModel):
     role: Role | None = None
-    display_name: str | None = Field(
-        default=None, min_length=1, max_length=120)
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
     ha_user_id: str | None = Field(default=None, max_length=64)
 
 
@@ -609,8 +611,7 @@ class BulkLineReviseItem(BaseModel):
 
 
 class BulkLineRevise(BaseModel):
-    revisions: list[BulkLineReviseItem] = Field(min_length=1,
-                                                max_length=500)
+    revisions: list[BulkLineReviseItem] = Field(min_length=1, max_length=500)
 
 
 class BulkReviseResult(BaseModel):
@@ -635,6 +636,12 @@ class RestoreAccepted(BaseModel):
 
 
 class EmploymentIn(BaseModel):
+    initial_shares_owned: Decimal = Field(
+        default=Decimal("0"), ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
+    share_payment_method: Literal["payroll_cash", "payroll_noncash", "outside_payroll"] = (
+        "payroll_cash"
+    )
     profile_id: int
     employer: str = Field(min_length=1, max_length=200)
     jurisdiction: TaxJurisdiction = TaxJurisdiction.england_wales
@@ -650,6 +657,7 @@ class EmploymentIn(BaseModel):
     pension_fixed_pence: int = Field(default=0, ge=0)
     employment_type: Literal["salaried", "piecework"] = "salaried"
     deduction_mode: Literal["paye", "gross_only"] = "paye"
+    salary_policy: Literal["annual_daily", "equal_monthly"] = "annual_daily"
     initial_salary: Money | None = None
     initial_salary_effective_date: date | None = None
     initial_tax_code: str | None = Field(default=None, max_length=12)
@@ -657,45 +665,50 @@ class EmploymentIn(BaseModel):
     replacement_end_date: date | None = None
     replacement_confirmed: bool = False
     start_date: date | None = None
-    work_days_per_week: Decimal = Field(default=Decimal("5"), gt=0,
-                                        le=7)
+    work_days_per_week: Decimal = Field(default=Decimal("5"), gt=0, le=7)
 
 
 class EmploymentPatch(BaseModel):
-    employer: str | None = Field(default=None, min_length=1,
-                                 max_length=200)
+    share_payment_method: Literal["payroll_cash", "payroll_noncash", "outside_payroll"] | None = (
+        None
+    )
+
+    employer: str | None = Field(default=None, min_length=1, max_length=200)
     jurisdiction: TaxJurisdiction | None = None
-    ni_category: str | None = Field(default=None, min_length=1,
-                                    max_length=2)
+    ni_category: str | None = Field(default=None, min_length=1, max_length=2)
     student_loan_plan: StudentLoanPlan | None = None
-    pension_scheme_ref: str | None = Field(default=None,
-                                           max_length=128)
-    contracted_hours: Decimal | None = Field(default=None, gt=0,
-                                             le=168)
+    pension_scheme_ref: str | None = Field(default=None, max_length=128)
+    contracted_hours: Decimal | None = Field(default=None, gt=0, le=168)
     payday_rule: str | None = Field(default=None, max_length=400)
     paid_into_account_id: int | None = None
     overtime_multipliers: dict[DayType, int] | None = None
     pension_mode: PensionMode | None = None
-    pension_employee_bps: int | None = Field(default=None, ge=0,
-                                            le=10_000)
+    pension_employee_bps: int | None = Field(default=None, ge=0, le=10_000)
     pension_fixed_pence: int | None = Field(default=None, ge=0)
-    work_days_per_week: Decimal | None = Field(default=None, gt=0,
-                                               le=7)
+    work_days_per_week: Decimal | None = Field(default=None, gt=0, le=7)
     is_active: bool | None = None
     end_date: date | None = None
     employment_type: Literal["salaried", "piecework"] | None = None
     deduction_mode: Literal["paye", "gross_only"] | None = None
+    salary_policy: Literal["annual_daily", "equal_monthly"] | None = None
 
     @model_validator(mode="after")
     def ordered_dates(self) -> EmploymentPatch:
-        if self.start_date is not None and self.end_date is not None \
-                and self.end_date < self.start_date:
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
             raise ValueError("employment end date cannot precede start date")
         return self
+
     start_date: date | None = None
 
 
 class EmploymentOut(BaseModel):
+    share_payment_method: Literal["payroll_cash", "payroll_noncash", "outside_payroll"] = (
+        "payroll_cash"
+    )
     model_config = ConfigDict(from_attributes=True)
     id: int
     household_id: int
@@ -717,6 +730,7 @@ class EmploymentOut(BaseModel):
     start_date: date_t | None
     employment_type: str
     deduction_mode: str
+    salary_policy: str
 
 
 class DeliveryChargeIn(BaseModel):
@@ -739,8 +753,7 @@ class DeliveryIn(BaseModel):
     deliveries: int = Field(default=0, ge=0)
     delivery_rate: Money | None = None
     tips: Money | None = None
-    charges: list[DeliveryChargeIn] = Field(default_factory=list,
-                                             max_length=200)
+    charges: list[DeliveryChargeIn] = Field(default_factory=list, max_length=200)
     notes: str | None = Field(default=None, max_length=2000)
 
     @field_validator("hourly_rate", "delivery_rate", "tips")
@@ -788,15 +801,55 @@ class PrepareYearOut(BaseModel):
 
 
 class SalaryRevisionIn(BaseModel):
+    shares_owned: Decimal | None = Field(
+        default=None, ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
     effective_date: date
     annual_salary: Money
     notes: str | None = Field(default=None, max_length=2000)
 
 
 class SalaryRevisionPatch(BaseModel):
+    shares_owned: Decimal | None = Field(
+        default=None, ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
     effective_date: date | None = None
     annual_salary: Money | None = None
     notes: str | None = Field(default=None, max_length=2000)
+
+
+class EmploymentBonusIn(BaseModel):
+    pay_month: date
+    label: str = Field(default="Bonus", min_length=1, max_length=200)
+    salary_percentage: Decimal | None = Field(default=None, ge=0, le=10000, decimal_places=4)
+    share_value: Money | None = None
+    manual_amount: Money = Field(default_factory=lambda: Money.of_pence(0))
+
+    @field_validator("share_value", "manual_amount")
+    @classmethod
+    def bonus_money_nonnegative(cls, value: Money | None) -> Money | None:
+        if value is not None and value.pence < 0:
+            raise ValueError("bonus inputs cannot be negative")
+        return value
+
+
+class EmploymentBonusOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    employment_id: int
+    pay_month: date_t
+    pay_date: date_t
+    label: str
+    salary_percentage: Decimal | None
+    share_value_pence: int | None
+    manual_pence: int
+    salary_basis_pence: int
+    shares_owned: Decimal
+    salary_bonus_pence: int
+    share_bonus_pence: int
+    gross_pence: int
+    noncash_pence: int
+    share_payment_method: str
 
 
 class TaxCodeRevisionIn(BaseModel):
@@ -806,6 +859,9 @@ class TaxCodeRevisionIn(BaseModel):
 
 
 class SalaryRevisionOut(BaseModel):
+    shares_owned: Decimal = Field(
+        default=Decimal("0"), ge=0, le=Decimal("9999999999.9999"), decimal_places=4
+    )
     model_config = ConfigDict(from_attributes=True)
     id: int
     employment_id: int
@@ -896,14 +952,25 @@ class PayrollRunIn(BaseModel):
     bonus: Money | None = None
     allowance: Money | None = None
     unpaid_leave: Money | None = None
-    unpaid_leave_days: Decimal | None = Field(default=None, gt=0,
-                                              le=31)
+    unpaid_leave_days: Decimal | None = Field(default=None, gt=0, le=31)
 
 
 class PayrollReconcileIn(BaseModel):
-    """actual amounts keyed by component kind, e.g. {"tax": 29500}.
-    Absent kinds are assumed to match forecast."""
+    """Signed aggregate actuals per kind, with independent payslip totals."""
+
     actuals: dict[PayrollComponentKind, int] = Field(default_factory=dict)
+    payslip_gross_pence: int = Field(ge=0)
+    payslip_net_pence: int
+    taxable_pence: int | None = Field(default=None, ge=0)
+    niable_pence: int | None = Field(default=None, ge=0)
+    ytd_taxable_pence: int | None = Field(default=None, ge=0)
+    ytd_tax_pence: int | None = None
+    statutory_pay_date: date_t | None = None
+
+
+class PayrollRebuildIn(BaseModel):
+    apply: bool = False
+    fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class PayrollComponentOut(BaseModel):
@@ -930,6 +997,15 @@ class PayrollRunOut(BaseModel):
     gross_pence: int
     net_pence: int
     corrects_id: int | None
+    statutory_pay_date: date_t | None = None
+    forecast_stale: bool = False
+    signed_components: bool | None = None
+    verified_gross_pence: int | None = None
+    verified_net_pence: int | None = None
+    verified_taxable_pence: int | None = None
+    verified_niable_pence: int | None = None
+    verified_ytd_taxable_pence: int | None = None
+    verified_ytd_tax_pence: int | None = None
     components: list[PayrollComponentOut] = []
 
     @computed_field
@@ -941,23 +1017,8 @@ class PayrollRunOut(BaseModel):
         return self._totals()[1]
 
     def _totals(self) -> tuple[int | None, int | None]:
-        """Authoritative run totals + signed per-component actual deltas —
-        mirrors domain.payroll_totals for the serialized shape."""
-        if self.status is not PayrollRunStatus.reconciled:
-            return None, None
-        earnings = {"base_salary", "overtime", "bonus", "allowance"}
-        gross, net = self.gross_pence, self.net_pence
-        for c in self.components:
-            if c.actual_pence is None:
-                continue
-            signed_actual = (c.actual_pence if c.kind.value in earnings
-                             else -abs(c.actual_pence))
-            signed_forecast = (c.forecast_pence if c.kind.value in earnings
-                               else -abs(c.forecast_pence))
-            net += signed_actual - signed_forecast
-            if c.kind.value in earnings:
-                gross += c.actual_pence - c.forecast_pence
-        return gross, net
+        totals = payroll_totals.totals_for_run(self)
+        return totals.actual_gross_pence, totals.actual_net_pence
 
 
 class PayslipOut(BaseModel):
@@ -985,8 +1046,8 @@ class PayslipOvertimeLineIn(BaseModel):
     printed_rate_pence: int = Field(ge=0)
 
 
-class PayslipConfirmIn(BaseModel):
-    actuals: dict[PayrollComponentKind, int] = Field(default_factory=dict)
+class PayslipConfirmIn(PayrollReconcileIn):
+    pass
 
 
 class OvertimeFindingResolveIn(BaseModel):
@@ -1037,8 +1098,8 @@ class BudgetLineSpecIn(BaseModel):
 
 
 AmountSpecIn = Annotated[
-    FixedSpecIn | IncomePctSpecIn | BudgetLineSpecIn,
-    Field(discriminator="kind")]
+    FixedSpecIn | IncomePctSpecIn | BudgetLineSpecIn, Field(discriminator="kind")
+]
 
 
 class TransferRuleIn(BaseModel):
@@ -1095,6 +1156,7 @@ class EvaluateResult(BaseModel):
 
 class PayrollOverrideIn(BaseModel):
     """Run-scoped manual adjustment: signed delta on a component kind."""
+
     kind: PayrollComponentKind
     delta: Money
     reason: str = Field(min_length=1, max_length=300)
@@ -1206,8 +1268,7 @@ class LoanIn(BaseModel):
 
 
 class LoanPatch(BaseModel):
-    party: str | None = Field(default=None, min_length=1,
-                              max_length=120)
+    party: str | None = Field(default=None, min_length=1, max_length=120)
     direction: LoanDirection | None = None
     principal_pence: int | None = None
     start_date: date | None = None
@@ -1278,6 +1339,17 @@ class SeasonalEventIn(BaseModel):
     budget: Money
     savings_goal_id: int | None = None
     notes: str | None = Field(default=None, max_length=500)
+    event_date: date | None = None
+
+    @model_validator(mode="after")
+    def date_matches_year(self) -> SeasonalEventIn:
+        if self.event_date is not None and self.event_date.year != self.year:
+            raise ValueError("event date must be within the event year")
+        return self
+
+
+class SeasonalEventDatePatch(BaseModel):
+    event_date: date | None
 
 
 class SeasonalEventOut(BaseModel):
@@ -1290,6 +1362,7 @@ class SeasonalEventOut(BaseModel):
     budget_pence: int
     savings_goal_id: int | None
     notes: str | None
+    event_date: date | None = None
 
 
 class EventTotalsOut(BaseModel):
@@ -1311,6 +1384,7 @@ class RecipientComparisonOut(BaseModel):
 
 class EventComparisonOut(BaseModel):
     """Year-on-year comparison of two seasonal events (issue #99)."""
+
     earlier: EventTotalsOut
     later: EventTotalsOut
     actual_delta_pence: int
@@ -1368,8 +1442,7 @@ class SubscriptionIn(BaseModel):
 
 
 class SubscriptionPatch(BaseModel):
-    payee: str | None = Field(default=None, min_length=1,
-                              max_length=200)
+    payee: str | None = Field(default=None, min_length=1, max_length=200)
     frequency: Frequency | None = None
     expected: Money | None = None
     next_renewal_date: date | None = None
@@ -1473,6 +1546,7 @@ class AnnualisedOut(BaseModel):
 
 class ReportDrillOut(BaseModel):
     """Endpoint + params that reproduce a figure's record set."""
+
     endpoint: str
     params: dict[str, Any]
 
@@ -1503,6 +1577,8 @@ class ReportOut(BaseModel):
     period: ReportPeriodOut
     prior_period: ReportPeriodOut | None = None
     sections: list[ReportSectionOut]
+
+
 class MonthlyAggregateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     month: date
@@ -1514,7 +1590,6 @@ class MonthlyAggregateOut(BaseModel):
 
 class NetWorthOut(BaseModel):
     net_worth_pence: int
-
 
 
 class ScenarioIn(BaseModel):
@@ -1652,8 +1727,7 @@ class DeliverOut(BaseModel):
 
 class CategorisationRuleIn(BaseModel):
     pattern: str = Field(min_length=1, max_length=200)
-    match_type: str = Field(default="contains",
-                            pattern="^(contains|exact|regex)$")
+    match_type: str = Field(default="contains", pattern="^(contains|exact|regex)$")
     category_id: int
     account_id: int | None = None
     transfer_account_id: int | None = None
@@ -1690,8 +1764,7 @@ class PairRefundOut(BaseModel):
 
 
 class ProviderCategoryMapIn(BaseModel):
-    provider: str = Field(default="starling", min_length=1,
-                          max_length=20)
+    provider: str = Field(default="starling", min_length=1, max_length=20)
     provider_category: str = Field(min_length=1, max_length=64)
     category_id: int
 
@@ -1771,6 +1844,7 @@ class ConnectionSyncStatusOut(BaseModel):
     """Per-linked-mapping bank sync state for the Settings panel
     (issue #431). Timestamps only — names, refs and amounts never
     cross this boundary."""
+
     connection_id: int
     provider: str
     status: str
@@ -1789,6 +1863,7 @@ class BankingSyncSettingsOut(BaseModel):
     """Effective bank-sync cadence + where it comes from
     (``environment`` | ``app`` | ``default``) and per-connection
     status (issue #431)."""
+
     interval_minutes: float
     source: str
     editable: bool
@@ -1801,8 +1876,8 @@ class BankingSyncSettingsOut(BaseModel):
 
 class BankingSyncSettingsPatch(BaseModel):
     sync_interval_minutes: float = Field(
-        ge=appconfig.SYNC_INTERVAL_MIN_MINUTES,
-        le=appconfig.SYNC_INTERVAL_MAX_MINUTES)
+        ge=appconfig.SYNC_INTERVAL_MIN_MINUTES, le=appconfig.SYNC_INTERVAL_MAX_MINUTES
+    )
 
 
 class MergeResolveIn(BaseModel):
@@ -1838,6 +1913,7 @@ class CredentialRefOut(BaseModel):
     """The only credential shape an API response may carry — the
     opaque handle. There is deliberately no field capable of
     holding secret material (issue #30 schema-level guarantee)."""
+
     model_config = ConfigDict(from_attributes=True)
     id: int
     ref: str
@@ -1850,6 +1926,7 @@ class CredentialStoreIn(BaseModel):
     """Write-only input: the secret enters here and is never
     serialised back out. ``SecretStr`` also keeps it out of reprs
     and validation-error echoes."""
+
     ref: str = Field(min_length=1, max_length=128)
     secret: SecretStr
 
@@ -1857,6 +1934,7 @@ class CredentialStoreIn(BaseModel):
 class BankConnectionOut(BaseModel):
     """Never carries token material — the token lives in the vault
     and is write-only (issue #65 schema-level guarantee)."""
+
     model_config = ConfigDict(from_attributes=True)
     id: int
     provider: str
@@ -1878,9 +1956,7 @@ class BankConnectIn(BaseModel):
         try:
             v.get_secret_value().encode("latin-1")
         except UnicodeEncodeError as exc:
-            raise ValueError(
-                "token contains characters not encodable for HTTP "
-                "headers") from exc
+            raise ValueError("token contains characters not encodable for HTTP headers") from exc
         return v
 
 
@@ -1899,7 +1975,7 @@ class BankMappingOut(BaseModel):
 
 class MappingLinkIn(BaseModel):
     account_id: int | None = None
-    create_account: bool = False   # mint an internal Account if set
+    create_account: bool = False  # mint an internal Account if set
     account_type: str | None = None  # "personal" | "joint" on mint
 
 
@@ -1932,6 +2008,7 @@ class LoginIn(BaseModel):
 class EnergyTariffIn(BaseModel):
     """Effective-dated tariff (issue #103). ``unit_rate_millipence`` is
     pence×1000 per kWh — UK quotes like 24.501p/kWh stay exact."""
+
     effective_from: date_t
     unit_rate_millipence: int = Field(ge=0)
     standing_charge: Money
@@ -1947,6 +2024,7 @@ class EnergyTariffOut(BaseModel):
 
 class EnergyReadingIn(BaseModel):
     """One day's metered consumption in whole watt-hours."""
+
     date: date_t
     wh: int = Field(ge=0)
     source: str = Field(default="manual", max_length=30)
@@ -1971,6 +2049,7 @@ class EnergyDayOut(BaseModel):
 class EnergyEstimateOut(BaseModel):
     """Estimated (never billed) cost over an inclusive window — the
     ``estimate`` tag keeps it distinct from supplier-bill transactions."""
+
     kind: Literal["estimate"] = "estimate"
     start: date_t
     end: date_t
@@ -1995,6 +2074,7 @@ class EnergyConfigOut(BaseModel):
 class EnergyMonthReportOut(BaseModel):
     """Issue #104 — month-to-date vs budget + month-end projection.
     All estimate figures are estimates, not billed amounts."""
+
     kind: Literal["estimate"] = "estimate"
     month_start: date_t
     month_end: date_t
@@ -2050,7 +2130,9 @@ class IntegrationFeedOut(BaseModel):
 
 
 class IntegrationItemOut(BaseModel):
-    family: Literal["bills", "accounts", "goals"]
+    family: Literal["bills", "accounts", "goals", "safe_to_spend", "projected_balances",
+                    "budget_remaining", "budget_usage", "seasonal_remaining", "seasonal_usage",
+                    "paydays", "goal_funding", "goal_dates", "seasonal_dates"]
     id: str
     name: str
     value: int | Decimal
@@ -2059,6 +2141,7 @@ class IntegrationItemOut(BaseModel):
 
 class IntegrationItemsOut(BaseModel):
     items: list[IntegrationItemOut]
+    has_more: bool = False
 
 
 class IntegrationSettingsOut(BaseModel):
@@ -2067,3 +2150,9 @@ class IntegrationSettingsOut(BaseModel):
 
 class IntegrationSettingsPatch(BaseModel):
     detail: str
+
+
+class PayrollRefreshOut(BaseModel):
+    generated: int
+    updated: int
+    issues: list[str]

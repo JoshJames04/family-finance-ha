@@ -21,7 +21,7 @@ from cryptography.exceptions import InvalidTag
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain import appconfig, vault
+from app.domain import appconfig, banking_events, vault
 from app.domain import sync as syncdom
 from app.domain.vault import Keyring, VaultError
 from app.persistence.models import (
@@ -129,11 +129,21 @@ def record_api_error(session: Session, conn: BankConnection,
     """Map an upstream failure onto the state machine. 401/403 →
     revoked (token dead — sync stops cleanly, re-auth offered);
     anything else → degraded (transient — sync may retry)."""
+    # A request may return after another session revoked this connection.
+    # Read persisted state, not the in-flight session's cached connection.
+    stored_status = session.scalar(select(BankConnection.status).where(
+        BankConnection.id == conn.id))
+    if stored_status == ConnStatus.revoked:
+        conn.status = ConnStatus.revoked
+        return conn.status
     previous_retry = connection_retry_at(session, conn) if status_code == 429 else None
+    previous_status = conn.status
     conn.last_error = message[:500] or f"HTTP {status_code}"
     conn.status = (ConnStatus.revoked
                    if status_code in (401, 403)
                    else ConnStatus.degraded)
+    if conn.status == ConnStatus.revoked and previous_status != ConnStatus.revoked:
+        banking_events.connection_changed(session, conn, "connection.revoked")
     if status_code == 429:
         retry_at = syncdom.retry_deadline(retry_after, 60)
         if previous_retry is not None:
@@ -196,10 +206,13 @@ def disconnect(session: Session, conn: BankConnection,
     entry = session.scalar(select(VaultEntry).where(
         VaultEntry.household_id == conn.household_id,
         VaultEntry.ref == conn.vault_ref))
+    already_disconnected = conn.status == ConnStatus.revoked and entry is None
     if entry is not None:
         vault.delete(session, entry)
     conn.status = ConnStatus.revoked
     conn.last_error = "disconnected by user"
+    if not already_disconnected:
+        banking_events.connection_changed(session, conn, "connection.disconnected")
     session.flush()
 
 
