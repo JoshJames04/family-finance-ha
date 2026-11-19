@@ -162,7 +162,10 @@ def flag_outdated_forecasts(session: Session, employment: Employment) -> None:
             snapshot = json.loads(run.calculation_inputs or "{}")
         except (ValueError, TypeError):
             snapshot = {}
-        if snapshot.get("algorithm") != tax.CALCULATION_VERSION:
+        if (
+            snapshot.get("algorithm") != tax.CALCULATION_VERSION
+            or sum(c.forecast_pence for c in run.components if c.kind in EARNING) != run.gross_pence
+        ):
             run.forecast_stale = True
             continue
         if (

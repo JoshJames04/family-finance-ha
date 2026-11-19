@@ -44,10 +44,6 @@ def _editable(session: Session, employment: Employment, month: date) -> None:
     from app.domain.payrun import EARNING
 
     for run in _runs(session, employment, month):
-        if sum(c.forecast_pence for c in run.components if c.kind in EARNING) != run.gross_pence:
-            raise PayrollError(
-                "payroll has incomplete earning components; correct it before changing bonuses"
-            )
         if run.status != PayrollRunStatus.forecast or any(
             c.actual_pence is not None for c in run.components
         ):
@@ -64,6 +60,19 @@ def _editable(session: Session, employment: Employment, month: date) -> None:
             )
         if run.id in payroll_rebuild.protected_run_ids(session, [run]):
             raise PayrollError("payroll has protected evidence or a pending correction")
+
+        if sum(c.forecast_pence for c in run.components if c.kind in EARNING) != run.gross_pence:
+            message = f"Payroll {run.pay_date} has incomplete earning components"
+            if any(c.kind == PayrollComponentKind.base_salary for c in run.components):
+                raise PayrollError(message)
+            preview = payroll_rebuild.rebuild_forecasts(
+                session, employment, apply=False, only_run_id=run.id
+            )
+            # A missing base line is recoverable only if the existing salary
+            # inputs and remaining additions fully explain the stored gross.
+            changes = preview["changes"]
+            if len(changes) != 1 or changes[0]["new_gross_pence"] != run.gross_pence:
+                raise PayrollError(message)
 
 
 def _payment(employment: Employment, month: date) -> tuple[date, date, date]:
