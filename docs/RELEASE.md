@@ -36,6 +36,11 @@ features require a MINOR increment. Version preparation does not authorise
 merging, tagging or publishing; the release PR remains the owner's publication
 gate.
 
+For the 19 November 2026 maintenance batch, the owner explicitly selected
+**1.5.1** as the bug-fix release containing the reviewed fixes and associated
+payroll, bonus and automation follow-ups. This is a scoped release decision;
+future feature releases continue to follow the general versioning rules above.
+
 ## Changelog rules
 
 `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/):

@@ -2,8 +2,22 @@
 
 ## Unreleased
 
+## 1.5.1
+
+- Harden payroll deductions and automatic forecast refreshes while preserving
+  verified payslip actuals. Combine overtime lines at the same hourly rate.
+- Support employer bonus and salary shareholding workflows with compact entry
+  controls and combined pay-month deductions.
+- Default Overview to the signed-in member's salary payment account, prompting
+  when no unique account is available. Keep both projections aligned.
+- Enforce banking account scope, owner-only payroll edits and explicit payroll
+  read grants for Home Assistant. Preserve historical notes in an audited archive.
+- Restore canonical financial automation transitions and explicit seasonal dates.
 - Restore startup after combining seasonal-date and payroll/bonus updates by
   joining their migration branches without changing existing revision history.
+- Back up before upgrading. Migration 0075 joins the seasonal and payroll schema
+  branches; rehearse upgrades and restoration on a copy. Live HA, bank-provider,
+  mobile and private-source acceptance remain separate tracked work.
 
 ## 1.5.0
 
