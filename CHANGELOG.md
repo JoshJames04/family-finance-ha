@@ -57,11 +57,10 @@ release pipeline (multi-arch GHCR image + GitHub release).
 - Route code ownership to Josh and document current-head human approval for
   develop bot PRs. Automatic merging remains inactive (#510).
 
-### Release preparation and acceptance
+### Deployment and remaining acceptance
 
-- The release candidate includes the reviewed finance fixes and dependency
-  updates above. Complete the final integration, CI and release review before
-  promoting `develop` to `main`.
+- Published v1.5.0 includes the reviewed finance fixes and dependency updates
+  above, promoted from `develop` to `main` through release PR #499.
 - Migration `0070_transfer_confirmation_history` retains historical transfer
   evidence. Take a verified backup before upgrade and rehearse migration and
   restore on a copy.
