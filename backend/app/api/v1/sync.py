@@ -21,6 +21,7 @@ from app.persistence.models import (
     MergeStatus,
     SyncCursor,
     SyncRun,
+    Transaction,
     UserProfile,
 )
 
@@ -66,24 +67,38 @@ def run_history(
 @router.get("/merge-candidates",
             response_model=list[schemas.MergeCandidateOut])
 def merge_candidates(
-    household: HouseholdDep, session: SessionDep,
+    household: HouseholdDep, session: SessionDep, profile: ProfileDep,
 ) -> list[schemas.MergeCandidateOut]:
-    rows = session.scalars(
-        select(MergeCandidate)
+    rows = session.execute(
+        select(MergeCandidate, Account.owner_profile_id)
+        .join(Account, MergeCandidate.account_id == Account.id)
+        .join(Transaction, MergeCandidate.existing_txn_id == Transaction.id)
         .where(MergeCandidate.household_id == household.id,
+               Account.household_id == household.id,
+               Transaction.account_id == Account.id,
                MergeCandidate.status == MergeStatus.pending)
         .order_by(MergeCandidate.id))
-    return [schemas.MergeCandidateOut.model_validate(c) for c in rows]
+    return [schemas.MergeCandidateOut.model_validate(c) for c, owner in rows
+            if rbac.visible(owner, profile)]
 
 
 @router.post("/merge-candidates/{cid}/resolve",
              response_model=schemas.MergeCandidateOut)
 def resolve_candidate(
     cid: int, body: schemas.MergeResolveIn, household: HouseholdDep,
-    session: SessionDep, actor: ActorDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
 ) -> schemas.MergeCandidateOut:
     c = session.get(MergeCandidate, cid)
     if c is None or c.household_id != household.id:
+        raise HTTPException(404, f"candidate {cid} not found")
+    try:
+        account = _account(session, household.id, c.account_id, profile)
+    except HTTPException:
+        raise HTTPException(404, f"candidate {cid} not found") from None
+    if not rbac.write_allowed(account.owner_profile_id, profile):
+        raise HTTPException(403, "role cannot mutate this scope")
+    txn = session.get(Transaction, c.existing_txn_id)
+    if txn is None or txn.account_id != account.id:
         raise HTTPException(404, f"candidate {cid} not found")
     try:
         sync_domain.resolve_merge(session, c, body.action)

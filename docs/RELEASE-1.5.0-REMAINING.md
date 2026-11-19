@@ -25,7 +25,8 @@ Use the [installed-release checklist](LIVE-ACCEPTANCE.md) to record results.
 | #432, #441 | Broader requested automation targeting/family work plus actual visual-editor screenshots, multi-target filtering, trigger variables and live delivery. Synthetic tests are separate evidence. |
 | #360 | Map sixteen recovered source comments to verified app records with private provenance. Do not guess destinations or publish workbook contents. |
 
-The publishing App cannot access the personal Family Finance Project V2 board.
-The owner explicitly requires bot-only access; record statuses and PR evidence in
-issue comments until the App has supported project access. Do not switch to a
-human login to update the board.
+Keep the original personal Family Finance Project V2 board current alongside
+issue and PR evidence. The publishing App cannot manage this personal board;
+the owner has explicitly authorised their own GitHub login for its administration.
+Keep repository publishing and PR administration on Orbit Codex Bot. This project
+exception does not permit silent human-account fallback for other operations.

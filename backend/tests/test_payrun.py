@@ -26,6 +26,7 @@ from app.persistence.models import (
     PayrollRunStatus,
     UserProfile,
 )
+from tests.payroll_helpers import confirm, confirmation_payload
 
 APR_S, APR_E, PAY = date(2025, 4, 1), date(2025, 4, 30), date(2025, 4, 28)
 
@@ -55,16 +56,16 @@ class TestGenerate:
                               pay_date=PAY)
         assert run.status is PayrollRunStatus.forecast
         assert run.tax_year == "2025-26"
-        assert run.rule_set_version == 2
+        assert run.rule_set_version == 3
         base = 3_600_000 * 30 // 365
         assert run.gross_pence == base
         kinds = {c.kind: c.forecast_pence for c in run.components}
         assert kinds[PayrollComponentKind.base_salary] == base
         # taxable £2,958.90, PA £1,047.50 → £1,911.40 @20% = £382.28
-        assert kinds[PayrollComponentKind.tax] == -38_228
+        assert kinds[PayrollComponentKind.tax] == -38_200
         # NI (£2,958.90 − £1,047.50) @8% = £152.91
-        assert kinds[PayrollComponentKind.ni] == -15_291
-        assert run.net_pence == base - 38_228 - 15_291
+        assert kinds[PayrollComponentKind.ni] == -15_287
+        assert run.net_pence == base - 38_200 - 15_287
 
     def test_overtime_and_adjustments(self, session: Session,
                                     emp: Employment) -> None:
@@ -117,21 +118,21 @@ class TestReconcile:
         component diverged."""
         run = payrun.generate(session, emp, start=APR_S, end=APR_E,
                               pay_date=PAY)
-        variances = payrun.reconcile(
+        variances = confirm(
             session, run, {PayrollComponentKind.tax: -38_500})
         assert len(variances) == 1
         v = variances[0]
         assert v.kind is PayrollComponentKind.tax
-        assert v.forecast_pence == -38_228
+        assert v.forecast_pence == -38_200
         assert v.actual_pence == -38_500
-        assert v.delta_pence == -272
+        assert v.delta_pence == -300
         assert run.status is PayrollRunStatus.reconciled
 
     def test_unlisted_actual_becomes_component(
             self, session: Session, emp: Employment) -> None:
         run = payrun.generate(session, emp, start=APR_S, end=APR_E,
                               pay_date=PAY)
-        variances = payrun.reconcile(
+        variances = confirm(
             session, run, {PayrollComponentKind.bonus: 75_000})
         assert any(v.kind is PayrollComponentKind.bonus
                    and v.delta_pence == 75_000 for v in variances)
@@ -142,7 +143,7 @@ class TestReconcile:
                                          emp: Employment) -> None:
         run = payrun.generate(session, emp, start=APR_S, end=APR_E,
                               pay_date=PAY)
-        assert payrun.reconcile(session, run, {}) == []
+        assert confirm(session, run, {}) == []
         assert run.status is PayrollRunStatus.reconciled
 
 
@@ -184,8 +185,8 @@ class TestPensionAndLeave:
         k = self._kinds(run)
         # 5% of £2,958.90 = £147.94; taxable £2,810.96 → tax £352.69
         assert k[PayrollComponentKind.pension] == -14_794
-        assert k[PayrollComponentKind.tax] == -35_269
-        assert k[PayrollComponentKind.ni] == -15_291  # NI on full gross
+        assert k[PayrollComponentKind.tax] == -35_240
+        assert k[PayrollComponentKind.ni] == -15_287  # NI on full gross
 
     def test_sacrifice_reduces_ni(self, session: Session,
                                   household: Household) -> None:
@@ -195,8 +196,8 @@ class TestPensionAndLeave:
                               pay_date=PAY)
         k = self._kinds(run)
         assert k[PayrollComponentKind.pension] == -14_794
-        assert k[PayrollComponentKind.tax] == -35_269
-        assert k[PayrollComponentKind.ni] == -14_107  # NI reduced too
+        assert k[PayrollComponentKind.tax] == -35_240
+        assert k[PayrollComponentKind.ni] == -14_104  # NI reduced too
 
     def test_ras_tax_unchanged_net_reduced(
             self, session: Session, household: Household) -> None:
@@ -205,9 +206,9 @@ class TestPensionAndLeave:
         run = payrun.generate(session, e, start=APR_S, end=APR_E,
                               pay_date=PAY)
         k = self._kinds(run)
-        assert k[PayrollComponentKind.tax] == -38_228   # same as none
+        assert k[PayrollComponentKind.tax] == -38_200   # same as none
         assert k[PayrollComponentKind.pension] == -14_794
-        assert run.net_pence == 295_890 - 38_228 - 15_291 - 14_794
+        assert run.net_pence == 295_890 - 38_200 - 15_287 - 14_794
 
     def test_fixed_beats_percent(self, session: Session,
                                  household: Household) -> None:
@@ -231,7 +232,7 @@ class TestPensionAndLeave:
         # pensionable = £2,958.90 − £138.46 = £2,820.44 → 5% = £141.02
         assert k[PayrollComponentKind.pension] == -14_102
         # taxable 282044−14102 = 267942 → PA 104750 → tax £326.38
-        assert k[PayrollComponentKind.tax] == -32_638
+        assert k[PayrollComponentKind.tax] == -32_620
         assert run.gross_pence == 295_890  # earnings line unaffected
 
     def test_zero_config_no_pension_line(
@@ -246,9 +247,9 @@ class TestImmutability:
             self, session: Session, emp: Employment) -> None:
         run = payrun.generate(session, emp, start=APR_S, end=APR_E,
                               pay_date=PAY)
-        payrun.reconcile(session, run, {})
+        confirm(session, run, {})
         with pytest.raises(PayrollError):
-            payrun.reconcile(session, run,
+            confirm(session, run,
                              {PayrollComponentKind.tax: -1})
 
     def test_correct_supersedes(self, session: Session,
@@ -257,7 +258,7 @@ class TestImmutability:
         correction run carries actuals as its new forecast."""
         run = payrun.generate(session, emp, start=APR_S, end=APR_E,
                               pay_date=PAY)
-        payrun.reconcile(session, run,
+        confirm(session, run,
                          {PayrollComponentKind.tax: -38_500})
         new = payrun.correct(session, run)
         assert run.status is PayrollRunStatus.corrected
@@ -312,20 +313,20 @@ class TestApi:
         assert run["tax_year"] == "2025-26"
         comps = {c["kind"]: c for c in run["components"]}
         assert comps["base_salary"]["forecast_pence"] == 295_890
-        assert comps["tax"]["forecast_pence"] == -38_228
+        assert comps["tax"]["forecast_pence"] == -38_200
         rid = run["id"]
         # reconcile with a diverging payslip
         r = client.post(
             f"/api/v1/employments/{eid}/payroll-runs/{rid}/reconcile",
-            json={"actuals": {"tax": -38500}}, headers=h)
+            json=confirmation_payload(run, {"tax": -38500}), headers=h)
         assert r.status_code == 200
         tax = {c["kind"]: c for c in r.json()["components"]}["tax"]
         assert tax["actual_pence"] == -38_500
-        assert tax["variance_pence"] == -272
+        assert tax["variance_pence"] == -300
         # reconciled → immutable: re-reconcile is 409
         assert client.post(
             f"/api/v1/employments/{eid}/payroll-runs/{rid}/reconcile",
-            json={"actuals": {}}, headers=h).status_code == 409
+            json=confirmation_payload(run), headers=h).status_code == 409
         # correction supersedes
         r = client.post(
             f"/api/v1/employments/{eid}/payroll-runs/{rid}/correct",
