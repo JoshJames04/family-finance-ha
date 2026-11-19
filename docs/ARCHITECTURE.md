@@ -224,8 +224,20 @@ Transaction pagination appends only a newly completed response for its requested
 page and disables Load more during refresh. A recovered dashboard profile
 replaces the temporary local layout and restores member save permissions.
 
-Safe to spend has an explicit account selector; its balance and payday belong to
-that account. A missing payday prompts review of salary settings for that account,
+Safe to spend and Balance forecast share a Dashboard-scoped account selection.
+Its initial value is the signed-in member's unique active, accessible salary
+payment account, derived only from currently active employments. Distinct salary
+destinations or no eligible destination require an explicit selection; no first
+account projection is fetched while identity or salary setup is unresolved.
+All employment pages are read before deciding whether a destination is unique.
+The forecast also exposes the shared selector, so hiding Safe to spend cannot
+prevent an explicit account choice.
+Ingress uses `/auth/me`, never a browser-stored profile ID. Temporary switching
+affects both widgets for the visit, resets on member changes and is discarded if
+its account becomes unavailable. Other projection callers retain their existing
+account-selection behaviour.
+
+The displayed balance and payday belong to that account. A missing payday prompts review of salary settings for that account,
 including salary and tax-code prerequisites, rather than implying all household
 employment is unconfigured. The forecast widget also names its account. Budget
 expected movements request the selected budget ID so the server applies its
@@ -583,3 +595,9 @@ commit that records the running cursor/run, before provider I/O. Completion does
 not clear that flag again: a new concurrent refresh requested during I/O remains
 queued for its own later run. A successful manual attempt therefore satisfies an
 older queued request without causing a redundant immediate scheduled pull.
+
+Payroll automation (domain.payroll_automation) creates future salaried periods and
+uses the guarded payroll rebuild for source-change, startup and daily refreshes.
+Savepoints preserve valid source edits if calculation inputs are incomplete.
+It never manufactures historical actuals or changes independent bank/payslip evidence.
+The owner-scoped refresh POST supports opening Breakdown; GET remains read-only.

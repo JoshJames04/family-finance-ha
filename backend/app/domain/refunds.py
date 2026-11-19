@@ -46,6 +46,9 @@ def link_refund(
             f"{remaining}"
         )
     refund.refund_of_id = original.id
+    from app.domain import banking_events
+    banking_events.transaction_changed(session, refund, "transaction.refund_linked",
+                                       dedup_key=f"refund.linked:{refund.id}:{original.id}")
     session.flush()
 
 

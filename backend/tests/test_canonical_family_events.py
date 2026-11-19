@@ -297,7 +297,9 @@ def test_payslip_status_changes_do_not_disclose_artifact_contents(session, house
     tick(session)
     events = rows(session, "payslip.state_changed")
     assert len(events) == 1
-    assert events[0].payload == {
+    assert events[0].payload["_ha_scope"] == {
+        "owner": profile.id, "account": None, "account_owner": None}
+    assert outbox.visible_payload(events[0], detailed=True) == {
         "source": "payslip",
         "old_status": "needs_review",
         "new_status": "confirmed",

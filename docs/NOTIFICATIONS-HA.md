@@ -2,7 +2,8 @@
 
 The integration polls the app every minute. It exposes summary sensors, eight
 compatible device triggers, durable per-family event entities, and optional numeric
-sensors for individual Bills, Accounts and Goals. The app remains authoritative for
+sensors for individual Bills, Accounts, Goals, Budgets, Seasonal budgets and
+authorised payday occurrences. The app remains authoritative for
 financial calculations and committed transitions.
 
 ## Connection and privacy
@@ -10,9 +11,62 @@ financial calculations and committed transitions.
 Configure the app URL, household ID and the app's service token. The integration
 sends the token as `X-Admin-Token`; it never invents a household member or an admin
 profile. A rejected token enters HA reauthentication. The token grants only the
-server's explicit service allowlist and shared resource scope. Existing HA actions
+server's explicit service allowlist and shared resource scope by default. Existing HA actions
 for adding a shared transaction or recording permitted overtime remain audited by
 the app; unauthorised private resources are rejected.
+
+### Private payroll reads
+
+An authenticated household administrator can opt in at **Settings > Home Assistant
+events > Private read access**. Select named payroll profiles and approve each
+private pay destination. Both selections are required when payroll lands in a
+private account; a profile selection alone never grants a destination account.
+Nothing is selected on an existing or new installation. Save requires a privacy
+confirmation; **Revoke all private access** removes the grants on the next poll.
+
+These grants cover payroll events, including existing payroll approaching and
+payslip review events, plus named days-to-next-payday discovery. Payday discovery
+uses the canonical adjusted payday rule (including legacy `last_friday`,
+`last_day` and `last_working_day`), active employment dates and current
+profile/destination grants, appends after the legacy discovery prefix and uses
+stable `employment:<id>` identities. It includes employer labels and day counts
+in either event detail mode; event redaction does not change numeric discovery.
+These grants do not expose private balances, transactions, general account events
+or other financial metrics.
+Payroll overtime-recorded and estimate-change events use this same authorization
+boundary. The numeric-family controls expose discovered payday values as opt-in
+HA sensors.
+
+The app stores household-specific grants in its existing settings table and audits
+each change with the authenticated administrator's identity. A service token or
+spoofed profile header cannot manage grants. Only the authenticated HA machine
+context receives them; they never become a household member's permissions.
+Explicitly unprotected standalone development mode (`FF_ENV=dev`, ingress off)
+also accepts its existing selected administrator profile for these Settings.
+That development exception excludes requests carrying a service token and never
+applies in production, CI or ingress mode.
+Deactivated profiles, archived destination accounts and changed destination owners
+stop reads immediately. Grants name profiles and destinations, not individual jobs.
+Deactivating an employment removes its upcoming payday discovery but does not revoke
+granted payroll history for that member and destination. Revoke the grants to stop
+those machine history reads; the owning member retains their own history.
+Events created with the new grant support retain their
+original profile and destination scope internally; changing either cannot relabel
+old events. Legacy private payroll events without that snapshot remain excluded
+from granted service reads. Internal scope metadata never enters HA payloads.
+
+Safe event mode still excludes names, hours and financial amounts after authorization;
+Detailed mode adds permitted detail and never substitutes for a read grant.
+Even Safe private IDs and dates may persist in HA recorder, automation traces,
+backups and notifications. Revoking access or returning to Safe cannot erase
+copies already retained outside the app.
+
+Human payroll changes require the employment owner's identity, including for
+administrators: creating an employment for someone else, changing their salary,
+overtime, payslip or run, and ending/replacing their employment are denied. Bulk
+year preparation generates payroll only for its caller's employments. The existing
+service action to record overtime against a shared destination remains a distinct,
+audited action; selecting private read grants never extends it to private payroll.
 
 Safe event detail is the app default. An app administrator can select **Safe** or
 **Detailed** in Settings. Detailed mode can place names and monetary values in the
@@ -31,11 +85,78 @@ Account sensors expose GBP balances, Bill sensors expose days to due, and Goal
 sensors expose percent. Summary monetary sensors remain disabled by default in the
 entity registry. Consider recorder exclusions before enabling financial entities.
 
+Additional per-item metrics use the same None / All / Selected controls and the
+same global cap; each enabled metric counts as one entity. Existing Bill, Account
+and Goal sensor identities stay unchanged. The new metrics are:
+
+| Metric | Canonical value | Unit |
+| --- | --- | --- |
+| Safe to spend | Account cleared-ledger balance minus outstanding obligations until the next expected payday, or the configured horizon when none exists | GBP |
+| Lowest projected balance | Minimum of the account's current balance and canonical daily projection over the configured horizon | GBP |
+| Budget remaining | Approved/locked expense plan minus signed, split-aware, as-of actual spending in that budget's owner scope | GBP |
+| Budget usage | The same actual spending divided by the positive expense plan; unknown when the plan is zero | % |
+| Seasonal remaining | Event budget minus recorded gift actuals, keeping planned commitments separate | GBP |
+| Seasonal usage | Recorded gift actuals divided by a positive event budget; unknown for a zero budget | % |
+| Goal funded amount | Real, eligible inbound transfer contributions to the goal, separate from its percentage metric | GBP |
+| Days to goal target | Configured target date minus the app calendar date; absent for undated goals | days |
+| Days to occasion | Explicit occasion date minus the app calendar date; absent until a real date is configured | days |
+| Days to payday | Earliest outstanding positive employment/payroll-run occurrence for each authorised active employment, including today, within two years; explicitly granted private discovery uses the canonical next payday rule | days |
+
+Forecasts are estimates, not received income or confirmed future payments. They
+use the same canonical calculations as account forecasting. Configure permits a
+1–731 day forecast window, defaulting to 90; changing it preserves entity identity.
+Budget and
+seasonal percentages use two decimal places; zero plans do not fabricate a
+percentage. Day counts use the app server's calendar date, matching its scheduling
+and forecasting default, rather than the HA browser's timezone. A selected metric
+becomes unavailable if its source is deleted, archived or no longer authorised;
+renaming preserves its stored identity.
+
+Budget metric labels show their actual reporting dates and basis. Personal
+monthly budgets use the same planned pay-cycle boundaries as the personal Budget
+view; Shared and nonmonthly budgets retain calendar/explicit dates. Unknown or
+ambiguous personal pay-cycle configuration omits these metrics instead of
+silently substituting a calendar figure. Archived-account spending remains part
+of the appropriate owner's budget history.
+
+Employment ownership applies even when a salary destination account is shared.
+The HA service identity has shared scope, so private employment names/payday
+metrics require explicit profile and private destination grants. Detailed event
+mode does not grant private access. A new
+account forecast metric is also omitted if any outstanding payroll input within
+its forecast window has private or unresolved provenance for the requesting
+identity. This avoids publishing a private-derived figure as a shared zero or
+partial estimate. The actual shared account balance sensor remains independent.
+Granted private payday discovery uses the canonical next payday rule even when no
+payroll occurrence has been prepared. Shared/profile-visible discovery retains its
+outstanding-occurrence calculation. Selecting All does not override either
+authorization boundary.
+
+Discovery is paginated in stable order, so later metric families are not silently
+lost after the first 100 records. Original Accounts, Goal percent and Bills retain
+their previous ordering before any new metric is appended, preserving the first
+page for older integrations that cannot paginate. HA supports up to 1,000
+discoverable metrics and
+fails with a discovery error beyond that bound; the separate active-entity cap
+remains at most 100. No transaction-by-transaction entities are created.
+
+For a visual threshold automation, enable the desired named metrics in Configure,
+then choose one or several in the native Numeric state entity picker. Use Below
+`0` for a negative projected balance, Below `100` for GBP 100 safe to spend, or
+Above `89.99` for a 90% budget/seasonal usage threshold. For an authorised payday
+within N days, use Below `N + 1` and Above `-1` on days-to-payday sensors. These
+native controls support arbitrary day/amount/percent thresholds without YAML.
+State/Template conditions can express equality or compare a selected event's
+stable ID. Native numeric triggers fire on entry into their configured range;
+creating an automation while already inside it is not a historical replay.
+Actual visual-editor, multi-target and notification-delivery validation remains
+under #441.
+
 ## Version 1 payload catalogue
 
 The integration publishes `event` entities for bills, banking, budgets,
-subscriptions, goals, payroll, gifts, energy and ops. Their unique IDs contain the
-config-entry ID and family, not a display name. Canonical events also appear on the
+subscriptions, goals, loans, payroll, gifts, energy and ops. Their unique IDs
+contain the config-entry ID and family, not a display name. Canonical events also appear on the
 bus as `family_finance_<family>_event` for visual Event triggers.
 
 Every canonical bus payload contains `schema_version: 1`, `seq`, `event_type`,
@@ -45,19 +166,101 @@ transitions. Unknown future types in a recognised family remain consumable.
 
 | Family | Canonical transition types / source |
 | --- | --- |
-| Bills | `movement.settled`, `movement.partial`, `movement.overdue` from settlement/overdue processing |
-| Banking | `transaction.imported` from a committed imported transaction |
-| Subscriptions | `subscription.price_observed` from an observed price |
+| Bills | `movement.settled`, `movement.partial`, `movement.overdue` from settlement/overdue processing; `bill.created`, `bill.paused`, `bill.resumed`, `bill.amount_changed`, `bill.date_changed`, `bill.ended` from committed recurring-commitment changes |
+| Banking | `transaction.imported`, `transaction.settled`, `transaction.review_required`, `transaction.reconciled`, `transaction.refund_linked`, `transaction.transfer_linked`, `account.balance_changed`, `connection.revoked`, `connection.disconnected` from canonical banking writers |
+| Subscriptions | `subscription.price_observed` from an observed price; `subscription.created`, `subscription.cancelled`, `subscription.amount_changed`, `subscription.renewal_changed` from committed register changes |
 | Ops | `sync.failed`, `sync.completed`, `sync.recovered`, `data.stale`; `backup.created` / `backup.failed` from real backup outcomes |
 | Budgets | `budget.approved`, `budget.locked`, `budget.usage`, `budget.over`, `budget.remaining_changed` from canonical lifecycle/financial changes |
-| Payroll | `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
-| Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance` |
+| Payroll | `overtime.recorded`, `payroll.estimate_changed`, `payroll.generated`, `payroll.reconciled`, `payroll.approaching`, `payslip.review_required`, `payslip.state_changed` |
+| Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance`, `seasonal.approaching` |
 | Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
-| Goals | `goal.milestone` from a real committed inbound contribution crossing; per-goal numeric percent supports other visual thresholds |
+| Goals | `goal.milestone` / `goal.completed` from real contributions; `goal.behind_plan` from canonical on-track deterioration; `goal.target_approaching` in the default three-day deadline window; per-goal numeric percent supports other visual thresholds |
+| Loans | `loan.balance_changed`, `loan.fully_repaid` from the dated outstanding balance; recorded repayment does not imply bank settlement |
 
 A matched payment emits `movement.partial` while an outstanding amount remains.
 Only a payment that completes the obligation emits `movement.settled`; replaying
 an already matched transaction emits neither event again.
+
+Bill creation, amount/date edits, pause and resume events come from the actual
+register mutation. Repeating an unchanged edit, pause or resume emits no duplicate
+transition. Scheduler evaluation emits `bill.ended` only after an explicit end
+date, or after the final dated occurrence of an exhausted configured count, has
+passed. Materialising a future final occurrence does not end a bill early; both
+materialisation and normal settlement supply the authoritative occurrence state.
+The first evaluation seeds existing records quietly. New bills seed their baseline
+inside creation, so an offline gap before their first scheduler wake cannot lose
+the ending. A schedule edit that reopens an ended bill resets its baseline in
+the same transaction, so a later ending is retained even if HA/app polling misses
+the reopened window. Edits that leave it ended do not create another ending.
+Subsequent crossings survive restart/downtime and do not repeat. If both end
+conditions pass during downtime, the event identifies whichever dated boundary
+came first, matching the schedule engine. This is a schedule ending, not proof of
+payment; merely passing a due date without a configured end condition does not
+emit it. Formula text and notes never enter these payloads.
+
+Subscription creation also covers confirmation of a detected candidate.
+`subscription.renewal_changed` describes an explicit renewal date/frequency edit,
+or the existing renewal advance after an observed price (`source: price_observation`).
+An observation or advanced renewal is not a confirmed settled charge, missed
+payment, expiry or completed renewal contract. Cancellation is an explicit register
+mutation; the current model has no automatic expiry or reactivation transition.
+No duplicate due-reminder polls are added.
+
+All these rows share the writer's transaction: rollback removes the event.
+Paused/cancelled records retain their opaque `entity_id`; renaming never changes
+that ID. Feed reads apply current account ownership in Safe and Detailed modes.
+Archived accounts retain their ownership restriction. If a record is permanently
+deleted, its events are hidden because its current visibility can no longer be
+verified; deletion does not disclose a tombstone to HA. A transactional internal
+delete watermark keeps old bill events hidden even if SQLite reuses its record
+ID later; recreating a bill never revives the deleted bill's private history.
+New bill lifecycle and subscription lifecycle/price-observation rows also retain
+the account owner scope at emission. Making an account shared or assigning it to
+another owner cannot reclassify those queued private rows as shared history.
+Current ownership must still allow the read; internal scope metadata is stripped
+even in Detailed mode. Accountless subscriptions keep their existing shared scope.
+Legacy rows without this emission-time binding retain their existing current-scope
+behavior; their original ownership cannot be reconstructed and is not rewritten.
+
+A real contribution first reaching a goal's target also emits `goal.completed`
+once per goal, alongside the compatible 100-percent milestone. A later contribution,
+replayed pairing or no-op poll does not repeat completion. Rollback removes the
+contribution and its event together. This does not infer completion from an opening
+balance, a target edit, or an existing funded goal at installation. Detailed mode
+adds the goal `name`, `amount_pence`, `amount_gbp`, `target_pence` and `currency`;
+Safe mode retains only source/status/date/currency. Account ownership applies in
+both modes. For a completion notification, use an Event trigger for
+`family_finance_goals_event` with `event_type: goal.completed` and the intended
+`config_entry_id`; optionally select stable `entity_id` values in a Template
+condition. Detailed actions can use `{{ trigger.event.data.name }}` and
+`{{ trigger.event.data.amount_gbp }}`. Actual editor and delivery acceptance are
+still required under #441.
+
+Completion dates and funded amounts come from the chronological contribution
+ledger, even when transfers are linked out of date order. Linking a future-dated
+credit seeds current progress without firing early; the durable scheduler emits
+completion when that credit becomes effective, with its actual crossing date.
+An already funded installation still seeds quietly instead of replaying history.
+New goal events retain their original private owner internally, so making the
+account shared later cannot disclose an old private notification payload. This
+internal scope marker is never included in either Safe or Detailed feed data.
+
+The scheduler also evaluates active goals without requiring a notification rule.
+`goal.behind_plan` fires when the canonical on-track calculation changes from true
+to false. Initial existing behind-plan data seeds a quiet baseline; an undated
+goal is unknown, not behind. Staying behind does not repeat the event; recovering
+and later falling behind creates a new transition. A fully funded goal does not
+generate a behind-plan warning after its deadline. `goal.target_approaching`
+fires once per goal and target date in the default three-calendar-day window,
+including the due date. Returning from downtime inside that window catches up;
+past deadlines, future-start, inactive, undated and already funded goals do not
+produce an approaching event. No historical deadline is replayed after the window.
+The app scheduler's calendar date drives the window, with `lead_days: 3` and
+`expected_date` in the payload; arbitrary user-configured lead days are not yet
+provided by this event. Safe mode keeps status/dates/lead time/currency; Detailed
+mode adds the current goal name, funded amount, target and remaining pence. Both
+the prior-state snapshot and deadline deduplication persist transactionally across
+restarts. These are goal-plan signals, never evidence of a missed bank payment.
 
 Use only types implemented by the installed app version. An available event entity
 is a stream endpoint, not evidence that every conceivable transition exists.
@@ -65,12 +268,103 @@ Detailed transaction events can include `payee`, `amount_pence`, `account_id` an
 `date`; subscription observations can include `payee`, `amount_pence`, `old_pence`
 and `date`. Safe mode excludes names and monetary detail server-side.
 
+Banking transitions distinguish provider settlement (`transaction.settled`: a new
+explicitly cleared feed row or an actual pending-to-cleared change, including manual
+clearing)
+from an accepted expected-payment match (`transaction.reconciled`). An ambiguous
+persisted reconciliation proposal or fuzzy import-overlap candidate emits
+`transaction.review_required`; an import alone proves neither settlement nor
+reconciliation. Unknown/missing provider statuses do not emit settlement merely
+because legacy ledger ingest defaults a new row to cleared. Replayed provider rows
+retain local reconciled/void states and do not produce another settlement event.
+Provider overlap candidates with the same account/source/reference retain their
+original review object across replay, including after resolution or later edits
+to local/provider fields; they do not create duplicate ledger rows or review notifications. Reference-free
+feeds cannot prove replay identity and retain a separate candidate per observation.
+Refund and transfer events require the actual canonical link; labels and equal
+amounts alone are insufficient. Transfers publish one event for each leg using
+that transaction's scope, without copying another leg's account or transaction ID.
+Existing account/transaction IDs remain stable across provider resync and renames.
+
+`account.balance_changed` compares a known persisted provider balance with its new
+observation for a linked account or Space. First observation seeds the baseline;
+unchanged refreshes stay quiet, while a later return to an older value is a new
+change. Detailed mode includes `old_balance_pence` and `balance_pence`; safe mode
+omits them. This is a provider snapshot signal, not fabricated ledger activity.
+Standalone balance refresh, discovery, reauthentication and disconnect share the
+transaction sync connection owner and commit before releasing it. This includes
+Connect reviving an existing revoked row; genuinely new or unrelated connections
+remain independent. Overlapping requests return retryable 409 without provider
+calls or credential mutations, preventing duplicate/stale-prior balance events
+and successful in-flight syncs overwriting a concurrent disconnect.
+Connection revocation fires on a persisted 401/403 transition; transient failures
+do not imply revocation. Explicit user removal emits `connection.disconnected`.
+Repeated removal stays quiet based on revoked state and actual credential removal,
+independent of the recorded error message.
+Late provider errors cannot revive a persisted revoked connection, whether the
+credential remains or was removed, including responses in a stale request session.
+Only explicit successful reauthentication reopens the connection lifecycle.
+Connection events are separately scoped to each mapped account and contain no
+provider identifiers, labels, credentials or error text. An unmapped connection
+has no provable member scope, so its event is visible only to an all-scopes admin.
+Every hook shares the state writer's transaction: rollback removes its events.
+New banking events, including imports, retain their original account ownership as
+internal scope metadata. Making a private account shared later cannot disclose
+those earlier events; current ownership still applies as an additional restriction.
+The internal owner marker is removed in both Safe and Detailed payloads. Events
+written before this ownership snapshot existed retain the legacy visibility policy;
+historical ownership cannot be reconstructed from the current account alone.
+
+Use the visual Event trigger with `family_finance_banking_event`, select the
+desired `event_type`, and optionally match its local `entity_kind` / `entity_id`.
+Numeric account entities remain available for visual balance threshold triggers.
+Named multi-account/member controls and real visual-editor acceptance remain
+tracked separately in #432 / #441.
+
 The eight existing device trigger names remain: bill due, bill overdue, sync
 failed, goal milestone, low balance, notification pending, payday and payslip
 review. These remain summary transition signals, not item-specific outbox events.
 First successful connection/reload seeds the summary baseline without replaying
 historical conditions. Each emitted event includes `config_entry_id`, and device
 triggers filter it so another configured household cannot activate the device.
+
+### Scoped payroll backend feed; private HA access pending
+
+`overtime.recorded` is emitted when a new draft overtime entry is committed,
+including the existing permitted app/HA action paths. It describes recorded hours
+and estimated overtime pay, not approval, a payslip or money received. Editing,
+submitting or approving that entry does not repeat its creation event. The opaque
+`entity_id` identifies its employment; Detailed payloads add the entry ID, hours,
+employer name and estimated pence. Hours and pay use the persisted two-decimal
+hours and final hourly rate, including higher-precision requests. Notes are never
+included.
+
+`payroll.estimate_changed` compares the previous and new canonical expected net
+amount for the same employment/pay date/destination during schedule regeneration.
+It covers regular employment estimates and forecast payroll runs, using their
+configured payroll period and salary policy rather than assuming annual salary
+divided by twelve. A first known
+value seeds quietly; unchanged regeneration emits nothing. A reconciled/actual
+amount is not labelled an estimate, and a missing estimate is never a fabricated
+zero. A changed payday/destination is not compared as though it were the same
+obligation. Detailed payloads contain old/new estimated pence and employer name;
+Safe mode keeps structural dates/status/source only. Rollback removes changes and
+events together. Event delivery/retry uses the existing durable cursor.
+
+Both types inherit the employment owner's visibility even when pay lands in a
+shared account. They are available through the authenticated, profile-aware backend
+feed. **The current HA service token has no private payroll grant and cannot read
+either new type**, in Safe or Detailed mode. The integration does not send a member
+identity, and it cannot impersonate an employment owner. These writer hooks are
+backend groundwork; they do not deliver a private payroll automation to HA.
+
+Admin-selected private read grants require the access-model decision in
+#532 (under #524/#432). Rich detail opt-in and named entity selection do not grant private
+access. The existing HA adapter can publish an authorised canonical payroll row,
+but mocked/harness publication proves that adapter behavior only; real service
+HTTP tests prove the current private denial. No private HA automation recipe is
+claimed until explicit access is designed, approved and tested. Renaming preserves
+the employment ID for authorised backend consumers.
 
 ## Cursor, retry and offline behaviour
 
@@ -162,6 +456,21 @@ of stable `entity_id` values. On an EventEntity state trigger, event details are
 `trigger.to_state.attributes`; raw bus Event triggers use `trigger.event.data`.
 These are different HA trigger contexts and should not be interchanged.
 
+### Bill or subscription lifecycle: All, one or several
+
+Create an **Other triggers > Event** trigger for `family_finance_bills_event`
+(or `family_finance_subscriptions_event`). In the visual event-data form, set
+`event_type` to a supported type, such as `bill.paused` or
+`subscription.cancelled`, and `config_entry_id` to the intended connection.
+For All authorised items, leave `entity_id` unset. For one item, enter its opaque
+`entity_id`. For several, leave that field unset and add a visual **Template**
+condition such as `{{ trigger.event.data.entity_id | int in [17, 23] }}`, using
+IDs from synthetic event traces. These are form fields, not YAML editing.
+Use generic notification wording in Safe mode; Detailed mode can expose the
+name/payee and amount. Exercise a real mutation, then an unchanged replay, and
+inspect the trace. Installed HA visual-editor and notification delivery acceptance
+remains tracked in #441; synthetic harness tests do not claim that acceptance.
+
 ## Configured energy-statistics ingestion
 
 Set the meter entity in the app's Energy configuration. With HA recorder enabled,
@@ -217,6 +526,12 @@ against approved/locked shared energy plans. Missing readings are explicit in it
 status and payload, and missing tariffs are unknown rather than zero. Known zero
 consumption days count in the projection average; missing days do not. Shared
 energy report responses apply the same private-plan exclusion.
+
+[Loan balance and fully-repaid events](HA-LOAN-EVENTS.md) extend the canonical
+family streams without inferring repayment due dates from monthly amounts.
+
+[Explicit occasion dates](SEASONAL-DATES.md) enable `seasonal.approaching` reminders
+without guessing dates for existing seasonal records.
 
 `payroll.approaching` is a durable time event in the three-day lead window of a
 real employment/payroll expected occurrence. It deduplicates on employment plus

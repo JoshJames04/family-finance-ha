@@ -19,6 +19,7 @@ import { cn } from "../lib/cn";
 import { formatLongDate } from "../lib/format";
 import { useShell } from "../shell/ShellContext";
 import { DEFAULT_ORDER, widgetById } from "../widgets/registry";
+import { DashboardAccountProvider } from "../widgets/DashboardAccount";
 
 type Role = components["schemas"]["Role"];
 const SPAN: Record<1 | 2 | 3, string> = {
@@ -150,6 +151,7 @@ export function Dashboard() {
       )}
       {!customising && status}
       <ReviewCallout />
+      <DashboardAccountProvider enabled={visible.some(w => w.id === "safe-to-spend" || w.id === "forecast")}>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {layout === null && (
           <>
@@ -167,6 +169,7 @@ export function Dashboard() {
         ))}
       </div>
 
+      </DashboardAccountProvider>
       <Sheet open={customising} onOpenChange={setCustomising} title="Customise dashboard" side="right">
         <div className="p-4">
           <p className="mb-4 text-[13px] text-fg-muted">

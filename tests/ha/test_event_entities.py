@@ -40,8 +40,13 @@ async def test_failed_publication_keeps_cursor_until_consumers_succeed(hass, moc
         assert any(state.attributes.get("seq") == 5 for state in hass.states.async_all("event"))
 
 
+@pytest.mark.parametrize("event_type,family", [
+    ("bill.created", "bills"), ("subscription.renewal_changed", "subscriptions"),
+    ("movement.settled", "bills"), ("goal.completed", "goals"),
+    ("goal.behind_plan", "goals"), ("goal.target_approaching", "goals"),
+])
 async def test_outbox_entities_skip_initial_history_and_emit_committed_rows(
-    hass: HomeAssistant, mock_api
+    hass: HomeAssistant, mock_api, event_type, family
 ):
     entry = MockConfigEntry(
         domain=DOMAIN, data={"url": "http://synthetic", "household_id": 1}
@@ -58,14 +63,14 @@ async def test_outbox_entities_skip_initial_history_and_emit_committed_rows(
         coordinator = hass.data[DOMAIN][entry.entry_id]
         seen = []
         hass.bus.async_listen(
-            "family_finance_bills_event", lambda event: seen.append(dict(event.data))
+            f"family_finance_{family}_event", lambda event: seen.append(dict(event.data))
         )
         feed.return_value = {
             "events": [
                 {
                     "seq": 5,
-                    "event_type": "movement.settled",
-                    "entity_kind": "expected_movement",
+                    "event_type": event_type,
+                    "entity_kind": "savings_goal" if family == "goals" else "expected_movement",
                     "entity_id": 7,
                     "occurred_at": "2026-11-12T12:00:00",
                     "data": {"status": "satisfied"},
@@ -83,7 +88,7 @@ async def test_outbox_entities_skip_initial_history_and_emit_committed_rows(
         await hass.async_block_till_done()
         assert len(seen) == 1
         assert any(
-            state.attributes.get("event_type") == "movement.settled"
+            state.attributes.get("event_type") == event_type
             for state in hass.states.async_all("event")
         )
 
@@ -237,3 +242,37 @@ async def test_reload_baseline_does_not_replay_summary_history(hass, mock_api):
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert seen == []
+
+
+async def test_banking_catalogue_publishes_canonical_events_with_local_identity(hass, mock_api):
+    from custom_components.family_finance.outbox import EVENT_TYPES, family_for
+    kinds = [
+        "transaction.settled", "transaction.review_required", "transaction.reconciled",
+        "transaction.refund_linked", "transaction.transfer_linked", "account.balance_changed",
+        "connection.revoked", "connection.disconnected",
+    ]
+    assert all(kind in EVENT_TYPES["banking"] and family_for(kind) == "banking" for kind in kinds)
+    entry = MockConfigEntry(domain=DOMAIN, data={"url": "http://synthetic", "household_id": 1})
+    entry.add_to_hass(hass)
+    with patch("custom_components.family_finance.api.FamilyFinanceClient.async_fetch_events",
+               new_callable=AsyncMock) as feed:
+        feed.return_value = {"events": [], "next_cursor": 4}
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        seen = []
+        @callback
+        def record(event):
+            seen.append(event.data)
+        hass.bus.async_listen("family_finance_banking_event", record)
+        feed.return_value = {"events": [
+            {"seq": seq, "event_type": kind, "entity_kind": "account", "entity_id": 7,
+             "occurred_at": "2026-11-15T12:00:00+00:00", "data": {"status": "observed"}}
+            for seq, kind in enumerate(kinds, 5)
+        ], "next_cursor": 12}
+        await hass.data[DOMAIN][entry.entry_id].async_refresh()
+        await hass.async_block_till_done()
+        assert [event["event_type"] for event in seen] == kinds
+        assert all(event["entity_id"] == 7 for event in seen)
+        await hass.data[DOMAIN][entry.entry_id].async_refresh()
+        await hass.async_block_till_done()
+        assert len(seen) == len(kinds)

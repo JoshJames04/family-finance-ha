@@ -11,6 +11,32 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-11-19
+
+### Fixed
+
+- Harden payroll forecasts and statutory deductions, preserve verified payslip
+  actuals, and refresh eligible forecasts automatically after source changes.
+  Combine overtime display lines with the same hourly rate (#542, PR #543).
+- Support employer bonus entry and salary shareholding workflows, with one
+  selected bonus type per entry and combined pay-month deductions (#537).
+- Default Overview projections to the signed-in member's unique current salary
+  payment account. Prompt when a usable destination cannot be determined;
+  keep manual switches temporary and both projections aligned (#544).
+- Scope banking merge candidates and balances to authorised accounts (#533),
+  and restore canonical banking, goal, loan, bill and subscription transitions
+  for Home Assistant automations (#520, #521, #522, #523, #525).
+- Enforce owner-only payroll edits and explicit Home Assistant payroll read
+  grants; preserve private historical notes with audited archive operations
+  (#532, PR #538).
+- Use explicit seasonal dates for approaching reminders and bounded financial
+  automation discovery (#530).
+- Isolate API contract tests from private local databases and update the
+  combined frontend dependency baseline (PRs #536, #518).
+- Join the seasonal-date and payroll/bonus migration branches with revision 0075,
+  restoring normal startup and upgrades from either branch without rewriting
+  existing migrations or household records (#546).
+
 ## [1.5.0] — 2026-11-14
 
 ### Added
@@ -57,11 +83,10 @@ release pipeline (multi-arch GHCR image + GitHub release).
 - Route code ownership to Josh and document current-head human approval for
   develop bot PRs. Automatic merging remains inactive (#510).
 
-### Release preparation and acceptance
+### Deployment and remaining acceptance
 
-- The release candidate includes the reviewed finance fixes and dependency
-  updates above. Complete the final integration, CI and release review before
-  promoting `develop` to `main`.
+- Published v1.5.0 includes the reviewed finance fixes and dependency updates
+  above, promoted from `develop` to `main` through release PR #499.
 - Migration `0070_transfer_confirmation_history` retains historical transfer
   evidence. Take a verified backup before upgrade and rehearse migration and
   restore on a copy.

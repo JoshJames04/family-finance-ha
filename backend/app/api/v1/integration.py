@@ -8,24 +8,48 @@ the settings surface).
 """
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, timedelta
+from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, AdminDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import accounts, contributions, goals, outbox, rbac
+from app.domain import (
+    accounts,
+    budget_periods,
+    budgets,
+    contributions,
+    goals,
+    ha_grants,
+    outbox,
+    pay_calendar,
+    paydays,
+    projection,
+    rbac,
+    seasonal,
+)
 from app.domain.money import Money
 from app.persistence.models import (
     Account,
+    AppMeta,
+    Budget,
+    BudgetLineSide,
+    BudgetStatus,
+    Employment,
     ExpectedMovement,
     ExpectedSource,
     IntegrationEvent,
+    PayrollRun,
     Role,
     SavingsGoal,
+    SeasonalEvent,
+    UserProfile,
 )
 
 router = APIRouter(prefix="/integration", tags=["integration"])
@@ -33,23 +57,37 @@ router = APIRouter(prefix="/integration", tags=["integration"])
 
 @router.get("/items", response_model=schemas.IntegrationItemsOut)
 def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
-          limit: Annotated[int, Query(ge=1, le=100)] = 100) -> schemas.IntegrationItemsOut:
+          request: Request = None,  # type: ignore[assignment]
+          limit: Annotated[int, Query(ge=1, le=100)] = 100,
+          offset: Annotated[int, Query(ge=0)] = 0,
+          forecast_days: Annotated[int, Query(ge=1, le=projection.MAX_HORIZON_DAYS)]
+          = projection.DEFAULT_HORIZON_DAYS) -> schemas.IntegrationItemsOut:
     """Opt-in HA discovery; cap entities and apply ledger visibility first."""
     visible = [a for a in session.scalars(select(Account).where(
         Account.household_id == household.id, Account.archived.is_(False)).order_by(Account.id))
         if rbac.visible(a.owner_profile_id, profile)]
     allowed = {a.id for a in visible}
+    today = date.today()
     result = [schemas.IntegrationItemOut(family="accounts", id=f"account:{a.id}", name=a.name,
               value=Money.of_pence(accounts.current_balance(session, a.id)).pounds_decimal(),
               unit=a.currency)
               for a in visible]
+    goal_criteria: list[schemas.IntegrationItemOut] = []
     for goal in session.scalars(select(SavingsGoal).where(
             SavingsGoal.household_id == household.id, SavingsGoal.active.is_(True),
             SavingsGoal.account_id.in_(allowed)).order_by(SavingsGoal.id)):
+        progress = goals.progress(session, goal)
         result.append(schemas.IntegrationItemOut(family="goals", id=f"goal:{goal.id}",
                       name=goal.name,
-                      value=goals.progress(session, goal).pct, unit="%"))
-    today = date.today()
+                      value=progress.pct, unit="%"))
+        goal_criteria.append(schemas.IntegrationItemOut(
+            family="goal_funding", id=f"goal:{goal.id}", name=f"{goal.name} funded",
+            value=Money.of_pence(progress.contributed_pence).pounds_decimal(), unit="GBP"))
+        if goal.target_date is not None:
+            goal_criteria.append(schemas.IntegrationItemOut(
+                family="goal_dates", id=f"goal:{goal.id}:days",
+                name=f"{goal.name} days to target",
+                value=(goal.target_date - today).days, unit="d"))
     seen: set[str] = set()
     movements = session.scalars(select(ExpectedMovement).where(
         ExpectedMovement.household_id == household.id,
@@ -67,7 +105,134 @@ def items(household: HouseholdDep, session: SessionDep, profile: ProfileDep,
         seen.add(key)
         result.append(schemas.IntegrationItemOut(family="bills", id=key, name=movement.label,
                       value=(movement.expected_date - today).days, unit="d"))
-    return schemas.IntegrationItemsOut(items=result[:limit])
+    # Legacy clients read only the first 100 rows. Preserve their complete old
+    # accounts/goals/bills prefix before appending any newly discoverable metric.
+    result.extend(goal_criteria)
+    result.extend(_criteria_items(session, household.id, profile, visible, today, forecast_days))
+    # Append after the complete legacy prefix: a payroll destination grant never
+    # makes its account balance, cash flow or unrelated records visible.
+    if request is not None and getattr(request.state, "service_authenticated", False):
+        for employment in session.scalars(select(Employment).where(
+                Employment.household_id == household.id, Employment.is_active.is_(True))
+                .order_by(Employment.id)):
+            if (not ha_grants.profile_allowed(session, household.id, employment.profile_id)
+                    or not employment.payday_rule
+                    or (employment.start_date is not None and employment.start_date > today)):
+                continue
+            if employment.paid_into_account_id is not None:
+                destination = session.get(Account, employment.paid_into_account_id)
+                if destination is None or not ha_grants.account_allowed(
+                        session, household.id, destination):
+                    continue
+            try:
+                due = paydays.next_payday(pay_calendar.parse_rule(employment.payday_rule),
+                                         after=today - timedelta(days=1))
+            except (ValueError, KeyError, TypeError):
+                continue
+            if employment.end_date is not None and due > employment.end_date:
+                continue
+            result.append(schemas.IntegrationItemOut(
+                family="paydays", id=f"employment:{employment.id}",
+                name=f"{employment.employer} · Next payday", value=(due - today).days, unit="d"))
+    return schemas.IntegrationItemsOut(items=result[offset:offset + limit],
+                                      has_more=offset + limit < len(result))
+
+
+def _employment(session: Session, movement: ExpectedMovement) -> Employment | None:
+    if movement.source_type == ExpectedSource.employment:
+        return session.get(Employment, movement.source_id)
+    run = session.get(PayrollRun, movement.source_id)
+    return run.employment if run is not None else None
+
+
+def _criteria_items(session: Session, household_id: int, profile: UserProfile | None,
+                    visible: list[Account], today: date,
+                    forecast_days: int) -> list[schemas.IntegrationItemOut]:
+    result: list[schemas.IntegrationItemOut] = []
+    horizon = today + timedelta(days=forecast_days)
+    # Account visibility alone cannot authorise a private employment forecast
+    # whose destination happens to be shared. Omit that derived account metric.
+    hidden_forecasts: set[int] = set()
+    paydays: dict[int, tuple[Employment, date]] = {}
+    for movement in session.scalars(select(ExpectedMovement).where(
+            ExpectedMovement.household_id == household_id,
+            ExpectedMovement.expected_date >= today,
+            ExpectedMovement.expected_date <= today + timedelta(days=projection.MAX_HORIZON_DAYS),
+            ExpectedMovement.dismissed_at.is_(None),
+            ExpectedMovement.source_type.in_(
+                [ExpectedSource.employment, ExpectedSource.payroll_run])
+    ).order_by(ExpectedMovement.expected_date, ExpectedMovement.id)):
+        if contributions.status(session, movement).outstanding_pence <= 0:
+            continue
+        employment = _employment(session, movement)
+        if (employment is None or employment.household_id != household_id
+                or not rbac.visible(employment.profile_id, profile)):
+            if today < movement.expected_date <= horizon and movement.account_id is not None:
+                hidden_forecasts.add(movement.account_id)
+            continue
+        if (movement.amount_pence > 0 and employment.is_active
+                and (employment.end_date is None or employment.end_date >= movement.expected_date)
+                and (employment.start_date is None
+                     or employment.start_date <= movement.expected_date)
+                and (movement.account_id is None
+                     or any(a.id == movement.account_id for a in visible))):
+            paydays.setdefault(employment.id, (employment, movement.expected_date))
+    for account in visible:
+        if account.id in hidden_forecasts:
+            continue
+        forecast = projection.project(session, account, forecast_days, today)
+        result.extend([
+            schemas.IntegrationItemOut(family="safe_to_spend", id=f"account:{account.id}",
+                name=f"{account.name} safe to spend",
+                value=Money.of_pence(forecast.safe_to_spend_pence).pounds_decimal(), unit="GBP"),
+            schemas.IntegrationItemOut(family="projected_balances", id=f"account:{account.id}",
+                name=f"{account.name} lowest projected balance ({forecast_days} days)",
+                value=Money.of_pence(forecast.min_balance_pence).pounds_decimal(), unit="GBP"),
+        ])
+    for budget in session.scalars(select(Budget).where(
+            Budget.household_id == household_id,
+            Budget.status.in_([BudgetStatus.approved, BudgetStatus.locked])).order_by(Budget.id)):
+        if not rbac.visible(budget.owner_profile_id, profile):
+            continue
+        period = budget_periods.resolve_period(session, budget, basis="pay_cycle")
+        if period.warning:
+            continue  # A missing/ambiguous personal cycle is unknown, not a calendar substitute.
+        summary = budgets.spending_summary(session, budget, as_of=today,
+                                           start=period.start, end=period.end)
+        spent = int(summary["spent_pence"])
+        planned = sum(line.effective_pence for line in budget.lines
+                      if line.side == BudgetLineSide.expense)
+        name = f"{budget.name} ({period.start}–{period.end}, {period.basis.replace('_', ' ')})"
+        result.append(schemas.IntegrationItemOut(
+            family="budget_remaining", id=f"budget:{budget.id}", name=f"{name} remaining",
+            value=Money.of_pence(planned - spent).pounds_decimal(), unit="GBP"))
+        if planned > 0:
+            result.append(schemas.IntegrationItemOut(
+                family="budget_usage", id=f"budget:{budget.id}", name=f"{name} usage",
+                value=(Decimal(spent) * 100 / planned).quantize(Decimal("0.01")), unit="%"))
+    for event in session.scalars(select(SeasonalEvent).where(
+            SeasonalEvent.household_id == household_id).order_by(SeasonalEvent.id)):
+        if not rbac.visible(event.owner_profile_id, profile):
+            continue
+        totals = seasonal.totals(session, event)
+        name = f"{event.name} ({event.year})"
+        if event.event_date is not None:
+            result.append(schemas.IntegrationItemOut(
+                family="seasonal_dates", id=f"seasonal:{event.id}:days",
+                name=f"{name} days to event", value=(event.event_date - today).days, unit="d"))
+        result.append(schemas.IntegrationItemOut(
+            family="seasonal_remaining", id=f"seasonal:{event.id}", name=f"{name} remaining",
+            value=Money.of_pence(totals.remaining_pence).pounds_decimal(), unit="GBP"))
+        if event.budget_pence > 0:
+            result.append(schemas.IntegrationItemOut(
+                family="seasonal_usage", id=f"seasonal:{event.id}", name=f"{name} usage",
+                value=(Decimal(totals.actual_pence) * 100 / event.budget_pence)
+                .quantize(Decimal("0.01")), unit="%"))
+    for employment, due in paydays.values():
+        result.append(schemas.IntegrationItemOut(
+            family="paydays", id=f"employment:{employment.id}",
+            name=f"{employment.employer} days to payday", value=(due - today).days, unit="d"))
+    return result
 
 
 def _out(ev: IntegrationEvent, detailed: bool) -> schemas.IntegrationEventOut:
@@ -81,6 +246,7 @@ def _out(ev: IntegrationEvent, detailed: bool) -> schemas.IntegrationEventOut:
 
 @router.get("/events", response_model=schemas.IntegrationFeedOut)
 def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = None,
+           request: Request = None,  # type: ignore[assignment]
            after: Annotated[int, Query(ge=0)] = 0,
            limit: Annotated[int, Query(ge=1, le=500)] = 100,
            latest: Annotated[bool, Query()] = False,
@@ -88,15 +254,17 @@ def events(household: HouseholdDep, session: SessionDep, profile: ProfileDep = N
     """Ordered event drain — HA polls from its persisted cursor."""
     profile_id = profile.id if profile and profile.role != Role.viewer else None
     all_scopes = profile is not None and profile.role == Role.admin
+    ha_service = request is not None and getattr(request.state, "service_authenticated", False)
     if latest:
         return schemas.IntegrationFeedOut(events=[], next_cursor=outbox.latest_visible_cursor(
-            session, household.id, profile_id, all_scopes=all_scopes))
+            session, household.id, profile_id, all_scopes=all_scopes, ha_service=ha_service))
     detailed = outbox.detail_enabled(session)
     rows, cursor = outbox.feed(session, household.id,
                                after=after, limit=limit)
     return schemas.IntegrationFeedOut(
         events=[_out(e, detailed) for e in rows
-                if outbox.event_visible(session, e, profile_id, all_scopes=all_scopes)],
+                if outbox.event_visible(session, e, profile_id, all_scopes=all_scopes,
+                                        ha_service=ha_service)],
         next_cursor=cursor)
 
 
@@ -125,3 +293,57 @@ def patch_settings(body: schemas.IntegrationSettingsPatch,
          "integration_settings", 0,
          {"old": old, "new": body.detail})
     return schemas.IntegrationSettingsOut(detail=body.detail)
+
+
+def _grant_admin(profile: UserProfile | None, household_id: int, request: Request) -> UserProfile:
+    settings = request.app.state.settings
+    dev_compat = (settings.env == "dev" and not settings.ingress
+                  and not getattr(request.state, "service_authenticated", False)
+                  and "x-admin-token" not in request.headers)
+    if (profile is None or profile.role != Role.admin or profile.household_id != household_id
+            or (getattr(request.state, "profile_id", None) != profile.id and not dev_compat)):
+        raise HTTPException(403, "an authenticated household administrator is required")
+    return profile
+
+
+@router.get("/private-grants", response_model=schemas.IntegrationGrantsOut)
+def get_grants(household: HouseholdDep, session: SessionDep,
+               profile: ProfileDep, request: Request) -> schemas.IntegrationGrantsOut:
+    _grant_admin(profile, household.id, request)
+    profiles = list(session.scalars(select(UserProfile).where(
+        UserProfile.household_id == household.id, UserProfile.is_active.is_(True))
+        .order_by(UserProfile.id)))
+    private_accounts = list(session.scalars(select(Account).where(
+        Account.household_id == household.id, Account.archived.is_(False),
+        Account.owner_profile_id.is_not(None)).order_by(Account.id)))
+    return schemas.IntegrationGrantsOut(
+        profile_ids=[p.id for p in profiles
+                     if ha_grants.profile_allowed(session, household.id, p.id)],
+        account_ids=[a.id for a in private_accounts
+                     if ha_grants.account_allowed(session, household.id, a)],
+        profiles=[schemas.IntegrationGrantOption(id=p.id, name=p.display_name) for p in profiles],
+        accounts=[schemas.IntegrationGrantOption(id=a.id, name=a.name) for a in private_accounts])
+
+
+@router.put("/private-grants", response_model=schemas.IntegrationGrantsOut)
+def put_grants(body: schemas.IntegrationGrantsIn, household: HouseholdDep, session: SessionDep,
+               profile: ProfileDep, request: Request) -> schemas.IntegrationGrantsOut:
+    admin = _grant_admin(profile, household.id, request)
+    options = get_grants(household, session, profile, request)
+    if (set(body.profile_ids) - {p.id for p in options.profiles}
+            or set(body.account_ids) - {a.id for a in options.accounts}):
+        raise HTTPException(422, "select active profiles and private accounts from this household")
+    previous = ha_grants.stored(session, household.id)
+    accounts_by_id = {a.id: a for a in session.scalars(select(Account).where(
+        Account.household_id == household.id, Account.id.in_(body.account_ids)))}
+    value = {"profile_ids": sorted(set(body.profile_ids)), "accounts": {
+        str(aid): accounts_by_id[aid].owner_profile_id for aid in sorted(set(body.account_ids))}}
+    row = session.get(AppMeta, ha_grants.key(household.id))
+    if row is None:
+        session.add(AppMeta(key=ha_grants.key(household.id), value=json.dumps(value)))
+    else:
+        row.value = json.dumps(value)
+    session.flush()
+    emit(session, household.id, f"profile:{admin.id}", "integration_grants",
+         "integration_settings", 0, {"old": previous, "new": value})
+    return get_grants(household, session, profile, request)

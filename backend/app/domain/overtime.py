@@ -16,8 +16,9 @@ from types import EllipsisType
 from typing import Any
 
 from sqlalchemy import select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
+from app.domain import outbox
 from app.domain.paydays import HolidayTable, load_holidays
 from app.domain.payroll import PayrollError, hourly_rate_pence, salary_at
 from app.persistence.models import (
@@ -25,6 +26,8 @@ from app.persistence.models import (
     Employment,
     OvertimeEntry,
     OvertimeStatus,
+    PayrollRun,
+    PayrollRunStatus,
 )
 
 # Fallback only when an employment hasn't configured its own rates —
@@ -75,6 +78,7 @@ def create_entry(
     multiplier_bps: int | None = None,
     day_type: DayType | None = None,
     notes: str | None = None,
+    rate_pence: int | None = None,
     holidays: HolidayTable | None = None,
 ) -> OvertimeEntry:
     """New draft entry; resolves day type + multiplier, snapshots the
@@ -89,6 +93,10 @@ def create_entry(
     rate = hourly_rate_pence(
         salary_at(session, employment.id, work_date),
         Decimal(str(employment.contracted_hours)))
+    if rate_pence is not None:
+        if rate_pence < 0:
+            raise PayrollError("overtime hourly rate cannot be negative")
+        rate = rate_pence
     created_at = datetime.now(UTC).replace(tzinfo=None)
     e = OvertimeEntry(
         employment_id=employment.id, work_date=work_date, hours=hours,
@@ -96,6 +104,12 @@ def create_entry(
         notes=notes, created_at=created_at, updated_at=created_at)
     session.add(e)
     session.flush()
+    session.refresh(e)  # Snapshot the stored Numeric(5, 2) hours and resulting pay.
+    outbox.emit(session, employment.household_id, "overtime.recorded",
+        entity_kind="employment", entity_id=employment.id,
+        payload={"source": "overtime", "date": work_date.isoformat(), "status": e.status.value,
+                 "name": employment.employer, "hours": str(e.hours),
+                 "amount_pence": e.pay_pence, "entry_id": e.id})
     return e
 
 
@@ -117,8 +131,20 @@ def submit(entry: OvertimeEntry) -> None:
     _transition(entry, OvertimeStatus.submitted)
 
 
+def invalidate_forecasts(entry: OvertimeEntry) -> None:
+    session = object_session(entry)
+    if session is None:
+        return
+    for run in session.scalars(select(PayrollRun).where(
+            PayrollRun.employment_id == entry.employment_id,
+            PayrollRun.status == PayrollRunStatus.forecast,
+            PayrollRun.period_end >= entry.work_date)):
+        run.forecast_stale = True
+
+
 def approve(entry: OvertimeEntry) -> None:
     _transition(entry, OvertimeStatus.approved)
+    invalidate_forecasts(entry)
 
 
 def reject(entry: OvertimeEntry) -> None:
@@ -184,6 +210,8 @@ def transition_week(
         if updated_id != entry.id:
             raise PayrollError("overtime week changed; refresh and confirm again")
         session.refresh(entry)
+        if target is OvertimeStatus.approved:
+            invalidate_forecasts(entry)
     return entries
 
 
@@ -201,6 +229,8 @@ def update_entry(
     day type re-defaults the multiplier unless one is pinned.
     Editing a non-draft reverts it to draft so it re-enters the
     approval flow — approved figures stay stable until edited."""
+    if entry.status is OvertimeStatus.approved:
+        invalidate_forecasts(entry)
     if hours is not None:
         if hours <= 0:
             raise PayrollError("overtime hours must be positive")
@@ -235,6 +265,8 @@ def delete_entry(session: Session, entry: OvertimeEntry) -> None:
     """Remove an entry entirely — any status. Payroll runs keep
     their snapshotted components, so deleting an approved entry
     only removes it from future totals, never rewrites history."""
+    if entry.status is OvertimeStatus.approved:
+        invalidate_forecasts(entry)
     session.delete(entry)
     session.flush()
 

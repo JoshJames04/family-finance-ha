@@ -63,9 +63,9 @@ def resolve_profile(
     path — it is disabled under ingress, where only supervisor
     identity may resolve (spoof hole, issue #29)."""
     pid = getattr(request.state, "profile_id", None)
+    if getattr(request.state, "service_authenticated", False):
+        return None
     if pid is None and request.app.state.settings.ingress:
-        if getattr(request.state, "service_authenticated", False):
-            return None
         if session.scalar(select(UserProfile.id).limit(1)) is not None:
             raise HTTPException(401, "ingress identity required")
         return None

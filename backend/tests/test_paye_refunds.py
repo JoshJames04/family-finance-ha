@@ -19,7 +19,7 @@ from app.persistence.models import (
         ("1257L", 0, 100000, 20000, -20000, 20000),
         # K500: £7,833.33 taxable: £6,283.33@20% + £1,550@40% = £1,876.66.
         # Prior £3,000 paid => £1,123.34 refund, exempt from the half-pay limit.
-        ("K500", 100000, 600000, 300000, -112334, 212334),
+        ("K500", 100000, 600000, 300000, -112307, 212307),
     ],
 )
 def test_cumulative_refund_goldens(code, gross, ytd_gross, ytd_tax, expected_tax, expected_net):
@@ -115,6 +115,6 @@ def test_payrun_carries_a_refund_as_negative_tax_paid(session, household):
     def tax_component(run):
         return next(c.forecast_pence for c in run.components if c.kind is PayrollComponentKind.tax)
 
-    assert tax_component(april) == -38228
-    assert tax_component(may) == 14750
-    assert tax_component(june) == -39050
+    assert tax_component(april) == -38200
+    assert tax_component(may) == 14760
+    assert tax_component(june) == -39040

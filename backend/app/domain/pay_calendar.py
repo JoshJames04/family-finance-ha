@@ -93,6 +93,10 @@ def serialize_rule(rule: PaydayRule) -> str:
 
 
 def parse_rule(raw: str) -> PaydayRule:
+    if raw in {"last_day", "last_working_day"}:
+        return PaydayRule(kind=RuleKind(raw))
+    if raw == "last_friday":
+        return PaydayRule(kind=RuleKind.nth_weekday, weekday=4, nth=-1, adjust=ShiftPolicy.none)
     d: dict[str, Any] = json.loads(raw)
     if "pay_rule" in d:
         d = d["pay_rule"]

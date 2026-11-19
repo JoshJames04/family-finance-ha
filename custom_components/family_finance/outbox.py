@@ -7,12 +7,16 @@ from typing import Any
 
 FAMILY_PREFIXES = {
     "movement": "bills",
+    "bill": "bills",
     "transaction": "banking",
     "account": "banking",
+    "connection": "banking",
     "budget": "budgets",
     "subscription": "subscriptions",
     "goal": "goals",
+    "loan": "loans",
     "payroll": "payroll",
+    "overtime": "payroll",
     "payslip": "payroll",
     "gift": "gifts",
     "seasonal": "gifts",
@@ -23,11 +27,21 @@ FAMILY_PREFIXES = {
 }
 EVENT_TYPES = {
     "bills": [
+        "bill.created",
+        "bill.paused",
+        "bill.resumed",
+        "bill.ended",
+        "bill.amount_changed",
+        "bill.date_changed",
         "movement.settled",
         "movement.partial",
         "movement.overdue",
     ],
-    "banking": ["transaction.imported"],
+    "banking": [
+        "transaction.imported", "transaction.settled", "transaction.review_required",
+        "transaction.reconciled", "transaction.refund_linked", "transaction.transfer_linked",
+        "account.balance_changed", "connection.revoked", "connection.disconnected",
+    ],
     "budgets": [
         "budget.usage",
         "budget.over",
@@ -35,16 +49,25 @@ EVENT_TYPES = {
         "budget.approved",
         "budget.locked",
     ],
-    "subscriptions": ["subscription.price_observed"],
-    "goals": ["goal.milestone"],
+    "subscriptions": [
+        "subscription.price_observed",
+        "subscription.created",
+        "subscription.cancelled",
+        "subscription.amount_changed",
+        "subscription.renewal_changed",
+    ],
+    "goals": ["goal.milestone", "goal.completed", "goal.behind_plan", "goal.target_approaching"],
+    "loans": ["loan.balance_changed", "loan.fully_repaid"],
     "payroll": [
+        "overtime.recorded",
+        "payroll.estimate_changed",
         "payroll.generated",
         "payroll.reconciled",
         "payroll.approaching",
         "payslip.review_required",
         "payslip.state_changed",
     ],
-    "gifts": ["gift.purchased", "gift.paid", "seasonal.variance"],
+    "gifts": ["gift.purchased", "gift.paid", "seasonal.variance", "seasonal.approaching"],
     "energy": ["energy.variance", "energy.reading_updated"],
     "ops": [
         "sync.failed",

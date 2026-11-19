@@ -22,7 +22,15 @@ forecasts, broken formulas, hardcoded tax assumptions and no access control.
 Family Finance replaces it with a purpose-built application. The workbook is a
 one-time migration source only — it is never a runtime dependency.
 
+Employer-specific [bonus planning](docs/BONUSES.md) supports salary percentages, dated shareholdings and manual amounts in one monthly payroll forecast.
+
 ## What it does
+
+- **Historical notes** — an administrator can privately view and search retained
+  annotations in Settings, preserving original year, sheet and cell context.
+  Archives remain explicitly unverified until the original source is available;
+  no current finance records are linked by guesswork. See
+  [the preservation procedure](docs/MIGRATION.md#historical-annotation-preservation).
 
 The [specialist finance audit disposition](docs/FINANCE-HISTORICAL-AUDIT.md)
 documents payroll cutoffs, private salary and savings boundaries, versioned
@@ -66,6 +74,9 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
 - **Dashboard customisation** — widget order and visibility persist per member.
   Failed saves remain clearly marked as unsaved, with Retry and Revert; drafts
   survive navigation and reload in the same browser tab.
+  Safe to spend and Balance forecast share an account selector, initially using
+  the signed-in member's current salary payment account. Missing or ambiguous
+  salary destinations prompt for an account instead of guessing.
 
 ## Architecture at a glance
 
@@ -129,6 +140,13 @@ dedicated synthetic-data volume).
 
 ## Privacy
 
+Home Assistant private payroll reads are off by default. A signed-in administrator
+can select named payroll profiles and private pay destinations in Settings, then
+revoke access at any time. Grants cover payroll events and payday discovery and never permit
+private banking reads or payroll edits. Human payroll changes require their owner,
+including for administrators. See [HA payroll privacy](docs/NOTIFICATIONS-HA.md#private-payroll-reads)
+for Safe/Detailed behavior, retained HA history and existing service actions.
+
 This repository is public. No real financial data, workbook files, account
 numbers or credentials may ever be committed. Development and tests use
 synthetic fixtures only — see [SECURITY.md](SECURITY.md) and
@@ -178,3 +196,6 @@ their authorized account actuals still contribute to All. Section category table
 include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+
+Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
+checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).
