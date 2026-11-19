@@ -248,14 +248,11 @@ jobs:
         run: |
           pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
           test "$(alembic heads | wc -l)" -eq 1 || { echo "Multiple migration heads"; alembic heads; exit 1; }
-          # An explicit immediate parent also works when head is a mergepoint;
-          # a bare relative -1 is ambiguous when there are two parents.
-          parent=$(python - <<'PY'
-          from alembic.config import Config
-          from alembic.script import ScriptDirectory
-          script = ScriptDirectory.from_config(Config("alembic.ini"))
-          parents = script.get_revision(script.get_current_head()).down_revision
-          print((parents[-1] if isinstance(parents, tuple) else parents) or "base")
+          alembic upgrade head
+          # Use the same graph-aware step as the backend tests/release gate.
+          python - <<'PY'
+          import os
+          from app.persistence.migrate import alembic_config, downgrade_one
+          downgrade_one(alembic_config(os.environ["FF_DATABASE_URL"]))
           PY
-          )
-          alembic upgrade head && alembic downgrade "$parent" && alembic upgrade head
+          alembic upgrade head
