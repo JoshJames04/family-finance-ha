@@ -71,17 +71,20 @@ feature PR ──► develop ──► release PR develop→main ──► tag v
 6. **HA update.** Supervisor's add-on store refresh sees
    `addon/config.yaml` bumped → "Update" appears on the add-on →
    Supervisor pulls `ghcr.io/...:latest` (which now equals X.Y.Z).
-7. **Migrate.** The add-on's startup runs Alembic to head; the
-   downgrade path is exercised in CI so a bad update can roll back to
-   the previous image.
+7. **Migrate.** The add-on's startup runs Alembic to head. CI rehearses
+   downgrade/re-upgrade on a scratch database. Operational rollback needs
+   a verified matching backup; reinstalling an old image alone does not
+   undo schema changes.
 
 Revision `0075_merge_seasonal_payroll` joins the seasonal-date (`0071`) and
 payroll/bonus (`0074`) branches. Existing revision IDs and parent links are kept,
 so startup can upgrade from either branch or a database already at both heads.
 The merge itself changes no application rows. CI still requires one script head
-and an upgrade/downgrade/upgrade rehearsal; it targets an explicit immediate
-parent because relative `-1` is ambiguous at a mergepoint. Removing the merge
-node retains both branch schemas and their data before upgrading again.
+and an upgrade/downgrade/upgrade rehearsal. The shared `downgrade_one` helper
+selects an applied leaf and its explicit branch-qualified parent because relative
+`-1` is ambiguous at a mergepoint. Removing the merge node retains both branch
+schemas and their data before upgrading again. Readiness treats an intermediate
+two-head database as not current, rather than assuming a single version row.
 
 ## 3. What needs deciding / building
 

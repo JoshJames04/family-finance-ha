@@ -57,10 +57,31 @@ jobs; the last three are manual evidence.
 | Machine gate bundle | `python tools/release_gate.py` | all 7 machine checks PASS (alembic head, roundtrip, restore, version, openapi↔schema, docs, restore suite) |
 | Full CI on `develop` | `gh run list -b develop` | every job green |
 | Version consistency | `python scripts/version.py check` | no drift |
-| Migration dry-run | `cd backend && alembic upgrade head && alembic downgrade -1 && alembic upgrade head` on a **copy** of the production DB | clean both directions |
+| Migration dry-run | Run the graph-aware scratch migration roundtrip in `tools/release_gate.py`; rehearse on a verified database copy as described below | clean both directions |
 | Backup verified | `POST /api/v1/admin/backups`, then confirm the snapshot appears in `GET /api/v1/admin/backups` and `verify_snapshot` passes | listed + verifiable |
 | Forbidden-file / secret scan | CI `forbidden-files`, `secret-scan` jobs | green — no workbook data, no credentials |
 | Diff review | `gh pr create -B main -H develop` | aggregate diff reviewed, no surprises |
+
+### Graph-aware migration dry-run
+
+Use a verified database copy in an isolated environment. Set `FF_DATABASE_URL`
+explicitly to that copy; do not run a rollback against the live database.
+
+```bash
+cd backend
+export FF_DATABASE_URL=sqlite:////absolute/path/to/database-copy.db
+alembic upgrade head
+python - <<'PY'
+import os
+from app.persistence.migrate import alembic_config, downgrade_one
+downgrade_one(alembic_config(os.environ["FF_DATABASE_URL"]))
+PY
+alembic upgrade head
+```
+
+The shared helper handles a mergepoint's two parent branches. Verify the final
+schema revision and retained records before approving the release. A scratch
+roundtrip does not replace backup verification for operational rollback.
 
 ## Releasing
 
