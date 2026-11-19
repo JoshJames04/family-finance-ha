@@ -138,6 +138,24 @@ def test_correction_preserves_planned_bonus_before_edit_and_delete(session, empl
     assert original.gross_pence == original_gross
 
 
+def test_bonus_recovers_missing_forecast_base_from_salary_revision(session, employer):
+    from app.persistence.models import PayrollComponentKind
+
+    run = payrun.generate(
+        session, employer, start=date(2025, 4, 1), end=date(2025, 4, 30),
+        pay_date=date(2025, 4, 28),
+    )
+    original_gross = run.gross_pence
+    base = next(c for c in run.components if c.kind == PayrollComponentKind.base_salary)
+    run.components.remove(base)
+    session.flush()
+
+    bonuses.save(session, employer, pay_month=date(2025, 4, 1), manual_pence=100)
+
+    assert run.gross_pence == original_gross + 100
+    assert any(c.kind == PayrollComponentKind.base_salary for c in run.components)
+
+
 def test_incomplete_imported_components_cannot_recalculate_bonus(session, employer):
     from app.persistence.models import PayrollComponentKind
 
@@ -148,6 +166,7 @@ def test_incomplete_imported_components_cannot_recalculate_bonus(session, employ
         end=date(2025, 4, 30),
         pay_date=date(2025, 4, 28),
     )
+    run.gross_pence += 100  # Legacy earnings not explained by the source salary.
     original_gross, original_net = run.gross_pence, run.net_pence
     base = next(c for c in run.components if c.kind == PayrollComponentKind.base_salary)
     run.components.remove(base)
@@ -302,3 +321,23 @@ def test_pay_salary_edits_still_invalidate_forecasts(session, employer, change):
         annual_pence=revision.annual_salary_pence + (10000 if change == "salary" else 0),
     )
     assert run.forecast_stale
+
+
+def test_automatic_rebuild_scope_leaves_earlier_forecast_untouched(session, employer):
+    from app.domain import payroll_rebuild
+
+    for month, end in ((4, 30), (5, 31), (6, 30)):
+        payrun.generate(
+            session, employer, start=date(2025, month, 1), end=date(2025, month, end),
+            pay_date=date(2025, month, 28),
+        )
+
+    start = date(2025, 5, 28)
+    preview = payroll_rebuild.rebuild_forecasts(
+        session, employer, apply=False, from_pay_date=start,
+    )
+    assert [change["pay_date"] for change in preview["changes"]] == ["2025-05-28", "2025-06-28"]
+    applied = payroll_rebuild.rebuild_forecasts(
+        session, employer, apply=True, fingerprint=preview["fingerprint"], from_pay_date=start,
+    )
+    assert applied["changes"] == preview["changes"]
