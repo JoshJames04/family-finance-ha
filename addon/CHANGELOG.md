@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.5.2
+
 - Protect authored splits during automatic categorisation and transfer pairing,
   while retaining legitimate refund and expected-payment matching (#556).
 - Recover missing verified payslip inputs through an audited owner-only path,
