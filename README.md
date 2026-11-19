@@ -22,6 +22,8 @@ forecasts, broken formulas, hardcoded tax assumptions and no access control.
 Family Finance replaces it with a purpose-built application. The workbook is a
 one-time migration source only — it is never a runtime dependency.
 
+Employer-specific [bonus planning](docs/BONUSES.md) supports salary percentages, dated shareholdings and manual amounts in one monthly payroll forecast.
+
 ## What it does
 
 The [specialist finance audit disposition](docs/FINANCE-HISTORICAL-AUDIT.md)

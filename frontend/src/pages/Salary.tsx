@@ -12,6 +12,7 @@ import { useAccounts, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { PayrollFactsFields, confirmationFacts, poundsToPence } from "../components/PayrollConfirmation";
 import { DataView } from "../components/DataView";
+import { BonusDialog, SalaryBonuses, SharePaymentPicker, type SharePaymentMethod } from "../components/SalaryBonuses";
 import { Panel } from "../components/Panel";
 import { Badge, type BadgeTone } from "../components/Badge";
 import { Money } from "../components/Money";
@@ -203,6 +204,7 @@ const KIND_LABEL: Record<string, string> = {
   base_salary: "Base salary", overtime: "Overtime", bonus: "Bonus",
   allowance: "Allowance", unpaid_leave: "Unpaid leave", pension: "Pension",
   tax: "Tax", ni: "National Insurance", student_loan: "Student loan",
+  noncash: "Non-cash share award",
 };
 const JURISDICTION: Record<string, string> = {
   england_wales: "England & Wales", scotland: "Scotland", northern_ireland: "Northern Ireland",
@@ -642,6 +644,8 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
   const missingAccount = accounts.data !== null && !accounts.data.items.some((a) => a.id === e.paid_into_account_id && !a.archived);
   const [editingRev, setEditingRev] = useState<SalaryRevision | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
+  const [bonusOpen, setBonusOpen] = useState(false);
+
 
   const [editing, setEditing] = useState(false);
   const [endConfirmed, setEndConfirmed] = useState(false);
@@ -657,6 +661,7 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
             body: {
               effective_date: r.effective_date,
               annual_salary: String(r.annual_salary_pence / 100),
+              shares_owned: r.shares_owned ?? "0",
               notes: r.notes,
             },
           }).then(onChanged));
@@ -678,13 +683,14 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
             <Badge tone="warning" className="mt-2">gross-only — tax is not estimated</Badge>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button size="icon-sm" variant="ghost"
             aria-label={`Edit ${e.employer}`} onClick={() => setEditing(true)}><Pencil /></Button>
           {!ending && !e.end_date && (
             <Button size="sm" variant="secondary" onClick={onEnding}>End employment</Button>
           )}
           <Button size="sm" variant="secondary" onClick={() => setSalaryOpen(true)}>New salary</Button>
+          <Button size="sm" variant="secondary" onClick={() => setBonusOpen(true)}>Add bonus</Button>
           <Button size="icon-sm" variant="ghost" aria-label={`Delete ${e.employer}`}
             onClick={onDelete}><Trash2 /></Button>
         </div>
@@ -725,7 +731,7 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
             <Money pence={r.annual_salary_pence}
               className={i === 0 ? "font-semibold" : "text-fg-muted"} />
             <span className="text-fg-subtle">
-              from {formatSmartDate(r.effective_date)}
+              from {formatSmartDate(r.effective_date)} · {r.shares_owned ?? "0"} shares
               {r.notes && !r.notes.startsWith("{") ? ` · ${r.notes}` : ""}
             </span>
             <span className="flex items-center gap-0.5">
@@ -744,6 +750,8 @@ function EmployerDetail({ employment: e, ending, endDate, setEndDate,
           <li className="text-fg-subtle">No salary recorded yet.</li>
         )}
       </ul>
+      {bonusOpen && <BonusDialog employmentId={e.id} employer={e.employer} sharePaymentMethod={e.share_payment_method ?? "payroll_cash"} onClose={() => setBonusOpen(false)} onSaved={onChanged} />}
+      <SalaryBonuses hideAdd employmentId={e.id} employer={e.employer} sharePaymentMethod={e.share_payment_method ?? "payroll_cash"} rev={rev} onChanged={onChanged} />
       {salaryOpen && (
         <SalaryRevisionDialog employment={e}
           onOpenChange={(o) => { if (!o) setSalaryOpen(false); }}
@@ -780,6 +788,7 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
     e.paid_into_account_id != null ? String(e.paid_into_account_id) : "");
   const [employmentType, setEmploymentType] = useState<"salaried" | "piecework">(
     e.employment_type === "piecework" ? "piecework" : "salaried");
+  const [sharePaymentMethod, setSharePaymentMethod] = useState<SharePaymentMethod>(e.share_payment_method ?? "payroll_cash");
   const [deductionMode, setDeductionMode] = useState<"paye" | "gross_only">(
     e.deduction_mode === "gross_only" ? "gross_only" : "paye");
   const [busy, setBusy] = useState(false);
@@ -800,6 +809,7 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
         paid_into_account_id: paidInto ? Number(paidInto) : null,
         employment_type: employmentType,
         deduction_mode: deductionMode,
+        share_payment_method: sharePaymentMethod,
       },
     })
       .then(() => { toast.success(`${e.employer} updated`); onSaved(); onOpenChange(false); })
@@ -845,6 +855,8 @@ function EditEmploymentDialog({ employment: e, onOpenChange, onSaved }: {
             </Select>
           )}</Field>
         </div>
+        <SharePaymentPicker value={sharePaymentMethod} onChange={setSharePaymentMethod} />
+
         <Field label="Salary calculation" hint="Changing this affects forecasts only. Choose the method used by your employer.">{id => (
           <Select id={id} value={salaryPolicy} onChange={ev => setSalaryPolicy(ev.target.value as "annual_daily" | "equal_monthly")}>
             <option value="annual_daily">Annual salary / 365 days (existing method)</option>
@@ -1010,9 +1022,20 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
     existing?.effective_date ?? toISODate(new Date()));
   const [pounds, setPounds] = useState(
     existing ? String(existing.annual_salary_pence / 100) : "");
+  const revisions = useApi(
+    () => api.get("/api/v1/employments/{emp_id}/salary-revisions",
+      { path: { emp_id: employment.id } }),
+    !existing, [employment.id]);
+  const [editedShares, setShares] = useState<string | null>(existing?.shares_owned ?? null);
+  const current = [...(revisions.data ?? [])]
+    .filter((revision) => revision.effective_date <= date)
+    .sort((a, b) => b.effective_date.localeCompare(a.effective_date))[0];
+  const shares = editedShares ?? current?.shares_owned ?? "0";
+  const sharesReady = Boolean(existing) || (revisions.data !== null && !revisions.error);
   const [notes, setNotes] = useState(existing?.notes ?? "");
   const [busy, setBusy] = useState(false);
-  const valid = date && /^\d+(\.\d{1,2})?$/.test(pounds) && Number(pounds) >= 0;
+  const valid = sharesReady && date && /^\d+(\.\d{1,2})?$/.test(pounds) && Number(pounds) >= 0
+    && /^\d+(\.\d{1,4})?$/.test(shares);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
@@ -1023,6 +1046,7 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
           body: {
             effective_date: date,
             annual_salary: pounds,
+            shares_owned: shares,
             notes: notes.trim() || null,
           },
         })
@@ -1031,6 +1055,7 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
           body: {
             effective_date: date,
             annual_salary: pounds,
+            shares_owned: shares,
             notes: notes.trim() || null,
           },
         });
@@ -1056,6 +1081,8 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
         </Button>
       </>}>
       <form id="ff-salaryrev" onSubmit={submit} className="grid gap-4">
+        {!existing && revisions.loading && <p role="status" className="text-[13px]">Loading current shareholding…</p>}
+        {!existing && revisions.error && <ErrorState message={revisions.error} onRetry={revisions.refetch} />}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Annual salary (£)">{(id) => (
             <Input id={id} autoFocus inputMode="decimal" placeholder="e.g. 42000"
@@ -1066,6 +1093,9 @@ function SalaryRevisionDialog({ employment, existing, onOpenChange, onSaved }: {
               onChange={(e) => setDate(e.target.value)} />
           )}</Field>
         </div>
+        <Field label="Shares owned" hint="Holding from this date, up to four decimal places. Use a new revision when it changes.">{(id) => (
+          <Input id={id} className="min-h-11" inputMode="decimal" disabled={!sharesReady} value={shares} onChange={(e) => setShares(e.target.value.trim())} />
+        )}</Field>
         <Field label="Note" hint={'Optional — e.g. "April pay rise".'}>{(id) => (
           <Input id={id} value={notes} onChange={(e) => setNotes(e.target.value)} />
         )}</Field>
@@ -1390,8 +1420,10 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
   const [employer, setEmployer] = useState("");
   const [hours, setHours] = useState("37.5");
   const [pounds, setPounds] = useState("");
+  const [initialShares, setInitialShares] = useState("0");
   const [taxCode, setTaxCode] = useState("");
   const [employmentType, setEmploymentType] = useState<"salaried" | "piecework">("salaried");
+  const [sharePaymentMethod, setSharePaymentMethod] = useState<SharePaymentMethod>("payroll_cash");
   const [deductionMode, setDeductionMode] = useState<"paye" | "gross_only">("paye");
   const [effDate, setEffDate] = useState(toISODate(new Date()));
   const [paydayRule, setPaydayRule] = useState("");
@@ -1413,6 +1445,8 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
     return toISODate(d);
   })();
   const valid = employer.trim() && pid && Number(hours) > 0
+    && /^\d+(\.\d{1,4})?$/.test(initialShares)
+    && (Number(initialShares) === 0 || Boolean(pounds))
     && (!activeEmps.length || (rel !== null
       && (rel !== "replacement" || (prevEmp !== null
         && Boolean(endDate || suggestedEnd) && confirmEnd))));
@@ -1438,7 +1472,9 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
         start_date: effDate,
         employment_type: employmentType,
         deduction_mode: deductionMode,
+        share_payment_method: sharePaymentMethod,
         initial_salary: pounds || null,
+        initial_shares_owned: initialShares,
         initial_salary_effective_date: pounds ? effDate : null,
         initial_tax_code: taxCode || null,
         replaces_employment_id: rel === "replacement" && prevEmp ? prevEmp.id : null,
@@ -1451,6 +1487,7 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
         toast.success(`Added ${employer.trim()}`);
         setEmployer("");
         setPounds("");
+        setInitialShares("0");
         setTaxCode("");
         onSaved();
         onOpenChange(false);
@@ -1479,6 +1516,10 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
               value={pounds} onChange={(e) => setPounds(e.target.value.trim())} />
           )}</Field>
         </div>
+        <Field label="Initial shares owned" hint="Recorded with the initial salary from its effective date, up to four decimal places. Enter a salary figure (including zero) to record a holding.">{(id) => (
+          <Input id={id} className="min-h-11" inputMode="decimal" value={initialShares}
+            onChange={(e) => setInitialShares(e.target.value.trim())} />
+        )}</Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Employment type">{(id) => (
             <Select id={id} value={employmentType}
@@ -1507,6 +1548,7 @@ function AddEmploymentDialog({ open, onOpenChange, profiles, employments, onSave
           <Input id={id} required type="date" value={effDate}
             onChange={(e) => setEffDate(e.target.value)} />
         )}</Field>
+        <SharePaymentPicker value={sharePaymentMethod} onChange={setSharePaymentMethod} />
         <PaydayPicker value={paydayRule} onChange={setPaydayRule} />
         <Field label="Paid into"
           hint="The account salary lands in — required for paydays to appear in that account's forecast.">{(id) => (

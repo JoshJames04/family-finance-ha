@@ -29,6 +29,7 @@ from app.domain.tax import Deductions, PensionMode, TaxError
 from app.persistence.models import (
     DeliveryEntry,
     Employment,
+    EmploymentBonus,
     PayrollComponent,
     PayrollComponentKind,
     PayrollOverride,
@@ -98,6 +99,14 @@ def _emit_transition(session: Session, run: PayrollRun, transition: str) -> None
             "owner_profile_id": run.employment.profile_id,
         },
         dedup_key=f"payroll:{run.id}:{transition}",
+    )
+
+
+def payroll_month(run: PayrollRun) -> date:
+    """The earning window may be clipped into the preceding calendar month."""
+    snapshot = json.loads(run.calculation_inputs or "{}")
+    return date.fromisoformat(
+        snapshot.get("payroll_month", run.period_end.replace(day=1).isoformat())
     )
 
 
@@ -422,6 +431,29 @@ def generate(
             else dom.gross_for_period(session, employment.id, salary_start, salary_end)
         )
     ot_pay = ot.approved_total_pence(session, employment.id, start, end)
+    planned = list(
+        session.scalars(
+            select(EmploymentBonus).where(
+                EmploymentBonus.employment_id == employment.id,
+                EmploymentBonus.pay_month == label_month,
+            )
+        )
+    )
+    planned_bonus = sum(b.gross_pence for b in planned)
+    if planned and any(
+        payroll_month(r) == label_month
+        for r in session.scalars(
+            select(PayrollRun).where(
+                PayrollRun.employment_id == employment.id,
+                PayrollRun.status != PayrollRunStatus.corrected,
+            )
+        )
+    ):
+        raise PayrollError(
+            "a payroll already contains this month's bonuses; edit it instead of creating another"
+        )
+    noncash = sum(b.noncash_pence for b in planned)
+    bonus_pence += planned_bonus
     earnings = base + ot_pay + bonus_pence + allowance_pence
     taxable_gross = earnings - unpaid_leave_pence
 
@@ -510,7 +542,7 @@ def generate(
             pension_mode=PensionMode(employment.pension_mode),
             pension_pence=pension_pence,
         )
-    net = ded.net_pence
+    net = ded.net_pence - noncash
 
     run = PayrollRun(
         employment_id=employment.id,
@@ -522,6 +554,8 @@ def generate(
         tax_year=tax_year,
         rule_set_year=rules.tax_year if rules is not None else None,
         rule_set_version=rules.version if rules is not None else 0,
+        planned_bonus_pence=planned_bonus,
+        noncash_bonus_pence=noncash,
         gross_pence=earnings,
         net_pence=net,
         statutory_pay_date=statutory_date,
@@ -575,6 +609,8 @@ def generate(
             f"Student loan ({employment.student_loan_plan.value})",
             -ded.student_loan_pence,
         )
+    if noncash:
+        _component(run, PayrollComponentKind.noncash, "Non-cash share award", -noncash)
     session.add(run)
     session.flush()
     mark_later_forecasts_stale(session, run)
@@ -734,9 +770,11 @@ def correct(session: Session, run: PayrollRun) -> PayrollRun:
         net_pence=(
             totals.actual_net_pence if totals.actual_net_pence is not None else run.net_pence
         ),
+        planned_bonus_pence=run.planned_bonus_pence,
+        noncash_bonus_pence=run.noncash_bonus_pence,
         corrects_id=run.id,
         statutory_pay_date=run.statutory_pay_date,
-        calculation_inputs=None,
+        calculation_inputs=json.dumps({"payroll_month": payroll_month(run).isoformat()}),
         forecast_stale=True,
         signed_components=run.signed_components,
     )

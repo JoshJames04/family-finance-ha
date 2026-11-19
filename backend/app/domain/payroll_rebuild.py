@@ -17,6 +17,7 @@ from app.persistence.models import (
     DeliveryCharge,
     DeliveryEntry,
     Employment,
+    EmploymentBonus,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
@@ -137,7 +138,7 @@ def rebuild_forecasts(
     )
     runs.sort(key=lambda r: (payrun.effective_pay_date(employment, r), r.id))
     inputs: list[Any] = [employment, *runs]
-    for model in (SalaryRevision, TaxCodeRevision, OvertimeEntry, DeliveryEntry):
+    for model in (SalaryRevision, TaxCodeRevision, OvertimeEntry, DeliveryEntry, EmploymentBonus):
         inputs.extend(
             session.scalars(
                 select(model).where(model.employment_id == employment.id).order_by(model.id)
@@ -267,7 +268,7 @@ def rebuild_forecasts(
                     start=run.period_start,
                     end=generation_end,
                     pay_date=cash_date,
-                    bonus_pence=adjustments[PayrollComponentKind.bonus],
+                    bonus_pence=adjustments[PayrollComponentKind.bonus] - run.planned_bonus_pence,
                     allowance_pence=adjustments[PayrollComponentKind.allowance],
                     unpaid_leave_pence=fixed_leave,
                     unpaid_leave_days=leave_days,
@@ -312,6 +313,8 @@ def rebuild_forecasts(
                 )
                 run.status = PayrollRunStatus.forecast
                 for field in (
+                    "planned_bonus_pence",
+                    "noncash_bonus_pence",
                     "pay_date",
                     "period_start",
                     "period_end",

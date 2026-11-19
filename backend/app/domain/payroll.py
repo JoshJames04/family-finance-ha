@@ -58,7 +58,19 @@ def add_salary_revision(
     effective_date: date,
     annual_pence: int,
     notes: str | None = None,
+    *,
+    shares_owned: Decimal | None = None,
 ) -> SalaryRevision:
+    if shares_owned is None:
+        prior = _effective(session, SalaryRevision, employment.id, effective_date)
+        shares_owned = prior.shares_owned if prior else Decimal("0")
+    if (
+        not shares_owned.is_finite()
+        or shares_owned < 0
+        or shares_owned > Decimal("9999999999.9999")
+        or shares_owned != shares_owned.quantize(Decimal("0.0001"))
+    ):
+        raise PayrollError("shares owned must be non-negative with at most four decimal places")
     if annual_pence < 0:
         raise PayrollError("annual salary cannot be negative")
     if _revision_on(session, SalaryRevision, employment.id, effective_date) is not None:
@@ -68,6 +80,7 @@ def add_salary_revision(
         effective_date=effective_date,
         annual_salary_pence=annual_pence,
         notes=notes,
+        shares_owned=shares_owned,
     )
     session.add(rev)
     invalidate_forecasts(session, employment.id)
@@ -82,8 +95,19 @@ def update_salary_revision(
     effective_date: date | None = None,
     annual_pence: int | None = None,
     notes: str | EllipsisType | None = ...,
+    shares_owned: Decimal | None = None,
 ) -> SalaryRevision:
     """Correct a revision's figure, date or note in place."""
+    previous_pay = (rev.effective_date, rev.annual_salary_pence)
+    if shares_owned is not None:
+        if (
+            not shares_owned.is_finite()
+            or shares_owned < 0
+            or shares_owned > Decimal("9999999999.9999")
+            or shares_owned != shares_owned.quantize(Decimal("0.0001"))
+        ):
+            raise PayrollError("shares owned must be non-negative with at most four decimal places")
+        rev.shares_owned = shares_owned
     if annual_pence is not None and annual_pence < 0:
         raise PayrollError("annual salary cannot be negative")
     if effective_date is not None and effective_date != rev.effective_date:
@@ -95,7 +119,8 @@ def update_salary_revision(
         rev.annual_salary_pence = annual_pence
     if notes is not ...:
         rev.notes = notes
-    invalidate_forecasts(session, rev.employment_id)
+    if (rev.effective_date, rev.annual_salary_pence) != previous_pay:
+        invalidate_forecasts(session, rev.employment_id)
     session.flush()
     return rev
 
