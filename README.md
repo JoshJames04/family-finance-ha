@@ -22,6 +22,8 @@ forecasts, broken formulas, hardcoded tax assumptions and no access control.
 Family Finance replaces it with a purpose-built application. The workbook is a
 one-time migration source only — it is never a runtime dependency.
 
+Employer-specific [bonus planning](docs/BONUSES.md) supports salary percentages, dated shareholdings and manual amounts in one monthly payroll forecast.
+
 ## What it does
 
 The [specialist finance audit disposition](docs/FINANCE-HISTORICAL-AUDIT.md)
@@ -66,6 +68,9 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
 - **Dashboard customisation** — widget order and visibility persist per member.
   Failed saves remain clearly marked as unsaved, with Retry and Revert; drafts
   survive navigation and reload in the same browser tab.
+  Safe to spend and Balance forecast share an account selector, initially using
+  the signed-in member's current salary payment account. Missing or ambiguous
+  salary destinations prompt for an account instead of guessing.
 
 ## Architecture at a glance
 
@@ -178,3 +183,6 @@ their authorized account actuals still contribute to All. Section category table
 include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+
+Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
+checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).

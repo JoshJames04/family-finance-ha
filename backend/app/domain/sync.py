@@ -26,7 +26,7 @@ from math import isfinite
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain import outbox
+from app.domain import banking_events, outbox
 from app.domain.sync_lock import claim
 from app.persistence.models import (
     Account,
@@ -137,22 +137,40 @@ def _ingest_item(session: Session, account: Account,
             # changes-feed re-delivers mutated items — refresh the
             # mutable fields rather than pure-skip (spike #64:
             # PENDING -> SETTLED arrives as the same ref again)
-            if item.status is not None and dup.status != item.status:
+            if (item.status is not None and dup.status != item.status
+                    and dup.status not in (TransactionStatus.reconciled, TransactionStatus.void)):
                 dup.status = item.status
+                if item.status == TransactionStatus.cleared:
+                    banking_events.transaction_changed(session, dup, "transaction.settled")
             if item.provider_category is not None \
                     and dup.provider_category != item.provider_category:
                 dup.provider_category = item.provider_category
             run.deduped += 1
             return
+    if item.external_ref is not None:
+        seen = session.scalar(select(MergeCandidate.id).where(
+            MergeCandidate.account_id == account.id,
+            MergeCandidate.incoming["external_ref"].as_string() == item.external_ref,
+            (MergeCandidate.incoming["source"].as_string() == source.value)
+            | MergeCandidate.incoming["source"].as_string().is_(None)).limit(1))
+        if seen is not None:
+            run.deduped += 1
+            return
     existing = _fuzzy_match(session, account.id, item)
     if existing is not None and existing.source != source:
-        session.add(MergeCandidate(
+        candidate = MergeCandidate(
             household_id=account.household_id, account_id=account.id,
             existing_txn_id=existing.id,
             incoming={"external_ref": item.external_ref,
+                      "source": source.value,
                       "date": item.date.isoformat(),
                       "amount_pence": item.amount_pence,
-                      "payee": item.payee}))
+                      "payee": item.payee})
+        session.add(candidate)
+        session.flush()
+        banking_events.transaction_changed(session, existing, "transaction.review_required",
+                                           status="pending_review",
+                                           dedup_key=f"merge.review:{candidate.id}")
         run.merge_candidates += 1
         return
     txn = Transaction(
@@ -163,6 +181,8 @@ def _ingest_item(session: Session, account: Account,
         provider_category=item.provider_category)
     session.add(txn)
     session.flush()
+    if item.status == TransactionStatus.cleared:
+        banking_events.transaction_changed(session, txn, "transaction.settled")
     outbox.emit(
         session, account.household_id, "transaction.imported",
         entity_kind="transaction", entity_id=txn.id,
@@ -171,7 +191,8 @@ def _ingest_item(session: Session, account: Account,
             "date": item.date.isoformat(),
             "payee": item.payee,
             "amount_pence": item.amount_pence,
-            "source": source.value},
+            "source": source.value,
+            "_scope_owner_profile_id": account.owner_profile_id},
         dedup_key=f"txn.imported:{txn.id}")
     run.inserted += 1
 

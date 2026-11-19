@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
 from app.main import create_app
+from tests.payroll_helpers import confirmation_payload
 
 
 @pytest.fixture()
@@ -87,7 +88,9 @@ def test_payslip_upload_review_confirm_and_download(
         headers=headers).status_code == 422
     confirmed = client.post(
         f"{path}/{row['id']}/confirm",
-        json={"actuals": {"base_salary": 1000}}, headers=headers)
+        json=confirmation_payload(client.get(
+            f"/api/v1/employments/{emp_id}/payroll-runs/{run_id}", headers=headers).json(),
+            {"base_salary": 1000, "tax": 0, "ni": 0}), headers=headers)
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["status"] == "confirmed"
     downloaded = client.get(f"{path}/{row['id']}/download", headers=headers)
@@ -99,7 +102,9 @@ def test_confirmed_review_components_are_immutable(client: TestClient) -> None:
     headers, emp_id, run_id, path, payslip_id = _upload(client)
     confirmed = client.post(
         f"{path}/{payslip_id}/confirm",
-        json={"actuals": {"base_salary": 1000}}, headers=headers)
+        json=confirmation_payload(client.get(
+            f"/api/v1/employments/{emp_id}/payroll-runs/{run_id}", headers=headers).json(),
+            {"base_salary": 1000, "tax": 0, "ni": 0}), headers=headers)
     assert confirmed.status_code == 200
     assert client.patch(
         f"{path}/{payslip_id}", json={"components": {"base_salary": 2000}},

@@ -27,6 +27,12 @@ Scheduled npm updates keep `@types/node` on the application's Node 22 API line;
 its major upgrades require a deliberate runtime/toolchain change. Patch and
 minor typings updates remain enabled.
 
+Scheduled npm version updates are grouped into one `npm-dependencies` PR per
+weekly run. Python and GitHub Actions retain their existing update policies.
+The grouping takes effect when this configuration reaches `main`, where
+Dependabot reads it; security-update routing remains as described above. See
+the [Dependabot grouping reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#groups--).
+
 ```
 feature PR ──► develop ──► release PR develop→main ──► tag vX.Y.Z
      │              │              │                    │
@@ -69,6 +75,14 @@ feature PR ──► develop ──► release PR develop→main ──► tag v
    downgrade path is exercised in CI so a bad update can roll back to
    the previous image.
 
+Revision `0075_merge_seasonal_payroll` joins the seasonal-date (`0071`) and
+payroll/bonus (`0074`) branches. Existing revision IDs and parent links are kept,
+so startup can upgrade from either branch or a database already at both heads.
+The merge itself changes no application rows. CI still requires one script head
+and an upgrade/downgrade/upgrade rehearsal; it targets an explicit immediate
+parent because relative `-1` is ambiguous at a mergepoint. Removing the merge
+node retains both branch schemas and their data before upgrading again.
+
 ## 3. What needs deciding / building
 
 | Gap | Decision needed | Recommendation |
@@ -108,16 +122,17 @@ him from the existing required CI checks, resolved review conversations or
 force-push/deletion restrictions. It does not apply to `main` or release merges.
 Do not disable administrator enforcement on the existing classic protection rule.
 
-Bot PR automation is **not activated by this ownership change**. Before activation,
-the separately reviewed worker must verify the current-head Josh approval, all CI,
-resolved conversations, non-empty diff and the exact `develop` target. It must run
-under a non-administrator identity with no review bypass, and preserve downstream
-workflow behaviour. The built-in `GITHUB_TOKEN` normally suppresses subsequent
-push-triggered workflows; that effect must be addressed before enabling merging.
-No dedicated GitHub App will be created for this work. Until a safe runtime path
-is validated, automation is limited to a read-only readiness audit.
-Existing qualifying bot PRs and new bot PRs are in scope only after validation.
-No worker may auto-approve, use a manual admin override, or merge a release PR.
+The owner has enabled native GitHub auto-merge for new authorised PRs into
+`develop`, using merge commits. Required current-head Josh approval, CI and
+resolved conversations continue to gate merging. Orbit Codex Bot enables the
+request without administrator bypass or automatic approval. Owner review
+requests are sent only after final checks and reviews complete.
+
+This does not activate a custom merge worker or loosen `main` release controls.
+Any future worker still needs separate review of its identity, target checks and
+downstream workflow behaviour; the built-in `GITHUB_TOKEN` normally suppresses
+subsequent push-triggered workflows. No worker may auto-approve or use a manual
+administrator override.
 
 ## 5. Minimal viable loop (what "live" means tomorrow)
 

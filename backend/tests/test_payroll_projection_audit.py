@@ -14,8 +14,10 @@ from app.persistence.models import (
     ExpectedMovement,
     ExpectedSource,
     PayrollComponentKind,
+    PayrollRun,
     UserProfile,
 )
+from tests.payroll_helpers import confirm
 
 TODAY = date(2025, 4, 10)
 RULE = json.dumps({"kind": "fixed_day", "day": 28, "adjust": "none"})
@@ -38,6 +40,7 @@ def employment(session, household, start=date(2025, 1, 1)):
         household_id=household.id,
         profile_id=p.id,
         employer="Acme",
+        salary_policy="equal_monthly",
         jurisdiction="england_wales",
         contracted_hours=Decimal("37.5"),
         start_date=start,
@@ -55,7 +58,9 @@ def projected(session):
     return list(
         session.scalars(
             select(ExpectedMovement).where(
-                ExpectedMovement.source_type == ExpectedSource.employment
+                ExpectedMovement.source_type.in_(
+                    [ExpectedSource.employment, ExpectedSource.payroll_run]
+                )
             )
         )
     )
@@ -80,7 +85,7 @@ def test_future_start_with_future_initial_revisions_projects_after_start(session
 
 
 def test_run_only_override_does_not_carry_into_later_paydays(session, household):
-    e, _, _ = employment(session, household)
+    e, _, _ = employment(session, household, start=date(2025, 3, 1))
     run = payrun.generate(
         session, e, start=date(2025, 3, 1), end=date(2025, 3, 31), pay_date=date(2025, 3, 28)
     )
@@ -136,7 +141,7 @@ def test_revision_endpoints_refresh_future_income(session, household):
     schedule.rematerialize_employment(session, e)
     rev = api.add_salary_revision(
         e.id,
-        schemas.SalaryRevisionIn(effective_date=today, annual_salary=4800000),
+        schemas.SalaryRevisionIn(effective_date=today.replace(day=1), annual_salary=4800000),
         household,
         session,
         "test",
@@ -201,14 +206,14 @@ def test_actual_net_wins_even_after_reopening_and_zero_correction(session, house
         session, e, start=date(2025, 4, 1), end=date(2025, 4, 30), pay_date=date(2025, 4, 28)
     )
     actuals = {c.kind: 0 for c in run.components}
-    payrun.reconcile(session, run, actuals)
-    payrun.reopen(session, run)
+    confirm(session, run, actuals)
+    run = payrun.reopen(session, run)
     schedule.rematerialize_payroll_run(session, run, today=TODAY)
     row = session.scalar(
         select(ExpectedMovement).where(ExpectedMovement.source_type == ExpectedSource.payroll_run)
     )
     assert row.amount_pence == 0
-    payrun.reconcile(session, run, actuals)
+    confirm(session, run, actuals)
     correction = payrun.correct(session, run)
     assert correction.net_pence == 0
     schedule.rematerialize_payroll_run(session, run, today=TODAY)
@@ -242,7 +247,7 @@ def test_missing_tax_prerequisite_does_not_copy_earlier_bonus_run(session, house
 
     from app.persistence.models import TaxCodeRevision
 
-    e, _, _ = employment(session, household)
+    e, _, _ = employment(session, household, start=date(2025, 3, 1))
     payrun.generate(
         session,
         e,
@@ -319,9 +324,22 @@ def test_employment_replacement_removes_old_future_rows(session, household):
         "test",
         p,
     )
-    old_rows = [m for m in projected(session) if m.source_id == e.id]
-    assert all(m.expected_date < new_start for m in old_rows)
-    assert any(m.source_id != e.id for m in projected(session))
+
+    def owner(m):
+        return (
+            m.source_id
+            if m.source_type is ExpectedSource.employment
+            else session.get(PayrollRun, m.source_id).employment_id
+        )
+
+    old_rows = [m for m in projected(session) if owner(m) == e.id]
+    assert all(
+        m.expected_date < new_start
+        if m.source_type is ExpectedSource.employment
+        else session.get(PayrollRun, m.source_id).period_end < new_start
+        for m in old_rows
+    )  # A final partial salary can be paid after the employment ends.
+    assert any(owner(m) != e.id for m in projected(session))
 
 
 def test_tax_code_and_deduction_changes_refresh_estimates(session, household, monkeypatch):
@@ -337,6 +355,9 @@ def test_tax_code_and_deduction_changes_refresh_estimates(session, household, mo
     monkeypatch.setattr(api, "date", Clock)
     # schedule's default uses its own clock.
     monkeypatch.setattr(schedule, "date", Clock)
+    from app.domain import payroll_automation
+
+    monkeypatch.setattr(payroll_automation, "date", Clock)
     e, _, p = employment(session, household)
     schedule.rematerialize_employment(session, e, horizon_days=35)
     ordinary_net = projected(session)[0].amount_pence
@@ -376,7 +397,7 @@ def test_adding_first_salary_repairs_missing_projection(session, household):
     assert projected(session) == []
     api.add_salary_revision(
         e.id,
-        schemas.SalaryRevisionIn(effective_date=date.today(), annual_salary=4800000),
+        schemas.SalaryRevisionIn(effective_date=date.today().replace(day=1), annual_salary=4800000),
         household,
         session,
         "test",
@@ -447,7 +468,7 @@ def test_real_run_reuses_matched_employment_projection(session, household):
     run = payrun.generate(
         session, e, start=date(2025, 4, 1), end=date(2025, 4, 30), pay_date=date(2025, 4, 28)
     )
-    payrun.reconcile(session, run, {})
+    confirm(session, run, {})
     schedule.rematerialize_payroll_run(session, run, today=TODAY)
     schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
     schedule.rematerialize_payroll_run(session, run, today=TODAY)
@@ -574,35 +595,49 @@ def test_run_supersession_preserves_previous_account_ownership(session, househol
     original = projected(session)[0]
     if saved_state == "matched":
         txn = Transaction(
-            account_id=original_account.id, date=original.expected_date,
-            amount_pence=original.amount_pence, payee="Acme")
+            account_id=original_account.id,
+            date=original.expected_date,
+            amount_pence=original.amount_pence,
+            payee="Acme",
+        )
         session.add(txn)
         session.flush()
-        session.add(ExpectedMatch(
-            movement_id=original.id, transaction_id=txn.id,
-            matched_pence=original.amount_pence, manual=True))
+        session.add(
+            ExpectedMatch(
+                movement_id=original.id,
+                transaction_id=txn.id,
+                matched_pence=original.amount_pence,
+                manual=True,
+            )
+        )
     else:
         original.dismissed_at = datetime(2025, 4, 10)
     saved = scenario.create_scenario(session, household.id, "Original destination")
     removal = scenario.add_op(
-        session, saved, kind=ScenarioOpKind.remove, expected_movement_id=original.id)
+        session, saved, kind=ScenarioOpKind.remove, expected_movement_id=original.id
+    )
     replacement = Account(
-        household_id=household.id, name="Replacement", type="personal", opening_date=TODAY)
+        household_id=household.id, name="Replacement", type="personal", opening_date=TODAY
+    )
     session.add(replacement)
     session.flush()
     e.paid_into_account_id = replacement.id
     schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
     run = payrun.generate(
-        session, e, start=date(2025, 4, 1), end=date(2025, 4, 30), pay_date=date(2025, 4, 28))
+        session, e, start=date(2025, 4, 1), end=date(2025, 4, 30), pay_date=date(2025, 4, 28)
+    )
     schedule.rematerialize_payroll_run(session, run, today=TODAY)
     schedule.rematerialize_employment(session, e, today=TODAY, horizon_days=35)
 
     assert original.account_id == original_account.id
     assert original.source_type == ExpectedSource.employment
     assert removal.expected_movement_id == original.id
-    current = session.scalar(select(ExpectedMovement).where(
-        ExpectedMovement.source_type == ExpectedSource.payroll_run,
-        ExpectedMovement.source_id == run.id))
+    current = session.scalar(
+        select(ExpectedMovement).where(
+            ExpectedMovement.source_type == ExpectedSource.payroll_run,
+            ExpectedMovement.source_id == run.id,
+        )
+    )
     assert current is not None
     assert current.account_id == replacement.id
     assert current.dismissed_at is None

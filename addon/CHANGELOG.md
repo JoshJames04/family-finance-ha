@@ -1,5 +1,10 @@
 # Changelog — Family Finance add-on
 
+## Unreleased
+
+- Restore startup after combining seasonal-date and payroll/bonus updates by
+  joining their migration branches without changing existing revision history.
+
 ## 1.5.0
 
 - Personal and historical Budget plans follow adjusted payday-to-payday windows;
@@ -22,8 +27,8 @@
 - Back up before upgrading: startup applies migration
   `0070_transfer_confirmation_history`. Verify backup restoration and rehearse
   migration on a copy before deploying.
-- Complete final integration, CI and owner review before promotion; the release
-  candidate contains the finance fixes and dependency updates listed above.
+- Published v1.5.0 contains the finance fixes and dependency updates listed above,
+  promoted from `develop` to `main` through release PR #499.
 - Actual HA/provider/mobile acceptance, private categorisation configuration and
   sixteen recovered workbook-comment mappings remain tracked work. This update
   does not claim those operational checks or private data changes are complete.

@@ -18,6 +18,7 @@ from app.persistence.models import (
     Account,
     AccountType,
     BalanceVerification,
+    MergeCandidate,
     RecurringCommitment,
     Transaction,
     TransactionSource,
@@ -93,6 +94,11 @@ def merge_accounts(
     """Move all history from `source` to `target`, then archive source."""
     if source.id == target.id:
         raise ValueError("cannot merge an account into itself")
+    session.execute(update(MergeCandidate).where(
+        MergeCandidate.household_id == source.household_id,
+        MergeCandidate.account_id == source.id,
+        MergeCandidate.existing_txn_id.in_(select(Transaction.id).where(
+            Transaction.account_id == source.id))).values(account_id=target.id))
     session.execute(
         update(Transaction)
         .where(Transaction.account_id == source.id)

@@ -19,6 +19,7 @@ from app.persistence.models import (
     SeasonalEvent,
     UserProfile,
 )
+from tests.payroll_helpers import confirm
 
 
 def employment(session, household):
@@ -49,7 +50,7 @@ def test_payroll_transitions_emit_deduplicated_safe_events(session, household):
     e = employment(session, household)
     run = generate(session, e)
     assert generate(session, e).id == run.id
-    payrun.reconcile(session, run, {})
+    confirm(session, run, {})
     events = list(session.scalars(select(IntegrationEvent).order_by(IntegrationEvent.id)))
     assert [event.event_type for event in events] == ["payroll.generated", "payroll.reconciled"]
     assert all(event.entity_kind == "payroll_run" and event.entity_id == run.id for event in events)
@@ -208,4 +209,5 @@ def test_real_goal_contributions_emit_threshold_crossings_once(session, househol
         row.entity_id == goal.id and row.payload["owner_profile_id"] == e.profile_id for row in rows
     )
     goals.emit_contribution_milestones(session, credit)
-    assert len(list(session.scalars(select(IntegrationEvent)))) == 4
+    assert len(list(session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == "goal.milestone")))) == 4
