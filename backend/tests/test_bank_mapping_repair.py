@@ -376,3 +376,67 @@ def test_autoincrement_high_water_mark_is_preserved_by_refusing_rebuild(database
                    " VALUES (1, 1, 'new', 'Synthetic', 'proposed')")
         assert db.execute("SELECT id FROM bank_account_mapping WHERE external_uid='new'"
                           ).fetchone() == (100,)
+
+
+def test_extra_replace_unique_constraint_refuses_before_normalization(database, tmp_path):
+    from app.persistence.bank_mapping_repair import repair
+
+    legacy(database)
+    engine = sa.create_engine(f"sqlite:///{database}")
+    with engine.begin() as conn, Operations(MigrationContext.configure(conn)).batch_alter_table(
+        "bank_account_mapping"
+    ) as batch:
+        batch.create_unique_constraint("synthetic_replace", ["external_category_uid"],
+                                       sqlite_on_conflict="REPLACE")
+    engine.dispose()
+    mapping(database)
+    mapping(database, row_id=8)
+    with closing(sqlite3.connect(database)) as db, db:
+        db.execute("UPDATE bank_account_mapping SET external_uid='other-synthetic-uid' WHERE id=8")
+        assert db.execute("SELECT id, external_category_uid FROM bank_account_mapping ORDER BY id"
+                          ).fetchall() == [(7, None), (8, None)]
+    before = dump(database)
+    with pytest.raises(RuntimeError, match="unique"):
+        repair(database, tmp_path / "backups")
+    assert dump(database) == before
+    assert not (tmp_path / "backups").exists()
+
+
+def test_ordinary_mapping_index_is_preserved_during_supported_repair(database, tmp_path):
+    from app.persistence.bank_mapping_repair import repair
+
+    legacy(database)
+    mapping(database)
+    with closing(sqlite3.connect(database)) as db, db:
+        db.execute("CREATE INDEX synthetic_mapping_labels ON bank_account_mapping"
+                   " (external_kind, external_label)")
+        before_sql = db.execute(
+            "SELECT sql FROM sqlite_master WHERE name='synthetic_mapping_labels'"
+        ).fetchone()
+    assert repair(database, tmp_path / "backups") is not None
+    with closing(sqlite3.connect(database)) as db, db:
+        assert db.execute("SELECT sql FROM sqlite_master WHERE name='synthetic_mapping_labels'"
+                          ).fetchone() == before_sql
+        assert db.execute("SELECT name FROM pragma_index_info('synthetic_mapping_labels')"
+                          ).fetchall() == [("external_kind",), ("external_label",)]
+        assert db.execute("SELECT id, account_id FROM bank_account_mapping").fetchall() == [(7, 1)]
+
+
+def test_unexpected_mapping_row_loss_rolls_back_before_commit(database, tmp_path, monkeypatch):
+    from app.persistence.bank_mapping_repair import repair
+
+    legacy(database)
+    mapping(database)
+    before = dump(database)
+    original = Operations.batch_alter_table
+
+    @contextmanager
+    def lossy_rebuild(operations, *args, **kwargs):
+        with original(operations, *args, **kwargs) as batch:
+            yield batch
+        operations.get_bind().exec_driver_sql("DELETE FROM bank_account_mapping WHERE id=7")
+
+    monkeypatch.setattr(Operations, "batch_alter_table", lossy_rebuild)
+    with pytest.raises(RuntimeError, match="row count"):
+        repair(database, tmp_path / "backups")
+    assert dump(database) == before

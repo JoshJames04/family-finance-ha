@@ -43,8 +43,9 @@ def _diagnose(conn: Connection) -> Diagnosis:
     column = next(c for c in inspector.get_columns("bank_account_mapping")
                   if c["name"] == "external_category_uid")
     keys = inspector.get_unique_constraints("bank_account_mapping")
-    if not any(k["name"] == "uq_mapping_conn_ext" and k["column_names"] ==
-               ["connection_id", "external_uid", "external_category_uid"] for k in keys):
+    if (len(keys) != 1 or keys[0]["name"] != "uq_mapping_conn_ext" or
+            keys[0]["column_names"] !=
+            ["connection_id", "external_uid", "external_category_uid"]):
         raise RuntimeError("Unexpected mapping unique key; stop and investigate schema provenance")
     collisions = conn.execute(sa.text("""
         SELECT COUNT(*) FROM (
@@ -152,6 +153,9 @@ def repair(path: Path, backup_dir: Path) -> Path | None:
                 snapshot = backup.create_snapshot(engine, backup_dir)
                 if not backup.verify_snapshot(snapshot):
                     raise RuntimeError("Pre-repair backup verification failed; no rows changed")
+                mapping_count = conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM bank_account_mapping"
+                ).scalar_one()
                 conn.exec_driver_sql(
                     "UPDATE bank_account_mapping SET external_category_uid='' "
                     "WHERE external_category_uid IS NULL"
@@ -161,6 +165,10 @@ def repair(path: Path, backup_dir: Path) -> Path | None:
                 ) as batch:
                     batch.alter_column("external_category_uid", existing_type=sa.String(64),
                                        nullable=False, server_default="")
+                if conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM bank_account_mapping"
+                ).scalar_one() != mapping_count:
+                    raise RuntimeError("Post-repair mapping row count changed; rolling back")
                 if _diagnose(conn)["needs_repair"]:
                     raise RuntimeError("Post-repair constraint verification failed")
                 if conn.exec_driver_sql("PRAGMA foreign_key_check").first():

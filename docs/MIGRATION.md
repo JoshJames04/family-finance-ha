@@ -232,14 +232,18 @@ custom column/index collations, AUTOINCREMENT/STRICT/WITHOUT ROWID table options
 or existing foreign-key violations also block rebuilding. These definitions,
 including AUTOINCREMENT's retained ID high-water mark, may not survive schema
 reflection faithfully. The raw DDL token checks are deliberately conservative.
-Investigate these cases; do not delete mappings or constraints merely to make the
-repair pass.
+The table must have exactly the supported three-column unique constraint;
+additional unique constraints are refused before normalisation, including
+`ON CONFLICT REPLACE` constraints that could otherwise delete rows. Ordinary
+supported indexes remain intact. Investigate these cases; do not delete mappings
+or constraints merely to make the repair pass.
 
 Only unambiguous NULL category values become empty strings. The table is rebuilt
 with `NOT NULL DEFAULT ''`, retaining its existing unique key, indexes and foreign
 keys. Mapping IDs, account links, other columns, related rows, transaction history
 and the migration ledger are retained. A correct schema needs no repair or backup.
-Post-repair schema, foreign-key and database-integrity checks run before commit.
+Post-repair mapping row-count, schema, foreign-key and database-integrity checks
+run before commit. Any unexpected mapping row loss rolls back the repair.
 
 Exceptions roll back both schema and data; a process interruption before commit
 recovers through SQLite's transaction journal. Keep any backup produced by a
