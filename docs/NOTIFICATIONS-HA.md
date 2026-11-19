@@ -100,8 +100,8 @@ under #441.
 ## Version 1 payload catalogue
 
 The integration publishes `event` entities for bills, banking, budgets,
-subscriptions, goals, payroll, gifts, energy and ops. Their unique IDs contain the
-config-entry ID and family, not a display name. Canonical events also appear on the
+subscriptions, goals, loans, payroll, gifts, energy and ops. Their unique IDs
+contain the config-entry ID and family, not a display name. Canonical events also appear on the
 bus as `family_finance_<family>_event` for visual Event triggers.
 
 Every canonical bus payload contains `schema_version: 1`, `seq`, `event_type`,
@@ -120,6 +120,7 @@ transitions. Unknown future types in a recognised family remain consumable.
 | Gifts | `gift.purchased`, `gift.paid`, `seasonal.variance`, `seasonal.approaching` |
 | Energy | `energy.reading_updated`, `energy.variance` from changed readings / canonical estimated costs |
 | Goals | `goal.milestone` / `goal.completed` from real contributions; `goal.behind_plan` from canonical on-track deterioration; `goal.target_approaching` in the default three-day deadline window; per-goal numeric percent supports other visual thresholds |
+| Loans | `loan.balance_changed`, `loan.fully_repaid` from the dated outstanding balance; recorded repayment does not imply bank settlement |
 
 A matched payment emits `movement.partial` while an outstanding amount remains.
 Only a payment that completes the obligation emits `movement.settled`; replaying
@@ -470,6 +471,9 @@ against approved/locked shared energy plans. Missing readings are explicit in it
 status and payload, and missing tariffs are unknown rather than zero. Known zero
 consumption days count in the projection average; missing days do not. Shared
 energy report responses apply the same private-plan exclusion.
+
+[Loan balance and fully-repaid events](HA-LOAN-EVENTS.md) extend the canonical
+family streams without inferring repayment due dates from monthly amounts.
 
 [Explicit occasion dates](SEASONAL-DATES.md) enable `seasonal.approaching` reminders
 without guessing dates for existing seasonal records.
