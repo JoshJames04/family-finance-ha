@@ -81,10 +81,12 @@ def test_migrations_upgrade_and_downgrade(db_url: str) -> None:
     engine = create_app_engine(db_url)
     assert current_revision(engine) == head_revision(db_url)
 
-    command.downgrade(cfg, "-1")
+    from app.persistence.migrate import current_revisions, downgrade_one
+
+    downgrade_one(cfg)
     engine2 = create_app_engine(db_url)
-    prev = current_revision(engine2)
-    assert prev is not None and prev != head_revision(db_url)
+    prev = current_revisions(engine2)
+    assert prev and prev != (head_revision(db_url),)
 
     command.downgrade(cfg, "base")
     engine2b = create_app_engine(db_url)

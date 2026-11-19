@@ -248,4 +248,11 @@ jobs:
         run: |
           pip install -e '.[dev]' || pip install -r requirements.txt -r requirements-dev.txt
           test "$(alembic heads | wc -l)" -eq 1 || { echo "Multiple migration heads"; alembic heads; exit 1; }
-          alembic upgrade head && alembic downgrade -1 && alembic upgrade head
+          alembic upgrade head
+          # Use the same graph-aware step as the backend tests/release gate.
+          python - <<'PY'
+          import os
+          from app.persistence.migrate import alembic_config, downgrade_one
+          downgrade_one(alembic_config(os.environ["FF_DATABASE_URL"]))
+          PY
+          alembic upgrade head
