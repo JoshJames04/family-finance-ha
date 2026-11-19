@@ -7721,11 +7721,26 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
             };
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Source Sha256 */
+                    source_sha256: string;
+                    /**
+                     * Provenance Status
+                     * @constant
+                     */
+                    provenance_status: "retained_extraction_unverified";
+                    /** Notes */
+                    notes: components["schemas"]["HistoricalNote"][];
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7755,6 +7770,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
             };
             path?: never;
             cookie?: never;

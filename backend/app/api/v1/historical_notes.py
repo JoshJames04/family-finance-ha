@@ -10,7 +10,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import delete, select
 
-from app.api.deps import HouseholdDep, ProfileDep, SessionDep
+from app.api.audit import emit
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.persistence.models import AppMeta, Role, UserProfile
 
 router = APIRouter(prefix="/historical-notes", tags=["historical-notes"])
@@ -82,16 +83,27 @@ def read_archive(session: SessionDep, household: HouseholdDep,
     return _read(session, _prefix(profile, household.id))
 
 
-@router.put("", response_model=HistoricalArchiveOut)
+@router.put("", response_model=HistoricalArchiveOut, openapi_extra={
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": {
+            key: value for key, value in HistoricalArchiveIn.model_json_schema(
+                ref_template="#/components/schemas/{model}").items() if key != "$defs"
+        }}},
+    },
+})
 async def import_archive(request: Request, session: SessionDep,
                          household: HouseholdDep, profile: ProfileDep,
-                         response: Response) -> HistoricalArchiveOut:
+                         response: Response, actor: ActorDep) -> HistoricalArchiveOut:
     prefix = _prefix(profile, household.id)
+    assert profile is not None
     # Parse here so validation failures cannot echo private note input through
     # the application's general validation handler or error telemetry.
-    raw_body = await request.body()
-    if len(raw_body) > 2000000:
-        raise HTTPException(413, "Archive exceeds size limit")
+    raw_body = bytearray()
+    async for chunk in request.stream():
+        if len(raw_body) + len(chunk) > 2000000:
+            raise HTTPException(413, "Archive exceeds size limit")
+        raw_body.extend(chunk)
     try:
         body = HistoricalArchiveIn.model_validate_json(raw_body)
     except (ValidationError, ValueError):
@@ -109,16 +121,20 @@ async def import_archive(request: Request, session: SessionDep,
         session.add_all([AppMeta(key=f"{prefix}{i // 1024:06d}", value=raw[i:i + 1024])
                          for i in range(0, len(raw), 1024)])
         session.flush()
+        # Audit only the mutation and owner; archive content stays private.
+        emit(session, household.id, actor, "import", "historical_archive", profile.id)
     response.headers["Cache-Control"] = "no-store"
     return HistoricalArchiveOut(**body.model_dump(), digest=digest)
 
 
 @router.delete("", status_code=204)
 def rollback_archive(digest: str, session: SessionDep,
-                     household: HouseholdDep, profile: ProfileDep) -> Response:
+                     household: HouseholdDep, profile: ProfileDep, actor: ActorDep) -> Response:
     prefix = _prefix(profile, household.id)
+    assert profile is not None
     existing = _read(session, prefix)
     if existing.digest is None or existing.digest != digest:
         raise HTTPException(409, "Archive digest does not match")
     session.execute(delete(AppMeta).where(AppMeta.key.startswith(prefix)))
+    emit(session, household.id, actor, "rollback", "historical_archive", profile.id)
     return Response(status_code=204, headers={"Cache-Control": "no-store"})

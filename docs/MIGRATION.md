@@ -151,6 +151,9 @@ to the repository or CI. Keep all source identity and mapping decisions private.
 Use the intended household and authenticated administrator profile. Validation
 rejects duplicates, unknown fields, blank text and out-of-bounds values before
 writing. Limits: 100 notes, 100,000 characters per note, 2 MB request body.
+The body limit is enforced while streaming, including uploads without a content
+length. OpenAPI publishes the JSON manifest contract; invalid inputs still return
+only a generic validation error without echoing note content.
 
 An identical repeat returns the same digest without changing rows. Different
 content cannot overwrite an existing archive. Keep the returned digest privately:
@@ -158,6 +161,9 @@ content cannot overwrite an existing archive. Keep the returned digest privately
 archive and conflicts on a stale digest. Re-import only after an intentional
 rollback. Chunks in existing `app_meta` storage respect its 1,024-character value
 limit and commit atomically; no schema migration is needed. Backups include them.
+Import and rollback emit audit events in the same transaction, identifying the
+actor and owning profile without retaining note text, source metadata or archive
+digests in the shared audit trail. Identical imports do not create extra events.
 
 After rehearsal, compare every source key and full text, context and provenance
 against the approved retained inventory. Verify the archive in the app, repeat

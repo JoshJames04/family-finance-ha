@@ -102,3 +102,91 @@ def test_invalid_manifest_is_atomic_and_errors_do_not_echo_text(archive_client, 
     assert r.status_code == 422
     assert "Original" not in r.text
     assert archive_client.get(URL).json()["notes"] == []
+
+
+def test_openapi_publishes_archive_input_without_changing_private_validation():
+    spec = create_app().openapi()
+    operation = spec["paths"][URL]["put"]
+    request_body = operation["requestBody"]
+    assert request_body["required"] is True
+    schema = request_body["content"]["application/json"]["schema"]
+    assert set(schema["required"]) == {"source_sha256", "provenance_status", "notes"}
+    assert schema["properties"]["notes"]["items"]["$ref"].startswith("#/components/schemas/")
+    assert "HistoricalNote" in spec["components"]["schemas"]
+    assert "$defs" not in schema
+
+
+def test_chunked_upload_stops_reading_at_size_limit():
+    import asyncio
+
+    from fastapi import HTTPException, Response
+    from starlette.requests import Request
+
+    from app.api.v1.historical_notes import import_archive
+    from app.persistence.models import Role, UserProfile
+
+    consumed = 0
+
+    async def receive():
+        nonlocal consumed
+        consumed += 1
+        if consumed > 3:
+            raise AssertionError("read beyond the first oversized chunk")
+        return {"type": "http.request", "body": b"x" * 800000, "more_body": True}
+
+    request = Request({"type": "http", "method": "PUT", "path": URL, "headers": []}, receive)
+    profile = UserProfile(id=1, display_name="Synthetic", role=Role.admin)
+    from app.persistence.models import Household
+    household = Household(id=1, name="Synthetic")
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(import_archive(request=request, session=None, household=household,
+                                   profile=profile, response=Response(),
+                                   actor="synthetic-operator"))
+    assert error.value.status_code == 413
+    assert consumed == 3
+
+
+def test_mutations_audited_without_private_archive_fields(archive_client):
+    from app.persistence.models import AuditEvent
+
+    c = archive_client
+    c.headers["X-Actor-Id"] = "synthetic-operator"
+    body = manifest()
+    digest = c.put(URL, json=body).json()["digest"]
+    assert c.put(URL, json=body).status_code == 200
+    assert c.delete(URL, params={"digest": "b" * 64}).status_code == 409
+    assert c.delete(URL, params={"digest": digest}).status_code == 204
+    with Session(c.app.state.engine) as s:
+        events = list(s.scalars(select(AuditEvent).where(
+            AuditEvent.entity_type == "historical_archive").order_by(AuditEvent.id)))
+        assert [e.action for e in events] == ["import", "rollback"]
+        assert all(e.actor == "synthetic-operator" for e in events)
+        assert all(e.entity_id == int(c.headers["X-Profile-Id"]) for e in events)
+        # No note text, source identity, provenance or digest enters the shared audit.
+        assert all(e.payload is None for e in events)
+
+
+@pytest.mark.parametrize("operation", ["import", "rollback"])
+def test_archive_and_audit_commit_together(archive_client, monkeypatch, operation):
+    from app.api.v1 import historical_notes
+
+    c = archive_client
+    digest = None
+    if operation == "rollback":
+        digest = c.put(URL, json=manifest()).json()["digest"]
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("synthetic audit write failure")
+
+    monkeypatch.setattr(historical_notes, "emit", fail_audit)
+    with pytest.raises(RuntimeError, match="synthetic audit write failure"):
+        if operation == "import":
+            c.put(URL, json=manifest())
+        else:
+            c.delete(URL, params={"digest": digest})
+    remaining = c.get(URL).json()
+    if operation == "import":
+        assert remaining["notes"] == []
+    else:
+        assert remaining["digest"] == digest
+        assert remaining["notes"] == manifest()["notes"]
