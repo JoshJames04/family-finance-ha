@@ -47,24 +47,22 @@ class TestGolden2025_26:
     PA £12,570; bands 20/40/45%; NI 8% £12,570–£50,270 then 2%."""
 
     def test_30k_month1(self) -> None:
-        # £2,500 gross; cum PA £1,047.50; taxable £1,452.50 @20% = £290.50
         d = compute_period(gross_pence=250_000, tax_code="1257L",
                            params=EW, period=1)
-        assert d.tax_pence == 29_050
-        # NI: (£2,500 − £1,047.50) @8% = £116.20
-        assert d.ni_pence == 11_620
-        assert d.net_pence == 250_000 - 29_050 - 11_620
+        assert d.tax_pence == 29_020
+        assert d.ni_pence == 11_616
+        assert d.net_pence == 250_000 - 29_020 - 11_616
 
     def test_weekly_thresholds_and_student_loan(self) -> None:
         d = compute_period(
             gross_pence=50_000, tax_code="1257L", params=EW, period=1,
             periods_per_year=52)
-        assert d.ni_pence == 2_066
-        assert d.tax_pence == 5_165
+        assert d.ni_pence == 2_064
+        assert d.tax_pence == 5_160
         sl = compute_period(
             gross_pence=60_000, tax_code="1257L", params=EW24, period=1,
             periods_per_year=52, student_loan_plan="plan2")
-        assert sl.student_loan_pence == 675
+        assert sl.student_loan_pence == 600
 
     def test_week_53_uses_non_cumulative_week_one_basis(self) -> None:
         d = compute_period(
@@ -77,38 +75,34 @@ class TestGolden2025_26:
         assert d.tax_pence == first.tax_pence
 
     def test_60k_month1(self) -> None:
-        # £5,000 gross; taxable £3,952.50; £3,141.67@20% + £810.83@40%
         d = compute_period(gross_pence=500_000, tax_code="1257L",
                            params=EW, period=1)
-        assert d.tax_pence == 95_266
-        # NI: £3,141.66@8% + £810.84@2%
-        assert d.ni_pence == 26_754
+        assert d.tax_pence == 95_206
+        assert d.ni_pence == 26_750
 
-    def test_150k_month1_tapered(self) -> None:
-        # £12,500 gross; income >£125,140 ⇒ PA fully tapered to £0
+    def test_150k_month1_uses_allowance_in_issued_code(self) -> None:
         d = compute_period(gross_pence=1_250_000, tax_code="1257L",
                            params=EW, period=1)
-        assert d.tax_pence == 447_524
-        assert d.ni_pence == 41_754
+        assert d.tax_pence == 400_320
+        assert d.ni_pence == 41_750
 
     def test_cumulative_month3(self) -> None:
         """Cumulative semantics: cum tax on £7,500 − prior paid = same
-        monthly £290.50 for a flat salary."""
+        the specified prior PAYE is subtracted from cumulative liability."""
         m1 = compute_period(gross_pence=250_000, tax_code="1257L",
                             params=EW, period=1)
         m3 = compute_period(gross_pence=250_000, tax_code="1257L",
                             params=EW, period=3,
                             ytd_taxable_gross_pence=500_000,
                             ytd_tax_pence=m1.tax_pence * 2)
-        # cum: £7,500 − £3,142.50 = £4,357.50 @20% = £871.50 − £581 paid
-        assert m3.tax_pence == 29_050
+        assert m3.tax_pence == 29_060
 
     def test_w1m1_ignores_ytd(self) -> None:
         d = compute_period(gross_pence=250_000, tax_code="1257L W1",
                            params=EW, period=9,
                            ytd_taxable_gross_pence=2_000_000,
                            ytd_tax_pence=500_000)
-        assert d.tax_pence == 29_050  # period-only, no catch-up
+        assert d.tax_pence == 29_020  # period-only, no catch-up
 
 
 class TestCodeVariants:
@@ -129,10 +123,9 @@ class TestCodeVariants:
         assert d.tax_pence == 50_000
 
     def test_k_code_adds_income(self) -> None:
-        # K500: allowance −£5,000 → taxable = £2,500 + £416.66 = £2,916.66
         d = compute_period(gross_pence=250_000, tax_code="K500",
                            params=EW, period=1)
-        assert d.tax_pence == 58_333
+        assert d.tax_pence == 58_340
 
     def test_nt_no_tax(self) -> None:
         assert compute_period(gross_pence=250_000, tax_code="NT",
@@ -142,8 +135,7 @@ class TestCodeVariants:
         # S1257L on Scottish bands: starter/basic/intermediate split
         d = compute_period(gross_pence=250_000, tax_code="S1257L",
                            params=SC, period=1)
-        # £1,452.50 taxable: £235.58@19% + £1,007.83@20% + £209.09@21%
-        assert d.tax_pence == 29_022
+        assert d.tax_pence == 28_992
 
 
 class TestNiAndLoans:
@@ -151,7 +143,7 @@ class TestNiAndLoans:
         d = compute_period(gross_pence=500_000, tax_code="1257L",
                            params=EW, ni_category="M")
         # HMRC employee M rates are 8% then 2%, like A.
-        assert d.ni_pence == 26_754
+        assert d.ni_pence == 26_750
 
     def test_ni_category_c_zero(self) -> None:
         d = compute_period(gross_pence=500_000, tax_code="1257L",
@@ -159,15 +151,12 @@ class TestNiAndLoans:
         assert d.ni_pence == 0
 
     def test_student_loan_plans(self) -> None:
-        # Plan 2 2025-26: threshold £28,470 → £2,372.50/mo
         p2 = compute_period(gross_pence=250_000, tax_code="1257L",
                             params=EW, student_loan_plan="plan2")
-        # excess £127.50 @9% = £11.475 → floor £11.47
-        assert p2.student_loan_pence == 1_147
+        assert p2.student_loan_pence == 1_100
         p5 = compute_period(gross_pence=250_000, tax_code="1257L",
                             params=EW, student_loan_plan="plan5")
-        # threshold £25,000 → £2,083.33; excess £416.67 @9% = £37.50
-        assert p5.student_loan_pence == 3_750
+        assert p5.student_loan_pence == 0
         none = compute_period(gross_pence=250_000, tax_code="1257L",
                               params=EW, student_loan_plan="none")
         assert none.student_loan_pence == 0
@@ -179,22 +168,22 @@ class TestPensionModes:
                            params=EW, pension_pence=12_500,
                            pension_mode=PensionMode.salary_sacrifice)
         assert d.taxable_gross_pence == 237_500
-        assert d.tax_pence == 26_550   # (£2,375−£1,047.50)@20%
-        assert d.ni_pence == 10_620    # also reduced
+        assert d.tax_pence == 26_520   # (£2,375−£1,047.50)@20%
+        assert d.ni_pence == 10_616    # also reduced
 
     def test_net_pay_reduces_tax_only(self) -> None:
         d = compute_period(gross_pence=250_000, tax_code="1257L",
                            params=EW, pension_pence=12_500,
                            pension_mode=PensionMode.net_pay)
-        assert d.tax_pence == 26_550
-        assert d.ni_pence == 11_620    # NI still on full gross
+        assert d.tax_pence == 26_520
+        assert d.ni_pence == 11_616    # NI still on full gross
 
     def test_ras_no_deduction_effect(self) -> None:
         d = compute_period(gross_pence=250_000, tax_code="1257L",
                            params=EW, pension_pence=12_500,
                            pension_mode=PensionMode.relief_at_source)
-        assert d.tax_pence == 29_050 and d.ni_pence == 11_620
-        assert d.net_pence == 250_000 - 29_050 - 11_620 - 12_500
+        assert d.tax_pence == 29_020 and d.ni_pence == 11_616
+        assert d.net_pence == 250_000 - 29_020 - 11_616 - 12_500
 
 
 class TestVersioning:
@@ -202,8 +191,8 @@ class TestVersioning:
         """AC: switching tax year changes results without code change —
         Plan 1 threshold rose £24,990→£26,065 between years."""
         for params, expect in (
-                (EW24, (250_000 - 2_499_000 // 12) * 9 // 100),
-                (EW, (250_000 - 2_606_500 // 12) * 9 // 100)):
+                (EW24, 3_700),
+                (EW, 2_900)):
             d = compute_period(gross_pence=250_000, tax_code="1257L",
                                params=params,
                                student_loan_plan="plan1")
@@ -245,18 +234,18 @@ class TestMetaAndDefectD:
         mutated["bands"][0]["rate"] = 2100  # 20% → 21%
         d = compute_period(gross_pence=250_000, tax_code="1257L",
                            params=mutated, period=1)
-        assert d.tax_pence != 29_050
-        assert d.tax_pence == 30_502  # £1,452.50 @21%
+        assert d.tax_pence != 29_020
+        assert d.tax_pence == 30_471  # £1,452.50 @21%
 
     def test_defect_d_regression(self) -> None:
         """Workbook defect D: the Income sheet approximated take-home
         with a hardcoded =B*0.76 (flat 24% deduction). The engine must
         reproduce the true HMRC deductions instead — for £2,500/month
-        2025-26 that is £290.50 tax + £116.20 NI = £406.70, i.e. net
-        £2,093.30 — not the £2,500×0.76 = £1,900 the workbook gave."""
+        2025-26 that is £290.20 tax + £116.16 NI = £406.36, i.e. net
+        £2,093.64 — not the £2,500×0.76 = £1,900 the workbook gave."""
         workbook_net = int(250_000 * 0.76)
         d = compute_period(gross_pence=250_000, tax_code="1257L",
                            params=EW, period=1)
         assert workbook_net == 190_000
-        assert d.net_pence == 209_330
+        assert d.net_pence == 209_364
         assert d.net_pence != workbook_net

@@ -7,6 +7,7 @@ gift rows so the event view and the ledger can't disagree.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, object_session
@@ -23,6 +24,20 @@ from app.persistence.models import (
 
 class SeasonalError(Exception):
     """Domain validation failure → API maps to 409."""
+
+
+def emit_approaching(session: Session, event: SeasonalEvent, *, today: date) -> None:
+    """Catch up once inside an explicit date's three-day lead window."""
+    due = event.event_date
+    if due is None or not 0 <= (due - today).days <= 3:
+        return
+    outbox.emit(session, event.household_id, "seasonal.approaching",
+                entity_kind="seasonal_event", entity_id=event.id,
+                payload={"source": "seasonal", "status": "approaching",
+                         "date": today.isoformat(), "expected_date": due.isoformat(),
+                         "lead_days": 3, "name": event.name,
+                         "_scope_owner_profile_id": event.owner_profile_id},
+                dedup_key=f"seasonal:approaching:{event.id}:{due}:3")
 
 
 # Forward-only purchase lifecycle; giving closes the chain.

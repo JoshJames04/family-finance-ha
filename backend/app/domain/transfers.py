@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import goals
+from app.domain import banking_events, goals
 from app.persistence.models import Transaction, Transfer
 
 
@@ -45,6 +45,9 @@ def create_transfer(
     session.flush()
     debit.transfer_id = credit.transfer_id = t.id
     session.flush()
+    for txn in (debit, credit):
+        banking_events.transaction_changed(session, txn, "transaction.transfer_linked",
+                                           dedup_key=f"transfer.linked:{t.id}:{txn.id}")
     goals.emit_contribution_milestones(session, credit)
     return t
 

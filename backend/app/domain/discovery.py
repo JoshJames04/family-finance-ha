@@ -20,6 +20,7 @@ from typing import Protocol
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain import banking_events
 from app.domain import sync as syncdom
 from app.domain.accounts import OPENING_PAYEE
 from app.domain.sync import FeedItem
@@ -147,8 +148,10 @@ def discover(session: Session, conn: BankConnection,
                             if m.account_id is not None
                             else MappingStatus.proposed)
         if d.balance_pence is not None:
+            previous_balance = m.balance_pence
             m.balance_pence = d.balance_pence
             m.balance_at = datetime.now()
+            banking_events.balance_changed(session, m, previous_balance)
     for m in rows:
         if ((m.external_uid, m.external_category_uid) not in seen
                 and m.status != MappingStatus.closed
@@ -219,6 +222,7 @@ def sync_balances(session: Session, conn: BankConnection,
     for m, balance, previous_balance in balances:
         m.balance_pence = balance
         m.balance_at = datetime.now()
+        banking_events.balance_changed(session, m, previous_balance)
         # Changing stock can include activity not captured by the completed feed.
         # Equality reduces that timing risk; it is not proof of provider atomicity.
         if (reconcile_opening and m.account_id is not None

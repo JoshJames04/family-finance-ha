@@ -94,7 +94,10 @@ class FamilyFinanceOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         client = FamilyFinanceClient(
-            async_get_clientsession(self.hass), dict(self.config_entry.data)
+            async_get_clientsession(self.hass), {
+                **self.config_entry.data,
+                "forecast_days": self.config_entry.options.get("forecast_days", 90),
+            }
         )
         try:
             items = await client.async_fetch_items()
@@ -121,6 +124,9 @@ class FamilyFinanceOptionsFlow(config_entries.OptionsFlow):
             else:
                 return self.async_create_entry(title="", data=user_input)
         fields = {
+            vol.Optional(
+                "forecast_days", default=self.config_entry.options.get("forecast_days", 90),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=731)),
             vol.Optional(
                 "entity_cap",
                 default=self.config_entry.options.get("entity_cap", ENTITY_CAP),

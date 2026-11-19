@@ -266,8 +266,12 @@ def test_grants_cannot_select_other_household_resources(granted_client):
     )
 
 
+@pytest.mark.parametrize("rule,days", [
+    ('{"kind":"fixed_day","day":22}', 2),
+    ("last_friday", 9),
+])
 def test_payday_discovery_requires_grants_keeps_legacy_prefix_and_revokes(
-    granted_client, monkeypatch
+    granted_client, monkeypatch, rule, days
 ):
     from app.api.v1 import integration
 
@@ -279,7 +283,7 @@ def test_payday_discovery_requires_grants_keeps_legacy_prefix_and_revokes(
     monkeypatch.setattr(integration, "date", Today)
     client, app, ids = granted_client
     with Session(app.state.engine) as s:
-        s.get(Employment, ids["employment"]).payday_rule = '{"kind":"fixed_day","day":22}'
+        s.get(Employment, ids["employment"]).payday_rule = rule
         shared = Account(
             household_id=ids["household"],
             name="Shared",
@@ -308,11 +312,17 @@ def test_payday_discovery_requires_grants_keeps_legacy_prefix_and_revokes(
         "items"
     ]
     assert result[:-1] == baseline
+    paged = []
+    for offset in range(len(result)):
+        page = client.get(f"{path}?limit=1&offset={offset}", headers=SERVICE).json()
+        paged.extend(page["items"])
+        assert page["has_more"] is (offset + 1 < len(result))
+    assert paged == result
     assert result[-1] == {
         "family": "paydays",
         "id": f"employment:{ids['employment']}",
         "name": "Synthetic employer · Next payday",
-        "value": 2,
+        "value": days,
         "unit": "d",
     }
     assert client.get(path + "?limit=1", headers=SERVICE).json()["items"] == baseline[:1]
