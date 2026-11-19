@@ -1283,6 +1283,17 @@ class SeasonalEventIn(BaseModel):
     budget: Money
     savings_goal_id: int | None = None
     notes: str | None = Field(default=None, max_length=500)
+    event_date: date | None = None
+
+    @model_validator(mode="after")
+    def date_matches_year(self) -> SeasonalEventIn:
+        if self.event_date is not None and self.event_date.year != self.year:
+            raise ValueError("event date must be within the event year")
+        return self
+
+
+class SeasonalEventDatePatch(BaseModel):
+    event_date: date | None
 
 
 class SeasonalEventOut(BaseModel):
@@ -1295,6 +1306,7 @@ class SeasonalEventOut(BaseModel):
     budget_pence: int
     savings_goal_id: int | None
     notes: str | None
+    event_date: date | None = None
 
 
 class EventTotalsOut(BaseModel):
@@ -2062,7 +2074,9 @@ class IntegrationFeedOut(BaseModel):
 
 
 class IntegrationItemOut(BaseModel):
-    family: Literal["bills", "accounts", "goals"]
+    family: Literal["bills", "accounts", "goals", "safe_to_spend", "projected_balances",
+                    "budget_remaining", "budget_usage", "seasonal_remaining", "seasonal_usage",
+                    "paydays", "goal_funding", "goal_dates", "seasonal_dates"]
     id: str
     name: str
     value: int | Decimal
@@ -2071,6 +2085,7 @@ class IntegrationItemOut(BaseModel):
 
 class IntegrationItemsOut(BaseModel):
     items: list[IntegrationItemOut]
+    has_more: bool = False
 
 
 class IntegrationSettingsOut(BaseModel):

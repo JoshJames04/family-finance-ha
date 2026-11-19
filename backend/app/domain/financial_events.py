@@ -116,6 +116,7 @@ def evaluate_seasonal(session: Session, household_id: int, *, today: date | None
     for event in session.scalars(
         select(SeasonalEvent).where(SeasonalEvent.household_id == household_id)
     ):
+        seasonal.emit_approaching(session, event, today=today)
         totals = seasonal.totals(session, event)
         current = {
             "owner": event.owner_profile_id,

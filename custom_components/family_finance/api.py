@@ -12,6 +12,7 @@ from typing import Any
 import aiohttp
 
 from .const import API_TIMEOUT, CONF_HOUSEHOLD_ID, CONF_TOKEN, CONF_URL
+from .items import DISCOVERY_CAP
 
 
 class FamilyFinanceError(Exception):
@@ -32,6 +33,7 @@ class FamilyFinanceClient:
     def __init__(self, session: aiohttp.ClientSession, config: dict[str, Any]) -> None:
         self._session = session
         self._base = str(config[CONF_URL]).rstrip("/")
+        self._forecast_days = int(config.get("forecast_days", 90))
         self._headers = {
             "X-Household-Id": str(config[CONF_HOUSEHOLD_ID]),
         }
@@ -143,8 +145,14 @@ class FamilyFinanceClient:
         )
 
     async def async_fetch_items(self) -> list[dict[str, Any]]:
-        result = await self._get("/api/v1/integration/items?limit=100")
-        return result["items"]
+        items = []
+        for offset in range(0, DISCOVERY_CAP, 100):
+            result = await self._get(f"/api/v1/integration/items?limit=100&offset={offset}"
+                                     f"&forecast_days={self._forecast_days}")
+            items.extend(result["items"])
+            if not result.get("has_more", False):
+                return items
+        raise FamilyFinanceError("item discovery exceeds the supported limit")
 
     async def async_energy_config(self) -> dict[str, Any]:
         return await self._get("/api/v1/energy/config")

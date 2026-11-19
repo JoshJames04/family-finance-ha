@@ -2132,6 +2132,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seasonal-events/{eid}/date": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Set Event Date */
+        patch: operations["set_event_date_api_v1_seasonal_events__eid__date_patch"];
+        trace?: never;
+    };
     "/api/v1/seasonal-events/{eid}/totals": {
         parameters: {
             query?: never;
@@ -5666,7 +5683,7 @@ export interface components {
              * Family
              * @enum {string}
              */
-            family: "bills" | "accounts" | "goals";
+            family: "bills" | "accounts" | "goals" | "safe_to_spend" | "projected_balances" | "budget_remaining" | "budget_usage" | "seasonal_remaining" | "seasonal_usage" | "paydays" | "goal_funding" | "goal_dates" | "seasonal_dates";
             /** Id */
             id: string;
             /** Name */
@@ -5680,6 +5697,11 @@ export interface components {
         IntegrationItemsOut: {
             /** Items */
             items: components["schemas"]["IntegrationItemOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
         };
         /** IntegrationSettingsOut */
         IntegrationSettingsOut: {
@@ -7181,6 +7203,11 @@ export interface components {
             projection: components["schemas"]["ProjectionOut"];
             diff: components["schemas"]["ScenarioDiffOut"];
         };
+        /** SeasonalEventDatePatch */
+        SeasonalEventDatePatch: {
+            /** Event Date */
+            event_date: string | null;
+        };
         /** SeasonalEventIn */
         SeasonalEventIn: {
             /** Owner Profile Id */
@@ -7199,6 +7226,8 @@ export interface components {
             savings_goal_id?: number | null;
             /** Notes */
             notes?: string | null;
+            /** Event Date */
+            event_date?: string | null;
         };
         /** SeasonalEventOut */
         SeasonalEventOut: {
@@ -7218,6 +7247,8 @@ export interface components {
             savings_goal_id: number | null;
             /** Notes */
             notes: string | null;
+            /** Event Date */
+            event_date?: string | null;
         };
         /** StatementImportOut */
         StatementImportOut: {
@@ -12612,6 +12643,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                offset?: number;
+                forecast_days?: number;
             };
             header?: {
                 "x-household-id"?: number | null;
@@ -13066,6 +13099,45 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeasonalEventOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_event_date_api_v1_seasonal_events__eid__date_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                eid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeasonalEventDatePatch"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
