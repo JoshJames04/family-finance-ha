@@ -4,6 +4,8 @@ import json
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.domain import overtime, payroll, payrun
 from app.persistence.models import PayrollComponentKind
 from tests import test_payrun as fixtures
@@ -82,3 +84,21 @@ def test_legacy_overtime_display_marks_only_forecasts_for_automatic_refresh(sess
     run.forecast_stale = False
     payrun.flag_outdated_forecasts(session, emp)
     assert not run.forecast_stale
+
+
+@pytest.mark.parametrize('work_date, expected_stale', [
+    (date(2025, 4, 3), True), (date(2025, 5, 3), False),
+])
+def test_legacy_zero_value_overtime_uses_approved_window_not_old_components(
+    session, emp, work_date, expected_stale,
+):
+    approved(session, emp, work_date, '2', 0)
+    run = payrun.generate(session, emp, start=date(2025, 4, 1), end=date(2025, 4, 30),
+                          pay_date=date(2025, 4, 28))
+    # The previous generator omitted the component when overtime totalled zero.
+    run.components[:] = [c for c in run.components if c.kind != PayrollComponentKind.overtime]
+    snapshot = json.loads(run.calculation_inputs)
+    snapshot.pop('overtime_breakdown_version')
+    run.calculation_inputs = json.dumps(snapshot)
+    payrun.flag_outdated_forecasts(session, emp)
+    assert run.forecast_stale is expected_stale

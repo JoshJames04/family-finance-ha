@@ -166,8 +166,11 @@ def flag_outdated_forecasts(session: Session, employment: Employment) -> None:
             run.forecast_stale = True
             continue
         if (
-            any(c.kind is PayrollComponentKind.overtime for c in run.components)
-            and snapshot.get("overtime_breakdown_version") != OVERTIME_BREAKDOWN_VERSION
+            snapshot.get("overtime_breakdown_version") != OVERTIME_BREAKDOWN_VERSION
+            and (
+                any(c.kind is PayrollComponentKind.overtime for c in run.components)
+                or ot.approved_entries(session, employment.id, run.period_start, run.period_end)
+            )
         ):
             run.forecast_stale = True
             continue
