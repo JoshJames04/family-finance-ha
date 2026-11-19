@@ -375,10 +375,14 @@ Financial and snapshot rollback is atomic. Shared automation/report energy budge
 and shared budget event flow exclude private plans/accounts before aggregation.
 Automatic categorisation, suggestions, provider mapping, owned movement
 classification, transfer pairing and refund-credit linking skip reconciled rows
-and rows inside locked periods. These classification passes also skip parents
-with user-authored splits, including either leg of a proposed automatic transfer
-pair, so a transfer link cannot remove authored split spending from reports
-(#556). Canonical expected-payment matching and explicit manual edits or links
+and rows inside locked periods. Category-changing passes and transfer pairing
+also skip parents with user-authored splits, including either leg of a proposed
+automatic transfer pair, so a transfer link cannot remove authored split spending from reports
+(#556). Bulk classification queries load split rows in batches rather than once
+per transaction. Refund linking retains its existing eligibility: it can link a
+positive split refund without changing its categories or child rows, so reports
+net the refund against expenses instead of counting it as income.
+Canonical expected-payment matching and explicit manual edits or links
 retain their existing eligibility rules. No historical transfers are unlinked
 automatically: a split transfer alone does not establish how its link was created.
 A refund can still reference a reconciled purchase because the purchase is

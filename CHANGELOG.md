@@ -13,7 +13,7 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ### Fixed
 
-- Automatic categorisation, provider mapping, transfer pairing and refund linking
+- Automatic categorisation, provider mapping and transfer pairing
   preserve user-authored transaction splits and their external spending (#556).
 
 - Add guarded, owner-only verification of legacy payslip inputs so missing

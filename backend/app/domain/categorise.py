@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.domain.expected_matches import eligible_matches
 from app.domain.periods import (
@@ -111,6 +111,7 @@ def apply_rules(session: Session, household_id: int,
     """Suggest/apply categories on uncategorised transactions."""
     stmt = (
         select(Transaction)
+        .options(selectinload(Transaction.splits))
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household_id,
                Transaction.category_id.is_(None),
@@ -180,7 +181,8 @@ def inherit_match_categories(session: Session, household_id: int
     matches = eligible_matches(select(ExpectedMovement.id).where(
         ExpectedMovement.household_id == household_id))
     rows = session.execute(
-        select(ExpectedMovement, Transaction).select_from(matches)
+        select(ExpectedMovement, Transaction).options(selectinload(Transaction.splits))
+        .select_from(matches)
         .join(ExpectedMovement,
               matches.c.movement_id == ExpectedMovement.id)
         .join(Transaction,
@@ -216,6 +218,7 @@ def apply_provider_map(session: Session, household_id: int, *,
     applied = 0
     stmt = (
         select(Transaction)
+        .options(selectinload(Transaction.splits))
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household_id,
                Transaction.category_id.is_(None),
@@ -313,7 +316,8 @@ def classify_owned_movements(session: Session, household_id: int) -> int:
     if category_id is None:
         return 0
     count = 0
-    for tx in session.scalars(select(Transaction).join(Account).where(
+    for tx in session.scalars(select(Transaction).options(selectinload(Transaction.splits))
+                             .join(Account).where(
             Account.household_id == household_id,
             Transaction.category_id.is_(None),
             Transaction.status != TransactionStatus.void)):
@@ -339,6 +343,7 @@ def auto_pair_transfers(session: Session, household_id: int,
     same-date opposite amounts and equal currencies. Returns pairs made."""
     stmt = (
         select(Transaction)
+        .options(selectinload(Transaction.splits))
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household_id,
                Transaction.transfer_id.is_(None),
@@ -415,7 +420,7 @@ def auto_link_refunds(session: Session, household_id: int,
         stmt = stmt.where(Transaction.date >= since)
     linked = 0
     for t in session.scalars(stmt):
-        if not _automatic_editable(session, t):
+        if not transaction_editable(session, t):
             continue
         category = session.get(Category, t.category_id) if t.category_id else None
         if category is not None and category.name == "Internal Transfers":

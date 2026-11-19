@@ -3,7 +3,7 @@
 from datetime import date
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.domain import categorise, reporting, settle, splits
 from app.persistence.models import (
@@ -113,15 +113,14 @@ def test_automatic_pass_skips_protected_row_and_continues(
             ]
         )
     elif operation == "refund":
-        session.add(
-            Transaction(
-                account_id=first.id,
-                date=date(2025, 4, 1),
-                amount_pence=-1000,
-                payee="Merchant",
-                status=TransactionStatus.reconciled,
-            )
+        original = Transaction(
+            account_id=first.id,
+            date=date(2025, 4, 1),
+            amount_pence=-1000,
+            payee="Merchant",
+            status=TransactionStatus.reconciled,
         )
+        session.add(original)
     elif operation == "inherit":
         commitment = RecurringCommitment(
             household_id=household.id,
@@ -191,7 +190,13 @@ def test_automatic_pass_skips_protected_row_and_continues(
         protected.status,
         protected.amount_pence,
         protected.payee,
-    ) == before
+    ) == (
+        before[:3] + (original.id,) + before[4:]
+        if operation == "refund" and protection == "split"
+        else before
+    )
+    if operation == "refund" and protection == "split":
+        assert protected.refund_of_id is not None
     if operation in {"rules", "provider", "inherit"}:
         assert editable.category_id == food.id
     elif operation == "suggest":
@@ -397,3 +402,39 @@ def test_automatic_pairing_preserves_authored_split_reporting(session, household
     assert categorise.auto_pair_transfers(session, household.id) == 0
     assert (debit.amount_pence, debit.payee, credit.amount_pence, credit.payee) == (
         -10000, accounts[1].name, 10000, accounts[0].name)
+
+
+def test_automatic_split_refund_nets_expenses_without_reclassifying_splits(session, household):
+    account = Account(household_id=household.id, name="Refund account", type="personal",
+                      opening_date=date(2025, 1, 1))
+    categories = [Category(household_id=household.id, name=name) for name in ("Food", "Fee")]
+    session.add_all([account, *categories])
+    session.flush()
+    purchase = Transaction(account_id=account.id, date=date(2025, 5, 1), amount_pence=-10000,
+                           payee="Merchant", status="cleared")
+    refund = Transaction(account_id=account.id, date=date(2025, 5, 2), amount_pence=5000,
+                         payee="Merchant", status="cleared")
+    session.add_all([purchase, refund])
+    session.flush()
+    for transaction, amounts in ((purchase, (-6000, -4000)), (refund, (3000, 2000))):
+        splits.replace(session, transaction, household.id, [
+            {"category_id": category.id, "amount_pence": amount}
+            for category, amount in zip(categories, amounts, strict=True)
+        ])
+    children_before = [(s.id, s.category_id, s.amount_pence) for t in (purchase, refund)
+                       for s in t.splits]
+    effective = reporting.external_category_amounts(Transaction.account_id == account.id)
+    income = select(func.coalesce(func.sum(effective.c.amount_pence), 0)).where(
+        reporting.income_leg(effective))
+    expense = select(effective.c.category_id, func.sum(effective.c.amount_pence)).where(
+        reporting.expense_leg(effective)).group_by(effective.c.category_id).order_by(
+            effective.c.category_id)
+    assert session.scalar(income) == 5000
+    assert session.execute(expense).all() == [(categories[0].id, -6000), (categories[1].id, -4000)]
+    linked = categorise.auto_link_refunds(session, household.id)
+    assert session.scalar(income) == 0
+    assert session.execute(expense).all() == [(categories[0].id, -3000), (categories[1].id, -2000)]
+    assert linked == 1 and refund.refund_of_id == purchase.id
+    assert [(s.id, s.category_id, s.amount_pence) for t in (purchase, refund)
+            for s in t.splits] == children_before
+    assert categorise.auto_link_refunds(session, household.id) == 0
