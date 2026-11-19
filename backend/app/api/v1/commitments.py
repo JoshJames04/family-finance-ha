@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import schedule
-from app.domain.recurring import advance, materialise
+from app.domain import financial_events, outbox, schedule
+from app.domain.recurring import advance, emit_lifecycle, materialise
 from app.domain.subscriptions import normalise_payee
 from app.persistence.models import (
     Account,
@@ -85,6 +85,8 @@ def create_commitment(
     session.add(c)
     session.flush()
     schedule.rematerialize_commitment(session, c)
+    financial_events.seed_bill_end(session, c)
+    emit_lifecycle(session, c, "bill.created")
     emit(session, household.id, actor, "create",
          "recurring_commitment", c.id, {"name": c.name})
     return schemas.CommitmentOut.model_validate(c)
@@ -100,6 +102,8 @@ def update_commitment(
     expected rows; past generated occurrences are untouched."""
     c = _get(session, household.id, cid)
     fields = body.model_dump(exclude_unset=True)
+    old_amount = (c.amount_pence, c.formula)
+    old_dates = (c.frequency, c.day_of_month, c.next_date, c.end_date, c.occurrence_count)
     if c.active:
         _check_subscription(session, household.id, fields.get("name", c.name))
     if "amount" in fields:
@@ -124,6 +128,11 @@ def update_commitment(
             422, "exactly one of amount or formula is required")
     session.flush()
     schedule.rematerialize_commitment(session, c)
+    if old_amount != (c.amount_pence, c.formula):
+        emit_lifecycle(session, c, "bill.amount_changed")
+    if old_dates != (c.frequency, c.day_of_month, c.next_date, c.end_date, c.occurrence_count):
+        financial_events.reset_active_bill_end(session, c)
+        emit_lifecycle(session, c, "bill.date_changed")
     emit(session, household.id, actor, "update",
          "recurring_commitment", c.id, {"fields": sorted(fields)})
     return schemas.CommitmentOut.model_validate(c)
@@ -162,12 +171,16 @@ def deactivate_commitment(
         session.execute(delete(ExpectedMovement).where(
             ExpectedMovement.source_type == ExpectedSource.commitment,
             ExpectedMovement.source_id == c.id))
+        outbox.retire_entity(session, household.id, "commitment", c.id)
         session.delete(c)
         emit(session, household.id, actor, "delete",
              "recurring_commitment", c.id)
         return
+    was_active = c.active
     c.active = False
     schedule.rematerialize_commitment(session, c)  # drops future rows
+    if was_active:
+        emit_lifecycle(session, c, "bill.paused")
     emit(session, household.id, actor, "deactivate",
          "recurring_commitment", c.id)
 
@@ -181,6 +194,7 @@ def activate_commitment(
     a paused bill doesn't emit a burst of backdated occurrences."""
     c = _get(session, household.id, cid)
     _check_subscription(session, household.id, c.name)
+    was_active = c.active
     c.active = True
     today = date.today()
     anchor_dom = c.day_of_month if c.day_of_month is not None \
@@ -188,6 +202,8 @@ def activate_commitment(
     while c.next_date < today:
         c.next_date = advance(c.next_date, c.frequency, anchor_dom)
     schedule.rematerialize_commitment(session, c)
+    if not was_active:
+        emit_lifecycle(session, c, "bill.resumed")
     emit(session, household.id, actor, "activate",
          "recurring_commitment", c.id)
     return schemas.CommitmentOut.model_validate(c)

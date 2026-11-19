@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.persistence.models import AppMeta, IntegrationEvent
@@ -100,6 +100,27 @@ def visible_payload(event: IntegrationEvent, detailed: bool) -> dict[str, object
     return {k: v for k, v in event.payload.items() if k in _SAFE_KEYS}
 
 
+def retire_entity(session: Session, household_id: int, entity_kind: str, entity_id: int) -> None:
+    """Keep pre-delete events hidden even when SQLite later reuses the record ID.
+
+    The marker shares the delete transaction; it never appears in a bus payload.
+    Later generations have higher outbox sequence IDs and remain consumable.
+    """
+    boundary = session.scalar(select(func.max(IntegrationEvent.id)).where(
+        IntegrationEvent.household_id == household_id,
+        IntegrationEvent.entity_kind == entity_kind,
+        IntegrationEvent.entity_id == entity_id))
+    if boundary is None:
+        return
+    key = f"ha_retired:{household_id}:{entity_kind}:{entity_id}"
+    row = session.get(AppMeta, key)
+    if row is None:
+        session.add(AppMeta(key=key, value=str(boundary)))
+    else:
+        row.value = str(boundary)
+    session.flush()
+
+
 def event_visible(session: Session, event: IntegrationEvent, profile_id: int | None,
                   *, all_scopes: bool = False, ha_service: bool = False) -> bool:
     """Apply account ownership even in safe mode: ids and dates are private too."""
@@ -109,6 +130,11 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
     if (original_owner is not None and not all_scopes and original_owner != profile_id
             and not (ha_service and ha_grants.event_allowed(session, event))):
         return False
+    if event.entity_kind is not None and event.entity_id is not None:
+        retired = session.get(AppMeta,
+            f"ha_retired:{event.household_id}:{event.entity_kind}:{event.entity_id}")
+        if retired is not None and event.id <= int(retired.value):
+            return False
     original_scope = event.payload.get("_ha_scope")
     current_scope = ha_grants.scope(session, event) if isinstance(original_scope, dict) else None
     # Ownership/destination changes cannot relabel a historical private event.
