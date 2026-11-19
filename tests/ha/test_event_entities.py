@@ -41,6 +41,7 @@ async def test_failed_publication_keeps_cursor_until_consumers_succeed(hass, moc
 
 
 @pytest.mark.parametrize("event_type,family", [
+    ("bill.created", "bills"), ("subscription.renewal_changed", "subscriptions"),
     ("movement.settled", "bills"), ("goal.completed", "goals"),
     ("goal.behind_plan", "goals"), ("goal.target_approaching", "goals"),
 ])

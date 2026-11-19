@@ -28,6 +28,7 @@ from app.persistence.models import (
     Loan,
     PayrollRun,
     Payslip,
+    RecurringCommitment,
     SeasonalEvent,
 )
 
@@ -316,7 +317,59 @@ def evaluate_loan(session: Session, loan: Loan, *, today: date | None = None) ->
                     payload=payload, dedup_key=f"{key}:{revision}:{kind}")
 
 
+def seed_bill_end(session: Session, bill: RecurringCommitment) -> None:
+    """New records need a durable baseline before any scheduler/offline gap."""
+    _observe(session, f"finance:bill_end:{bill.household_id}:{bill.id}", {"ended": False})
+
+
+def _bill_end_conditions(bill: RecurringCommitment, today: date) -> tuple[bool, bool]:
+    ended_by_date = bill.end_date is not None and bill.end_date < today
+    ended_by_count = (bill.occurrence_count is not None
+                      and bill.generated_count >= bill.occurrence_count
+                      and bill.last_generated is not None and bill.last_generated < today)
+    return ended_by_date, ended_by_count
+
+
+def reset_active_bill_end(session: Session, bill: RecurringCommitment) -> None:
+    """A committed schedule edit can reopen an ended bill before the next wake."""
+    if not any(_bill_end_conditions(bill, date.today())):
+        seed_bill_end(session, bill)
+
+
+def evaluate_bill_ends(session: Session, household_id: int, *, today: date | None = None) -> None:
+    """Observe explicit schedule end boundaries, never future generation or payment.
+
+    Both materialisation and settlement update last_generated/generated_count.
+    First observation seeds existing records quietly; later scheduler wakes catch
+    a real date crossing, including after downtime, in the same transaction.
+    """
+    today = today or date.today()
+    session.flush()
+    for bill in session.scalars(select(RecurringCommitment).where(
+            RecurringCommitment.household_id == household_id)):
+        ended_by_date, ended_by_count = _bill_end_conditions(bill, today)
+        ended = ended_by_date or ended_by_count
+        key = f"finance:bill_end:{household_id}:{bill.id}"
+        change = _observe(session, key, {"ended": ended})
+        if change is None or change[0] is None or not ended:
+            continue
+        last_date = min(boundary for boundary in (
+            bill.end_date if ended_by_date else None,
+            bill.last_generated if ended_by_count else None) if boundary is not None)
+        account = session.get(Account, bill.account_id)
+        outbox.emit(session, household_id, "bill.ended",
+            entity_kind="commitment", entity_id=bill.id,
+            payload={"_scope_owner_profile_id": account.owner_profile_id if account else None,
+                     "status": "ended", "date": today.isoformat(),
+                     "expected_date": last_date.isoformat() if last_date else None,
+                     "source": ("configured_end" if ended_by_date and last_date == bill.end_date
+                                else "final_occurrence"),
+                     "name": bill.name, "amount_pence": bill.amount_pence},
+            dedup_key=f"{key}:{change[1]}")
+
+
 def evaluate_household(session: Session, household_id: int, *, today: date | None = None) -> None:
+    evaluate_bill_ends(session, household_id, today=today)
     evaluate_budgets(session, household_id, today=today)
     evaluate_seasonal(session, household_id, today=today)
     evaluate_energy(session, household_id, today=today)

@@ -12,8 +12,10 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain import outbox
 from app.domain.recurring import advance
 from app.persistence.models import (
+    Account,
     Frequency,
     PriceChangeEvent,
     RecurringCommitment,
@@ -70,7 +72,20 @@ def create(
         tolerance_pct=tolerance_pct, source=source, notes=notes)
     session.add(sub)
     session.flush()
+    emit_lifecycle(session, sub, "subscription.created", source=sub.source)
     return sub
+
+
+def emit_lifecycle(session: Session, sub: Subscription, event_type: str, *,
+                   source: str = "manual") -> None:
+    account = session.get(Account, sub.account_id) if sub.account_id is not None else None
+    outbox.emit(session, sub.household_id, event_type,
+                entity_kind="subscription", entity_id=sub.id,
+                payload={"_scope_owner_profile_id": account.owner_profile_id if account else None,
+                         "payee": sub.payee, "amount_pence": sub.expected_pence,
+                         "expected_date": sub.next_renewal_date.isoformat(),
+                         "frequency": sub.frequency.value, "status": sub.status.value,
+                         "source": source})
 
 
 def _advance_once(sub: Subscription) -> None:
@@ -140,11 +155,12 @@ def record_price(
         transaction_id=transaction_id)
     session.add(p)
     session.flush()
-    from app.domain import outbox
+    account = session.get(Account, sub.account_id) if sub.account_id is not None else None
     outbox.emit(
         session, sub.household_id, "subscription.price_observed",
         entity_kind="subscription", entity_id=sub.id,
         payload={
+            "_scope_owner_profile_id": account.owner_profile_id if account else None,
             "payee": sub.payee,
             "date": d.isoformat(),
             "amount_pence": amount_pence,
@@ -152,6 +168,8 @@ def record_price(
         dedup_key=f"sub.price:{sub.id}:{d.isoformat()}:{amount_pence}")
     if d >= sub.next_renewal_date:
         advance_renewal(sub, d)
+        emit_lifecycle(session, sub, "subscription.renewal_changed",
+                       source="price_observation")
     session.flush()
     return p
 

@@ -192,10 +192,15 @@ def patch_subscription(
 ) -> schemas.SubscriptionOut:
     s = _get(session, household.id, sid)
     changed = body.model_dump(exclude_unset=True)
+    old_amount = s.expected_pence
+    old_renewal = (s.frequency, s.next_renewal_date)
     if s.status == SubscriptionStatus.active:
         subs.check_active_bill(session, household.id, changed.get("payee", s.payee))
     if "expected" in changed:
-        changed["expected_pence"] = changed.pop("expected").pence
+        if body.expected is None:
+            raise HTTPException(422, "expected amount cannot be null")
+        changed.pop("expected")
+        changed["expected_pence"] = body.expected.pence
     if "payee" in changed:
         changed["payee_normalised"] = subs.normalise_payee(
             changed["payee"])
@@ -205,6 +210,10 @@ def patch_subscription(
         setattr(s, k, v)
     session.flush()
     schedule.rematerialize_subscription(session, s)
+    if old_amount != s.expected_pence:
+        subs.emit_lifecycle(session, s, "subscription.amount_changed")
+    if old_renewal != (s.frequency, s.next_renewal_date):
+        subs.emit_lifecycle(session, s, "subscription.renewal_changed")
     emit(session, household.id, actor, "update", "subscription", s.id,
          changed)
     return _out(s)
@@ -217,6 +226,7 @@ def cancel_subscription(
 ) -> schemas.SubscriptionOut:
     s = _get(session, household.id, sid)
     subs.cancel(s, body.date)
+    subs.emit_lifecycle(session, s, "subscription.cancelled")
     schedule.rematerialize_subscription(session, s)
     emit(session, household.id, actor, "cancel", "subscription", s.id,
          {"date": body.date.isoformat()})
