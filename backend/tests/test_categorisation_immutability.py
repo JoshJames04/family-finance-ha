@@ -1,10 +1,11 @@
-"""Automatic passes preserve reconciled rows and locked-period pending rows."""
+"""Automatic passes preserve authored splits, reconciliation and period locks."""
 
 from datetime import date
 
 import pytest
+from sqlalchemy import func, select
 
-from app.domain import categorise, settle
+from app.domain import categorise, reporting, settle, splits
 from app.persistence.models import (
     Account,
     CategorisationRule,
@@ -25,7 +26,7 @@ from app.persistence.models import (
 @pytest.mark.parametrize(
     "operation", ["rules", "suggest", "provider", "owned", "pair", "refund", "inherit"]
 )
-@pytest.mark.parametrize("protection", ["reconciled", "locked_pending"])
+@pytest.mark.parametrize("protection", ["reconciled", "locked_pending", "split"])
 def test_automatic_pass_skips_protected_row_and_continues(
     session, household, operation, protection
 ):
@@ -112,15 +113,14 @@ def test_automatic_pass_skips_protected_row_and_continues(
             ]
         )
     elif operation == "refund":
-        session.add(
-            Transaction(
-                account_id=first.id,
-                date=date(2025, 4, 1),
-                amount_pence=-1000,
-                payee="Merchant",
-                status=TransactionStatus.reconciled,
-            )
+        original = Transaction(
+            account_id=first.id,
+            date=date(2025, 4, 1),
+            amount_pence=-1000,
+            payee="Merchant",
+            status=TransactionStatus.reconciled,
         )
+        session.add(original)
     elif operation == "inherit":
         commitment = RecurringCommitment(
             household_id=household.id,
@@ -155,6 +155,12 @@ def test_automatic_pass_skips_protected_row_and_continues(
                 )
             )
     session.flush()
+    if protection == "split":
+        sign = 1 if protected.amount_pence > 0 else -1
+        splits.replace(session, protected, household.id, [
+            {"category_id": food.id, "amount_pence": sign * 40},
+            {"category_id": internal.id, "amount_pence": sign * 60},
+        ])
     before = (
         protected.category_id,
         protected.suggested_category_id,
@@ -184,7 +190,13 @@ def test_automatic_pass_skips_protected_row_and_continues(
         protected.status,
         protected.amount_pence,
         protected.payee,
-    ) == before
+    ) == (
+        before[:3] + (original.id,) + before[4:]
+        if operation == "refund" and protection == "split"
+        else before
+    )
+    if operation == "refund" and protection == "split":
+        assert protected.refund_of_id is not None
     if operation in {"rules", "provider", "inherit"}:
         assert editable.category_id == food.id
     elif operation == "suggest":
@@ -198,8 +210,9 @@ def test_automatic_pass_skips_protected_row_and_continues(
 
 
 @pytest.mark.parametrize("locked", [False, True])
+@pytest.mark.parametrize("authored_split", [False, True])
 def test_canonical_match_inherits_before_reconciliation_but_honours_period_lock(
-    session, household, locked
+    session, household, locked, authored_split
 ):
     account = Account(
         household_id=household.id,
@@ -249,6 +262,12 @@ def test_canonical_match_inherits_before_reconciliation_but_honours_period_lock(
         )
     )
     session.add_all([movement, transaction])
+    session.flush()
+    if authored_split:
+        splits.replace(session, transaction, household.id, [
+            {"category_id": category.id, "amount_pence": -40},
+            {"category_id": competing.id, "amount_pence": -60},
+        ])
     if locked:
         session.add(
             ReportingPeriod(
@@ -264,7 +283,7 @@ def test_canonical_match_inherits_before_reconciliation_but_honours_period_lock(
     assert transaction.status == (
         TransactionStatus.pending if locked else TransactionStatus.reconciled
     )
-    assert transaction.category_id == (None if locked else category.id)
+    assert transaction.category_id == (None if locked or authored_split else category.id)
 
 
 @pytest.mark.parametrize("fallback", ["provider", "rule"])
@@ -349,3 +368,73 @@ def test_match_without_source_category_applies_only_its_fallback_before_freeze(
     assert transaction.status == TransactionStatus.reconciled
     assert transaction.category_id == (authored.id if preexisting else category.id)
     assert unrelated.category_id is None
+
+
+@pytest.mark.parametrize("split_leg", ["debit", "credit", None])
+def test_automatic_pairing_preserves_authored_split_reporting(session, household, split_leg):
+    accounts = [Account(household_id=household.id, name=name, type="joint",
+                        opening_date=date(2025, 1, 1)) for name in ("Current", "Bills")]
+    categories = [Category(household_id=household.id, name=name) for name in ("Food", "Fee")]
+    session.add_all(accounts + categories)
+    session.flush()
+    debit = Transaction(account_id=accounts[0].id, date=date(2025, 5, 1),
+                        payee=accounts[1].name, amount_pence=-10000, status="cleared")
+    credit = Transaction(account_id=accounts[1].id, date=debit.date,
+                         payee=accounts[0].name, amount_pence=10000, status="cleared")
+    session.add_all([debit, credit])
+    session.flush()
+    protected = credit if split_leg == "credit" else debit
+    if split_leg is not None:
+        sign = 1 if split_leg == "credit" else -1
+        splits.replace(session, protected, household.id, [
+            {"category_id": categories[0].id, "amount_pence": sign * 6000},
+            {"category_id": categories[1].id, "amount_pence": sign * 4000},
+        ])
+    effective = reporting.external_category_amounts(Transaction.id == protected.id)
+    before = session.execute(select(effective.c.category_id, effective.c.amount_pence)).all()
+    assert sum(amount for _, amount in before) == (10000 if split_leg == "credit" else -10000)
+    pairs = categorise.auto_pair_transfers(session, household.id)
+    after = session.execute(select(effective.c.category_id, effective.c.amount_pence)).all()
+    assert after == ([] if split_leg is None else before)
+    assert pairs == (1 if split_leg is None else 0)
+    assert (debit.transfer_id is not None) == (split_leg is None)
+    assert (credit.transfer_id is not None) == (split_leg is None)
+    assert categorise.auto_pair_transfers(session, household.id) == 0
+    assert (debit.amount_pence, debit.payee, credit.amount_pence, credit.payee) == (
+        -10000, accounts[1].name, 10000, accounts[0].name)
+
+
+def test_automatic_split_refund_nets_expenses_without_reclassifying_splits(session, household):
+    account = Account(household_id=household.id, name="Refund account", type="personal",
+                      opening_date=date(2025, 1, 1))
+    categories = [Category(household_id=household.id, name=name) for name in ("Food", "Fee")]
+    session.add_all([account, *categories])
+    session.flush()
+    purchase = Transaction(account_id=account.id, date=date(2025, 5, 1), amount_pence=-10000,
+                           payee="Merchant", status="cleared")
+    refund = Transaction(account_id=account.id, date=date(2025, 5, 2), amount_pence=5000,
+                         payee="Merchant", status="cleared")
+    session.add_all([purchase, refund])
+    session.flush()
+    for transaction, amounts in ((purchase, (-6000, -4000)), (refund, (3000, 2000))):
+        splits.replace(session, transaction, household.id, [
+            {"category_id": category.id, "amount_pence": amount}
+            for category, amount in zip(categories, amounts, strict=True)
+        ])
+    children_before = [(s.id, s.category_id, s.amount_pence) for t in (purchase, refund)
+                       for s in t.splits]
+    effective = reporting.external_category_amounts(Transaction.account_id == account.id)
+    income = select(func.coalesce(func.sum(effective.c.amount_pence), 0)).where(
+        reporting.income_leg(effective))
+    expense = select(effective.c.category_id, func.sum(effective.c.amount_pence)).where(
+        reporting.expense_leg(effective)).group_by(effective.c.category_id).order_by(
+            effective.c.category_id)
+    assert session.scalar(income) == 5000
+    assert session.execute(expense).all() == [(categories[0].id, -6000), (categories[1].id, -4000)]
+    linked = categorise.auto_link_refunds(session, household.id)
+    assert session.scalar(income) == 0
+    assert session.execute(expense).all() == [(categories[0].id, -3000), (categories[1].id, -2000)]
+    assert linked == 1 and refund.refund_of_id == purchase.id
+    assert [(s.id, s.category_id, s.amount_pence) for t in (purchase, refund)
+            for s in t.splits] == children_before
+    assert categorise.auto_link_refunds(session, household.id) == 0

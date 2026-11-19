@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Protect authored splits during automatic categorisation and transfer pairing,
+  while retaining legitimate refund and expected-payment matching (#556).
 - Recover missing verified payslip inputs through an audited owner-only path,
   preserving historical actuals and refreshing eligible forecasts (#552).
 - Show overtime hours and rates with exact per-entry pay and payroll cutoff
