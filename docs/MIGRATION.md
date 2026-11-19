@@ -169,3 +169,83 @@ After rehearsal, compare every source key and full text, context and provenance
 against the approved retained inventory. Verify the archive in the app, repeat
 the import, rehearse rollback, and restore the archive. Production preservation
 and independently verified current-record mappings remain separate sign-off work.
+
+## Legacy bank mapping category constraints (#550, 1.5.2)
+
+Some older SQLite installations have a nullable
+`bank_account_mapping.external_category_uid` without the empty-string server
+default, despite a migration ledger beyond `0050`. A ledger check alone cannot
+detect this drift. SQLite permits duplicate NULL keys under a UNIQUE constraint;
+discovery uses an empty category string, so an old NULL mapping can also be missed
+on rediscovery. The model and current discovery writer already use empty strings.
+The original cause of the divergent legacy schema has not been established;
+this maintenance path does not rewrite migration 0050 or stamp the ledger.
+
+From the installed backend environment, diagnose an existing database explicitly:
+
+```sh
+python -m app.persistence.bank_mapping_repair /path/to/finance.db
+```
+
+This opens SQLite read-only and reports `nullable`, `server_default`,
+`needs_repair`, `null_categories`, `collision_groups` and `association_conflicts`.
+The output contains counts, not provider identifiers or financial rows. A missing
+file is an error; it does not create a database. The command is separate from app
+startup and ordinary upgrades. It is not a live repair authorisation.
+
+For collisions, inspect the following queries **locally and privately**. Do not
+publish results containing household or account identifiers. Review the original
+bank link and confirmed destination; the repair never chooses a surviving row,
+merges mappings, changes ownership or infers an account association.
+
+```sql
+SELECT GROUP_CONCAT(id) AS mapping_ids, COUNT(*) AS conflicting_rows
+FROM bank_account_mapping
+GROUP BY connection_id, external_uid, COALESCE(external_category_uid, '')
+HAVING COUNT(*) > 1;
+
+SELECT m.id AS mapping_id, m.household_id, m.connection_id, m.account_id
+FROM bank_account_mapping m
+LEFT JOIN bank_connection c ON c.id = m.connection_id
+LEFT JOIN account a ON a.id = m.account_id
+WHERE c.id IS NULL OR c.household_id != m.household_id
+   OR (m.account_id IS NOT NULL AND
+       (a.id IS NULL OR a.household_id != m.household_id))
+   OR (m.status = 'linked' AND m.account_id IS NULL);
+```
+
+Rehearse on a disposable copy first. After authorisation for the target, stop the
+app and workers, retain a separate verified backup, and explicitly request repair:
+
+```sh
+python -m app.persistence.bank_mapping_repair /path/to/finance.db \
+  --repair --backup-dir /path/to/backups
+```
+
+The repair reserves SQLite's writer lock before checking data and keeps that lock
+through backup and commit. It uses an independent read connection to create the
+standard backup snapshot and verifies its integrity before changing any rows.
+All duplicate normalised keys, including duplicate NULL keys with matching
+destinations, and conflicting/missing associations block repair. Unexpected unique
+keys, mapping triggers, unnamed mapping checks, expression/descending indexes,
+custom column/index collations, AUTOINCREMENT/STRICT/WITHOUT ROWID table options
+or existing foreign-key violations also block rebuilding. These definitions,
+including AUTOINCREMENT's retained ID high-water mark, may not survive schema
+reflection faithfully. The raw DDL token checks are deliberately conservative.
+Investigate these cases; do not delete mappings or constraints merely to make the
+repair pass.
+
+Only unambiguous NULL category values become empty strings. The table is rebuilt
+with `NOT NULL DEFAULT ''`, retaining its existing unique key, indexes and foreign
+keys. Mapping IDs, account links, other columns, related rows, transaction history
+and the migration ledger are retained. A correct schema needs no repair or backup.
+Post-repair schema, foreign-key and database-integrity checks run before commit.
+
+Exceptions roll back both schema and data; a process interruption before commit
+recovers through SQLite's transaction journal. Keep any backup produced by a
+failed attempt. Rerun the diagnostic before retrying. For an intentional rollback,
+stop all database clients and restore the verified pre-repair snapshot using the
+existing backup restore procedure (including removal of stale WAL/SHM files).
+Confirm integrity, associations and ledger before restarting; restoring also
+returns the legacy constraint difference. Re-run the diagnostic after a successful
+repair and rehearse discovery on the disposable copy before operational sign-off.

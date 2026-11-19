@@ -13,6 +13,9 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ### Fixed
 
+- Add read-only diagnostics and explicit verified-backup repair for legacy bank
+  mapping category-key constraints, refusing ambiguous data and unsupported
+  schema without discarding mappings or weakening constraints (#550).
 - Add guarded, owner-only verification of legacy payslip inputs so missing
   taxable/YTD evidence can be restored without rewriting actual payroll or bank
   matches; refresh eligible forecasts automatically after verification (#552).
