@@ -7,7 +7,6 @@ import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 import { Field, Input, Select } from "./Field";
 import { formatPence, formatSmartDate } from "../lib/format";
-import { undoToast } from "../lib/toast";
 
 export type SharePaymentMethod = "payroll_cash" | "payroll_noncash" | "outside_payroll";
 export function SharePaymentPicker({ value, onChange }: { value: SharePaymentMethod; onChange: (value: SharePaymentMethod) => void }) {
@@ -36,6 +35,7 @@ export function SalaryBonuses({ employmentId, employer, sharePaymentMethod = "pa
   }), true, [employmentId, rev]);
   const [editing, setEditing] = useState<Bonus | "new" | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<Bonus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const changed = () => { bonuses.refetch(); onChanged(); };
   const remove = async (bonus: Bonus) => {
@@ -45,9 +45,8 @@ export function SalaryBonuses({ employmentId, employer, sharePaymentMethod = "pa
       await api.delete("/api/v1/employments/{emp_id}/bonuses/{bonus_id}", {
         path: { emp_id: employmentId, bonus_id: bonus.id },
       });
-      undoToast("Bonus removed", () => api.post("/api/v1/employments/{emp_id}/bonuses", {
-        path: { emp_id: employmentId }, body: bonusBody(bonus),
-      }).then(changed));
+      toast.success("Bonus removed");
+      setPendingRemoval(null);
       changed();
     } catch (err) {
       setError((err as Error).message);
@@ -63,7 +62,7 @@ export function SalaryBonuses({ employmentId, employer, sharePaymentMethod = "pa
       <p className="mt-1 text-[12.5px] text-fg-subtle">All entries in a month add together. See Breakdown for combined payroll deductions and monthly net pay.</p>
       {bonuses.loading && <p role="status" className="mt-2 text-[13px]">Loading bonuses…</p>}
       {bonuses.error && <p role="alert" className="mt-2 text-[13px]">{bonuses.error} <Button className="min-h-11" onClick={bonuses.refetch}>Retry bonuses</Button></p>}
-      {error && <p role="alert" className="mt-2 text-[13px] text-negative">{error}</p>}
+      {error && !pendingRemoval && <p role="alert" className="mt-2 text-[13px] text-negative">{error}</p>}
       {bonuses.data?.length === 0 && <p className="mt-2 text-[13px] text-fg-subtle">No bonuses recorded.</p>}
       <ul className="mt-2 divide-y divide-border">
         {rows.map((bonus) => <li key={bonus.id} className="py-3 text-[13px]">
@@ -79,10 +78,21 @@ export function SalaryBonuses({ employmentId, employer, sharePaymentMethod = "pa
           {bonus.noncash_pence > 0 && <p className="mt-1 text-[12.5px] text-fg-subtle">Includes {formatPence(bonus.noncash_pence)} non-cash shares, taxable through payroll and excluded from cash net pay.</p>}
           <div className="mt-2 flex flex-wrap justify-end gap-2">
             <Button className="min-h-11" variant="ghost" aria-label={`Edit ${bonus.label}`} onClick={() => setEditing(bonus)}>Edit</Button>
-            <Button className="min-h-11" variant="ghost" aria-label={`Delete ${bonus.label}`} disabled={deleting !== null} onClick={() => remove(bonus)}>{deleting === bonus.id ? "Removing…" : "Delete"}</Button>
+            <Button className="min-h-11" variant="ghost" aria-label={`Delete ${bonus.label}`} disabled={deleting !== null} onClick={() => { setError(null); setPendingRemoval(bonus); }}>{deleting === bonus.id ? "Removing…" : "Delete"}</Button>
           </div>
         </li>)}
       </ul>
+      {pendingRemoval && <Dialog open onOpenChange={open => {
+        if (!open && deleting === null) { setPendingRemoval(null); setError(null); }
+      }} title="Remove bonus?"
+        description="This cannot be undone automatically. Adding the bonus again recalculates its amount from your current salary and share records."
+        footer={<>
+          <Button disabled={deleting !== null} onClick={() => { setPendingRemoval(null); setError(null); }}>Cancel</Button>
+          <Button variant="primary" disabled={deleting !== null} onClick={() => void remove(pendingRemoval)}>{deleting !== null ? "Removing…" : "Confirm removal"}</Button>
+        </>}>
+        <p>{pendingRemoval.label} · {pendingRemoval.pay_month.slice(0, 7)} · {formatPence(pendingRemoval.gross_pence)} gross</p>
+        {error && <p role="alert" className="mt-3 text-negative">{error}</p>}
+      </Dialog>}
       {editing && <BonusDialog employmentId={employmentId} employer={employer} sharePaymentMethod={sharePaymentMethod} existing={editing === "new" ? undefined : editing}
         onClose={() => setEditing(null)} onSaved={changed} />}
     </section>

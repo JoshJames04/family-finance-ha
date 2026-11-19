@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast, Toaster } from "sonner";
 import { SalaryBonuses, type SharePaymentMethod } from "../components/SalaryBonuses";
 
 const BONUS = {
@@ -15,7 +16,7 @@ function setup(failSave = false, sharePaymentMethod: SharePaymentMethod = "payro
   vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const method = init?.method ?? "GET";
     calls.push({ method, url: String(input), body: String(init?.body ?? "") });
-    const failed = failSave && method === "POST";
+    const failed = failSave && (method === "POST" || method === "DELETE");
     return Promise.resolve(new Response(JSON.stringify(failed
       ? { title: "Conflict", detail: "Reconciled payroll cannot be changed. Correct the run first." }
       : method === "GET" ? [{ ...BONUS, noncash_pence: sharePaymentMethod === "payroll_noncash" ? 375000 : 0, share_payment_method: sharePaymentMethod }] : BONUS), {
@@ -27,7 +28,7 @@ function setup(failSave = false, sharePaymentMethod: SharePaymentMethod = "payro
   return onChanged;
 }
 describe("employer bonuses", () => {
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  afterEach(() => { cleanup(); toast.dismiss(); vi.restoreAllMocks(); });
   it("shows the dated salary and share basis alongside gross before deductions", async () => {
     setup();
     expect(await screen.findByText("Year-end")).toBeTruthy();
@@ -64,7 +65,34 @@ describe("employer bonuses", () => {
     expect(JSON.parse(calls.find(c => c.method === "PATCH")!.body)).toMatchObject({salary_percentage:"10", share_value:"15", manual_amount:"100"});
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await user.click(screen.getByRole("button", { name: "Delete Year-end" }));
+    await user.click(await screen.findByRole("button", {name:"Confirm removal"}));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith("/bonuses/3"))).toBe(true));
+  });
+  it.each(["payroll_cash", "outside_payroll"] as const)("confirms deletion without offering an unsafe Undo for %s", async method => {
+    const changed = setup(false, method);
+    render(<Toaster />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", {name:"Delete Year-end"}));
+    expect(screen.getByRole("dialog").textContent).toContain("cannot be undone automatically");
+    expect(calls.some(c => c.method === "DELETE")).toBe(false);
+    await user.click(screen.getByRole("button", {name:"Cancel"}));
+    expect(calls.some(c => c.method === "DELETE")).toBe(false);
+    await user.click(screen.getByRole("button", {name:"Delete Year-end"}));
+    await user.click(screen.getByRole("button", {name:"Confirm removal"}));
+    await waitFor(() => expect(changed).toHaveBeenCalled());
+    expect(await screen.findByText("Bonus removed")).toBeTruthy();
+    expect(screen.queryByRole("button", {name:"Undo"})).toBeNull();
+    expect(calls.some(c => c.method === "POST")).toBe(false);
+  });
+  it("keeps the confirmation open and the original entry intact when removal is rejected", async () => {
+    const changed = setup(true);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", {name:"Delete Year-end"}));
+    await user.click(screen.getByRole("button", {name:"Confirm removal"}));
+    expect((await screen.findByRole("alert")).textContent).toContain("Correct the run first");
+    expect(changed).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", {name:"Cancel"}));
+    expect(screen.getByText("Year-end")).toBeTruthy();
   });
   it("retains the entry and displays an actionable payroll conflict", async () => {
     setup(true);

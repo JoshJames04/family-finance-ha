@@ -36,6 +36,9 @@ components, pending corrections, bank matches, incomplete imported earnings and
 manual overrides are protected. The planner changes eligible forecasts; use
 explicit payslip correction for confirmed amounts. Later reconciled pay also prevents
 rewriting an earlier cumulative tax basis.
+Removing an open bonus requires confirmation. It has no automatic Undo: adding
+the entry again recalculates its basis from current records and may produce a
+different amount. Cancel the confirmation to keep the original saved snapshot.
 Linked corrections retain the original payroll-month label, including final cutoff
 periods ending in the preceding month. Protection is checked before any bonus edit.
 
