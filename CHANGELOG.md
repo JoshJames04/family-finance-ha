@@ -13,6 +13,9 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ### Fixed
 
+- Automatic categorisation, provider mapping, transfer pairing and refund linking
+  preserve user-authored transaction splits and their external spending (#556).
+
 - Add guarded, owner-only verification of legacy payslip inputs so missing
   taxable/YTD evidence can be restored without rewriting actual payroll or bank
   matches; refresh eligible forecasts automatically after verification (#552).

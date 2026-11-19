@@ -375,8 +375,14 @@ Financial and snapshot rollback is atomic. Shared automation/report energy budge
 and shared budget event flow exclude private plans/accounts before aggregation.
 Automatic categorisation, suggestions, provider mapping, owned movement
 classification, transfer pairing and refund-credit linking skip reconciled rows
-and rows inside locked periods. A refund can still reference a reconciled
-purchase because the purchase is unchanged. Canonical occurrence settlement
+and rows inside locked periods. These classification passes also skip parents
+with user-authored splits, including either leg of a proposed automatic transfer
+pair, so a transfer link cannot remove authored split spending from reports
+(#556). Canonical expected-payment matching and explicit manual edits or links
+retain their existing eligibility rules. No historical transfers are unlinked
+automatically: a split transfer alone does not establish how its link was created.
+A refund can still reference a reconciled purchase because the purchase is
+unchanged. Canonical occurrence settlement
 inherits its source category, then applies provider/rule fallbacks to that one
 editable row, before reconciliation freezes it. Existing user categories and
 protected historical rows remain unchanged.

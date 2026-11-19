@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve user-authored transaction splits during automatic categorisation,
+  transfer pairing and refund processing so reported spending stays intact (#556).
 - Recover missing verified payslip inputs through an audited owner-only path,
   preserving historical actuals and refreshing eligible forecasts (#552).
 - Show overtime hours and rates with exact per-entry pay and payroll cutoff

@@ -61,6 +61,11 @@ def transaction_editable(session: Session, transaction: Transaction) -> bool:
     return True
 
 
+def _automatic_editable(session: Session, transaction: Transaction) -> bool:
+    """Authored splits retain their classification during automated passes (#556)."""
+    return not transaction.splits and transaction_editable(session, transaction)
+
+
 def _matches(rule: CategorisationRule, payee: str) -> bool:
     if rule.match_type is MatchType.exact:
         return rule.pattern.casefold() == payee.casefold()
@@ -118,7 +123,7 @@ def apply_rules(session: Session, household_id: int,
         stmt = stmt.where(Transaction.date >= since)
     applied = suggested = unmatched = 0
     for t in session.scalars(stmt):
-        if not transaction_editable(session, t):
+        if not _automatic_editable(session, t):
             continue
         rule = match_rule(session, household_id, t.payee,
                           account_id=t.account_id, amount_pence=t.amount_pence)
@@ -144,7 +149,7 @@ _MATCH_CATEGORY_SOURCES = {
 def inherit_movement_category(session: Session, movement: ExpectedMovement,
                               transaction: Transaction) -> bool:
     """Inherit a confirmed source category before canonical reconciliation freezes the row."""
-    if transaction.category_id is not None or not transaction_editable(session, transaction):
+    if transaction.category_id is not None or not _automatic_editable(session, transaction):
         return False
     model = _MATCH_CATEGORY_SOURCES.get(movement.source_type)
     source = session.get(model, movement.source_id) if model is not None else None
@@ -221,7 +226,7 @@ def apply_provider_map(session: Session, household_id: int, *,
     if account_ids is not None:
         stmt = stmt.where(Transaction.account_id.in_(account_ids))
     for tx in session.scalars(stmt):
-        if not transaction_editable(session, tx):
+        if not _automatic_editable(session, tx):
             continue
         if account_ids is not None and tx.account_id not in account_ids:
             continue
@@ -312,7 +317,7 @@ def classify_owned_movements(session: Session, household_id: int) -> int:
             Account.household_id == household_id,
             Transaction.category_id.is_(None),
             Transaction.status != TransactionStatus.void)):
-        if not transaction_editable(session, tx):
+        if not _automatic_editable(session, tx):
             continue
         destinations = names.get(tx.payee.strip().casefold(), [])
         target = _transfer_target(session, household_id, tx)
@@ -372,7 +377,7 @@ def auto_pair_transfers(session: Session, household_id: int,
             c = candidates[0]
             if sum(supported(other, c) for other in debits) != 1:
                 continue
-            if not transaction_editable(session, d) or not transaction_editable(session, c):
+            if not _automatic_editable(session, d) or not _automatic_editable(session, c):
                 continue
             tr = Transfer(household_id=household_id)
             session.add(tr)
@@ -410,7 +415,7 @@ def auto_link_refunds(session: Session, household_id: int,
         stmt = stmt.where(Transaction.date >= since)
     linked = 0
     for t in session.scalars(stmt):
-        if not transaction_editable(session, t):
+        if not _automatic_editable(session, t):
             continue
         category = session.get(Category, t.category_id) if t.category_id else None
         if category is not None and category.name == "Internal Transfers":
