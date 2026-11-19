@@ -235,3 +235,10 @@ payday events retain their source ownership checks in both Safe and Detailed
 feeds. Detailed sync events use constant error codes rather than raw provider
 responses. Backup events remain allowlisted and omit filenames, paths and exception
 text in both modes. The shared Energy report excludes other members' private plans.
+
+Historical annotations are private to the active administrator profile and its
+household. Other profiles, administrator tokens without a profile, and the Home
+Assistant service cannot read that archive. The endpoints return `Cache-Control:
+no-store`; invalid import responses omit note inputs. No annotation content is
+published to integration events or attached to current finance records. Database
+backups still contain archives and require the same protection as financial data.

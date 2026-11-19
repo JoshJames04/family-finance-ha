@@ -4,6 +4,25 @@
  */
 
 export interface paths {
+    "/api/v1/historical-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Archive */
+        get: operations["read_archive_api_v1_historical_notes_get"];
+        /** Import Archive */
+        put: operations["import_archive_api_v1_historical_notes_put"];
+        post?: never;
+        /** Rollback Archive */
+        delete: operations["rollback_archive_api_v1_historical_notes_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households": {
         parameters: {
             query?: never;
@@ -5763,6 +5782,38 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HistoricalArchiveOut */
+        HistoricalArchiveOut: {
+            /** Digest */
+            digest?: string | null;
+            /** Source Sha256 */
+            source_sha256?: string | null;
+            /** Provenance Status */
+            provenance_status?: "retained_extraction_unverified" | null;
+            /** Notes */
+            notes?: components["schemas"]["HistoricalNote"][];
+        };
+        /** HistoricalNote */
+        HistoricalNote: {
+            /** Source Key */
+            source_key: string;
+            /** Sheet Index */
+            sheet_index: number;
+            /** Sheet Name */
+            sheet_name: string;
+            /** Year */
+            year: number;
+            /** Worksheet Part */
+            worksheet_part: string;
+            /** Cell Reference */
+            cell_reference: string;
+            /** Thread Id */
+            thread_id?: string | null;
+            /** Timestamp */
+            timestamp?: string | null;
+            /** Text */
+            text: string;
+        };
         /** HouseholdIn */
         HouseholdIn: {
             /** Name */
@@ -7943,6 +7994,118 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_archive_api_v1_historical_notes_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoricalArchiveOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_archive_api_v1_historical_notes_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Source Sha256 */
+                    source_sha256: string;
+                    /**
+                     * Provenance Status
+                     * @constant
+                     */
+                    provenance_status: "retained_extraction_unverified";
+                    /** Notes */
+                    notes: components["schemas"]["HistoricalNote"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoricalArchiveOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollback_archive_api_v1_historical_notes_delete: {
+        parameters: {
+            query: {
+                digest: string;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_households_api_v1_households_get: {
         parameters: {
             query?: never;

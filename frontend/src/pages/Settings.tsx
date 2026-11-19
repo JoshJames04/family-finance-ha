@@ -14,6 +14,7 @@ import { useApi, useIdentity, useMeProfileId } from "../api/useApi";
 import { useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
+import { HistoricalNotes } from "../components/HistoricalNotes";
 import { Panel } from "../components/Panel";
 import { Badge, type BadgeTone } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -199,6 +200,7 @@ export function Settings() {
       <PageHeader title="Settings" description="Household, categories, appearance and your data." />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
+        {profiles.data?.items.find((p) => p.id === me)?.role === "admin" && <HistoricalNotes key={me} ready={ready} />}
         <IntegrationPrivacy admin={profiles.data?.items.find((p) => p.id === me)?.role === "admin"} />
         <Panel
           flush
