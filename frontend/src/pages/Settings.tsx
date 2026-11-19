@@ -59,12 +59,61 @@ export function IntegrationPrivacy({ admin }: { admin: boolean }) {
       </Field>}
     </DataView>
     {!admin && <p className="mt-2 text-[13px] text-fg-subtle">An administrator can change this setting.</p>}
+    {admin && <IntegrationGrants />}
     <Dialog open={confirming} onOpenChange={setConfirming} title="Enable detailed Home Assistant events?"
       footer={<><Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
         <Button variant="primary" disabled={saving} onClick={() => save("detailed")}>Enable detailed events</Button></>}>
       <p>Names and financial amounts can be stored in the Home Assistant event bus, recorder, automation traces and notification recipients. Choose Safe to keep future events limited to status and dates.</p>
     </Dialog>
   </Panel>;
+}
+
+export function IntegrationGrants() {
+  const state = useApi(() => api.get("/api/v1/integration/private-grants"), useReady());
+  const [profiles, setProfiles] = useState<number[]>([]);
+  const [accounts, setAccounts] = useState<number[]>([]);
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (state.data) { setProfiles(state.data.profile_ids ?? []); setAccounts(state.data.account_ids ?? []); }
+  }, [state.data]);
+  const save = async (profile_ids: number[], account_ids: number[]) => {
+    setSaving(true);
+    try {
+      await api.put("/api/v1/integration/private-grants", { body: { profile_ids, account_ids } });
+      setConfirming(false); state.refetch(); toast.success("Home Assistant read access updated");
+    } catch (error) { toast.error((error as Error).message); }
+    finally { setSaving(false); }
+  };
+  const toggle = (ids: number[], id: number) => ids.includes(id) ? ids.filter((v) => v !== id) : [...ids, id];
+  return <section className="mt-4 border-t border-border pt-4" aria-label="Private Home Assistant read access">
+    <h3 className="font-medium">Private read access</h3>
+    <p className="mt-2 text-[13px] text-fg-subtle">Select whose payroll Home Assistant may read and approve its private pay destinations. Payroll with a private pay destination needs both selections. This never permits payroll edits or other private bank data.</p>
+    <DataView state={state} empty="Private access settings unavailable">
+      {(settings) => <div className="mt-3 space-y-3">
+        <fieldset disabled={saving}><legend className="text-[13px] font-medium">Payroll profiles</legend>
+          {(settings.profiles ?? []).map((p) => <label key={p.id} className="flex min-h-11 cursor-pointer items-center gap-3 text-[13px]">
+            <input type="checkbox" checked={profiles.includes(p.id)} onChange={() => setProfiles(toggle(profiles, p.id))} />Payroll for {p.name}
+          </label>)}
+        </fieldset>
+        <fieldset disabled={saving}><legend className="text-[13px] font-medium">Private payroll destinations</legend>
+          {(settings.accounts ?? []).map((a) => <label key={a.id} className="flex min-h-11 cursor-pointer items-center gap-3 text-[13px]">
+            <input type="checkbox" checked={accounts.includes(a.id)} onChange={() => setAccounts(toggle(accounts, a.id))} />Account {a.name}
+          </label>)}
+        </fieldset>
+        <p className="text-[13px] text-fg-subtle">Private IDs and dates may reach the event bus, recorder, automation traces and notification recipients. Payday discovery includes employer labels and day counts in either event mode. Detailed events also expose names and amounts. Revocation stops future reads; it cannot erase copies already stored by Home Assistant.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={saving} onClick={() => setConfirming(true)}>Save read access</Button>
+          <Button variant="ghost" disabled={saving || !((settings.profile_ids?.length ?? 0) || (settings.account_ids?.length ?? 0))} onClick={() => void save([], [])}>Revoke all private access</Button>
+        </div>
+      </div>}
+    </DataView>
+    <Dialog open={confirming} onOpenChange={setConfirming} title="Allow these private Home Assistant reads?"
+      footer={<><Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+        <Button disabled={saving} onClick={() => void save(profiles, accounts)}>Confirm read access</Button></>}>
+      <p>Only payroll for the selected profiles and pay destinations will be readable through the integration. Home Assistant and notification recipients may retain the data after access is revoked.</p>
+    </Dialog>
+  </section>;
 }
 
 export function Settings() {

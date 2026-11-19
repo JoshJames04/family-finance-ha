@@ -2152,6 +2152,19 @@ class IntegrationSettingsPatch(BaseModel):
     detail: str
 
 
+class IntegrationGrantsIn(BaseModel):
+    profile_ids: list[int] = Field(default_factory=list, max_length=100)
+    account_ids: list[int] = Field(default_factory=list, max_length=100)
+
+
+class IntegrationGrantOption(BaseModel):
+    id: int
+    name: str
+
+
+class IntegrationGrantsOut(IntegrationGrantsIn):
+    profiles: list[IntegrationGrantOption]
+    accounts: list[IntegrationGrantOption]
 class PayrollRefreshOut(BaseModel):
     generated: int
     updated: int

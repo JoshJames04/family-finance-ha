@@ -89,7 +89,8 @@ def create_employment(
 ) -> schemas.EmploymentOut:
     if body.initial_shares_owned and body.initial_salary is None:
         raise HTTPException(422, "initial shares require an initial salary revision")
-    if not rbac.write_allowed(body.profile_id, profile):
+    if (not rbac.write_allowed(body.profile_id, profile)
+            or (profile is not None and profile.id != body.profile_id)):
         raise HTTPException(403, "role cannot mutate this scope")
     p = session.get(UserProfile, body.profile_id)
     if p is None or p.household_id != household.id:
@@ -242,7 +243,8 @@ def prepare_year(
     runs_created = runs_skipped = budgets_created = 0
     emps = session.scalars(select(Employment).where(Employment.household_id == household.id)).all()
     for e in emps:
-        if not rbac.write_allowed(e.profile_id, profile):
+        if (not rbac.write_allowed(e.profile_id, profile)
+                or (profile is not None and profile.id != e.profile_id)):
             continue
         if not e.is_active:
             continue

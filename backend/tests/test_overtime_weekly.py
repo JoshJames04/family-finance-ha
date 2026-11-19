@@ -277,16 +277,15 @@ def test_audit_failure_rolls_back_all_week_transitions(client, scope, monkeypatc
 )
 def test_week_actions_use_employment_profile_boundary(client, scope, role, own, expected):
     h, eid = scope
-    pid = client.post(
-        "/api/v1/profiles", headers=h, json={"display_name": "Other", "role": role}
-    ).json()["id"]
+    pid = client.post("/api/v1/profiles", headers=h,
+                      json={"display_name": "Other", "role": role}).json()["id"]
+    initial = [create(client, scope)]
     if own:
         # Ownership is assigned at creation; the employment patch intentionally cannot move it.
         with Session(client.app.state.engine) as session:
             employment = session.get(Employment, eid)
             employment.profile_id = pid
             session.commit()
-    initial = [create(client, scope)]
     actor = ({**h, "X-Profile-Id": str(pid)}, eid)
     assert weekly(client, actor, initial).status_code == expected
 

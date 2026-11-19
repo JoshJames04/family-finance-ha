@@ -11,9 +11,62 @@ financial calculations and committed transitions.
 Configure the app URL, household ID and the app's service token. The integration
 sends the token as `X-Admin-Token`; it never invents a household member or an admin
 profile. A rejected token enters HA reauthentication. The token grants only the
-server's explicit service allowlist and shared resource scope. Existing HA actions
+server's explicit service allowlist and shared resource scope by default. Existing HA actions
 for adding a shared transaction or recording permitted overtime remain audited by
 the app; unauthorised private resources are rejected.
+
+### Private payroll reads
+
+An authenticated household administrator can opt in at **Settings > Home Assistant
+events > Private read access**. Select named payroll profiles and approve each
+private pay destination. Both selections are required when payroll lands in a
+private account; a profile selection alone never grants a destination account.
+Nothing is selected on an existing or new installation. Save requires a privacy
+confirmation; **Revoke all private access** removes the grants on the next poll.
+
+These grants cover payroll events, including existing payroll approaching and
+payslip review events, plus named days-to-next-payday discovery. Payday discovery
+uses the canonical adjusted payday rule (including legacy `last_friday`,
+`last_day` and `last_working_day`), active employment dates and current
+profile/destination grants, appends after the legacy discovery prefix and uses
+stable `employment:<id>` identities. It includes employer labels and day counts
+in either event detail mode; event redaction does not change numeric discovery.
+These grants do not expose private balances, transactions, general account events
+or other financial metrics.
+Payroll overtime-recorded and estimate-change events use this same authorization
+boundary. The numeric-family controls expose discovered payday values as opt-in
+HA sensors.
+
+The app stores household-specific grants in its existing settings table and audits
+each change with the authenticated administrator's identity. A service token or
+spoofed profile header cannot manage grants. Only the authenticated HA machine
+context receives them; they never become a household member's permissions.
+Explicitly unprotected standalone development mode (`FF_ENV=dev`, ingress off)
+also accepts its existing selected administrator profile for these Settings.
+That development exception excludes requests carrying a service token and never
+applies in production, CI or ingress mode.
+Deactivated profiles, archived destination accounts and changed destination owners
+stop reads immediately. Grants name profiles and destinations, not individual jobs.
+Deactivating an employment removes its upcoming payday discovery but does not revoke
+granted payroll history for that member and destination. Revoke the grants to stop
+those machine history reads; the owning member retains their own history.
+Events created with the new grant support retain their
+original profile and destination scope internally; changing either cannot relabel
+old events. Legacy private payroll events without that snapshot remain excluded
+from granted service reads. Internal scope metadata never enters HA payloads.
+
+Safe event mode still excludes names, hours and financial amounts after authorization;
+Detailed mode adds permitted detail and never substitutes for a read grant.
+Even Safe private IDs and dates may persist in HA recorder, automation traces,
+backups and notifications. Revoking access or returning to Safe cannot erase
+copies already retained outside the app.
+
+Human payroll changes require the employment owner's identity, including for
+administrators: creating an employment for someone else, changing their salary,
+overtime, payslip or run, and ending/replacing their employment are denied. Bulk
+year preparation generates payroll only for its caller's employments. The existing
+service action to record overtime against a shared destination remains a distinct,
+audited action; selecting private read grants never extends it to private payroll.
 
 Safe event detail is the app default. An app administrator can select **Safe** or
 **Detailed** in Settings. Detailed mode can place names and monetary values in the
@@ -47,7 +100,7 @@ and Goal sensor identities stay unchanged. The new metrics are:
 | Goal funded amount | Real, eligible inbound transfer contributions to the goal, separate from its percentage metric | GBP |
 | Days to goal target | Configured target date minus the app calendar date; absent for undated goals | days |
 | Days to occasion | Explicit occasion date minus the app calendar date; absent until a real date is configured | days |
-| Days to payday | Earliest outstanding positive employment/payroll-run occurrence for each authorised active employment, including today, within two years | days |
+| Days to payday | Earliest outstanding positive employment/payroll-run occurrence for each authorised active employment, including today, within two years; explicitly granted private discovery uses the canonical next payday rule | days |
 
 Forecasts are estimates, not received income or confirmed future payments. They
 use the same canonical calculations as account forecasting. Configure permits a
@@ -68,14 +121,16 @@ of the appropriate owner's budget history.
 
 Employment ownership applies even when a salary destination account is shared.
 The HA service identity has shared scope, so private employment names/payday
-metrics remain absent. Detailed event mode does not grant private access. A new
+metrics require explicit profile and private destination grants. Detailed event
+mode does not grant private access. A new
 account forecast metric is also omitted if any outstanding payroll input within
 its forecast window has private or unresolved provenance for the requesting
 identity. This avoids publishing a private-derived figure as a shared zero or
 partial estimate. The actual shared account balance sensor remains independent.
-Payday numeric discovery is groundwork for authorised app profiles; the current
-HA machine service cannot expose a private employment until an explicit resource
-grant model is approved under #532. Selecting All does not override that boundary.
+Granted private payday discovery uses the canonical next payday rule even when no
+payroll occurrence has been prepared. Shared/profile-visible discovery retains its
+outstanding-occurrence calculation. Selecting All does not override either
+authorization boundary.
 
 Discovery is paginated in stable order, so later metric families are not silently
 lost after the first 100 records. Original Accounts, Goal percent and Bills retain

@@ -161,6 +161,15 @@ async def auth_middleware(
             _resolve_profile_id, request)
     settings = request.app.state.settings
     path = request.url.path.rstrip("/")
+    # Recognise the same machine credential for standalone HA integration reads.
+    # Its grant context never borrows the legacy X-Profile-Id header.
+    if (not settings.ingress and getattr(request.state, "profile_id", None) is None
+            and request.method == "GET"
+            and path in {"/api/v1/integration/events", "/api/v1/integration/items"}):
+        expected = settings.admin_token.get_secret_value() if settings.admin_token else ""
+        given = request.headers.get("x-admin-token", "")
+        request.state.service_authenticated = bool(
+            expected and given and hmac.compare_digest(given, expected))
     if settings.ingress and path.startswith("/api/v1/"):
         public = {
             ("GET", "/api/v1/version"),

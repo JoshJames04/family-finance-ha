@@ -70,6 +70,10 @@ def emit(session: Session, household_id: int, event_type: str, *,
         entity_kind=entity_kind, entity_id=entity_id,
         occurred_at=instant.astimezone(UTC).replace(tzinfo=None), payload=payload or {},
         dedup_key=dedup_key)
+    from app.domain import ha_grants
+    original_scope = ha_grants.scope(session, row)
+    if original_scope is not None:
+        row.payload = {**row.payload, "_ha_scope": original_scope}
     session.add(row)
     session.flush()
     return row
@@ -92,7 +96,7 @@ def visible_payload(event: IntegrationEvent, detailed: bool) -> dict[str, object
     """Read-time redaction — safe mode strips anything that could
     name or value a real record (ADR-0009)."""
     if detailed and event.entity_kind != "backup":
-        return {k: v for k, v in event.payload.items() if k != "_scope_owner_profile_id"}
+        return {k: v for k, v in event.payload.items() if not k.startswith("_")}
     return {k: v for k, v in event.payload.items() if k in _SAFE_KEYS}
 
 
@@ -118,17 +122,30 @@ def retire_entity(session: Session, household_id: int, entity_kind: str, entity_
 
 
 def event_visible(session: Session, event: IntegrationEvent, profile_id: int | None,
-                  *, all_scopes: bool = False) -> bool:
+                  *, all_scopes: bool = False, ha_service: bool = False) -> bool:
     """Apply account ownership even in safe mode: ids and dates are private too."""
+    from app.domain import ha_grants
     from app.persistence import models
     original_owner = event.payload.get("_scope_owner_profile_id")
-    if original_owner is not None and not all_scopes and original_owner != profile_id:
+    if (original_owner is not None and not all_scopes and original_owner != profile_id
+            and not (ha_service and ha_grants.event_allowed(session, event))):
         return False
     if event.entity_kind is not None and event.entity_id is not None:
         retired = session.get(AppMeta,
             f"ha_retired:{event.household_id}:{event.entity_kind}:{event.entity_id}")
         if retired is not None and event.id <= int(retired.value):
             return False
+    original_scope = event.payload.get("_ha_scope")
+    current_scope = ha_grants.scope(session, event) if isinstance(original_scope, dict) else None
+    # Ownership/destination changes cannot relabel a historical private event.
+    if (isinstance(original_scope, dict)
+            and current_scope != original_scope
+            and any(original_scope.get(k) is not None for k in ("owner", "account_owner"))
+            and (ha_service or current_scope is None or original_scope.get("owner") != profile_id
+                 or current_scope.get("owner") != profile_id)):
+        return all_scopes
+    if ha_service and ha_grants.event_allowed(session, event):
+        return True
     entities = {
         "account": models.Account, "transaction": models.Transaction,
         "commitment": models.RecurringCommitment, "subscription": models.Subscription,
@@ -189,9 +206,10 @@ def event_visible(session: Session, event: IntegrationEvent, profile_id: int | N
 
 
 def latest_visible_cursor(session: Session, household_id: int, profile_id: int | None,
-                          *, all_scopes: bool = False) -> int:
+                          *, all_scopes: bool = False, ha_service: bool = False) -> int:
     rows = session.scalars(select(IntegrationEvent).where(
         IntegrationEvent.household_id == household_id).order_by(
             IntegrationEvent.id.desc()).execution_options(yield_per=100))
     return next((row.id for row in rows
-                 if event_visible(session, row, profile_id, all_scopes=all_scopes)), 0)
+                 if event_visible(session, row, profile_id, all_scopes=all_scopes,
+                                  ha_service=ha_service)), 0)
