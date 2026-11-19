@@ -11,6 +11,12 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+### Fixed
+
+- Join the seasonal-date and payroll/bonus migration branches with revision 0075,
+  restoring normal startup and upgrades from either branch without rewriting
+  existing migrations or household records (#546).
+
 ## [1.5.0] — 2026-11-14
 
 ### Added

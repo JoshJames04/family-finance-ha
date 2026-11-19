@@ -1,5 +1,10 @@
 # Changelog — Family Finance add-on
 
+## Unreleased
+
+- Restore startup after combining seasonal-date and payroll/bonus updates by
+  joining their migration branches without changing existing revision history.
+
 ## 1.5.0
 
 - Personal and historical Budget plans follow adjusted payday-to-payday windows;
