@@ -33,6 +33,21 @@ def _rebuild_stale(session: Session, employment: Employment, result: dict[str, A
                 preview = payroll_rebuild.rebuild_forecasts(
                     session, employment, apply=False, from_pay_date=start
                 )
+                runs_by_id = {run.id: run for run in runs}
+                for change in preview["changes"]:
+                    run = runs_by_id[change["run_id"]]
+                    if change["new_gross_pence"] == run.gross_pence:
+                        continue
+                    component_gross = sum(
+                        component.forecast_pence
+                        for component in run.components
+                        if component.kind in payrun.EARNING
+                    )
+                    if component_gross != run.gross_pence:
+                        raise PayrollError(
+                            f"Run {run.id}: incomplete earning components do not explain "
+                            "the stored gross; review before rebuilding"
+                        )
                 applied = payroll_rebuild.rebuild_forecasts(
                     session,
                     employment,

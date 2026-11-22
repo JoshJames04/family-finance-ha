@@ -47,6 +47,37 @@ def test_refresh_generates_future_payroll_once(session, employment):
     assert rows[0].gross_pence == 300000
 
 
+@pytest.mark.parametrize("unexplained_pence", [0, 100])
+def test_refresh_only_recovers_incomplete_forecast_when_gross_is_explained(
+    session, employment, unexplained_pence
+):
+    from app.domain import payroll_automation, payrun
+    from app.persistence.models import PayrollComponentKind
+
+    run = payrun.generate(
+        session, employment, start=date(2025, 4, 1), end=date(2025, 4, 30),
+        pay_date=date(2025, 4, 28),
+    )
+    run.gross_pence += unexplained_pence
+    original_gross, original_net = run.gross_pence, run.net_pence
+    run.components.remove(next(c for c in run.components if c.kind == PayrollComponentKind.base_salary))
+    session.flush()
+
+    result = payroll_automation.refresh(session, employment, today=date(2025, 4, 1))
+
+    assert run.gross_pence == original_gross
+    if unexplained_pence:
+        assert run.net_pence == original_net
+        assert run.forecast_stale
+        assert result["updated"] == result["generated"] == 0
+        assert any("stored gross" in issue for issue in result["issues"])
+        assert not any(c.kind == PayrollComponentKind.base_salary for c in run.components)
+    else:
+        assert not run.forecast_stale
+        assert not result["issues"]
+        assert any(c.kind == PayrollComponentKind.base_salary for c in run.components)
+
+
 def test_source_change_updates_forecast_but_preserves_entered_actuals(session, employment):
     from app.domain.payroll_automation import refresh
 
