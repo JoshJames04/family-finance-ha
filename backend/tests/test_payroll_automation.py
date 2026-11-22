@@ -60,7 +60,8 @@ def test_refresh_only_recovers_incomplete_forecast_when_gross_is_explained(
     )
     run.gross_pence += unexplained_pence
     original_gross, original_net = run.gross_pence, run.net_pence
-    run.components.remove(next(c for c in run.components if c.kind == PayrollComponentKind.base_salary))
+    base = next(c for c in run.components if c.kind == PayrollComponentKind.base_salary)
+    run.components.remove(base)
     session.flush()
 
     result = payroll_automation.refresh(session, employment, today=date(2025, 4, 1))
