@@ -31,7 +31,8 @@ def _rebuild_stale(session: Session, employment: Employment, result: dict[str, A
         try:
             with session.begin_nested():
                 preview = payroll_rebuild.rebuild_forecasts(
-                    session, employment, apply=False, from_pay_date=start
+                    session, employment, apply=False, from_pay_date=start,
+                    preserve_incomplete_gross=True,
                 )
                 applied = payroll_rebuild.rebuild_forecasts(
                     session,
@@ -39,6 +40,7 @@ def _rebuild_stale(session: Session, employment: Employment, result: dict[str, A
                     apply=True,
                     fingerprint=preview["fingerprint"],
                     from_pay_date=start,
+                    preserve_incomplete_gross=True,
                 )
                 result["updated"] += len(applied["changes"])
                 result["issues"].extend(applied["warnings"])

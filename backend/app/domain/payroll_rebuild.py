@@ -118,6 +118,7 @@ def rebuild_forecasts(
     fingerprint: str | None = None,
     only_run_id: int | None = None,
     from_pay_date: date | None = None,
+    preserve_incomplete_gross: bool = False,
 ) -> dict[str, Any]:
     from app.domain import payrun, schedule
 
@@ -280,6 +281,26 @@ def rebuild_forecasts(
                     emit_event=False,
                     replacement_for=run.id,
                 )
+                if (
+                    preserve_incomplete_gross
+                    and new.gross_pence != run.gross_pence
+                    and sum(c.forecast_pence for c in run.components if c.kind in payrun.EARNING)
+                    != run.gross_pence
+                ):
+                    # A verified overtime change can explain a new gross, but
+                    # it cannot explain a discrepancy in the original earnings.
+                    overtime_kind = PayrollComponentKind.overtime
+                    old_overtime = sum(
+                        c.forecast_pence for c in run.components if c.kind is overtime_kind
+                    )
+                    new_overtime = sum(
+                        c.forecast_pence for c in new.components if c.kind is overtime_kind
+                    )
+                    if new.gross_pence - new_overtime + old_overtime != run.gross_pence:
+                        raise PayrollError(
+                            f"Run {run.id}: incomplete earning components do not explain "
+                            "the stored gross; review before rebuilding"
+                        )
                 snapshot = json.loads(new.calculation_inputs or "{}")
                 if "automatic_period_end" in source_inputs:
                     snapshot["automatic_period_end"] = source_inputs["automatic_period_end"]
