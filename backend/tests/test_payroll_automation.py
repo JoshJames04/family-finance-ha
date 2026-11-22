@@ -48,10 +48,11 @@ def test_refresh_generates_future_payroll_once(session, employment):
 
 
 @pytest.mark.parametrize("unexplained_pence", [0, 100])
+@pytest.mark.parametrize("add_overtime", [False, True])
 def test_refresh_only_recovers_incomplete_forecast_when_gross_is_explained(
-    session, employment, unexplained_pence
+    session, employment, unexplained_pence, add_overtime
 ):
-    from app.domain import payroll_automation, payrun
+    from app.domain import overtime, payroll_automation, payrun
     from app.persistence.models import PayrollComponentKind
 
     run = payrun.generate(
@@ -62,18 +63,27 @@ def test_refresh_only_recovers_incomplete_forecast_when_gross_is_explained(
     original_gross, original_net = run.gross_pence, run.net_pence
     base = next(c for c in run.components if c.kind == PayrollComponentKind.base_salary)
     run.components.remove(base)
+    overtime_pence = 0
+    if add_overtime:
+        entry = overtime.create_entry(
+            session, employment, work_date=date(2025, 4, 8), hours=Decimal("4")
+        )
+        overtime.submit(entry)
+        overtime.approve(entry)
+        overtime_pence = overtime.entry_pay_pence(entry)
     session.flush()
 
     result = payroll_automation.refresh(session, employment, today=date(2025, 4, 1))
 
-    assert run.gross_pence == original_gross
     if unexplained_pence:
+        assert run.gross_pence == original_gross
         assert run.net_pence == original_net
         assert run.forecast_stale
         assert result["updated"] == result["generated"] == 0
         assert any("stored gross" in issue for issue in result["issues"])
         assert not any(c.kind == PayrollComponentKind.base_salary for c in run.components)
     else:
+        assert run.gross_pence == original_gross + overtime_pence
         assert not run.forecast_stale
         assert not result["issues"]
         assert any(c.kind == PayrollComponentKind.base_salary for c in run.components)
