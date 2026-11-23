@@ -20,6 +20,9 @@ from app.persistence.models import (
     RecurringCommitment,
     Subscription,
     SubscriptionStatus,
+    Transaction,
+    TransactionSource,
+    TransactionStatus,
 )
 
 router = APIRouter(prefix="/commitments", tags=["commitments"])
@@ -47,29 +50,44 @@ def _overdue_payments(
     session: Session, household_id: int, rows: list[RecurringCommitment],
     today: date,
 ) -> dict[int, list[schemas.OverdueBillPayment]]:
-    past_due = {c.id: c for c in rows if c.active and c.next_date < today}
-    if not past_due:
+    active = {c.id: c for c in rows if c.active}
+    if not active:
         return {}
     movements = list(session.scalars(select(ExpectedMovement).where(
         ExpectedMovement.household_id == household_id,
         ExpectedMovement.source_type == ExpectedSource.commitment,
-        ExpectedMovement.source_id.in_(past_due),
-        ExpectedMovement.expected_date >= min(c.next_date for c in past_due.values()),
+        ExpectedMovement.source_id.in_(active),
         ExpectedMovement.expected_date < today,
     )))
-    by_date = {(m.source_id, m.account_id, m.expected_date): m for m in movements}
+    by_bill: dict[int, dict[date, ExpectedMovement]] = {}
+    for row in movements:
+        bill = active[row.source_id]
+        if bill.account_id == row.account_id:
+            by_bill.setdefault(bill.id, {})[row.expected_date] = row
     matched = contributions.matched_totals(session, [m.id for m in movements])
+    posted_rows = session.execute(select(Transaction.account_id, Transaction.external_ref).where(
+        Transaction.account_id.in_({c.account_id for c in active.values()}),
+        Transaction.source == TransactionSource.system,
+        Transaction.status != TransactionStatus.void,
+        Transaction.external_ref.startswith("rec:"),
+    ))
+    posted = {(account_id, ref) for account_id, ref in posted_rows}
+
     result: dict[int, list[schemas.OverdueBillPayment]] = {}
-    for c in past_due.values():
+    for c in active.values():
         payments = result[c.id] = []
-        for day in occurrences(c, today - timedelta(days=1)):
-            movement = by_date.get((c.id, c.account_id, day))
+        historical = by_bill.get(c.id, {})
+        days = set(occurrences(c, today - timedelta(days=1))) | historical.keys()
+        for day in sorted(days):
+            movement = historical.get(day)
+            if (c.account_id, f"rec:{c.id}:{day.isoformat()}") in posted:
+                continue
             if movement is not None and movement.dismissed_at is not None:
                 continue
             amount = c.amount_pence
             if movement is not None and (movement.amount_pence or amount is not None):
                 amount = max(0, abs(movement.amount_pence) - matched[movement.id])
-            if amount is not None and abs(amount) == 0:
+            if amount == 0:
                 continue
             payments.append(schemas.OverdueBillPayment(
                 expected_date=day, outstanding_pence=abs(amount) if amount is not None else None,

@@ -140,6 +140,25 @@ def test_bill_summary_lists_occurrences_with_remaining_amount(session, household
             page.items[0].overdue_payments or []] == [(first, 6000)]
 
 
+def test_bill_summary_keeps_old_unpaid_occurrence_after_schedule_edit(session, household, account):
+    from app.api.v1.commitments import list_commitments
+
+    today = date.today()
+    due = today - timedelta(days=8)
+    bill = _commitment(session, household, account, next_date=today + timedelta(days=5))
+    _movement(session, household, account, on=due, source_id=bill.id)
+    posted_date = due - timedelta(days=1)
+    _movement(session, household, account, on=posted_date, source_id=bill.id)
+    posted = _txn(session, account, posted_date, source=TransactionSource.system,
+                  status=TransactionStatus.pending)
+    posted.external_ref = f"rec:{bill.id}:{posted_date.isoformat()}"
+    session.flush()
+
+    page = list_commitments(household, session, include_overdue=True)
+    assert [(p.expected_date, p.outstanding_pence) for p in
+            page.items[0].overdue_payments or []] == [(due, 1599)]
+
+
 class TestAutoSettlement:
 
     def test_cleared_bank_txn_settles_commitment(
