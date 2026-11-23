@@ -130,6 +130,30 @@ def revise_line(session: Session, line: BudgetLine,
     return line
 
 
+def remove_future_lines(
+    session: Session, source: BudgetLine, *, today: date | None = None,
+) -> list[BudgetLine]:
+    """Remove the same plan line from future, editable periods in its scope."""
+    today = today or date.today()
+    budget = source.budget
+    _assert_mutable(session, budget)
+    candidates = session.scalars(select(BudgetLine).join(Budget).where(
+        Budget.household_id == budget.household_id,
+        Budget.owner_profile_id == budget.owner_profile_id,
+        Budget.start_date >= budget.start_date,
+        Budget.start_date > today,
+        BudgetLine.category_id == source.category_id,
+        BudgetLine.side == source.side,
+    ).order_by(Budget.start_date, Budget.id)).all()
+    lines = [line for line in candidates if not is_read_only(session, line.budget)]
+    for line in lines:
+        session.delete(line)
+    session.flush()
+    for line in lines:
+        session.expire(line.budget, ["lines"])
+    return lines
+
+
 def line_analysis(actual_pence: int,
                   line: BudgetLine) -> dict[str, object]:
     """Variance + accuracy per ADR-0007's honest-budgeting rule.
@@ -367,8 +391,8 @@ def copy_forward(
     """Clone a budget into a new draft for a later period.
 
     original→original, revised is NOT carried (a fresh planning cycle
-    starts clean); provenance via copied_from_id. Archived-category
-    lines clone too (they keep historical meaning) with a warning."""
+    starts clean); provenance via copied_from_id. Archived categories
+    remain on the source and are skipped for the new plan."""
     new = create_budget(
         session, source.household_id, name,
         period_type or source.period_type, start, end,
@@ -378,7 +402,8 @@ def copy_forward(
     for line in source.lines:
         cat = session.get(Category, line.category_id)
         if cat is not None and cat.archived:
-            warnings.append(f"category {cat.name} archived — cloned")
+            warnings.append(f"category {cat.name} archived — skipped")
+            continue
         add_line(session, new, line.category_id, line.side,
                  line.original_pence)
     return new, warnings

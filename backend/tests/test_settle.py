@@ -7,7 +7,7 @@ re-runs are idempotent; ambiguous matches never settle silently.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -112,6 +112,32 @@ def test_partial_event_precedes_final_settlement_without_duplicate_replay(
     assert [event.event_type for event in events] == ["movement.partial", "movement.settled"]
     assert events[1].payload["matched_pence_outstanding"] == 0
     assert commitment.next_date > TODAY
+
+
+def test_bill_summary_lists_occurrences_with_remaining_amount(session, household, account):
+    from app.api.v1.commitments import list_commitments
+
+    today = date.today()
+    first = today - timedelta(days=21)
+    bill = _commitment(session, household, account, next_date=first, pence=-10000)
+    bill.frequency = Frequency.weekly
+    partial = _movement(session, household, account, on=first, pence=-10000,
+                        source_id=bill.id)
+    settle.settle_occurrence(session, partial, _txn(session, account, first, -4000),
+                            manual=True)
+    paid_day = first + timedelta(days=7)
+    paid = _movement(session, household, account, on=paid_day, pence=-10000,
+                     source_id=bill.id)
+    settle.settle_occurrence(session, paid, _txn(session, account, paid_day, -10000),
+                            manual=True)
+    skipped_day = first + timedelta(days=14)
+    skipped = _movement(session, household, account, on=skipped_day, pence=-10000,
+                        source_id=bill.id)
+    skipped.dismissed_at = datetime.combine(today, datetime.min.time())
+    session.flush()
+    page = list_commitments(household, session, include_overdue=True)
+    assert [(p.expected_date, p.outstanding_pence) for p in
+            page.items[0].overdue_payments or []] == [(first, 6000)]
 
 
 class TestAutoSettlement:

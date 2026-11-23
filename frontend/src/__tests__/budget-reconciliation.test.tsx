@@ -224,6 +224,7 @@ it("section actuals reconcile signed split spending and refunds separately from 
   expect(sameCategory.find(row => row.children[1]!.textContent === "Income")!.children[3]!.textContent).toBe("£0.80");
   expect(within(table).getByText("Zero plan").closest("tr")!.children[2]!.textContent).toBe("£0.00");
   expect(within(table).getByText("Unplanned spend").closest("tr")!.children[2]!.textContent).toBe("—");
+  expect(within(table).getByText("Total spent so far").closest("tr")!.children[1]!.textContent).toBe("£20.00");
   expect(within(table).getByText("Total spent so far").closest("tr")!.textContent).toContain("£3.76");
   expect(within(table).getByText("Total external income").closest("tr")!.textContent).toContain("£2.00");
 });
@@ -243,4 +244,22 @@ it("keeps a net refund negative and shared contributions outside economic catego
   expect(within(table).getByText("Total external income").closest("tr")!.textContent).toContain("£1.00");
   expect(table.textContent).not.toContain("£5.00");
   expect(section.textContent).toContain("Net contributions£5.00");
+});
+
+
+it("requests archived categories to keep older plan names visible", async () => {
+  fixture();
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((input, init) => {
+    const url = new URL(String(input), "http://localhost");
+    if (!url.pathname.endsWith("/categories") || url.searchParams.get("include_archived") !== "true") {
+      return original(input, init);
+    }
+    return Promise.resolve(new Response(JSON.stringify({ items: [
+      { id: 1, name: "Salary" }, { id: 2, name: "Historical bill", archived: true },
+    ], total: 2 }), { headers: { "Content-Type": "application/json" } }));
+  });
+  await openNovember();
+  const section = await screen.findByRole("region", { name: "Member A budget" });
+  expect(within(section).getAllByRole("rowheader", { name: "Historical bill" })).toHaveLength(2);
 });

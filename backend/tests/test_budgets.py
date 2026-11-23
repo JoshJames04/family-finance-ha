@@ -467,7 +467,7 @@ class TestTemplatesAndCopy:
         assert nl.revised_pence is None        # fresh cycle, no revision
         assert nl.category_id == category.id
 
-    def test_copy_across_archived_category_warns(
+    def test_copy_across_archived_category_skips_it(
             self, session: Session, household, category) -> None:
         src = _mk_budget(session, household)
         dom.add_line(session, src, category.id,
@@ -476,8 +476,37 @@ class TestTemplatesAndCopy:
         session.flush()
         new, warnings = dom.copy_forward(
             session, src, "June", date(2026, 6, 1), date(2026, 6, 30))
-        assert len(new.lines) == 1  # cloned for history
+        assert len(new.lines) == 0
+        assert src.lines[0].original_pence == 50000
         assert any("archived" in w for w in warnings)
+
+    def test_remove_future_lines_preserves_current_locked_and_other_scopes(
+            self, session: Session, household, category) -> None:
+        source = _mk_budget(session, household)
+        source_line = dom.add_line(session, source, category.id,
+                                   BudgetLineSide.expense, 40000)
+        dom.approve(session, source)
+        dom.revise_line(session, source_line, 0, "obsolete")
+        future, _ = dom.copy_forward(
+            session, source, "June", date(2026, 6, 1), date(2026, 6, 30))
+        unrelated = Category(household_id=household.id, name="Water",
+                             is_system=False, archived=False)
+        session.add(unrelated)
+        session.flush()
+        other = dom.add_line(session, future, unrelated.id,
+                             BudgetLineSide.expense, 2100)
+        dom.approve(session, future)
+        locked, _ = dom.copy_forward(
+            session, source, "July", date(2026, 7, 1), date(2026, 7, 31))
+        dom.approve(session, locked)
+        dom.lock(session, locked)
+        removed = dom.remove_future_lines(session, source_line, today=date(2026, 5, 20))
+        assert [line.budget_id for line in removed] == [future.id]
+        session.expire_all()
+        assert [line.id for line in future.lines] == [other.id]
+        assert [line.original_pence for line in locked.lines] == [40000]
+        assert source.lines[0].revised_pence == 0
+        assert dom.remove_future_lines(session, source_line, today=date(2026, 5, 20)) == []
 
     def test_apply_template_to_approved_rejected(
             self, session: Session, household, category) -> None:

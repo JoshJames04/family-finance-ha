@@ -121,7 +121,7 @@ export function Budget() {
   const ready = useReady();
   const meProfileId = useMeProfileId();
   const budgets = useBudgets();
-  const categories = useCategories();
+  const categories = useCategories(true);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const items = useMemo(() => budgets.data?.items ?? [], [budgets.data]);
   const [scope, setScope] = useState("all");
@@ -636,7 +636,7 @@ export function Budget() {
           line={revising}
           name={categories.byId.get(revising.category_id)?.name ?? "line"}
           budgetId={id}
-          onDone={() => { setRevising(null); setRev((r) => r + 1); toast.success("Budget line revised"); }}
+          onDone={() => { setRevising(null); setRev((r) => r + 1); }}
           onCancel={() => setRevising(null)}
         />
       )}
@@ -756,8 +756,16 @@ function BudgetSections({ sections, categoryName }: {
               <td className="text-right"><Money pence={row.actual} /></td>
             </tr>)}</tbody>
             <tfoot>
-              <tr><th colSpan={3}>Total spent so far</th><td className="text-right"><Money pence={actualTotal("expense")} /></td></tr>
-              <tr><th colSpan={3}>Total external income</th><td className="text-right"><Money pence={actualTotal("income")} /></td></tr>
+              <tr>
+                <th colSpan={2}>Total spent so far</th>
+                <td className="pr-2 text-right">{detail ? <Money pence={planned("expense") ?? 0} /> : "—"}</td>
+                <td className="text-right"><Money pence={actualTotal("expense")} /></td>
+              </tr>
+              <tr>
+                <th colSpan={2}>Total external income</th>
+                <td className="pr-2 text-right">{detail ? <Money pence={planned("income") ?? 0} /> : "—"}</td>
+                <td className="text-right"><Money pence={actualTotal("income")} /></td>
+              </tr>
             </tfoot>
           </table>
         </div>}
@@ -817,6 +825,7 @@ function ReviseForm({ line, name, budgetId, onDone, onCancel }: {
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [reason, setReason] = useState("");
   const [pounds, setPounds] = useState(
     String((line.revised_pence ?? line.original_pence) / 100));
@@ -829,26 +838,54 @@ function ReviseForm({ line, name, budgetId, onDone, onCancel }: {
     api.patch("/api/v1/budgets/{budget_id}/lines/{line_id}", {
       path: { budget_id: budgetId, line_id: line.id },
       body: { amount: pounds, reason },
-    }).then(onDone).catch((err) => {
+    }).then(() => {
+      toast.success("Budget line revised");
+      onDone();
+    }).catch((err) => {
       setBusy(false);
       setError(err instanceof Error ? err.message : "Revision failed");
+    });
+  };
+  const removeFuture = () => {
+    setBusy(true);
+    setError(null);
+    api.post("/api/v1/budgets/{budget_id}/lines/{line_id}/remove-future", {
+      path: { budget_id: budgetId, line_id: line.id },
+    }).then(result => {
+      toast.success(`${result.removed ?? 0} future budget lines removed`);
+      onDone();
+    }).catch((err: Error) => {
+      setBusy(false);
+      setError(err.message);
     });
   };
   return (
     <Dialog
       open
-      onOpenChange={(o) => { if (!o) onCancel(); }}
-      title={`Revise ${name}`}
+      onOpenChange={(o) => { if (!o && !busy) onCancel(); }}
+      title={confirmRemoval ? `Remove future plans for ${name}?` : `Revise ${name}`}
       description={<>Originally planned at {formatPence(line.original_pence)}. Revisions are kept alongside the original for accuracy tracking.</>}
       footer={
         <>
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button variant="primary" type="submit" form="ff-revise" disabled={busy || !reason.trim()}>
-            {busy ? "Saving…" : "Save revision"}
+          <Button variant="ghost" disabled={busy} onClick={confirmRemoval ? () => setConfirmRemoval(false) : onCancel}>
+            {confirmRemoval ? "Back" : "Cancel"}
           </Button>
+          {confirmRemoval ? (
+            <Button variant="danger" disabled={busy} onClick={removeFuture}>Remove future lines</Button>
+          ) : (
+            <Button variant="primary" type="submit" form="ff-revise" disabled={busy || !reason.trim()}>
+              {busy ? "Saving…" : "Save revision"}
+            </Button>
+          )}
         </>
       }
     >
+      {confirmRemoval ? (
+        <div className="grid gap-3">
+          <p>Remove this category and plan type from upcoming editable periods in this budget scope, starting with the selected period. Current, past and locked periods are kept.</p>
+          {error && <p role="alert" className="text-negative">{error}</p>}
+        </div>
+      ) : <>
       <form id="ff-revise" aria-label="Revise budget line" onSubmit={submit} className="grid gap-4">
         <Field label="New amount (£)">
           {(id) => (
@@ -864,6 +901,11 @@ function ReviseForm({ line, name, budgetId, onDone, onCancel }: {
         </Field>
         {error && <p role="alert" className="text-[13px] text-negative">{error}</p>}
       </form>
+        <Button variant="ghost" disabled={busy} className="mt-4" onClick={() => {
+          setError(null);
+          setConfirmRemoval(true);
+        }}>Remove from future periods</Button>
+      </>}
     </Dialog>
   );
 }

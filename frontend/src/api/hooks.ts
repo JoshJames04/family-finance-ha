@@ -18,9 +18,10 @@ export function useAccounts(rev = 0) {
   return useApi(() => api.get("/api/v1/accounts"), useReady(), [rev], []);
 }
 
-export function useCategories() {
+export function useCategories(includeArchived = false) {
   const state = useApi(
-    () => api.get("/api/v1/categories"), useReady());
+    () => api.get("/api/v1/categories", includeArchived ? { query: { include_archived: true } } : undefined),
+    useReady(), [includeArchived]);
   const byId = useMemo(() => {
     const m = new Map<number, Category>();
     for (const c of state.data?.items ?? []) m.set(c.id, c);

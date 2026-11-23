@@ -299,6 +299,11 @@ class CommitmentPatch(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class OverdueBillPayment(BaseModel):
+    expected_date: date
+    outstanding_pence: int | None
+
+
 class CommitmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -316,6 +321,7 @@ class CommitmentOut(BaseModel):
     generated_count: int
     active: bool
     notes: str | None
+    overdue_payments: list[OverdueBillPayment] | None = None
 
 
 class MaterialiseResult(BaseModel):

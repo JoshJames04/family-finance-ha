@@ -1,6 +1,6 @@
 /** #274: payable objects — list, section grouping, create, pause/resume,
  * post-next materialise. */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -90,6 +90,30 @@ describe("Bills", () => {
     const overdueTile = tiles.find((t) => t.startsWith("Overdue"));
     expect(overdueTile).toContain("2");
     expect(overdueTile).toContain("Oldest");
+  });
+
+  it("opens the exact overdue bills, oldest first, ignoring ended and paused schedules", async () => {
+    const fixture = relativeCommitments({ Newer: -1, Older: -3, Today: 0, Upcoming: 1, Paused: -5, Ended: -7, Exhausted: -8 });
+    fixture.items[4]!.active = false;
+    const items = fixture.items.map(item => ({
+      ...item,
+      end_date: item.name === "Ended" ? "2000-01-01" : null,
+      occurrence_count: item.name === "Exhausted" ? 1 : null,
+      generated_count: item.name === "Exhausted" ? 1 : item.generated_count,
+    }));
+    stubFetch([], { ...fixture, items } as typeof COMMITMENTS);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Bills /></MemoryRouter>);
+    const card = await screen.findByRole("button", { name: /overdue/i });
+    expect(card.textContent).toContain("2");
+    await user.click(card);
+    const dialog = screen.getByRole("dialog", { name: "Overdue bills" });
+    expect(within(dialog).getAllByRole("listitem").map(row => row.textContent)).toEqual([
+      expect.stringMatching(/^Older.+£10.00$/), expect.stringMatching(/^Newer.+£10.00$/),
+    ]);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(card));
   });
 
   it("#412: earliest upcoming wins; due today says 'Due today'", async () => {
