@@ -165,7 +165,9 @@ If this project is useful to you, you can support its development via
 
 Dashboard and Forecast default to the signed-in member's salary payment account
 when their active employments point to one available account. Otherwise, the
-account selector lets them choose which account to forecast.
+account selector lets them choose which account to forecast. The balance chart
+uses that account's scheduled movements. The calendar defaults to the same
+account and can also show all visible accounts.
 
 Budget starts with **All**, combining the visible plans for the selected period.
 Choose an owner to edit that owner's budget. Spent so far includes every eligible

@@ -49,7 +49,7 @@ const MOVEMENTS = [
   },
 ];
 
-function stubFetch(salaryAccountId: number | null = 7) {
+function stubFetch(salaryAccountId: number | null = 7, movements = MOVEMENTS) {
   return vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = String(input);
     const body = url.includes("/api/v1/households")
@@ -61,7 +61,7 @@ function stubFetch(salaryAccountId: number | null = 7) {
           : url.includes("/projection")
             ? PROJECTION
         : url.includes("/api/v1/expected-movements")
-          ? MOVEMENTS
+          ? movements
           : url.includes("/api/v1/accounts")
             ? { items: [{ id: 3, name: "Another account", type: "current", archived: false },
               { id: 7, name: "Salary account", type: "current", archived: false }], total: 2 }
@@ -122,6 +122,17 @@ describe("Forecast", () => {
     const payday = screen.getByRole("link", { name: /Salary/ });
     expect(payday.getAttribute("href")).toBe("/salary?run_id=9#payroll_run-9");
   });
+  it("compares calendar events with the selected account and can show all accounts", async () => {
+    stubFetch(7, [...MOVEMENTS, { ...MOVEMENTS[0]!, id: 8, account_id: 3, label: "Other account bill" }]);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Forecast /></MemoryRouter>);
+    await user.click(await screen.findByLabelText(`${plus(2)} — 2 events`));
+    expect(screen.queryByText("Other account bill")).toBeNull();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Calendar accounts" }), "all");
+    expect(await screen.findByText("Other account bill")).toBeTruthy();
+    expect(screen.getByLabelText(`${plus(2)} — 3 events`)).toBeTruthy();
+  });
+
   it("month navigation buttons change the grid", async () => {
     stubFetch();
     const user = userEvent.setup();

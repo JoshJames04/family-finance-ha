@@ -62,6 +62,9 @@ export function Forecast() {
   const ready = useReady();
   const accountSelection = useSalaryAccountSelection();
   const { accounts: accountItems, accountId: acct, select } = accountSelection;
+  const selectedAccount = accountItems.find(a => a.id === acct);
+  const [calendarAllAccounts, setCalendarAllAccounts] = useState(false);
+  const calendarAccount = calendarAllAccounts ? null : acct;
   const [horizon, setHorizon] = useState<"30" | "90" | "180">("90");
   const projection = useApi(
     () => api.get("/api/v1/accounts/{account_id}/projection",
@@ -83,8 +86,9 @@ export function Forecast() {
   );
   const warningList = Array.isArray(warnings.data) ? warnings.data : [];
   const movementList = useMemo(
-    () => (Array.isArray(moves.data) ? moves.data : []),
-    [moves.data],
+    () => (Array.isArray(moves.data) ? moves.data : [])
+      .filter(mv => calendarAccount == null || mv.account_id === calendarAccount),
+    [moves.data, calendarAccount],
   );
   const byDate = useMemo(() => {
     const m = new Map<string, Movement[]>();
@@ -176,7 +180,11 @@ export function Forecast() {
                 value={<Money pence={proj.committed_until_payday_pence} />} hint="before payday" />
             </div>
             <Panel title="Projected balance"
-              description={proj.threshold_pence ? `Buffer ${formatPence(proj.threshold_pence)} shown dashed` : `Next ${HORIZONS.find((h) => h.value === horizon)?.label}`}
+              description={[
+                selectedAccount?.name,
+                `Next ${HORIZONS.find((h) => h.value === horizon)?.label}`,
+                proj.threshold_pence ? `Buffer ${formatPence(proj.threshold_pence)} shown dashed` : null,
+              ].filter(Boolean).join(" · ")}
               className="mb-4">
               <ProjectionChart projection={proj} height={300} />
             </Panel>
@@ -195,9 +203,18 @@ export function Forecast() {
             </span>
           }
           actions={
-            <span className="hidden text-[12.5px] text-fg-subtle sm:inline">
-              In <Money pence={monthTotals.inP} className="font-medium text-positive" /> · Out <Money pence={Math.abs(monthTotals.outP)} className="font-medium text-fg" />
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedAccount && (
+                <Select aria-label="Calendar accounts" value={calendarAccount == null ? "all" : "selected"}
+                  onChange={e => setCalendarAllAccounts(e.target.value === "all")}>
+                  <option value="selected">{selectedAccount.name}</option>
+                  <option value="all">All accounts</option>
+                </Select>
+              )}
+              <span className="hidden text-[12.5px] text-fg-subtle sm:inline">
+                In <Money pence={monthTotals.inP} className="font-medium text-positive" /> · Out <Money pence={Math.abs(monthTotals.outP)} className="font-medium text-fg" />
+              </span>
+            </div>
           }
         >
           <table className="ff-cal w-full table-fixed border-collapse" aria-labelledby="cal-heading">
