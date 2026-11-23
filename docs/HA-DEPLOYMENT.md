@@ -38,6 +38,8 @@ Same image runs standalone for HA Container users:
 
 ## 4. Custom integration
 
+On Home Assistant 2026.3 and later, the installed custom integration uses the Family Finance artwork shipped in its brand directory.
+
 `custom_components/family_finance` (installed via HACS or manually):
 
 - Connects to the app API (local HTTP) — read model only.

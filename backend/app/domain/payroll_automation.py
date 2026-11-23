@@ -25,15 +25,22 @@ def _rebuild_stale(session: Session, employment: Employment, result: dict[str, A
         result["issues"].append(
             "Forecast with payslips, actuals, bank matches, overrides or a correction preserved"
         )
-    if any(r.id not in protected for r in stale):
+    pending = [r for r in stale if r.id not in protected]
+    if pending:
+        start = min(payrun.effective_pay_date(employment, r) for r in pending)
         try:
             with session.begin_nested():
-                preview = payroll_rebuild.rebuild_forecasts(session, employment, apply=False)
+                preview = payroll_rebuild.rebuild_forecasts(
+                    session, employment, apply=False, from_pay_date=start,
+                    preserve_incomplete_gross=True,
+                )
                 applied = payroll_rebuild.rebuild_forecasts(
                     session,
                     employment,
                     apply=True,
                     fingerprint=preview["fingerprint"],
+                    from_pay_date=start,
+                    preserve_incomplete_gross=True,
                 )
                 result["updated"] += len(applied["changes"])
                 result["issues"].extend(applied["warnings"])
@@ -45,7 +52,7 @@ def _rebuild_stale(session: Session, employment: Employment, result: dict[str, A
 
 
 def refresh_all(session: Session, *, today: date | None = None) -> None:
-    """Trusted startup/daily maintenance, without provider calls."""
+    """Trusted startup/hourly maintenance, without provider calls."""
     for employment in session.scalars(select(Employment).order_by(Employment.id)):
         refresh(session, employment, today=today)
 

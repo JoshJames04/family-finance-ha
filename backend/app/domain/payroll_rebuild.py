@@ -117,6 +117,8 @@ def rebuild_forecasts(
     apply: bool,
     fingerprint: str | None = None,
     only_run_id: int | None = None,
+    from_pay_date: date | None = None,
+    preserve_incomplete_gross: bool = False,
 ) -> dict[str, Any]:
     from app.domain import payrun, schedule
 
@@ -192,7 +194,7 @@ def rebuild_forecasts(
     # Embedded rules may change between preview and an app upgrade.
     from app.domain.tax import CALCULATION_VERSION, embedded_rule_sets
 
-    state.append([CALCULATION_VERSION, *embedded_rule_sets()])
+    state.append([CALCULATION_VERSION, from_pay_date, *embedded_rule_sets()])
     current = hashlib.sha256(
         json.dumps(
             state,
@@ -205,10 +207,15 @@ def rebuild_forecasts(
     changes: list[dict[str, Any]] = []
     warnings: list[str] = []
     protected_ids = protected_run_ids(session, runs)
+    def selected(run: PayrollRun) -> bool:
+        return (only_run_id is None or run.id == only_run_id) and (
+            from_pay_date is None or payrun.effective_pay_date(employment, run) >= from_pay_date
+        )
+
     calendars = {
         r.id: _forecast_calendar(employment, r)
         for r in runs
-        if r.id not in protected_ids and (only_run_id is None or r.id == only_run_id)
+        if r.id not in protected_ids and selected(r)
     }
     runs.sort(
         key=lambda r: (
@@ -221,9 +228,7 @@ def rebuild_forecasts(
     nested = session.begin_nested()
     try:
         for run in runs:
-            if run.status is not PayrollRunStatus.forecast or (
-                only_run_id is not None and run.id != only_run_id
-            ):
+            if run.status is not PayrollRunStatus.forecast or not selected(run):
                 continue
             if run.id in protected_ids:
                 warnings.append(
@@ -276,6 +281,26 @@ def rebuild_forecasts(
                     emit_event=False,
                     replacement_for=run.id,
                 )
+                if (
+                    preserve_incomplete_gross
+                    and new.gross_pence != run.gross_pence
+                    and sum(c.forecast_pence for c in run.components if c.kind in payrun.EARNING)
+                    != run.gross_pence
+                ):
+                    # A verified overtime change can explain a new gross, but
+                    # it cannot explain a discrepancy in the original earnings.
+                    overtime_kind = PayrollComponentKind.overtime
+                    old_overtime = sum(
+                        c.forecast_pence for c in run.components if c.kind is overtime_kind
+                    )
+                    new_overtime = sum(
+                        c.forecast_pence for c in new.components if c.kind is overtime_kind
+                    )
+                    if new.gross_pence - new_overtime + old_overtime != run.gross_pence:
+                        raise PayrollError(
+                            f"Run {run.id}: incomplete earning components do not explain "
+                            "the stored gross; review before rebuilding"
+                        )
                 snapshot = json.loads(new.calculation_inputs or "{}")
                 if "automatic_period_end" in source_inputs:
                     snapshot["automatic_period_end"] = source_inputs["automatic_period_end"]
