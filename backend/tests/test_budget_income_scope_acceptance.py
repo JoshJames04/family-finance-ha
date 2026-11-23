@@ -234,14 +234,17 @@ def test_remove_obsolete_shared_plan_keeps_personal_bill_and_same_category_plan(
     post(client, f"budgets/{owned['id']}/lines", {
         "category_id": category["id"], "side": "expense", "amount": 8000,
     })
-    assert client.get(f"/api/v1/budgets/{shared['id']}/actuals").json()["bills_remaining_count"] == 0
-    assert client.get(f"/api/v1/budgets/{owned['id']}/actuals").json()["bills_remaining_count"] == 1
+    shared_actuals = client.get(f"/api/v1/budgets/{shared['id']}/actuals").json()
+    owned_actuals = client.get(f"/api/v1/budgets/{owned['id']}/actuals").json()
+    assert shared_actuals["bills_remaining_count"] == 0
+    assert owned_actuals["bills_remaining_count"] == 1
     response = client.post(f"/api/v1/budgets/{shared['id']}/lines/{plan['id']}/remove-future")
     assert response.status_code == 200, response.text
     assert response.json() == {"removed": 1}
     assert client.get(f"/api/v1/budgets/{shared['id']}").json()["lines"] == []
     assert client.get(f"/api/v1/budgets/{owned['id']}").json()["lines"][0]["original_pence"] == 8000
-    assert any(item["id"] == bill["id"] for item in client.get("/api/v1/commitments").json()["items"])
+    commitments = client.get("/api/v1/commitments").json()["items"]
+    assert any(item["id"] == bill["id"] for item in commitments)
 
 
 def test_salary_forecast_exposes_partial_paid_and_dismissed_residuals(client):
