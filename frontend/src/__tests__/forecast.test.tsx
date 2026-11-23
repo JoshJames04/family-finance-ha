@@ -49,17 +49,22 @@ const MOVEMENTS = [
   },
 ];
 
-function stubFetch() {
+function stubFetch(salaryAccountId: number | null = 7) {
   return vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = String(input);
     const body = url.includes("/api/v1/households")
       ? { items: [{ id: 1, name: "Home" }], total: 1 }
-      : url.includes("/projection")
-        ? PROJECTION
+      : url.includes("/api/v1/profiles")
+        ? { items: [{ id: 1, display_name: "Member", is_active: true, role: "admin" }], total: 1 }
+        : url.includes("/api/v1/employments")
+          ? { items: [{ profile_id: 1, is_active: true, paid_into_account_id: salaryAccountId }], total: 1 }
+          : url.includes("/projection")
+            ? PROJECTION
         : url.includes("/api/v1/expected-movements")
           ? MOVEMENTS
           : url.includes("/api/v1/accounts")
-            ? { items: [{ id: 7, name: "Current", type: "current", archived: false }], total: 1 }
+            ? { items: [{ id: 3, name: "Another account", type: "current", archived: false },
+              { id: 7, name: "Salary account", type: "current", archived: false }], total: 2 }
             : { items: [], total: 0 };
     return Promise.resolve(
       new Response(JSON.stringify(body), {
@@ -72,6 +77,25 @@ function stubFetch() {
 
 describe("Forecast", () => {
   afterEach(cleanup);
+  it("uses the member's salary account even when another account is first", async () => {
+    const fetch = stubFetch();
+    render(<MemoryRouter><Forecast /></MemoryRouter>);
+    await screen.findByRole("img");
+    expect((screen.getByRole("combobox", { name: "Account" }) as HTMLSelectElement).value).toBe("7");
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/accounts/3/projection"))).toBe(false);
+  });
+
+  it("asks for an account when salary settings cannot select one", async () => {
+    const fetch = stubFetch(null);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Forecast /></MemoryRouter>);
+    await screen.findByText("Choose an account to forecast");
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/projection"))).toBe(false);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Account" }), "3");
+    await screen.findByRole("img");
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/accounts/3/projection"))).toBe(true);
+  });
+
   it("renders chart, summary cards and calendar", async () => {
     stubFetch();
     render(<MemoryRouter><Forecast /></MemoryRouter>);

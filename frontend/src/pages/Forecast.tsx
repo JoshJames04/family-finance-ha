@@ -7,7 +7,8 @@ import { Link } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight, TriangleAlert, LineChart } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
-import { useAccounts, useReady } from "../api/hooks";
+import { useReady } from "../api/hooks";
+import { useSalaryAccountSelection } from "../widgets/DashboardAccount";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
 import { ProjectionChart } from "../components/ProjectionChart";
@@ -59,15 +60,14 @@ function monthGrid(year: number, month: number): (string | null)[][] {
 
 export function Forecast() {
   const ready = useReady();
-  const accounts = useAccounts();
-  const [accountId, setAccountId] = useState<number | null>(null);
+  const accountSelection = useSalaryAccountSelection();
+  const { accounts: accountItems, accountId: acct, select } = accountSelection;
   const [horizon, setHorizon] = useState<"30" | "90" | "180">("90");
-  const acct = accountId ?? accounts.data?.items.find((a) => !a.archived)?.id ?? accounts.data?.items[0]?.id ?? null;
   const projection = useApi(
     () => api.get("/api/v1/accounts/{account_id}/projection",
       { path: { account_id: acct! }, query: { days: Number(horizon) } }),
     acct !== null,
-    [acct, horizon],
+    [acct, horizon], [acct],
   );
   const warnings = useApi(() => api.get("/api/v1/forecast/warnings"), ready);
   const range = useMemo(() => {
@@ -118,7 +118,7 @@ export function Forecast() {
   }, [weeks, byDate]);
   const selectedEvents = selected ? byDate.get(selected) ?? [] : [];
   const p = projection.data;
-  const accountItems = accounts.data?.items.filter((a) => !a.archived) ?? [];
+
 
   return (
     <div>
@@ -127,9 +127,11 @@ export function Forecast() {
         description="Where your balance is heading, and what's coming up."
         actions={
           <>
-            {accountItems.length > 1 && (
+            {accountItems.length > 0 && (
               <Select aria-label="Account" value={acct ?? ""} wrapperClassName="w-44"
-                onChange={(e) => setAccountId(Number(e.target.value))}>
+                disabled={accountSelection.loading || accountSelection.error != null}
+                onChange={(e) => select(Number(e.target.value))}>
+                <option value="" disabled>Choose an account</option>
                 {accountItems.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
@@ -151,8 +153,14 @@ export function Forecast() {
         </div>
       ))}
 
-      <DataView state={projection} empty="No projection available" emptyIcon={LineChart}
-        emptyDescription="Add an account with an opening balance to forecast it."
+      <DataView state={{ ...projection,
+        loading: accountSelection.loading || (acct != null && projection.loading),
+        error: accountSelection.error ?? projection.error,
+        refetch: accountSelection.error ? accountSelection.refetch : projection.refetch,
+      }} empty={acct == null && accountItems.length > 0 ? "Choose an account to forecast" : "No projection available"} emptyIcon={LineChart}
+        emptyDescription={acct == null && accountItems.length > 0
+          ? "Select the account you want to forecast."
+          : "Add an account with an opening balance to forecast it."}
         loading={<div className="space-y-4"><Skeleton className="h-24 w-full rounded-xl" /><Skeleton className="h-80 w-full rounded-xl" /></div>}>
         {(proj) => (
           <>
