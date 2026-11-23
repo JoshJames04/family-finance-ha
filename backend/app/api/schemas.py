@@ -301,6 +301,7 @@ class CommitmentPatch(BaseModel):
 
 class OverdueBillPayment(BaseModel):
     expected_date: date
+    account_id: int
     outstanding_pence: int | None
 
 

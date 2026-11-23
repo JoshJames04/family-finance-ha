@@ -116,6 +116,38 @@ describe("Bills", () => {
     await waitFor(() => expect(document.activeElement).toBe(card));
   });
 
+  it("groups old overdue payments by their original account", async () => {
+    const data = relativeCommitments({ "Moved bill": 5 });
+    const base = stubFetch([], data).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = String(input);
+      let response: unknown;
+      if (url.includes("/api/v1/profiles")) response = {
+        items: [{ id: 1, is_active: true }, { id: 2, is_active: true }], total: 2,
+      };
+      if (url.includes("/api/v1/accounts")) response = {
+        items: [{ id: 2, name: "Personal", owner_profile_id: 1 },
+          { id: 1, name: "Joint", owner_profile_id: null }], total: 2,
+      };
+      if (url.includes("/api/v1/commitments")) response = { ...data, items: [{
+        ...data.items[0], account_id: 2, overdue_payments: [{
+          expected_date: "2026-10-01", account_id: 1, outstanding_pence: 300,
+        }],
+      }] };
+      if (response == null) return base(input, init);
+      return Promise.resolve(new Response(JSON.stringify(response), {
+        headers: { "Content-Type": "application/json" },
+      }));
+    });
+    const user = userEvent.setup();
+    render(<MemoryRouter><Bills /></MemoryRouter>);
+    await user.click(await screen.findByRole("radio", { name: "Shared" }));
+    await user.click(screen.getByRole("button", { name: /overdue/i }));
+    const dialog = screen.getByRole("dialog", { name: "Overdue bills" });
+    expect(within(dialog).getByRole("listitem").textContent).toContain("Joint");
+    expect(within(dialog).getByText("£3.00")).toBeTruthy();
+  });
+
   it("#412: earliest upcoming wins; due today says 'Due today'", async () => {
     stubFetch([], relativeCommitments(
       { Gas: 0, Electric: 7, Old: -2 }));

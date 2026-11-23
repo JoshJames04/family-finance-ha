@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import contributions, financial_events, outbox, schedule
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import contributions, financial_events, outbox, rbac, schedule
 from app.domain.recurring import advance, emit_lifecycle, materialise, occurrences
 from app.domain.subscriptions import normalise_payee
 from app.persistence.models import (
@@ -48,7 +48,7 @@ def _check_subscription(session: Session, household_id: int, name: str) -> None:
 
 def _overdue_payments(
     session: Session, household_id: int, rows: list[RecurringCommitment],
-    today: date,
+    today: date, allowed_accounts: set[int],
 ) -> dict[int, list[schemas.OverdueBillPayment]]:
     active = {c.id: c for c in rows if c.active}
     if not active:
@@ -57,16 +57,16 @@ def _overdue_payments(
         ExpectedMovement.household_id == household_id,
         ExpectedMovement.source_type == ExpectedSource.commitment,
         ExpectedMovement.source_id.in_(active),
+        ExpectedMovement.account_id.in_(allowed_accounts),
         ExpectedMovement.expected_date < today,
     )))
-    by_bill: dict[int, dict[date, ExpectedMovement]] = {}
+    by_bill: dict[int, dict[tuple[date, int], ExpectedMovement]] = {}
     for row in movements:
-        bill = active[row.source_id]
-        if bill.account_id == row.account_id:
-            by_bill.setdefault(bill.id, {})[row.expected_date] = row
+        if row.account_id is not None:
+            by_bill.setdefault(row.source_id, {})[(row.expected_date, row.account_id)] = row
     matched = contributions.matched_totals(session, [m.id for m in movements])
     posted_rows = session.execute(select(Transaction.account_id, Transaction.external_ref).where(
-        Transaction.account_id.in_({c.account_id for c in active.values()}),
+        Transaction.account_id.in_(allowed_accounts),
         Transaction.source == TransactionSource.system,
         Transaction.status != TransactionStatus.void,
         Transaction.external_ref.startswith("rec:"),
@@ -77,10 +77,15 @@ def _overdue_payments(
     for c in active.values():
         payments = result[c.id] = []
         historical = by_bill.get(c.id, {})
-        days = set(occurrences(c, today - timedelta(days=1))) | historical.keys()
-        for day in sorted(days):
-            movement = historical.get(day)
-            if (c.account_id, f"rec:{c.id}:{day.isoformat()}") in posted:
+        dates_with_history = {day for day, _ in historical}
+        dates_and_accounts = set(historical)
+        if c.account_id in allowed_accounts:
+            dates_and_accounts.update((day, c.account_id)
+                                      for day in occurrences(c, today - timedelta(days=1))
+                                      if day not in dates_with_history)
+        for day, account_id in sorted(dates_and_accounts):
+            movement = historical.get((day, account_id))
+            if (account_id, f"rec:{c.id}:{day.isoformat()}") in posted:
                 continue
             if movement is not None and movement.dismissed_at is not None:
                 continue
@@ -90,14 +95,15 @@ def _overdue_payments(
             if amount == 0:
                 continue
             payments.append(schemas.OverdueBillPayment(
-                expected_date=day, outstanding_pence=abs(amount) if amount is not None else None,
+                expected_date=day, account_id=account_id,
+                outstanding_pence=abs(amount) if amount is not None else None,
             ))
     return result
 
 
 @router.get("", response_model=schemas.Page[schemas.CommitmentOut])
 def list_commitments(
-    household: HouseholdDep, session: SessionDep,
+    household: HouseholdDep, session: SessionDep, profile: ProfileDep,
     include_inactive: Annotated[bool, Query()] = False,
     include_overdue: Annotated[bool, Query()] = False,
 ) -> schemas.Page[schemas.CommitmentOut]:
@@ -108,7 +114,9 @@ def list_commitments(
     rows = list(session.execute(stmt).scalars().all())
     items = [schemas.CommitmentOut.model_validate(c) for c in rows]
     if include_overdue:
-        overdue = _overdue_payments(session, household.id, rows, date.today())
+        accounts = session.scalars(select(Account).where(Account.household_id == household.id))
+        allowed = {a.id for a in accounts if rbac.visible(a.owner_profile_id, profile)}
+        overdue = _overdue_payments(session, household.id, rows, date.today(), allowed)
         for item in items:
             item.overdue_payments = overdue.get(item.id, [])
     return schemas.Page(

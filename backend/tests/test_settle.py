@@ -135,7 +135,7 @@ def test_bill_summary_lists_occurrences_with_remaining_amount(session, household
                         source_id=bill.id)
     skipped.dismissed_at = datetime.combine(today, datetime.min.time())
     session.flush()
-    page = list_commitments(household, session, include_overdue=True)
+    page = list_commitments(household, session, None, include_overdue=True)
     assert [(p.expected_date, p.outstanding_pence) for p in
             page.items[0].overdue_payments or []] == [(first, 6000)]
 
@@ -154,9 +154,16 @@ def test_bill_summary_keeps_old_unpaid_occurrence_after_schedule_edit(session, h
     posted.external_ref = f"rec:{bill.id}:{posted_date.isoformat()}"
     session.flush()
 
-    page = list_commitments(household, session, include_overdue=True)
-    assert [(p.expected_date, p.outstanding_pence) for p in
-            page.items[0].overdue_payments or []] == [(due, 1599)]
+    new_account = Account(household_id=household.id, name="New account",
+                          type="personal", opening_balance_pence=0, opening_date=today)
+    session.add(new_account)
+    session.flush()
+    bill.account_id = new_account.id
+    session.flush()
+
+    page = list_commitments(household, session, None, include_overdue=True)
+    assert [(p.expected_date, p.account_id, p.outstanding_pence) for p in
+            page.items[0].overdue_payments or []] == [(due, account.id, 1599)]
 
 
 class TestAutoSettlement:

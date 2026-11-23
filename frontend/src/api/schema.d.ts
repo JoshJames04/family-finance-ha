@@ -6320,6 +6320,8 @@ export interface components {
              * Format: date
              */
             expected_date: string;
+            /** Account Id */
+            account_id: number;
             /** Outstanding Pence */
             outstanding_pence: number | null;
         };
@@ -10167,6 +10169,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;

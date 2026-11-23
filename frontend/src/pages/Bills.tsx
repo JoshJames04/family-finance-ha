@@ -100,11 +100,16 @@ export function Bills() {
     (c.occurrence_count == null || c.generated_count < c.occurrence_count))
     .sort((a, b) => a.next_date.localeCompare(b.next_date) || a.name.localeCompare(b.name));
   const upcoming = scheduled.filter(c => c.next_date >= today);
-  const overdue = active.flatMap(bill => {
+  const overdue = items.filter(bill => bill.active).flatMap(bill => {
     const legacyPayment = scheduled.includes(bill) && bill.next_date < today
-      ? [{ expected_date: bill.next_date, outstanding_pence: bill.amount_pence }]
+      ? [{ expected_date: bill.next_date, account_id: bill.account_id, outstanding_pence: bill.amount_pence }]
       : [];
     return (bill.overdue_payments ?? legacyPayment).map(payment => ({ bill, ...payment }));
+  }).filter(payment => {
+    if (scope === "all") return true;
+    const account = accountsById.get(payment.account_id);
+    if (!account || (scope === "mine" && me == null)) return false;
+    return account.owner_profile_id === (scope === "mine" ? me : null);
   }).sort((a, b) => a.expected_date.localeCompare(b.expected_date) || a.bill.name.localeCompare(b.bill.name));
   const next = upcoming[0];
   const oldestOverdue = overdue[0];
@@ -219,11 +224,14 @@ export function Bills() {
               description="Past scheduled payments still awaiting a recorded settlement.">
               {overdue.length === 0 ? <p>No overdue bills in this view.</p> :
                 <ul className="divide-y divide-border">
-                  {overdue.map(({ bill, expected_date, outstanding_pence }) => (
-                    <li key={`${bill.id}:${expected_date}`} className="flex items-center justify-between gap-3 py-2">
+                  {overdue.map(({ bill, expected_date, account_id, outstanding_pence }) => (
+                    <li key={`${bill.id}:${account_id}:${expected_date}`} className="flex items-center justify-between gap-3 py-2">
                       <div>
                         <p className="font-medium">{bill.name}</p>
-                        <p className="text-sm text-fg-muted">Due {formatWeekdayDayMonth(expected_date)}</p>
+                        <p className="text-sm text-fg-muted">
+                          Due {formatWeekdayDayMonth(expected_date)}
+                          {accountsById.has(account_id) ? ` · ${accountsById.get(account_id)!.name}` : ""}
+                        </p>
                       </div>
                       {outstanding_pence == null ? "Variable amount" : <Money pence={Math.abs(outstanding_pence)} />}
                     </li>
