@@ -182,8 +182,9 @@ Expand **Reconcile spending** for the transaction and split amounts behind the
 headline, including budget-covered, unallocated and uncategorised totals. Category
 actuals retain the full budget period for historical analysis. Part-paid bills
 remain in Bills remaining until their outstanding amount is zero. On **Bills**,
-open **Overdue** to see past occurrences still awaiting recorded settlement.
-The list shows any residual amount after linked payments.
+open **Overdue** to see past occurrences on non-archived accounts still awaiting
+recorded settlement. The list shows any residual amount after linked payments.
+Occurrences on archived accounts are retained in history.
 
 Employer payday settings include an optional payroll cutoff day (1–31); leave it
 blank to retain calendar-month earning periods. Category pickers sort by name and
