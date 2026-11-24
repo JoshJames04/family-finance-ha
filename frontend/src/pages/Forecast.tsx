@@ -7,7 +7,8 @@ import { Link } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight, TriangleAlert, LineChart } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
-import { useAccounts, useReady } from "../api/hooks";
+import { useReady } from "../api/hooks";
+import { useSalaryAccountSelection } from "../widgets/DashboardAccount";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
 import { ProjectionChart } from "../components/ProjectionChart";
@@ -59,15 +60,17 @@ function monthGrid(year: number, month: number): (string | null)[][] {
 
 export function Forecast() {
   const ready = useReady();
-  const accounts = useAccounts();
-  const [accountId, setAccountId] = useState<number | null>(null);
+  const accountSelection = useSalaryAccountSelection();
+  const { accounts: accountItems, accountId: acct, select } = accountSelection;
+  const selectedAccount = accountItems.find(a => a.id === acct);
+  const [calendarAllAccounts, setCalendarAllAccounts] = useState(false);
+  const calendarAccount = calendarAllAccounts ? null : acct;
   const [horizon, setHorizon] = useState<"30" | "90" | "180">("90");
-  const acct = accountId ?? accounts.data?.items.find((a) => !a.archived)?.id ?? accounts.data?.items[0]?.id ?? null;
   const projection = useApi(
     () => api.get("/api/v1/accounts/{account_id}/projection",
       { path: { account_id: acct! }, query: { days: Number(horizon) } }),
     acct !== null,
-    [acct, horizon],
+    [acct, horizon], [acct],
   );
   const warnings = useApi(() => api.get("/api/v1/forecast/warnings"), ready);
   const range = useMemo(() => {
@@ -83,8 +86,9 @@ export function Forecast() {
   );
   const warningList = Array.isArray(warnings.data) ? warnings.data : [];
   const movementList = useMemo(
-    () => (Array.isArray(moves.data) ? moves.data : []),
-    [moves.data],
+    () => (Array.isArray(moves.data) ? moves.data : [])
+      .filter(mv => calendarAccount == null || mv.account_id === calendarAccount),
+    [moves.data, calendarAccount],
   );
   const byDate = useMemo(() => {
     const m = new Map<string, Movement[]>();
@@ -118,7 +122,7 @@ export function Forecast() {
   }, [weeks, byDate]);
   const selectedEvents = selected ? byDate.get(selected) ?? [] : [];
   const p = projection.data;
-  const accountItems = accounts.data?.items.filter((a) => !a.archived) ?? [];
+
 
   return (
     <div>
@@ -127,9 +131,11 @@ export function Forecast() {
         description="Where your balance is heading, and what's coming up."
         actions={
           <>
-            {accountItems.length > 1 && (
+            {accountItems.length > 0 && (
               <Select aria-label="Account" value={acct ?? ""} wrapperClassName="w-44"
-                onChange={(e) => setAccountId(Number(e.target.value))}>
+                disabled={accountSelection.loading || accountSelection.error != null}
+                onChange={(e) => select(Number(e.target.value))}>
+                <option value="" disabled>Choose an account</option>
                 {accountItems.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
@@ -151,8 +157,14 @@ export function Forecast() {
         </div>
       ))}
 
-      <DataView state={projection} empty="No projection available" emptyIcon={LineChart}
-        emptyDescription="Add an account with an opening balance to forecast it."
+      <DataView state={{ ...projection,
+        loading: accountSelection.loading || (acct != null && projection.loading),
+        error: accountSelection.error ?? projection.error,
+        refetch: accountSelection.error ? accountSelection.refetch : projection.refetch,
+      }} empty={acct == null && accountItems.length > 0 ? "Choose an account to forecast" : "No projection available"} emptyIcon={LineChart}
+        emptyDescription={acct == null && accountItems.length > 0
+          ? "Select the account you want to forecast."
+          : "Add an account with an opening balance to forecast it."}
         loading={<div className="space-y-4"><Skeleton className="h-24 w-full rounded-xl" /><Skeleton className="h-80 w-full rounded-xl" /></div>}>
         {(proj) => (
           <>
@@ -168,7 +180,11 @@ export function Forecast() {
                 value={<Money pence={proj.committed_until_payday_pence} />} hint="before payday" />
             </div>
             <Panel title="Projected balance"
-              description={proj.threshold_pence ? `Buffer ${formatPence(proj.threshold_pence)} shown dashed` : `Next ${HORIZONS.find((h) => h.value === horizon)?.label}`}
+              description={[
+                selectedAccount?.name,
+                `Next ${HORIZONS.find((h) => h.value === horizon)?.label}`,
+                proj.threshold_pence ? `Buffer ${formatPence(proj.threshold_pence)} shown dashed` : null,
+              ].filter(Boolean).join(" · ")}
               className="mb-4">
               <ProjectionChart projection={proj} height={300} />
             </Panel>
@@ -187,9 +203,18 @@ export function Forecast() {
             </span>
           }
           actions={
-            <span className="hidden text-[12.5px] text-fg-subtle sm:inline">
-              In <Money pence={monthTotals.inP} className="font-medium text-positive" /> · Out <Money pence={Math.abs(monthTotals.outP)} className="font-medium text-fg" />
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedAccount && (
+                <Select aria-label="Calendar accounts" value={calendarAccount == null ? "all" : "selected"}
+                  onChange={e => setCalendarAllAccounts(e.target.value === "all")}>
+                  <option value="selected">{selectedAccount.name}</option>
+                  <option value="all">All accounts</option>
+                </Select>
+              )}
+              <span className="hidden text-[12.5px] text-fg-subtle sm:inline">
+                In <Money pence={monthTotals.inP} className="font-medium text-positive" /> · Out <Money pence={Math.abs(monthTotals.outP)} className="font-medium text-fg" />
+              </span>
+            </div>
           }
         >
           <table className="ff-cal w-full table-fixed border-collapse" aria-labelledby="cal-heading">

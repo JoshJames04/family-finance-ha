@@ -22,7 +22,7 @@ import { IconTile, PageHeader, Segmented, Stat } from "../components/Display";
 import { EmptyState, Skeleton } from "../components/Feedback";
 import { Money } from "../components/Money";
 import { cn } from "../lib/cn";
-import { formatDayMonth, formatWeekday, formatWeekdayDayMonth, parseISODate } from "../lib/format";
+import { formatDayMonth, formatWeekday, formatWeekdayDayMonth, parseISODate, toISODate } from "../lib/format";
 
 type Commitment = components["schemas"]["CommitmentOut"];
 type Category = components["schemas"]["CategoryOut"];
@@ -66,14 +66,15 @@ export function Bills() {
   const [rev, setRev] = useState(0);
   const [scope, setScope] = useState<"all" | "mine" | "shared">("all");
   const commitments = useApi(
-    () => api.get("/api/v1/commitments", { query: { include_inactive: true } }),
+    () => api.get("/api/v1/commitments", { query: { include_inactive: true, include_overdue: true } }),
     ready, [rev]);
-  const accounts = useAccounts(rev);
+  const accounts = useAccounts(rev, true);
   const categories = useCategories();
   const identity = useIdentity();
   const me = useMeProfileId();
   const memberCount = (identity.data ?? []).filter((p) => p.is_active).length;
   const [editing, setEditing] = useState<Commitment | "new" | null>(null);
+  const [showOverdue, setShowOverdue] = useState(false);
   const refresh = () => setRev((r) => r + 1);
 
   const accountsById = useMemo(() => {
@@ -93,15 +94,23 @@ export function Bills() {
   /* ---- summary ---- */
   const monthlyTotal = active.reduce(
     (s, c) => s + (c.amount_pence != null ? monthlyPence(Math.abs(c.amount_pence), c.frequency) : 0), 0);
-  /* Next due = earliest unmaterialised occurrence dated today or
-   * later (#412). next_date only advances on posting, so a past
-   * value means the scheduled date arrived unpaid — that's overdue,
-   * not upcoming, and is surfaced on its own tile. */
-  const today = new Date().toISOString().slice(0, 10);
-  const upcoming = active.filter((c) => c.next_date >= today)
-    .sort((a, b) => a.next_date.localeCompare(b.next_date));
-  const overdue = active.filter((c) => c.next_date < today)
-    .sort((a, b) => a.next_date.localeCompare(b.next_date));
+  const today = toISODate(new Date());
+  const scheduled = active.filter(c =>
+    (c.end_date == null || c.next_date <= c.end_date) &&
+    (c.occurrence_count == null || c.generated_count < c.occurrence_count))
+    .sort((a, b) => a.next_date.localeCompare(b.next_date) || a.name.localeCompare(b.name));
+  const upcoming = scheduled.filter(c => c.next_date >= today);
+  const overdue = items.filter(bill => bill.active).flatMap(bill => {
+    const legacyPayment = scheduled.includes(bill) && bill.next_date < today
+      ? [{ expected_date: bill.next_date, account_id: bill.account_id, outstanding_pence: bill.amount_pence }]
+      : [];
+    return (bill.overdue_payments ?? legacyPayment).map(payment => ({ bill, ...payment }));
+  }).filter(payment => {
+    if (scope === "all") return true;
+    const account = accountsById.get(payment.account_id);
+    if (!account || (scope === "mine" && me == null)) return false;
+    return account.owner_profile_id === (scope === "mine" ? me : null);
+  }).sort((a, b) => a.expected_date.localeCompare(b.expected_date) || a.bill.name.localeCompare(b.bill.name));
   const next = upcoming[0];
   const oldestOverdue = overdue[0];
 
@@ -197,17 +206,39 @@ export function Bills() {
                     : formatWeekdayDayMonth(next.next_date)
                   : undefined}
                 className="rounded-xl border border-border bg-surface p-4 shadow-card" />
-              <Stat label="Overdue" value={overdue.length}
-                hint={oldestOverdue
-                  ? `Oldest ${formatWeekdayDayMonth(oldestOverdue.next_date)}`
-                  : undefined}
-                className={cn("rounded-xl border bg-surface p-4 shadow-card",
-                  overdue.length ? "border-negative/40" : "border-border")} />
+              <div>
+                <button type="button" aria-haspopup="dialog" onClick={() => setShowOverdue(true)}
+                  className={cn("h-full w-full rounded-xl border bg-surface p-4 text-left shadow-card hover:bg-surface-2",
+                    overdue.length ? "border-negative/40" : "border-border")}>
+                  <Stat label="Overdue" value={overdue.length}
+                    hint={oldestOverdue ? `Oldest ${formatWeekdayDayMonth(oldestOverdue.expected_date)}` : "View details"} />
+                </button>
+              </div>
               <Stat label="Annualised" value={<Money pence={monthlyTotal * 12} />}
                 className="rounded-xl border border-border bg-surface p-4 shadow-card" />
               <Stat label="Paused" value={paused.length}
                 className="rounded-xl border border-border bg-surface p-4 shadow-card" />
             </div>
+
+            <Dialog open={showOverdue} onOpenChange={setShowOverdue} title="Overdue bills"
+              description="Past scheduled payments still awaiting a recorded settlement.">
+              {overdue.length === 0 ? <p>No overdue bills in this view.</p> :
+                <ul className="divide-y divide-border">
+                  {overdue.map(({ bill, expected_date, account_id, outstanding_pence }) => (
+                    <li key={`${bill.id}:${account_id}:${expected_date}`} className="flex items-center justify-between gap-3 py-2">
+                      <div>
+                        <p className="font-medium">{bill.name}</p>
+                        <p className="text-sm text-fg-muted">
+                          Due {formatWeekdayDayMonth(expected_date)}
+                          {accountsById.has(account_id) ? ` · ${accountsById.get(account_id)!.name}` : ""}
+                          {accountsById.get(account_id)?.archived ? " (archived)" : ""}
+                        </p>
+                      </div>
+                      {outstanding_pence == null ? "Variable amount" : <Money pence={Math.abs(outstanding_pence)} />}
+                    </li>
+                  ))}
+                </ul>}
+            </Dialog>
 
             <div className="grid grid-cols-1 gap-4">
               {sections.map(([secName, rows]) => (

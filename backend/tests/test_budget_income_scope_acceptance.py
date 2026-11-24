@@ -1,6 +1,6 @@
 """Budget income classification regressions use disposable synthetic databases."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -206,6 +206,45 @@ def test_shared_budget_and_expected_stream_use_shared_accounts_while_all_uses_un
     drill = client.get(figure["drill"]["endpoint"], params=figure["drill"]["params"])
     assert drill.status_code == 200, drill.text
     assert [row["amount_pence"] for row in drill.json()["items"]] == [-1100]
+
+
+def test_remove_obsolete_shared_plan_keeps_personal_bill_and_same_category_plan(client):
+    today = date.today()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    owner = int(client.headers["X-Profile-Id"])
+    category = post(client, "categories", {"name": "Synthetic credit"})
+    personal = post(client, "accounts", {
+        "name": "Personal", "type": "personal", "owner_profile_id": owner,
+        "opening_balance": 0, "opening_date": today.isoformat(),
+    })
+    bill = post(client, "commitments", {
+        "name": "Personal credit bill", "account_id": personal["id"],
+        "category_id": category["id"], "amount": -8000, "frequency": "monthly",
+        "next_date": tomorrow,
+    })
+    shared, owned = [
+        post(client, "budgets", {"name": "Plan", "period_type": "custom",
+                                 "owner_profile_id": scope, "start_date": tomorrow,
+                                 "end_date": tomorrow})
+        for scope in [None, owner]
+    ]
+    plan = post(client, f"budgets/{shared['id']}/lines", {
+        "category_id": category["id"], "side": "expense", "amount": 3000,
+    })
+    post(client, f"budgets/{owned['id']}/lines", {
+        "category_id": category["id"], "side": "expense", "amount": 8000,
+    })
+    shared_actuals = client.get(f"/api/v1/budgets/{shared['id']}/actuals").json()
+    owned_actuals = client.get(f"/api/v1/budgets/{owned['id']}/actuals").json()
+    assert shared_actuals["bills_remaining_count"] == 0
+    assert owned_actuals["bills_remaining_count"] == 1
+    response = client.post(f"/api/v1/budgets/{shared['id']}/lines/{plan['id']}/remove-future")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"removed": 1}
+    assert client.get(f"/api/v1/budgets/{shared['id']}").json()["lines"] == []
+    assert client.get(f"/api/v1/budgets/{owned['id']}").json()["lines"][0]["original_pence"] == 8000
+    commitments = client.get("/api/v1/commitments").json()["items"]
+    assert any(item["id"] == bill["id"] for item in commitments)
 
 
 def test_salary_forecast_exposes_partial_paid_and_dismissed_residuals(client):

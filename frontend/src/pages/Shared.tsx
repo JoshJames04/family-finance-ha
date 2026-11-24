@@ -35,7 +35,7 @@ function pickShared(budgets: Budget[]): Budget | null {
 export function Shared() {
   const ready = useReady();
   const budgets = useApi(() => api.get("/api/v1/budgets"), ready);
-  const categories = useCategories();
+  const categories = useCategories(true);
   const shared = budgets.data ? pickShared(budgets.data.items) : null;
   const detail = useApi(
     () => api.get("/api/v1/budgets/{budget_id}",

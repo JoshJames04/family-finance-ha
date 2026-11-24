@@ -15,7 +15,7 @@ from app.api.deps import (
     ProfileDep,
     SessionDep,
 )
-from app.domain import budget_funding, budget_periods, rbac, schedule
+from app.domain import budget_funding, budget_periods, financial_events, rbac, schedule
 from app.domain import budgets as dom
 from app.persistence.models import (
     Account,
@@ -204,6 +204,31 @@ def revise_line(
                  "transfer_rule", line.id,
                  {"rule_ids": affected, "line_id": line.id})
     return schemas.BudgetLineOut.model_validate(line)
+
+
+@router.post("/{budget_id}/lines/{line_id}/remove-future")
+def remove_future_lines(
+    budget_id: int, line_id: int, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
+) -> dict[str, int]:
+    b = _get(session, household.id, budget_id, profile)
+    _w(b, profile)
+    line = session.get(BudgetLine, line_id)
+    if line is None or line.budget_id != b.id:
+        raise HTTPException(404, "line not found")
+    financial_events.evaluate_budgets(session, household.id)
+    removed = dom.remove_future_lines(session, line)
+    for row in removed:
+        emit(session, household.id, actor, "delete", "budget_line", row.id, {
+            "budget_id": row.budget_id, "category_id": row.category_id,
+            "side": row.side.value, "original_pence": row.original_pence,
+            "revised_pence": row.revised_pence, "reason": row.revision_reason,
+            "rollover": row.rollover,
+        })
+    if removed:
+        schedule.rematerialize_budget_derived_rules(session, household.id)
+        financial_events.evaluate_budgets(session, household.id)
+    return {"removed": len(removed)}
 
 
 @router.post("/{budget_id}/approve", response_model=schemas.BudgetOut)
