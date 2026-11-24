@@ -8,7 +8,7 @@ Source of truth: ``backend/app/__init__.py`` ``__version__``.
     python scripts/version.py sync     # rewrite all targets to match
     python scripts/version.py set X.Y.Z
 
-Targets kept in lockstep: backend pyproject, frontend package.json,
+Targets kept in lockstep: backend pyproject, frontend package metadata,
 HA integration manifest, add-on config.yaml. The image gets its
 ``org.opencontainers.image.version`` label from this value at build.
 """
@@ -35,10 +35,11 @@ def _read(pattern: str, path: Path) -> str:
 
 def _write(path: Path, pattern: str, repl: str) -> None:
     text = path.read_text(encoding="utf-8")
-    new = re.sub(pattern, repl, text, count=1)
-    if new == text:
+    new, count = re.subn(pattern, repl, text, count=1)
+    if count == 0:
         raise SystemExit(f"pattern not found in {path}")
-    path.write_text(new, encoding="utf-8")
+    if new != text:
+        path.write_text(new, encoding="utf-8")
 
 
 def _json_version(path: Path, version: str | None = None) -> str:
@@ -55,7 +56,10 @@ def get() -> str:
 
 
 def targets() -> dict[str, str]:
+    lock = json.loads((ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8"))
     return {
+        "frontend/package-lock.json": str(lock["version"]),
+        "frontend/package-lock.json (root package)": str(lock["packages"][""]["version"]),
         "backend/pyproject.toml": _read(
             r'(?m)^version\s*=\s*"([^"]+)"',
             ROOT / "backend" / "pyproject.toml"),
@@ -86,6 +90,11 @@ def sync(version: str) -> None:
     _write(ROOT / "backend" / "pyproject.toml",
            r'(?m)^version\s*=\s*"[^"]+"', f'version = "{version}"')
     _json_version(ROOT / "frontend" / "package.json", version)
+    lock_path = ROOT / "frontend" / "package-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["version"] = version
+    lock["packages"][""]["version"] = version
+    lock_path.write_text(json.dumps(lock, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     _json_version(ROOT / "custom_components" / "family_finance"
                   / "manifest.json", version)
     _write(ROOT / "addon" / "config.yaml",

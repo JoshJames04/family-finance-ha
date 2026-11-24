@@ -6,7 +6,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 `backend/app/__init__.py` is the single version source of truth;
 `scripts/version.py check` enforces consistency across pyproject,
-frontend, HA manifest and the add-on config. Tags `v*` trigger the
+frontend manifest and lockfile, HA manifest and the add-on config. Tags `v*` trigger the
 release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
