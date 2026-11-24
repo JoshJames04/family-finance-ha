@@ -283,7 +283,6 @@ def rebuild_forecasts(
                 )
                 if (
                     preserve_incomplete_gross
-                    and new.gross_pence != run.gross_pence
                     and sum(c.forecast_pence for c in run.components if c.kind in payrun.EARNING)
                     != run.gross_pence
                 ):

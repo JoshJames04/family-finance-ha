@@ -11,6 +11,13 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.5] — 2026-11-24
+
+### Fixed
+
+- Preserve incomplete historical payroll and dependent forecasts when overtime
+  offsets the gross difference. Flag the forecast for review.
+
 ## [1.5.4] — 2026-11-24
 
 ### Fixed

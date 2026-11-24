@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.5.5
+
+- Preserve incomplete historical payroll and dependent forecasts when overtime
+  offsets the gross difference. Flag the forecast for review.
+
 ## 1.5.4
 
 - Open Overdue on Bills to see each outstanding occurrence, its original account, due date and remaining amount. Keep historical occurrences visible when the bill changes dates or payment accounts (#578).
