@@ -11,6 +11,15 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.4] — 2026-11-24
+
+### Fixed
+
+- Open Overdue on Bills to see each outstanding occurrence, its original account, due date and remaining amount. Keep historical occurrences visible when the bill changes dates or payment accounts (#578).
+- Resolve archived category names in Budget and Shared, and show planned totals alongside actuals (#577).
+- Remove obsolete lines from future editable budgets in their own scope without disturbing historical plans or personal bill schedules. Skip archived categories when copying plans (#579, #580).
+- Use the same default account on Dashboard and Forecast. Align the calendar with the selected account and retain an all-accounts view (#572, #573).
+
 ## [1.5.3] — 2026-11-23
 
 ### Fixed
