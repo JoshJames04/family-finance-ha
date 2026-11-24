@@ -68,7 +68,7 @@ export function Bills() {
   const commitments = useApi(
     () => api.get("/api/v1/commitments", { query: { include_inactive: true, include_overdue: true } }),
     ready, [rev]);
-  const accounts = useAccounts(rev);
+  const accounts = useAccounts(rev, true);
   const categories = useCategories();
   const identity = useIdentity();
   const me = useMeProfileId();
@@ -231,6 +231,7 @@ export function Bills() {
                         <p className="text-sm text-fg-muted">
                           Due {formatWeekdayDayMonth(expected_date)}
                           {accountsById.has(account_id) ? ` · ${accountsById.get(account_id)!.name}` : ""}
+                          {accountsById.get(account_id)?.archived ? " (archived)" : ""}
                         </p>
                       </div>
                       {outstanding_pence == null ? "Variable amount" : <Money pence={Math.abs(outstanding_pence)} />}

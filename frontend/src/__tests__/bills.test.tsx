@@ -116,7 +116,7 @@ describe("Bills", () => {
     await waitFor(() => expect(document.activeElement).toBe(card));
   });
 
-  it("groups old overdue payments by their original account", async () => {
+  it("groups old overdue payments by their original archived account", async () => {
     const data = relativeCommitments({ "Moved bill": 5 });
     const base = stubFetch([], data).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
@@ -126,8 +126,11 @@ describe("Bills", () => {
         items: [{ id: 1, is_active: true }, { id: 2, is_active: true }], total: 2,
       };
       if (url.includes("/api/v1/accounts")) response = {
-        items: [{ id: 2, name: "Personal", owner_profile_id: 1 },
-          { id: 1, name: "Joint", owner_profile_id: null }], total: 2,
+        items: [
+          { id: 2, name: "Personal", owner_profile_id: 1 },
+          ...(url.includes("include_archived=true")
+            ? [{ id: 1, name: "Joint", owner_profile_id: null, archived: true }] : []),
+        ], total: 2,
       };
       if (url.includes("/api/v1/commitments")) response = { ...data, items: [{
         ...data.items[0], account_id: 2, overdue_payments: [{

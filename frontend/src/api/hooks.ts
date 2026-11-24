@@ -14,8 +14,10 @@ export function useReady(): boolean {
   return identity.data !== null || (identity.error !== null && !identity.loading);
 }
 
-export function useAccounts(rev = 0) {
-  return useApi(() => api.get("/api/v1/accounts"), useReady(), [rev], []);
+export function useAccounts(rev = 0, includeArchived = false) {
+  return useApi(() => api.get("/api/v1/accounts",
+    includeArchived ? { query: { include_archived: true } } : undefined),
+  useReady(), [rev, includeArchived], [includeArchived]);
 }
 
 export function useCategories(includeArchived = false) {
