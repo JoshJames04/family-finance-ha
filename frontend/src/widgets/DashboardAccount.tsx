@@ -19,7 +19,7 @@ interface Selection {
 const AccountContext = createContext<Selection | null>(null);
 export const useDashboardAccount = () => useContext(AccountContext);
 
-export function DashboardAccountProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
+export function useSalaryAccountSelection(enabled = true): Selection {
   const identity = useIdentity();
   const ingress = isIngress();
   const ready = enabled && identity.data !== null;
@@ -64,10 +64,13 @@ export function DashboardAccountProvider({ children, enabled = true }: { childre
     if (ingress) me.refetch();
     jobs.refetch();
   };
-  return <AccountContext.Provider value={{ accounts: active, accountId, loading, error, refetch,
-    select: id => setManual(id === null ? null : { scope, id }) }}>
-    {children}
-  </AccountContext.Provider>;
+  return { accounts: active, accountId, loading, error, refetch,
+    select: id => setManual(id === null ? null : { scope, id }) };
+}
+
+export function DashboardAccountProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
+  const selection = useSalaryAccountSelection(enabled);
+  return <AccountContext.Provider value={selection}>{children}</AccountContext.Provider>;
 }
 
 /** Outside Dashboard, independently rendered widgets retain their existing default. */
