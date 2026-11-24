@@ -310,6 +310,23 @@ export interface paths {
         patch: operations["revise_line_api_v1_budgets__budget_id__lines__line_id__patch"];
         trace?: never;
     };
+    "/api/v1/budgets/{budget_id}/lines/{line_id}/remove-future": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove Future Lines */
+        post: operations["remove_future_lines_api_v1_budgets__budget_id__lines__line_id__remove_future_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/budgets/{budget_id}/approve": {
         parameters: {
             query?: never;
@@ -4815,6 +4832,8 @@ export interface components {
             active: boolean;
             /** Notes */
             notes: string | null;
+            /** Overdue Payments */
+            overdue_payments?: components["schemas"]["OverdueBillPayment"][] | null;
         };
         /**
          * CommitmentPatch
@@ -6293,6 +6312,18 @@ export interface components {
             deficit_pence: number;
             /** Suggested Sources */
             suggested_sources: components["schemas"]["WarningSourceOut"][];
+        };
+        /** OverdueBillPayment */
+        OverdueBillPayment: {
+            /**
+             * Expected Date
+             * Format: date
+             */
+            expected_date: string;
+            /** Account Id */
+            account_id: number;
+            /** Outstanding Pence */
+            outstanding_pence: number | null;
         };
         /** OvertimeFindingResolveIn */
         OvertimeFindingResolveIn: {
@@ -8965,6 +8996,44 @@ export interface operations {
             };
         };
     };
+    remove_future_lines_api_v1_budgets__budget_id__lines__line_id__remove_future_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                budget_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     approve_budget_api_v1_budgets__budget_id__approve_post: {
         parameters: {
             query?: never;
@@ -10096,9 +10165,11 @@ export interface operations {
         parameters: {
             query?: {
                 include_inactive?: boolean;
+                include_overdue?: boolean;
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;

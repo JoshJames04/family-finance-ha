@@ -164,12 +164,20 @@ If this project is useful to you, you can support its development via
 
 
 Budget starts with **All**, combining the visible plans for the selected period.
-Choose an owner to edit that owner's budget. Spent so far includes every eligible
-outflow through today, even without a budget line or category; refunds reduce it.
+The section tables show planned spending and income alongside their actual totals.
+Choose a budget scope to edit its plan. A line's adjustment dialog can remove
+the same line from future editable plans in that scope while keeping current,
+historical and locked plans. Archived categories keep their names in saved plans
+and are skipped when copying a plan forward. Planned categories are maintained
+separately from bills, whose payment account determines their scope. Spent so far
+includes all eligible outflow through today. It includes outflow without a budget
+line or category and is reduced by refunds.
 Expand **Reconcile spending** for the transaction and split amounts behind the
 headline, including budget-covered, unallocated and uncategorised totals. Category
 actuals retain the full budget period for historical analysis. Part-paid bills
-remain in Bills remaining until their outstanding amount is zero.
+remain in Bills remaining until their outstanding amount is zero. On **Bills**,
+open **Overdue** to see past occurrences still awaiting recorded settlement.
+The list shows any residual amount after linked payments.
 
 Employer payday settings include an optional payroll cutoff day (1–31); leave it
 blank to retain calendar-month earning periods. Category pickers sort by name and

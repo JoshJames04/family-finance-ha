@@ -7,7 +7,7 @@ re-runs are idempotent; ambiguous matches never settle silently.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -112,6 +112,58 @@ def test_partial_event_precedes_final_settlement_without_duplicate_replay(
     assert [event.event_type for event in events] == ["movement.partial", "movement.settled"]
     assert events[1].payload["matched_pence_outstanding"] == 0
     assert commitment.next_date > TODAY
+
+
+def test_bill_summary_lists_occurrences_with_remaining_amount(session, household, account):
+    from app.api.v1.commitments import list_commitments
+
+    today = date.today()
+    first = today - timedelta(days=21)
+    bill = _commitment(session, household, account, next_date=first, pence=-10000)
+    bill.frequency = Frequency.weekly
+    partial = _movement(session, household, account, on=first, pence=-10000,
+                        source_id=bill.id)
+    settle.settle_occurrence(session, partial, _txn(session, account, first, -4000),
+                            manual=True)
+    paid_day = first + timedelta(days=7)
+    paid = _movement(session, household, account, on=paid_day, pence=-10000,
+                     source_id=bill.id)
+    settle.settle_occurrence(session, paid, _txn(session, account, paid_day, -10000),
+                            manual=True)
+    skipped_day = first + timedelta(days=14)
+    skipped = _movement(session, household, account, on=skipped_day, pence=-10000,
+                        source_id=bill.id)
+    skipped.dismissed_at = datetime.combine(today, datetime.min.time())
+    session.flush()
+    page = list_commitments(household, session, None, include_overdue=True)
+    assert [(p.expected_date, p.outstanding_pence) for p in
+            page.items[0].overdue_payments or []] == [(first, 6000)]
+
+
+def test_bill_summary_keeps_old_unpaid_occurrence_after_schedule_edit(session, household, account):
+    from app.api.v1.commitments import list_commitments
+
+    today = date.today()
+    due = today - timedelta(days=8)
+    bill = _commitment(session, household, account, next_date=today + timedelta(days=5))
+    _movement(session, household, account, on=due, source_id=bill.id)
+    posted_date = due - timedelta(days=1)
+    _movement(session, household, account, on=posted_date, source_id=bill.id)
+    posted = _txn(session, account, posted_date, source=TransactionSource.system,
+                  status=TransactionStatus.pending)
+    posted.external_ref = f"rec:{bill.id}:{posted_date.isoformat()}"
+    session.flush()
+
+    new_account = Account(household_id=household.id, name="New account",
+                          type="personal", opening_balance_pence=0, opening_date=today)
+    session.add(new_account)
+    session.flush()
+    bill.account_id = new_account.id
+    session.flush()
+
+    page = list_commitments(household, session, None, include_overdue=True)
+    assert [(p.expected_date, p.account_id, p.outstanding_pence) for p in
+            page.items[0].overdue_payments or []] == [(due, account.id, 1599)]
 
 
 class TestAutoSettlement:
