@@ -1,13 +1,14 @@
 """Read-only review regression probes; copied into backend/tests to use fixtures."""
 
+import calendar
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 
-from app.domain import payroll, payrun, schedule, tax
+from app.domain import overtime, payroll, payrun, schedule, tax
 from app.persistence.models import (
     Account,
     Employment,
@@ -275,7 +276,7 @@ def test_startup_repairs_existing_install_without_scheduler(session, household, 
     settings = Settings.load(
         {
             "FF_DATA_DIR": str(tmp_path / "app"),
-            "FF_DATABASE_URL": str(session.get_bind().url),
+            "FF_DATABASE_URL": f"sqlite:///{(tmp_path / 'c.db').as_posix()}",
             "FF_SCHEDULER_TICK_SECONDS": "0",
         }
     )
@@ -294,6 +295,104 @@ def test_startup_repairs_existing_install_without_scheduler(session, household, 
             session.expire_all()
             assert {m.expected_date: m.id for m in projected(session)} == original_ids
             assert scenario.run(session, saved, account, days=365).projection == before.projection
+
+
+def seed_offsetting_overtime_startup(session, household):
+    """A stale, incomplete historical run whose regenerated gross is identical."""
+    today = date.today()
+    current = today.replace(day=1)
+    previous = (current - timedelta(days=1)).replace(day=1)
+    following = (current.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+    def generate(e, month):
+        return payrun.generate(
+            session, e, start=month,
+            end=month.replace(day=calendar.monthrange(month.year, month.month)[1]),
+            pay_date=month.replace(day=28), allow_stale_rules=True,
+        )
+
+    e, account, _ = employment(session, household, start=previous)
+    e.employer = "Synthetic offsetting overtime"
+    account.name = "Synthetic historical salary"
+    historical = generate(e, previous)
+    generate(e, current)  # Preserve complete year-to-date coverage.
+    dependent = generate(e, following)
+    schedule.rematerialize_payroll_run(session, dependent, today=today)
+    entry = overtime.create_entry(
+        session, e, work_date=previous.replace(day=8), hours=Decimal("4"),
+    )
+    overtime.submit(entry)
+    overtime.approve(entry)
+    added = overtime.entry_pay_pence(entry)
+    assert added > 0
+    # A historical earning gap is exactly offset by newly approved overtime.
+    historical.gross_pence += added
+    historical.components.remove(next(
+        c for c in historical.components if c.kind is PayrollComponentKind.base_salary
+    ))
+    historical.forecast_stale = dependent.forecast_stale = True
+
+    complete, _, _ = employment(session, household, start=current)
+    complete.employer = "Synthetic complete breakdown"
+    generate(complete, current)
+    control = generate(complete, following)
+    payroll.add_salary_revision(session, complete, following, 4_800_000)
+    control.forecast_stale = True
+    session.flush()
+    return historical.id, dependent.id, control.id
+
+
+def startup_payroll_snapshot(session, run_ids):
+    def record(row):
+        return {column.key: getattr(row, column.key) for column in inspect(type(row)).columns}
+
+    runs = [session.get(PayrollRun, run_id) for run_id in run_ids]
+    assert all(runs)
+    movements = list(session.scalars(select(ExpectedMovement).where(
+        ExpectedMovement.source_type == ExpectedSource.payroll_run,
+        ExpectedMovement.source_id.in_(run_ids),
+    ).order_by(ExpectedMovement.id)))
+    return {
+        "runs": [record(run) for run in runs],
+        "components": [record(component) for run in runs
+                       for component in sorted(run.components, key=lambda c: c.id)],
+        "movements": [record(movement) for movement in movements],
+    }
+
+
+def test_startup_keeps_incomplete_payroll_when_overtime_offsets_gross(
+    session, household, tmp_path,
+):
+    from fastapi.testclient import TestClient
+
+    from app.core.settings import Settings
+    from app.main import create_app
+
+    historical, dependent, control = seed_offsetting_overtime_startup(session, household)
+    before = startup_payroll_snapshot(session, (historical, dependent))
+    assert len(before["movements"]) == 1
+    session.commit()
+    settings = Settings.load({
+        "FF_DATA_DIR": str(tmp_path / "app"),
+        "FF_DATABASE_URL": f"sqlite:///{(tmp_path / 'c.db').as_posix()}",
+        "FF_SCHEDULER_TICK_SECONDS": "0",
+    })
+    for _ in range(2):
+        app = create_app(settings)
+        with TestClient(app):
+            assert not getattr(app.state, "boot_error", None)
+            assert not app.state.scheduler_enabled
+            session.expire_all()
+            actual = startup_payroll_snapshot(session, (historical, dependent))
+            assert actual["runs"][0]["gross_pence"] == before["runs"][0]["gross_pence"]
+            assert actual["components"] == before["components"]
+            assert actual["runs"] == before["runs"]
+            assert actual["movements"] == before["movements"]
+            assert session.get(PayrollRun, historical).forecast_stale
+            complete = session.get(PayrollRun, control)
+            assert complete.gross_pence == 400000
+            assert not complete.forecast_stale
+        session.rollback()
 
 
 def test_employment_replacement_removes_old_future_rows(session, household):
@@ -431,7 +530,7 @@ def test_unchanged_scheduler_ticks_keep_forecast_ids(session, household, tmp_pat
     settings = Settings.load(
         {
             "FF_DATA_DIR": str(tmp_path / "app"),
-            "FF_DATABASE_URL": str(session.get_bind().url),
+            "FF_DATABASE_URL": f"sqlite:///{(tmp_path / 'c.db').as_posix()}",
             "FF_SCHEDULER_TICK_SECONDS": "0.02",
         }
     )
