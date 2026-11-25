@@ -12,6 +12,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.util import asbool
 
 PRAGMAS = (
     "PRAGMA journal_mode=WAL",
@@ -26,7 +27,8 @@ def create_app_engine(url: str) -> Engine:
     sqlite = parsed.get_backend_name() == "sqlite"
     if sqlite:
         db_path = parsed.database
-        if db_path and db_path != ":memory:" and not db_path.startswith("file:"):
+        uri = asbool(parsed.query.get("uri", False))
+        if db_path and db_path != ":memory:" and not uri:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     engine = create_engine(

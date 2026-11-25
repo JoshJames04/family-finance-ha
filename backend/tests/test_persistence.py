@@ -1,5 +1,6 @@
 """Persistence layer: pragmas, concurrency, migrations, backup."""
 
+import os
 import sqlite3
 import threading
 import time
@@ -33,6 +34,31 @@ def test_creates_decoded_database_directory(tmp_path: Path) -> None:
     try:
         assert integrity_check(engine)
         assert target.is_file()
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows forbids colons in directory names")
+def test_file_prefix_without_uri_creates_literal_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    engine = create_app_engine("sqlite:///file:new/family.db")
+    try:
+        assert integrity_check(engine)
+        assert (tmp_path / "file:new" / "family.db").is_file()
+    finally:
+        engine.dispose()
+
+
+def test_sqlite_uri_memory_target_does_not_create_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    engine = create_app_engine("sqlite:///file:memory/test?mode=memory&uri=true")
+    try:
+        assert integrity_check(engine)
+        assert not list(tmp_path.iterdir())
     finally:
         engine.dispose()
 
