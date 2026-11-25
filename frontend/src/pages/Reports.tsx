@@ -50,6 +50,16 @@ const TREND_ARIA: Record<TrendMode, string> = {
 const now = new Date();
 const YEARS = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i);
 
+function FigureValue({ figure, value, delta = false }: {
+  figure: Figure; value: number; delta?: boolean;
+}) {
+  if (figure.key === "savings_rate_bps") {
+    const points = value / 100;
+    return <>{delta && points > 0 ? "+" : ""}{points}{delta ? " pp" : "%"}</>;
+  }
+  return <Money pence={value} signed={delta} tone={delta ? "variance" : undefined} />;
+}
+
 export function Reports() {
   const ready = useReady();
   const [mode, setMode] = useState<Mode>("monthly");
@@ -163,7 +173,7 @@ export function Reports() {
             {r.sections.map((s) => (
               <Panel key={s.key} flush title={s.label}
                 actions={s.figures.length
-                  ? <Money pence={s.figures.reduce((t, f) => t + Math.abs(f.amount_pence ?? 0), 0)} className="text-[13px] font-semibold" />
+                  ? <Money pence={s.figures.reduce((t, f) => t + (f.key === "savings_rate_bps" ? 0 : f.amount_pence ?? 0), 0)} className="text-[13px] font-semibold" />
                   : undefined}>
                 {s.figures.length === 0 ? (
                   <p className="px-4 py-5 text-[13px] text-fg-subtle">No activity this period.</p>
@@ -181,19 +191,19 @@ export function Reports() {
                                   .map(([key, value]) => [key, String(value)]),
                               )}`} className="font-medium text-accent hover:underline">{f.label}</Link>
                             ) : (
-                              <span className="font-medium">{f.label}</span>
+                              <span className="font-medium">{f.key === "savings_rate_bps" ? "Savings rate" : f.label}</span>
                             )}
                             {f.count != null && <span className="ml-1.5 text-[12px] text-fg-subtle">×{f.count}</span>}
                           </td>
                           <td className="tnum px-3 py-2.5 text-right">
-                            {f.amount_pence !== null ? <Money pence={f.amount_pence} /> : "—"}
+                            {f.amount_pence !== null ? <FigureValue figure={f} value={f.amount_pence} /> : "—"}
                           </td>
                           <td className="tnum w-32 px-3 py-2.5 pr-4 text-right text-[12.5px]">
                             {f.prior_amount_pence != null ? (
-                              <span className="text-fg-subtle">was <Money pence={f.prior_amount_pence} /></span>
+                              <span className="text-fg-subtle">was <FigureValue figure={f} value={f.prior_amount_pence} /></span>
                             ) : null}
                             {f.delta_pence != null && f.delta_pence !== 0 && (
-                              <span className="ml-1.5"><Money pence={f.delta_pence} signed tone="variance" /></span>
+                              <span className="ml-1.5"><FigureValue figure={f} value={f.delta_pence} delta /></span>
                             )}
                           </td>
                         </tr>
