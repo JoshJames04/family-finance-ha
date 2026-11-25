@@ -13,6 +13,7 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import rbac, schedule, transfer_rules
+from app.domain.recurring import first_monthly_occurrence
 from app.persistence.models import (
     Account,
     AmountKind,
@@ -249,7 +250,7 @@ def save_shared_split(
                 "source_account_id": source.id, "dest_account_id": pot.id,
                 "amount_spec": {"kind": "fixed", "pence": share.pence},
                 "frequency": "monthly", "day_of_month": share.day_of_month,
-                "start_date": date.today(),
+                "start_date": first_monthly_occurrence(share.day_of_month),
             }), household, session, actor)
 
 

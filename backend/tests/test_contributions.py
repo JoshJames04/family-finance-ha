@@ -323,9 +323,21 @@ class TestApi:
         with TestClient(create_app(settings)) as c:
             yield c
 
+    @pytest.mark.parametrize(("day", "first_payment"), [
+        (11, "2026-12-11"), (25, "2026-11-25"), (31, "2026-11-30"),
+    ])
     def test_guided_split_is_atomic_and_preserves_existing_payment_days(
-        self, client: TestClient,
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+        day: int, first_payment: str,
     ) -> None:
+        from app.domain import recurring
+
+        class Today(date):
+            @classmethod
+            def today(cls) -> date:
+                return date(2026, 11, 25)
+
+        monkeypatch.setattr(recurring, "date", Today)
         base = "/api/v1"
         household = client.post(f"{base}/households", json={"name": "Test"}).json()["id"]
         headers = {"X-Household-Id": str(household)}
@@ -352,7 +364,7 @@ class TestApi:
         route = f"{base}/transfer-rules/shared-split"
         body = {"account_id": pot, "target_pence": 30001, "shares": [
             {"profile_id": josh, "rule_id": rule_id, "pence": 18001},
-            {"profile_id": chloe, "source_account_id": josh_account, "day_of_month": 11,
+            {"profile_id": chloe, "source_account_id": josh_account, "day_of_month": day,
              "pence": 12000},
         ]}
         assert client.post(route, headers=headers, json=body).status_code == 422
@@ -366,7 +378,8 @@ class TestApi:
         assert client.post(route, headers=headers, json=body).status_code == 204
         refreshed = {rule["source_account_id"]: rule for rule in rules()}
         assert refreshed[josh_account]["day_of_month"] == 28
-        assert refreshed[chloe_account]["day_of_month"] == 11
+        assert refreshed[chloe_account]["day_of_month"] == day
+        assert refreshed[chloe_account]["start_date"] == first_payment
         assert sum(rule["amount_spec"]["pence"] for rule in refreshed.values()) == 30001
 
     def test_match_and_status_flow(self, client: TestClient) -> None:

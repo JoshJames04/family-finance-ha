@@ -225,8 +225,10 @@ the Shared expense total as a suggested funding target. For two members, editing
 one amount allocates the remainder to the other. The transfers change only when
 you save. Each contribution card shows the member's Budget pay cycle and the
 next payment separately. Members without a monthly payday use the calendar
-period. The shared budget and transfers between shared accounts keep their
-existing calendar and accounting treatment.
+period. In Budget, the Shared tab provides the funding target. The contribution
+cards use the selected calendar month even when a personal budget displays pay
+cycle dates. New guided shares begin on the next occurrence of their chosen
+payment day.
 
 Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
 checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).

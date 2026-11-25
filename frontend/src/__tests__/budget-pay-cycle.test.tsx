@@ -5,17 +5,30 @@ import { MemoryRouter } from "react-router-dom";
 import { Budget } from "../pages/Budget";
 
 const budgets = [null, 7].map((owner, i) => ({ id: i + 1, owner_profile_id: owner, name: "November", period_type: "monthly", start_date: "2026-11-01", end_date: "2026-11-30", status: "locked" }));
-function fixture(warning: string | null = null, zero = false) {
+function fixture(warning: string | null = null, zero = false, withShares = false) {
   const calls: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = new URL(String(input), "http://localhost"); calls.push(url.pathname + url.search);
     const personal = url.pathname.includes("/budgets/2");
     const period = { start: warning ? "2026-11-01" : "2026-10-30", end: warning ? "2026-11-30" : "2026-11-26", basis: warning ? "calendar" : "pay_cycle", employment_id: warning ? null : 4, warning };
-    const detail = { ...budgets[personal ? 1 : 0], read_only: true, lines: [], period: personal ? period : null };
+    const lines = withShares ? [{
+      id: 1, category_id: 1, side: "expense", original_pence: personal ? 70_000
+        : url.pathname.endsWith("/reports/combined") ? 170_000 : 100_000,
+    }] : [];
+    const detail = { ...budgets[personal ? 1 : 0], read_only: true, lines, period: personal ? period : null };
     const actuals = { budget_id: personal ? 2 : 1, totals: {}, lines: {}, spent_pence: 0, as_of: "2026-11-13", spend_items: [], income_received_pence: 99999, external_income_pence: zero ? 0 : 12300, opening_funds_pence: zero ? 0 : -4500, contributions_pence: zero ? 0 : 8900, unattributed_internal_pence: zero ? 0 : 200, income_items: zero ? [] : [{ transaction_id: 77, date: "2026-10-30", account_id: 1, payee: "Received salary", category_id: null, amount_pence: 12300, contributor_profile_id: null }], contribution_items: zero ? [] : [{ transaction_id: 78, date: "2026-11-02", account_id: 2, payee: "Verified contribution", category_id: null, amount_pence: 8900, contributor_profile_id: 7 }] };
     let body: unknown = { items: [], total: 0 };
     if (url.pathname.endsWith("/households")) body = { items: [{id: 1, name: "Home"}], total: 1 };
     else if (url.pathname.endsWith("/profiles")) body = { items: [{ id: 7, display_name: "Member A", role: "admin", is_active: true }], total: 1 };
+    else if (withShares && url.pathname.endsWith("/accounts")) body = { items: [
+      { id: 1, owner_profile_id: 7, name: "Main" },
+      { id: 2, owner_profile_id: null, name: "Joint" },
+    ], total: 2 };
+    else if (withShares && url.pathname.endsWith("/transfer-rules")) body = { items: [{
+      id: 1, name: "Monthly share", source_account_id: 1, dest_account_id: 2,
+      active: true, frequency: "monthly", amount_spec: { kind: "fixed", pence: 90000 },
+    }], total: 1 };
+    else if (url.pathname.endsWith("/contributions/cycles")) body = [];
     else if (url.pathname.endsWith("/reports/combined")) body = { detail, actuals };
     else if (url.pathname.endsWith("/pay-cycle-settings")) body = { employment_id: null, options: [{ employment_id: 4, employer: "Employer" }] };
     else if (url.pathname.endsWith("/actuals")) body = actuals;
@@ -165,4 +178,32 @@ it("restores a fixed day from settings and can return to automatic without retai
     const call = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PUT");
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({owner_profile_id: 7, employment_id: null});
   });
+});
+
+
+it("guides the split only on Shared and sends calendar dates for a personal pay cycle", async () => {
+  const calls = fixture(null, false, true);
+  const user = userEvent.setup();
+  render(<MemoryRouter><Budget /></MemoryRouter>);
+
+  const openSplit = async () => {
+    await user.click(await screen.findByRole("button", { name: "Adjust split" }));
+    return within(await screen.findByRole("dialog"));
+  };
+  let split = await openSplit();
+  expect(split.queryByText(/Shared budget total/)).toBeNull();
+  await user.keyboard("{Escape}");
+
+  await user.click(screen.getByRole("radio", { name: "Shared" }));
+  split = await openSplit();
+  expect(split.getByText(/Shared budget total/).textContent).toContain("£1,000.00");
+  await user.keyboard("{Escape}");
+
+  calls.length = 0;
+  await user.click(screen.getByRole("radio", { name: "Member A" }));
+  await screen.findByText(/^Pay cycle:/);
+  split = await openSplit();
+  expect(split.queryByText(/Shared budget total/)).toBeNull();
+  await waitFor(() => expect(calls.some(path => path.includes("/contributions/cycles?")
+    && path.includes("start=2026-11-01") && path.includes("end=2026-11-30"))).toBe(true));
 });
