@@ -12,6 +12,7 @@ from datetime import date
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.domain.expected_matches import acyclic_transaction_ids
 from app.domain.reporting import external_category_amounts
@@ -52,22 +53,34 @@ def link_refund(
     session.flush()
 
 
+def _correction_family(session: Session, seed: ColumnElement[bool]) -> dict[int, Transaction]:
+    current, neighbor = aliased(Transaction), aliased(Transaction)
+    family = select(Transaction.id.label("id")).where(seed).cte(recursive=True)
+    family = family.union(select(neighbor.id).select_from(family).join(
+        current, current.id == family.c.id).join(neighbor, or_(
+            neighbor.corrects_id == current.id, current.corrects_id == neighbor.id)))
+    rows = {row.id: row for row in session.scalars(
+        select(Transaction).where(Transaction.id.in_(select(family.c.id))))}
+    if rows and set(session.scalars(acyclic_transaction_ids(list(rows)))) != set(rows):
+        raise RefundError("refund correction history contains a cycle")
+    return rows
+
+
 def refundable_balance(session: Session, original_id: int) -> int:
-    """Count live refund families once, including equivalent legacy NULL links."""
+    """Use the live purchase amount and count refunds across all its historical IDs."""
     with session.no_autoflush:
-        orig = session.get(Transaction, original_id)
-        if orig is None:
+        purchases = _correction_family(session, Transaction.id == original_id)
+        if not purchases:
             raise RefundError("original transaction not found")
-        current, neighbor = aliased(Transaction), aliased(Transaction)
-        family = select(Transaction.id.label("id")).where(
-            Transaction.refund_of_id == original_id).cte(recursive=True)
-        family = family.union(select(neighbor.id).select_from(family).join(
-            current, current.id == family.c.id).join(neighbor, or_(
-                neighbor.corrects_id == current.id, current.corrects_id == neighbor.id)))
-        rows = {row.id: row for row in session.scalars(
-            select(Transaction).where(Transaction.id.in_(select(family.c.id))))}
-        if rows and set(session.scalars(acyclic_transaction_ids(list(rows)))) != set(rows):
-            raise RefundError("refund correction history contains a cycle")
+        live_purchases = [p for p in purchases.values() if p.status != TransactionStatus.void]
+        if not live_purchases:
+            return 0
+        if len(live_purchases) != 1:
+            raise RefundError("purchase correction history has ambiguous live replacements")
+        purchase = live_purchases[0]
+        if any(p.account_id != purchase.account_id for p in purchases.values()):
+            raise RefundError("purchase correction history spans multiple accounts")
+        rows = _correction_family(session, Transaction.refund_of_id.in_(purchases))
     components: dict[int, list[Transaction]] = {}
     for row in rows.values():
         root = row
@@ -91,11 +104,11 @@ def refundable_balance(session: Session, original_id: int) -> int:
                     != (anchor.account_id, anchor.date, anchor.amount_pence, anchor.transfer_id)):
                 raise RefundError("refund correction history cannot prove the purchase link")
             anchor = parent
-        if anchor.refund_of_id == original_id:
+        if anchor.refund_of_id in purchases:
             if payment.amount_pence <= 0:
                 raise RefundError("refund payment must be a positive inflow")
             refunded += payment.amount_pence
-    return -orig.amount_pence - refunded
+    return -purchase.amount_pence - refunded
 
 
 def category_spend(

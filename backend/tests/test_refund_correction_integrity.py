@@ -47,6 +47,36 @@ def test_corrected_refund_counts_only_live_replacement(
     assert not session.new and not session.dirty and not session.deleted
 
 
+def test_correcting_purchase_preserves_shared_refund_capacity(session, purchase_and_refund):
+    purchase, refund, _ = purchase_and_refund
+    purchase.status = TransactionStatus.reconciled
+    replaced = transactions.correct(session, purchase, "Clarify purchase")
+    assert refunds.refundable_balance(session, replaced.id) == 600
+    extra = Transaction(account_id=purchase.account_id, date=DAY, amount_pence=601,
+                        payee="Synthetic excess", source="manual")
+    session.add(extra)
+    session.flush()
+    with pytest.raises(refunds.RefundError, match="exceeds"):
+        refunds.link_refund(session, extra, replaced)
+    extra.amount_pence = 600
+    refunds.link_refund(session, extra, replaced)
+    assert refunds.refundable_balance(session, purchase.id) == 0
+    assert refunds.refundable_balance(session, replaced.id) == 0
+    assert refund.refund_of_id == purchase.id
+
+
+def test_purchase_alias_uses_current_amount_and_void_state(session, purchase_and_refund):
+    purchase, _, _ = purchase_and_refund
+    purchase.status = TransactionStatus.reconciled
+    replaced = transactions.correct(session, purchase, "Clarify purchase")
+    replaced.amount_pence = -700
+    session.flush()
+    assert refunds.refundable_balance(session, purchase.id) == 300
+    replaced.status = TransactionStatus.void
+    session.flush()
+    assert refunds.refundable_balance(session, replaced.id) == 0
+
+
 def test_void_final_refund_restores_available_amount(session, purchase_and_refund):
     purchase, refund, category = purchase_and_refund
     refund.status = TransactionStatus.reconciled
