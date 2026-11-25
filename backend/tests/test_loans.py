@@ -4,7 +4,7 @@ schedule-vs-actual drift; repayment↔transaction links."""
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -226,6 +226,23 @@ class TestApi:
         assert client.get(f"/api/v1/loans/{lid}",
                           headers=h).json()["outstanding_pence"] \
             == 500_000
+
+    def test_position_counts_only_repayments_through_today(self, client: TestClient) -> None:
+        today = date.today()
+        hid = client.post("/api/v1/households", json={"name": "H"}).json()["id"]
+        headers = {"X-Household-Id": str(hid)}
+        loan = client.post("/api/v1/loans", headers=headers, json={
+            "party": "Family", "direction": "we_owe", "principal": 10000,
+            "start_date": today.isoformat()}).json()
+        route = f"/api/v1/loans/{loan['id']}"
+        for day, amount in [(today, 1000), (today + timedelta(days=1), 4000)]:
+            response = client.post(f"{route}/repayments", headers=headers,
+                                   json={"date": day.isoformat(), "amount": amount})
+            assert response.status_code == 201
+        position = client.get(route, headers=headers).json()
+        assert position["outstanding_pence"] == 9000
+        assert position["repaid_pence"] == 1000
+        assert position["drift_pence"] == -1000
 
     def test_owner_round_trips(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
