@@ -11,22 +11,35 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy.sql.elements import ColumnElement
 
+from app.domain.expected_matches import eligible_matches
 from app.persistence.models import (
     Account,
     AccountType,
     BalanceVerification,
+    Employment,
+    ExpectedMovement,
+    ExpectedSource,
     MergeCandidate,
     RecurringCommitment,
+    SavingsGoal,
+    Subscription,
+    SubscriptionStatus,
     Transaction,
     TransactionSource,
     TransactionStatus,
+    TransferRule,
 )
 
 OPENING_PAYEE = "Opening balance"
 CORRECTION_PAYEE = "Balance correction (manual verification)"
+
+
+class AccountMergeError(ValueError):
+    pass
 
 
 class AccountNotEmptyError(RuntimeError):
@@ -93,7 +106,69 @@ def merge_accounts(
 ) -> None:
     """Move all history from `source` to `target`, then archive source."""
     if source.id == target.id:
-        raise ValueError("cannot merge an account into itself")
+        raise AccountMergeError("cannot merge an account into itself")
+    if source.household_id != target.household_id or target.archived:
+        raise AccountMergeError("choose an open destination account in the same household")
+    moved_bills = select(RecurringCommitment.id).where(
+        RecurringCommitment.account_id == source.id)
+    bill_occurrences = (
+        ExpectedMovement.account_id == source.id,
+        ExpectedMovement.source_type == ExpectedSource.commitment,
+        ExpectedMovement.source_id.in_(moved_bills),
+    )
+    today = date.today()
+    transfer_rules = select(TransferRule.id).where(
+        TransferRule.household_id == source.household_id,
+        or_(TransferRule.source_account_id == source.id,
+            TransferRule.dest_account_id == source.id),
+    )
+    other_movements = select(ExpectedMovement.id).where(
+        ExpectedMovement.household_id == source.household_id,
+        ExpectedMovement.dismissed_at.is_(None),
+        or_(ExpectedMovement.account_id == source.id,
+            ExpectedMovement.transfer_source_account_id == source.id,
+            ExpectedMovement.transfer_dest_account_id == source.id,
+            and_(ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+                 ExpectedMovement.transfer_source_account_id.is_(None),
+                 ExpectedMovement.transfer_dest_account_id.is_(None),
+                 ExpectedMovement.source_id.in_(transfer_rules))),
+        or_(ExpectedMovement.source_type != ExpectedSource.commitment,
+            ExpectedMovement.source_id.not_in(moved_bills)),
+    )
+    matches = eligible_matches(other_movements)
+    paid = select(func.coalesce(func.sum(matches.c.matched_pence), 0)).where(
+        matches.c.movement_id == ExpectedMovement.id,
+    ).scalar_subquery()
+    outstanding = other_movements.where(paid < func.abs(ExpectedMovement.amount_pence))
+    # Active definitions also matter when their next occurrence has not materialized yet.
+    schedules = (
+        outstanding,
+        select(Subscription.id).where(Subscription.account_id == source.id,
+                                      Subscription.status == SubscriptionStatus.active),
+        select(SavingsGoal.id).where(SavingsGoal.account_id == source.id,
+                                     SavingsGoal.active.is_(True)),
+        select(Employment.id).where(
+            Employment.paid_into_account_id == source.id,
+            Employment.is_active.is_(True),
+            or_(Employment.end_date.is_(None), Employment.end_date >= today),
+        ),
+        transfer_rules.where(
+            TransferRule.active.is_(True),
+            or_(TransferRule.end_date.is_(None), TransferRule.end_date >= today),
+        ),
+    )
+    if session.scalar(select(or_(*(query.exists() for query in schedules)))):
+        raise AccountMergeError(
+            "move or remove the source account's non-bill schedules before merging"
+        )
+    other = aliased(ExpectedMovement)
+    collision = select(other.id).where(
+        other.account_id == target.id, other.source_type == ExpectedSource.commitment,
+        other.source_id == ExpectedMovement.source_id,
+        other.expected_date == ExpectedMovement.expected_date).exists()
+    if session.scalar(select(ExpectedMovement.id).where(*bill_occurrences, collision).limit(1)):
+        raise AccountMergeError("the destination has an overlapping occurrence of the same bill")
+    session.execute(update(ExpectedMovement).where(*bill_occurrences).values(account_id=target.id))
     session.execute(update(MergeCandidate).where(
         MergeCandidate.household_id == source.household_id,
         MergeCandidate.account_id == source.id,
@@ -121,6 +196,29 @@ def current_balance(session: Session, account_id: int) -> int:
         .where(Transaction.account_id == account_id,
                Transaction.status != TransactionStatus.void)
     ).scalar_one())
+
+
+def current_movement_account() -> ColumnElement[bool]:
+    """A transfer is actionable only while both of its accounts are open."""
+    active = select(Account.id).where(
+        Account.household_id == ExpectedMovement.household_id,
+        Account.archived.is_(False)).correlate(ExpectedMovement)
+    movement = ExpectedMovement
+    # Confirmed historical transfers can outlive the scheduling rule.
+    # Prefer their saved endpoints when present.
+    inactive_rule = select(TransferRule.id).where(
+        TransferRule.id == movement.source_id,
+        TransferRule.household_id == movement.household_id,
+        or_(TransferRule.source_account_id.not_in(active),
+            TransferRule.dest_account_id.not_in(active))).correlate(movement).exists()
+    return and_(
+        or_(movement.account_id.is_(None), movement.account_id.in_(active)),
+        or_(movement.source_type != ExpectedSource.transfer_rule,
+            and_(movement.transfer_source_account_id.in_(active),
+                 movement.transfer_dest_account_id.in_(active)),
+            and_(movement.transfer_source_account_id.is_(None),
+                 movement.transfer_dest_account_id.is_(None), ~inactive_rule)),
+    )
 
 
 def active_accounts(session: Session, household_id: int) -> list[Account]:

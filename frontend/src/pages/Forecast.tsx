@@ -2,6 +2,7 @@
  * balance chart per account, then a month grid of dated money events —
  * paydays, bills, transfers, renewals — clickable through to the
  * underlying record. */
+import { outstandingMovements } from "../lib/outstandingMovements";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight, TriangleAlert, LineChart } from "lucide-react";
@@ -81,7 +82,7 @@ export function Forecast() {
     return { start: toISODate(start), end: toISODate(end) };
   }, []);
   const moves = useApi(
-    () => api.get("/api/v1/expected-movements", { query: range }),
+    () => api.get("/api/v1/expected-movements", { query: range }).then(outstandingMovements),
     ready,
   );
   const warningList = Array.isArray(warnings.data) ? warnings.data : [];

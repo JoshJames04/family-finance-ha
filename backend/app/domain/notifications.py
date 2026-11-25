@@ -22,7 +22,7 @@ from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.domain.accounts import current_balance
+from app.domain.accounts import current_balance, current_movement_account
 from app.domain.contributions import matched_totals
 from app.persistence.models import (
     Account,
@@ -124,7 +124,7 @@ def _movement_scope(rule: NotificationRule) -> ColumnElement[bool]:
              ExpectedMovement.source_id.in_(employments)),
         and_(ExpectedMovement.source_type == ExpectedSource.payroll_run,
              ExpectedMovement.source_id.in_(payrolls)))
-    return and_(or_(ExpectedMovement.account_id.in_(_account_ids(rule)),
+    return and_(current_movement_account(), or_(ExpectedMovement.account_id.in_(_account_ids(rule)),
                     ExpectedMovement.account_id.is_(None)), salary_owner)
 
 

@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain import contributions, outbox
+from app.domain.accounts import current_movement_account
 from app.domain.reporting import (
     expense_leg,
     external_category_amounts,
@@ -246,6 +247,7 @@ def bills_remaining(session: Session, budget: Budget,
     and accountless obligations. All explicitly includes private accounts.
     Returns ``(pence, count)`` with pence positive."""
     conds = [
+        current_movement_account(),
         ExpectedMovement.household_id == budget.household_id,
         ExpectedMovement.source_type.in_(
             [ExpectedSource.commitment, ExpectedSource.subscription]),

@@ -97,6 +97,8 @@ def _commitment_spend(session: Session, household_id: int,
         select(RecurringCommitment).where(
             RecurringCommitment.household_id == household_id,
             RecurringCommitment.active.is_(True),
+            RecurringCommitment.account_id.in_(select(Account.id).where(
+                Account.household_id == household_id, Account.archived.is_(False))),
             RecurringCommitment.category_id.isnot(None),
             RecurringCommitment.amount_pence < 0,
             *([RecurringCommitment.account_id.in_(account_ids)]
