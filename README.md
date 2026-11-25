@@ -214,3 +214,5 @@ the stated date; future periods show currently known funds, not future receipts.
 
 Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
 checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).
+
+Reports display net savings in pounds, the savings rate as a percentage, and changes in that rate in percentage points.

@@ -111,3 +111,21 @@ it.each(["/transactions", "/api/hassio_ingress/test-token/transactions"])("expor
   const prefix = path.startsWith("/api/hassio_ingress/") ? "/api/hassio_ingress/test-token" : "";
   expect(screen.getByRole("link", { name: "Export" }).getAttribute("href")).toBe(`${prefix}/api/v1/transactions/export.csv`);
 });
+
+it.each([1, -1])("shows a signed savings total separately from its rate (%s)", async sign => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+    const url = String(input);
+    const body = url.includes("/households") ? { items: [{ id: 1, name: "Home" }], total: 1 }
+      : url.includes("/reports/monthly") ? { sections: [{ key: "savings", label: "Savings", figures: [
+        { key: "savings_pence", label: "Net savings", amount_pence: sign * 20000 },
+        { key: "savings_rate_bps", label: "Savings rate (bps)", amount_pence: sign * 2000,
+          prior_amount_pence: 1250, delta_pence: sign * 2000 - 1250 },
+      ] }] } : url.includes("/profiles") ? { items: [], total: 0 } : [];
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  });
+  render(<MemoryRouter><Reports /></MemoryRouter>);
+  expect(await screen.findByText(sign === 1 ? "20%" : "-20%")).toBeTruthy();
+  expect(screen.getByText(sign === 1 ? "+7.5 pp" : "-32.5 pp")).toBeTruthy();
+  expect(screen.getByText(/was 12.5%/)).toBeTruthy();
+  expect(screen.getAllByText(sign === 1 ? "£200.00" : "-£200.00")).toHaveLength(2);
+});
