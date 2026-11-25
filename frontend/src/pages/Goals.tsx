@@ -89,9 +89,8 @@ function GoalCard({ goal: g, rev, onClose }: { goal: Goal; rev: number; onClose:
   const p: ProgressOut | null = progress.data;
   const pct = p ? p.pct : 0;
   const done = pct >= 100;
-  const today = toISODate(new Date());
-  const due = p && !done && g.active && g.target_date && g.target_date <= today
-    ? (g.target_date === today ? "Due today" : "Overdue") : null;
+  const due = p && !done && g.active && g.target_date && g.target_date <= p.as_of
+    ? (g.target_date === p.as_of ? "Due today" : "Overdue") : null;
   return (
     <Panel className={g.active ? undefined : "opacity-60"}>
       <div id={`savings_goal-${g.id}`} className="flex items-start gap-3">

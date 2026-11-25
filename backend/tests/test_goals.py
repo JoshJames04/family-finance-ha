@@ -431,6 +431,7 @@ class TestApi:
         assert tr.status_code == 201
         prog = client.get(f"/api/v1/savings-goals/{gid}/progress",
                           headers=h).json()
+        assert prog["as_of"] == date.today().isoformat()
         assert prog["contributed_pence"] == 30000
         assert prog["pct"] == 25
         assert prog["monthly_need_pence"] is not None
