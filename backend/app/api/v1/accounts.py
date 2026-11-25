@@ -220,6 +220,7 @@ def merge_account(
     src = _get(session, household.id, account_id, profile)
     tgt = _get(session, household.id, target_id, profile)
     _write(src, profile)
+    _write(tgt, profile)
     accts.merge_accounts(session, src, tgt)
     emit(session, household.id, actor, "merge", "account", src.id,
          {"into": tgt.id})

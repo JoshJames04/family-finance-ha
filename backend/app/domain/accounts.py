@@ -12,7 +12,7 @@ from datetime import date
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.persistence.models import (
@@ -31,6 +31,10 @@ from app.persistence.models import (
 
 OPENING_PAYEE = "Opening balance"
 CORRECTION_PAYEE = "Balance correction (manual verification)"
+
+
+class AccountMergeError(ValueError):
+    pass
 
 
 class AccountNotEmptyError(RuntimeError):
@@ -97,7 +101,24 @@ def merge_accounts(
 ) -> None:
     """Move all history from `source` to `target`, then archive source."""
     if source.id == target.id:
-        raise ValueError("cannot merge an account into itself")
+        raise AccountMergeError("cannot merge an account into itself")
+    if source.household_id != target.household_id or target.archived:
+        raise AccountMergeError("choose an open destination account in the same household")
+    moved_bills = select(RecurringCommitment.id).where(
+        RecurringCommitment.account_id == source.id)
+    bill_occurrences = (
+        ExpectedMovement.account_id == source.id,
+        ExpectedMovement.source_type == ExpectedSource.commitment,
+        ExpectedMovement.source_id.in_(moved_bills),
+    )
+    other = aliased(ExpectedMovement)
+    collision = select(other.id).where(
+        other.account_id == target.id, other.source_type == ExpectedSource.commitment,
+        other.source_id == ExpectedMovement.source_id,
+        other.expected_date == ExpectedMovement.expected_date).exists()
+    if session.scalar(select(ExpectedMovement.id).where(*bill_occurrences, collision).limit(1)):
+        raise AccountMergeError("the destination has an overlapping occurrence of the same bill")
+    session.execute(update(ExpectedMovement).where(*bill_occurrences).values(account_id=target.id))
     session.execute(update(MergeCandidate).where(
         MergeCandidate.household_id == source.household_id,
         MergeCandidate.account_id == source.id,

@@ -186,7 +186,8 @@ open **Overdue** to see past occurrences on non-archived accounts still awaiting
 recorded settlement. The list shows any residual amount after linked payments.
 Occurrences on archived accounts stay in history. Current scheduled cash flow, unpaid bill
 totals, funding requirements and reminders exclude those accounts. Accountless household
-plans remain visible.
+plans remain visible. A bill keeps its recorded settlements and write-offs when its
+account is merged. Overlapping occurrences of the same bill must be resolved before merging.
 
 Employer payday settings include an optional payroll cutoff day (1–31); leave it
 blank to retain calendar-month earning periods. Category pickers sort by name and

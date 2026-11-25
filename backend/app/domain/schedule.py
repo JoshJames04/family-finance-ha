@@ -14,7 +14,7 @@ import calendar
 import json
 from datetime import date, timedelta
 
-from sqlalchemy import delete, select, true, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.domain import goals, outbox, pay_calendar, paydays, payroll_totals, payrun, transfer_rules
@@ -77,12 +77,7 @@ def _drop_future(
             ExpectedMovement.source_type == source,
             ExpectedMovement.source_id == source_id,
             ExpectedMovement.expected_date >= today,
-            # An explicit dismissal is a member decision, not stale salary.
-            (
-                ExpectedMovement.dismissed_at.is_(None)
-                if source in (ExpectedSource.employment, ExpectedSource.payroll_run)
-                else true()
-            ),
+            ExpectedMovement.dismissed_at.is_(None),
             ExpectedMovement.id.not_in(select(ExpectedMatch.movement_id)),
         )
     )

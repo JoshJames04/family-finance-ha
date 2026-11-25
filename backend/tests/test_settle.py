@@ -211,6 +211,44 @@ def test_archived_account_drops_out_of_current_obligations(session, household, a
         assert session.get(ExpectedMovement, movement.id) is movement
 
 
+def test_merge_keeps_dismissed_occurrence_on_surviving_bill(session, household, account):
+    from app.domain import accounts, schedule
+
+    target = Account(household_id=household.id, name="Destination", type="personal",
+                     opening_date=TODAY)
+    session.add(target)
+    session.flush()
+    bill = _commitment(session, household, account, next_date=TODAY)
+    schedule.rematerialize_commitment(session, bill, today=TODAY, horizon_days=0)
+    movement = session.scalars(select(ExpectedMovement)).one()
+    dismissed = datetime(2025, 1, 15)
+    movement.dismissed_at = dismissed
+    session.flush()
+    accounts.merge_accounts(session, account, target)
+
+    for _ in range(2):
+        schedule.rematerialize_commitment(session, bill, today=TODAY, horizon_days=0)
+        remaining = session.scalars(select(ExpectedMovement)).one()
+        assert remaining.id == movement.id
+        assert (remaining.account_id, remaining.dismissed_at) == (target.id, dismissed)
+
+
+def test_overlapping_bill_merge_rejected_before_source_changes(session, household, account):
+    from app.domain.accounts import AccountMergeError, merge_accounts
+
+    target = Account(household_id=household.id, name="Destination", type="personal",
+                     opening_date=TODAY)
+    session.add(target)
+    session.flush()
+    bill = _commitment(session, household, account, next_date=TODAY)
+    for acct in (account, target):
+        _movement(session, household, acct, on=TODAY, source_id=bill.id)
+    with pytest.raises(AccountMergeError, match="overlapping"):
+        merge_accounts(session, account, target)
+    assert bill.account_id == account.id
+    assert not account.archived
+
+
 class TestAutoSettlement:
 
     def test_cleared_bank_txn_settles_commitment(
