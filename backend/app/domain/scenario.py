@@ -178,9 +178,13 @@ def run(session: Session, scenario: Scenario, account: Account,
     today = from_date or date.today()
     end = today + timedelta(days=days)
 
-    rows = _movement_rows(session, account.id, today, end)
-    base_rows = [(d, amt) for _, d, amt in rows]
-    scen_rows = _apply_ops(rows, list(scenario.ops), account.id,
+    ops = list(scenario.ops)
+    shifted_ids = tuple(op.expected_movement_id for op in ops
+                        if op.kind is ScenarioOpKind.shift and op.expected_movement_id is not None
+                        and op.expected_date is not None and today < op.expected_date <= end)
+    rows = _movement_rows(session, account.id, today, end, include_ids=shifted_ids)
+    base_rows = [(d, amt) for _, d, amt in rows if today < d <= end]
+    scen_rows = _apply_ops(rows, ops, account.id,
                            today, end)
 
     balance = current_balance(session, account.id)

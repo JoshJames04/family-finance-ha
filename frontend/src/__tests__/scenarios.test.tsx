@@ -117,6 +117,8 @@ describe("Scenarios", () => {
     expect(await screen.findByText("Lowest point change")).toBeTruthy();
     expect(screen.getByText("Safe to spend change")).toBeTruthy();
     expect(screen.getByLabelText(/baseline/i)).toBeTruthy();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Horizon" }), "30");
+    expect(screen.queryByText("Lowest point change")).toBeNull();
   });
 
   it("deletes an op through the ops endpoint", async () => {

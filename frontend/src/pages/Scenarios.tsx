@@ -71,11 +71,15 @@ export function Scenarios() {
 
   const [accountId, setAccountId] = useState("");
   const [days, setDays] = useState("90");
-  const [run, setRun] = useState<Run | null>(null);
+  const [result, setRun] = useState<{ run: Run; revision: number } | null>(null);
   const [running, setRunning] = useState(false);
   const accountItems = accounts.data?.items ?? [];
   const effectiveAccount = accountId
     || (accountItems[0] ? String(accountItems[0].id) : "");
+
+  const run = result && result.revision === rev && result.run.scenario_id === current?.id
+    && result.run.account_id === Number(effectiveAccount) && result.run.days === Number(days)
+    ? result.run : null;
 
   const acctName = (id: number | null) =>
     accountItems.find((a) => a.id === id)?.name ?? "";
@@ -96,7 +100,7 @@ export function Scenarios() {
     api.get("/api/v1/scenarios/{scenario_id}/run", {
       path: { scenario_id: current.id },
       query: { account_id: Number(effectiveAccount), days: Number(days) || 90 },
-    }).then(setRun)
+    }).then((response) => setRun({ run: response, revision: rev }))
       .catch((e: Error) => toast.error(e.message))
       .finally(() => setRunning(false));
   };
@@ -271,7 +275,7 @@ export function Scenarios() {
                       </Select>
                     )}</Field>
                     <Field label="Horizon">{(_id) => (
-                      <Select aria-label="Horizon" value={days} onChange={(e) => setDays(e.target.value)}>
+                      <Select aria-label="Horizon" value={days} onChange={(e) => { setDays(e.target.value); setRun(null); }}>
                         <option value="30">30 days</option>
                         <option value="90">90 days</option>
                         <option value="180">180 days</option>
