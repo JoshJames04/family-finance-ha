@@ -85,7 +85,8 @@ is live or has a single financially equivalent live correction. Voided and
 ambiguous evidence remains in repayment history without reducing the balance.
 One live payment supports one repayment across the household. Voiding or
 reclassifying a linked payment as an internal transfer updates its loan
-balance event in the same transaction.
+balance event in the same transaction, including provider reversals. If deleting
+a repayment activates an existing claim on another loan, both balances are observed.
 
 ## 4. SQLite suitability assessment (ADR-0001 condition)
 
