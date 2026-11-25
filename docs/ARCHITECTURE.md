@@ -284,6 +284,10 @@ Report internal outflow totals sum negative internal effective legs, including
 confirmed unpaired movements. Internal movement counts include each paired
 transfer ID once and each unpaired internal transaction once; their drill covers
 both directions, while the internal outflow drill selects negative legs.
+Bank-linked loan repayments count against a balance only while their payment
+is live or has a single financially equivalent live correction. Voided and
+ambiguous evidence remains in repayment history without reducing the balance.
+One live payment supports one repayment across the household.
 Opening transactions (`system`, `open:<account-id>`) remain balance stock and are
 excluded from period flow. The returned itemised bridge uses effective split
 amounts and preserves uncategorised status without writing classifications.
