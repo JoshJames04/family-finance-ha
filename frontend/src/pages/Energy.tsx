@@ -184,14 +184,14 @@ function AddReadingDialog({ open, onOpenChange, onSaved }: {
       .finally(() => setBusy(false));
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Add meter reading"
-      description="Cumulative meter total in kWh — daily use is derived between readings."
+    <Dialog open={open} onOpenChange={onOpenChange} title="Add daily electricity use"
+      description="Enter the electricity used on the selected day in kWh. For a cumulative meter, subtract the previous day's reading first."
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-reading" disabled={!valid || busy}>{busy ? "Saving…" : "Save reading"}</Button>
       </>}>
       <form id="ff-reading" onSubmit={submit} className="grid gap-4">
-        <Field label="Meter reading (kWh)">{(id) => <Input id={id} autoFocus inputMode="decimal" placeholder="e.g. 18234.5" value={reading} onChange={(e) => setReading(e.target.value.trim())} />}</Field>
+        <Field label="Electricity used that day (kWh)">{(id) => <Input id={id} autoFocus inputMode="decimal" placeholder="e.g. 8.25" value={reading} onChange={(e) => setReading(e.target.value.trim())} />}</Field>
         <Field label="Date">{(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
       </form>
     </Dialog>
