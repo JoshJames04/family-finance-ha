@@ -27,7 +27,7 @@ import { EmptyState, Skeleton } from "../components/Feedback";
 import { cn } from "../lib/cn";
 import {
   formatDayMonth, formatDayMonthYear, formatMonthName, formatMonthOf, formatPence,
-  formatPercent, formatWeekdayDayMonth, parseISODate,
+  formatPercent, formatWeekdayDayMonth, parseISODate, toISODate,
 } from "../lib/format";
 
 type Line = components["schemas"]["BudgetLineOut"];
@@ -37,6 +37,13 @@ type Cat = components["schemas"]["CategoryOut"];
 const STATUS_TONE: Record<string, BadgeTone> = {
   draft: "neutral", approved: "success", locked: "neutral",
 };
+
+function IncomeVariance({ variance, periodEnded }: { variance: number; periodEnded: boolean }) {
+  if (variance === 0) return <span>On target</span>;
+  const label = variance < 0 ? "above target" : periodEnded ? "below target" : "still to receive";
+  const tone = variance < 0 ? "text-positive" : periodEnded ? "text-negative" : "text-fg-muted";
+  return <span className={tone}><Money pence={Math.abs(variance)} /> {label}</span>;
+}
 
 function ownerKey(b: BudgetT): string {
   return b.owner_profile_id == null ? "shared" : String(b.owner_profile_id);
@@ -58,8 +65,7 @@ type Section = {
   key: string;
   name: string;
   rows: Line[];
-  original: number;
-  revised: number;
+  effective: number;
   actual: number;
   variance: number;
 };
@@ -85,8 +91,7 @@ function groupLines(
     key,
     name: g.name,
     rows: g.rows,
-    original: g.rows.reduce((s, l) => s + l.original_pence, 0),
-    revised: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.effective_pence ?? l.revised_pence ?? l.original_pence), 0),
+    effective: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.effective_pence ?? l.revised_pence ?? l.original_pence), 0),
     actual: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.actual_pence ?? 0), 0),
     variance: g.rows.reduce((s, l) => s + (analyses[String(l.id)]?.variance_pence ?? 0), 0),
   }));
@@ -437,6 +442,8 @@ export function Budget() {
                         {() => (
                           <>
                             {sides.map((side) => {
+                              const income = side.key === "income";
+                              const periodEnded = (period?.to ?? d.end_date) < toISODate(new Date());
                               const rows = d.lines.filter((l) => l.side === side.key);
                               const showSalary = side.key === "income" && salaryForecasts.length > 0;
                               if (rows.length === 0 && !showSalary) return null;
@@ -495,15 +502,18 @@ export function Budget() {
                                     <td className="px-3 text-right font-medium" data-label={side.key === "expense" ? "Spent" : "Received"}>
                                       {an != null ? <Money pence={an.actual_pence} /> : "—"}
                                     </td>
-                                    <td className="px-3 text-right" data-label="Over/under">
-                                      {an != null ? <Money pence={v} tone="variance" signed /> : "—"}
+                                    <td className="px-3 text-right" data-label={income ? "Against target" : "Over/under"}>
+                                      {an == null ? "—" : income
+                                        ? <IncomeVariance variance={v} periodEnded={periodEnded} />
+                                        : <Money pence={v} tone="variance" signed />}
                                     </td>
-                                    <td className="w-40 px-3 pr-4" data-label="Used">
+                                    <td className="w-40 px-3 pr-4" data-label={income ? "Received %" : "Used"}>
                                       {used == null ? <span className="text-fg-subtle">—</span> : (
                                         <div className="flex items-center gap-2">
-                                          <Progress value={actual} max={plan} className="flex-1" label={`${name} used`} />
+                                          <Progress value={actual} max={plan} className="flex-1" tone={income ? (actual >= plan ? "positive" : "accent") : "auto"}
+                                            label={`${name} ${income ? "received" : "used"}`} />
                                           <span className={cn("tnum w-10 text-right text-[12.5px]",
-                                            used > 1 ? "text-negative" : "text-fg-muted")}>
+                                            !income && used > 1 ? "text-negative" : "text-fg-muted")}>
                                             {Math.round(used * 100)}%
                                           </span>
                                         </div>
@@ -541,8 +551,8 @@ export function Budget() {
                                           <th className="pl-4 font-medium">Category</th>
                                           <th className="px-3 text-right font-medium">Planned</th>
                                           <th className="px-3 text-right font-medium">{side.key === "expense" ? "Spent" : "Received"}</th>
-                                          <th className="px-3 text-right font-medium">Over/under</th>
-                                          <th className="w-40 px-3 pr-4 font-medium">Used</th>
+                                          <th className="px-3 text-right font-medium">{income ? "Against target" : "Over/under"}</th>
+                                          <th className="w-40 px-3 pr-4 font-medium">{income ? "Received %" : "Used"}</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -567,9 +577,10 @@ export function Budget() {
                                                     <span className="text-[12px] text-fg-subtle">{sec.rows.length}</span>
                                                     <span className="ml-auto flex items-center gap-4 text-[12.5px]">
                                                       <span className="text-fg-subtle">
-                                                        <Money pence={sec.actual} /> of <Money pence={sec.revised || sec.original} />
+                                                        <Money pence={sec.actual} /> of <Money pence={sec.effective} />
                                                       </span>
-                                                      <Money pence={sec.variance} tone="variance" signed className="w-20 text-right" />
+                                                      {income ? <IncomeVariance variance={sec.variance} periodEnded={periodEnded} />
+                                                        : <Money pence={sec.variance} tone="variance" signed className="w-20 text-right" />}
                                                     </span>
                                                   </button>
                                                 </td>

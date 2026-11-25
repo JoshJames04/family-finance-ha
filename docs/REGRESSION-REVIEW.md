@@ -403,3 +403,12 @@ Their presence is audit retention, not proof of payment. No GET operation repair
 or rewrites those rows. Synthetic regressions cover public API 409/no match write,
 void-after-link, partial caps, old/repeated corrections, correction aliases/cycles,
 refund semantics and Budget/report/member/category/notification agreement.
+
+### Income and expense variance
+
+The budget report returns effective plan minus actual for both sides, in pence
+and as a percentage of the effective plan. Expense lines use the configured
+overspend thresholds. Income lines report `above_target`, `on_target` or
+`pending_income`. A shortfall becomes `below_target` after the inclusive period
+end. The Budget page shows the same distinction for income rows and group
+totals. Receiving more than the target is favourable.

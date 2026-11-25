@@ -4,7 +4,7 @@ Status transitions, frozen originals, locked-period read-only, overlap
 without double-counting, per-line actuals.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -835,6 +835,38 @@ class TestReporting:
                          BudgetLineSide.expense, 100)
         hist = dom.accuracy_history(session, household.id, category.id)
         assert [h["budget_id"] for h in hist] == [may.id, jun.id]
+
+    @pytest.mark.parametrize(("received", "days_to_end", "status"), [
+        (15000, -1, "above_target"), (10000, -1, "on_target"),
+        (5000, -1, "below_target"), (5000, 0, "pending_income"),
+        (15000, 1, "above_target"),
+    ])
+    def test_api_income_variance(self, client: TestClient, received: int,
+                                 days_to_end: int, status: str) -> None:
+        end = date.today() + timedelta(days=days_to_end)
+        start = (end - timedelta(days=28)).isoformat()
+        hid = client.post("/api/v1/households", json={"name": "H"}).json()["id"]
+        headers = {"X-Household-Id": str(hid)}
+
+        def create(path: str, body: dict) -> dict:
+            response = client.post("/api/v1/" + path, headers=headers, json=body)
+            assert response.is_success, response.text
+            return response.json()
+
+        account = create("accounts", {"name": "Joint", "type": "joint",
+                         "opening_balance": 0, "opening_date": start})
+        category = create("categories", {"name": "Income"})
+        budget = create("budgets", {"name": "Monthly", "period_type": "monthly",
+                        "start_date": start, "end_date": end.isoformat()})
+        create(f"budgets/{budget['id']}/lines", {"category_id": category["id"],
+               "side": "income", "amount": 10000})
+        create("transactions", {"account_id": account["id"], "date": start,
+               "payee": "Employer", "category_id": category["id"], "amount": received})
+        response = client.get(f"/api/v1/budgets/{budget['id']}/report", headers=headers)
+        assert response.is_success
+        row = response.json()["lines"][0]
+        assert (row["variance_pence"], row["variance_pct"], row["status"]) == (
+            10000 - received, (10000 - received) / 100, status)
 
     def test_api_report_and_history(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
