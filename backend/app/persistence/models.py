@@ -456,6 +456,17 @@ class StatementImport(TimestampMixin, Base):
                                                             nullable=True)
 
 
+class StatementBankIdentity(Base):
+    """A reviewed OFX identity for a previously unidentified imported transaction."""
+    __tablename__ = "statement_bank_identity"
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transaction.id"), primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("account.id"), nullable=False)
+    bank_ref: Mapped[str] = mapped_column(String(68), nullable=False)
+    import_id: Mapped[int] = mapped_column(ForeignKey("statement_import.id"), nullable=False)
+    __table_args__ = (UniqueConstraint("account_id", "bank_ref", name="uq_statement_bank_ref"),)
+
+
 class BudgetPeriodType(enum.StrEnum):
     monthly = "monthly"
     annual = "annual"

@@ -7651,6 +7651,13 @@ export interface components {
             /** Pence */
             pence: number;
         };
+        /** StatementImportChoices */
+        StatementImportChoices: {
+            /** Legacy Matches */
+            legacy_matches?: {
+                [key: string]: number | null;
+            };
+        };
         /** StatementImportOut */
         StatementImportOut: {
             /** Id */
@@ -7696,6 +7703,10 @@ export interface components {
             notes: string | null;
             /** Duplicate */
             duplicate: boolean;
+            /** Legacy Transaction Id */
+            legacy_transaction_id?: number | null;
+            /** Bank Id Hint */
+            bank_id_hint?: string | null;
         };
         /**
          * StudentLoanPlan
@@ -13284,6 +13295,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -13320,13 +13332,18 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 import_id: number;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StatementImportChoices"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -13354,6 +13371,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 import_id: number;
@@ -13389,6 +13407,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;

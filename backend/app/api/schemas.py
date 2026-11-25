@@ -2149,6 +2149,14 @@ class StatementImportRowOut(BaseModel):
     payee: str
     notes: str | None
     duplicate: bool
+    legacy_transaction_id: int | None = None
+    bank_id_hint: str | None = None
+
+
+class StatementImportChoices(BaseModel):
+    # Map each legacy ledger ID to the selected zero-based statement row, or
+    # null when all the identified payments are additional.
+    legacy_matches: dict[int, int | None] = Field(default_factory=dict)
 
 
 class StatementImportOut(BaseModel):

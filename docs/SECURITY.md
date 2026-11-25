@@ -122,8 +122,10 @@ Security is verified continuously, not once:
 - Statement uploads are size-capped and parsed in memory; each import is
   staged as a `statement_import` preview — nothing reaches the ledger
   until a member commits the reviewed rows.
-- Rollback voids derived rows rather than deleting them, preserving the
-  audit trail.
+- Statement import history follows the account's visibility and write permissions.
+  Rollback deletes eligible pending or cleared rows and retains the batch and
+  audit event. Reconciled and void rows remain. Locked periods, splits and
+  financial references prevent rollback of the affected batch.
 - Source financial files (workbooks, exports) are forbidden in the
   repository (`.gitignore` + CI gate); only synthetic fixtures are used
   in tests.
