@@ -3,16 +3,20 @@
 from datetime import date
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.domain import contributions, schedule, settle
 from app.domain.recurring import advance, materialise, occurrences
 from app.persistence.models import (
     Account,
     AccountType,
+    ExpectedMovement,
     Frequency,
     Household,
     RecurringCommitment,
+    Transaction,
 )
 
 
@@ -87,6 +91,28 @@ class TestMaterialise:
         assert all(t.amount_pence == -15000 for t in made)
         assert c.generated_count == 3
         assert c.next_date == date(2026, 4, 30)  # 31st clamps
+
+    def test_posting_partial_and_prepaid_occurrences_consumes_only_the_remainder(
+        self, session: Session, account: Account,
+    ) -> None:
+        bill = _rc(account, occurrence_count=2)
+        session.add(bill)
+        session.flush()
+        schedule.rematerialize_commitment(session, bill, today=bill.next_date)
+        movements = list(session.scalars(select(ExpectedMovement).order_by(
+            ExpectedMovement.expected_date)))
+        for movement, paid in zip(movements, [-6000, -15000], strict=True):
+            tx = Transaction(account_id=account.id, amount_pence=paid, payee="Payment",
+                             date=bill.next_date, status="cleared")
+            session.add(tx)
+            session.flush()
+            settle.settle_occurrence(session, movement, tx, manual=True)
+        assert bill.next_date == date(2026, 1, 31)
+        posted = materialise(session, bill, date(2026, 2, 28))
+        assert [(t.date, t.amount_pence) for t in posted] == [(date(2026, 1, 31), -9000)]
+        assert [contributions.status(session, m).outstanding_pence for m in movements] == [0, 0]
+        assert bill.generated_count == 2
+        assert materialise(session, bill, date(2026, 2, 28)) == []
 
     def test_idempotent_rerun(
         self, session: Session, account: Account

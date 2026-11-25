@@ -334,6 +334,11 @@ Shared Budget variance drills include `shared_only=true`; personal drills carry
 the owner filter. Transaction drills retain non-void/opening/transfer exclusions. Account
 balances and net worth continue to include opening stock.
 
+**Post next** advances each recurring bill occurrence once. Where payment
+evidence already exists for that date and account, it creates a pending ledger
+transaction only for the outstanding amount and links that transaction to the
+occurrence. A fully prepaid date advances without another ledger entry.
+
 Expected movements retain their original scheduled amounts and expose
 `outstanding_pence` from contribution matching plus `dismissed_at`. Budget salary
 forecasts use the undismissed residual of employment/payroll-run movements within
