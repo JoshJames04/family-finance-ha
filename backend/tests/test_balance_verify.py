@@ -59,6 +59,38 @@ def _verify(client: TestClient, h: dict[str, str], acct: int,
 
 
 class TestVerification:
+    def test_backdated_verification_preserves_later_spending(
+            self, client: TestClient, h: dict) -> None:
+        aid = _acct(client, h, 100_000)
+        _txn(client, h, aid, -25_000)
+        statement = {"verified_date": "2026-01-31", "correct": True}
+        v = _verify(client, h, aid, 99_000, **statement)
+        assert v["derived_pence"] == 100_000
+        assert v["variance_pence"] == -1_000
+        assert _verify(client, h, aid, 99_000, **statement)["correction_txn_id"] is None
+        balance = client.get(f"/api/v1/accounts/{aid}/balance", headers=h).json()
+        assert balance["balance_pence"] == 74_000
+
+    @pytest.mark.parametrize("adjustment", [-10_000, 10_000])
+    def test_correction_changes_balance_without_creating_income_or_spending(
+            self, client: TestClient, h: dict, adjustment: int) -> None:
+        aid = _acct(client, h, 100_000)
+        v = _verify(client, h, aid, 100_000 + adjustment, correct=True)
+        tid = v["correction_txn_id"]
+        assert tid is not None
+        replaced = client.post(f"/api/v1/transactions/{tid}/correct", headers=h,
+                               json={"reason": "Clarify adjustment", "notes": "Adjusted"})
+        assert replaced.status_code == 200, replaced.text
+        report = client.get("/api/v1/reports/monthly", headers=h,
+                            params={"year": 2026, "month": 3}).json()
+        figures = {f["key"]: f for section in report["sections"] for f in section["figures"]}
+        assert figures["income_total"]["amount_pence"] == 0
+        assert figures["savings_pence"]["amount_pence"] == 0
+        assert "uncategorised" not in figures
+        for drill in figures["savings_pence"]["components"]:
+            rows = client.get(drill["endpoint"], headers=h, params=drill["params"]).json()
+            assert rows["total"] == 0
+
     def test_matching_balance_zero_variance(
             self, client: TestClient, h: dict) -> None:
         aid = _acct(client, h, 100_000)

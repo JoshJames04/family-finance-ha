@@ -21,6 +21,7 @@ from app.domain.money import Money
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
 from app.domain.reporting import (
+    economic_transaction,
     expense_leg,
     income_leg,
     internal_category_ids,
@@ -110,6 +111,8 @@ def list_transactions(
         stmt = stmt.where(
             ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
             | Transaction.external_ref.is_(None))
+    if budget_side is not None or (exclude_opening and internal is not None):
+        stmt = stmt.where(economic_transaction())
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
     if status is not None:

@@ -422,6 +422,8 @@ def apply_rollover(
     via ``rollover`` participate. The source is never mutated (safe
     across locked boundaries); each application writes an audit-visible
     reason and returns the carry events for the caller to audit."""
+    if target.start_date <= source.end_date:
+        raise BudgetError("rollover requires a target period after the source period")
     if source.status == BudgetStatus.draft:
         raise BudgetError("cannot roll over from a draft budget")
     if target.status == BudgetStatus.locked or is_read_only(

@@ -58,6 +58,15 @@ def internal_category_ids() -> Select[Any]:
     return select(Category.id).where(Category.name == "Internal Transfers")
 
 
+def economic_transaction() -> ColumnElement[bool]:
+    """Openings, statement adjustments and their superseding rows are balance stock."""
+    stock = select(Transaction.id).where(
+        ((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
+        | (Transaction.source == "manual_verification")).cte(recursive=True)
+    stock = stock.union(select(Transaction.id).join(stock, Transaction.corrects_id == stock.c.id))
+    return Transaction.id.not_in(select(stock.c.id))
+
+
 def external_category_amounts(
     *wheres: ColumnElement[bool], classify_confirmed: bool = True,
 ) -> Subquery:
@@ -68,9 +77,7 @@ def external_category_amounts(
     """
     amounts = splits.effective_category_amounts(
         *wheres, Transaction.transfer_id.is_(None),
-        Transaction.status != TransactionStatus.void,
-        ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
-        | Transaction.external_ref.is_(None))
+        Transaction.status != TransactionStatus.void, economic_transaction())
     if classify_confirmed:
         return classified_amounts(amounts, internal_category_ids(), internal_only=False)
     return select(amounts).where(or_(
@@ -81,7 +88,7 @@ def external_category_amounts(
 def internal_category_amounts(*wheres: ColumnElement[bool],
                               classify_confirmed: bool = True) -> Subquery:
     """Paired legs and confirmed unpaired internal legs, excluding external fees."""
-    amounts = splits.effective_category_amounts(*wheres)
+    amounts = splits.effective_category_amounts(*wheres, economic_transaction())
     if classify_confirmed:
         return classified_amounts(amounts, internal_category_ids(), internal_only=True)
     return select(amounts).where(or_(
