@@ -80,6 +80,13 @@ system.
   app fully functional without it; no payment initiation, ever, without a
   new explicit requirement.
 
+Bank-linked loan repayments count against a balance only while their payment
+is live or has a single financially equivalent live correction. Voided and
+ambiguous evidence remains in repayment history without reducing the balance.
+One live payment supports one repayment across the household. Simple interest
+stops on the first effective repayment date that covers the principal and
+interest due that day. Reversing that evidence recalculates the settlement.
+
 ## 4. SQLite suitability assessment (ADR-0001 condition)
 
 SQLite is sufficient **provided**:
@@ -288,12 +295,6 @@ Report internal outflow totals sum negative internal effective legs, including
 confirmed unpaired movements. Internal movement counts include each paired
 transfer ID once and each unpaired internal transaction once; their drill covers
 both directions, while the internal outflow drill selects negative legs.
-Bank-linked loan repayments count against a balance only while their payment
-is live or has a single financially equivalent live correction. Voided and
-ambiguous evidence remains in repayment history without reducing the balance.
-One live payment supports one repayment across the household. Simple interest
-stops on the first effective repayment date that covers the principal and
-interest due that day. Reversing that evidence recalculates the settlement.
 A zero loan balance has zero projected months remaining. Savings goals place
 their last required contribution on the target date and generate no new
 contributions after that date. The Goals page marks unfunded deadlines due
