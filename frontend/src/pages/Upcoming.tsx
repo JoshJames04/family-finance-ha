@@ -67,7 +67,9 @@ export function Upcoming() {
       <PageHeader
         title="Upcoming"
         description="Bills, transfers and paydays over the next 90 days."
-        actions={<Button variant="primary" onClick={() => setAdding(true)}><Plus /> Add bill</Button>}
+        actions={<Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+          <Plus /> {tab === "transfers" ? "Schedule transfer" : "Add bill"}
+        </Button>}
       />
 
       <div className="mb-4 grid grid-cols-3 gap-3">
@@ -193,13 +195,14 @@ export function Upcoming() {
         </Panel>
       )}
 
-      <AddBillDialog open={adding} onOpenChange={setAdding} onSaved={() => { setRev((r) => r + 1); setTab("timeline"); }} />
+      {adding && <ScheduleDialog transfer={tab === "transfers"} onOpenChange={setAdding}
+        onSaved={() => { setRev((r) => r + 1); if (tab !== "transfers") setTab("timeline"); }} />}
     </div>
   );
 }
 
-function AddBillDialog({ open, onOpenChange, onSaved }: {
-  open: boolean;
+function ScheduleDialog({ transfer, onOpenChange, onSaved }: {
+  transfer: boolean;
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
@@ -212,13 +215,26 @@ function AddBillDialog({ open, onOpenChange, onSaved }: {
   const [accountId, setAccountId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [busy, setBusy] = useState(false);
-  const acct = accountId || String(accounts.data?.items[0]?.id ?? "");
-  const valid = name.trim() && acct && /^\d+(\.\d{1,2})?$/.test(amount);
+  const [destination, setDestination] = useState("");
+  const activeAccounts = (accounts.data?.items ?? []).filter(a => !a.archived && (!transfer || a.owner_profile_id != null));
+  const acct = accountId || String(activeAccounts[0]?.id ?? "");
+  const source = activeAccounts.find(a => String(a.id) === acct);
+  const destinations = activeAccounts.filter(a => a.owner_profile_id === source?.owner_profile_id && String(a.id) !== acct);
+  const pence = Math.round(Number(amount) * 100);
+  const valid = name.trim() && acct && nextDate && /^\d+(\.\d{1,2})?$/.test(amount)
+    && Number.isSafeInteger(pence) && pence > 0
+    && (!transfer || (nextDate >= toISODate(new Date()) && destinations.some(a => String(a.id) === destination)));
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
     setBusy(true);
-    api.post("/api/v1/commitments", {
+    const save = transfer ? api.post("/api/v1/transfer-rules", {
+      body: {
+        name: name.trim(), source_account_id: Number(acct), dest_account_id: Number(destination),
+        amount_spec: { kind: "fixed", pence }, frequency,
+        day_of_month: Number(nextDate.slice(8)), start_date: nextDate,
+      },
+    }) : api.post("/api/v1/commitments", {
       body: {
         name: name.trim(),
         account_id: Number(acct),
@@ -228,11 +244,9 @@ function AddBillDialog({ open, onOpenChange, onSaved }: {
         next_date: nextDate,
         day_of_month: frequency === "monthly" ? Number(nextDate.slice(8)) : null,
       },
-    })
-      .then((c) => api.post("/api/v1/commitments/{cid}/materialise", { path: { cid: c.id } }).catch(() => undefined))
-      .then(() => {
+    });
+    save.then(() => {
         toast.success(`Added ${name.trim()}`);
-        setName(""); setAmount("");
         onSaved();
         onOpenChange(false);
       })
@@ -240,14 +254,14 @@ function AddBillDialog({ open, onOpenChange, onSaved }: {
       .finally(() => setBusy(false));
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Add recurring bill"
-      description="Bills generate expected movements on the timeline and in your forecast."
+    <Dialog open onOpenChange={onOpenChange} title={transfer ? "Schedule transfer" : "Add recurring bill"}
+      description={transfer ? "Schedule funding between the same person’s accounts. Enter the amount you expect to move." : "Bills generate expected movements on the timeline and in your forecast."}
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button variant="primary" type="submit" form="ff-add-bill" disabled={!valid || busy}>{busy ? "Saving…" : "Add bill"}</Button>
+        <Button variant="primary" type="submit" form="ff-add-bill" disabled={!valid || busy}>{busy ? "Saving…" : transfer ? "Schedule transfer" : "Add bill"}</Button>
       </>}>
       <form id="ff-add-bill" onSubmit={submit} className="grid gap-4">
-        <Field label="Name">{(id) => <Input id={id} autoFocus placeholder="e.g. Council Tax" value={name} onChange={(e) => setName(e.target.value)} />}</Field>
+        <Field label="Name">{(id) => <Input id={id} autoFocus placeholder={transfer ? "e.g. Fund bills space" : "e.g. Council Tax"} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Amount (£)">{(id) => <Input id={id} inputMode="decimal" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value.trim())} />}</Field>
           <Field label="Frequency">{(id) => (
@@ -257,20 +271,25 @@ function AddBillDialog({ open, onOpenChange, onSaved }: {
           )}</Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Next due">{(id) => <Input id={id} type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} />}</Field>
+          <Field label={transfer ? "First transfer" : "Next due"}>{(id) => <Input id={id} type="date" min={transfer ? toISODate(new Date()) : undefined} value={nextDate} onChange={(e) => setNextDate(e.target.value)} />}</Field>
           <Field label="Paid from">{(id) => (
-            <Select id={id} value={acct} onChange={(e) => setAccountId(e.target.value)}>
-              {(accounts.data?.items ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            <Select id={id} value={acct} onChange={(e) => { setAccountId(e.target.value); setDestination(""); }}>
+              {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Select>
           )}</Field>
         </div>
-        <Field label="Category">{(id) => (
+        {transfer ? <Field label="Transfer to">{(id) => (
+          <Select id={id} value={destination} onChange={e => setDestination(e.target.value)}>
+            <option value="">Choose an account</option>
+            {destinations.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+        )}</Field> : <Field label="Category">{(id) => (
           <Select id={id} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">Uncategorised</option>
             {(categories.data?.items ?? []).filter((c) => !c.archived).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
-        )}</Field>
-        <p className="text-[12.5px] text-fg-subtle">Amount recorded as an outgoing of {amount ? formatPence(-Math.round(Number(amount) * 100)) : "£0.00"}.</p>
+        )}</Field>}
+        {transfer ? valid && <p className="text-[12.5px] text-fg-subtle">{formatPence(pence)} from {source?.name} to {destinations.find(a => String(a.id) === destination)?.name}, starting {formatWeekdayDayMonth(nextDate)}.</p> : <p className="text-[12.5px] text-fg-subtle">Amount recorded as an outgoing of {amount ? formatPence(-Math.round(Number(amount) * 100)) : "£0.00"}.</p>}
       </form>
     </Dialog>
   );

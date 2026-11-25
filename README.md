@@ -38,6 +38,7 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
 
 - **Budgeting** — monthly, annual and custom-period budgets with original
   budget, revised forecast, actuals, variance and forecast-accuracy tracking.
+- Under **Upcoming → Transfers**, schedule a fixed transfer from a main account to its bills space. Choose both accounts, an amount, frequency and first date to include both legs in their forecasts.
 - **Cash-flow forecasting** — date-aware projected balances, safe-to-spend,
   payday intelligence and overdraft risk warnings. Salary is projected from
   the employment's payday rule — no run needed — using effective salary/tax
