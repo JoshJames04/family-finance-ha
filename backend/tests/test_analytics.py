@@ -195,6 +195,12 @@ class TestSeriesAndApi:
             MonthlyAggregate.household_id == household.id, MonthlyAggregate.month == rows[0].month))
         assert april.net_worth_pence == -47000
         assert april.income_pence == 0
+        loan.interest_bps_pa = 1000
+        session.flush()
+        # A past final month is valued at its end, even when the last payment
+        # and bank posting happened earlier in that month.
+        assert analytics.series(session, household.id, 1)[0].net_worth_pence == (
+            analytics.net_worth_at(session, household.id, date(2025, 4, 30)))
 
     def test_series_chronological_and_capped(
             self, session: Session, household: Household) -> None:

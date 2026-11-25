@@ -143,12 +143,13 @@ def _figures(session: Session, household_id: int,
         return []
     # Outstanding loan principal and interest continue to affect net worth in
     # quiet months. Closed loans still contribute dated repayments to history.
+    window_end = cutoff
     if through is None and not any(loan.active for loan in loans):
         last_repayment = session.scalar(select(func.max(Repayment.date)).where(
             Repayment.loan_id.in_([loan.id for loan in loans]), Repayment.date <= cutoff))
-        cutoff = max(d for d in [*starts, posting_end, last_repayment] if d is not None)
+        window_end = max(d for d in [*starts, posting_end, last_repayment] if d is not None)
     earliest = _month_start(min(starts))
-    last_month = _month_start(cutoff)
+    last_month = _month_start(window_end)
     first_index = max((earliest.year - 1) * 12 + earliest.month - 1,
                       (last_month.year - 1) * 12 + last_month.month - limit)
     months = months_between(date(first_index // 12 + 1, first_index % 12 + 1, 1), last_month)
