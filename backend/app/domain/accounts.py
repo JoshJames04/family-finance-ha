@@ -19,10 +19,14 @@ from app.persistence.models import (
     Account,
     AccountType,
     BalanceVerification,
+    Employment,
     ExpectedMovement,
     ExpectedSource,
     MergeCandidate,
     RecurringCommitment,
+    SavingsGoal,
+    Subscription,
+    SubscriptionStatus,
     Transaction,
     TransactionSource,
     TransactionStatus,
@@ -111,6 +115,40 @@ def merge_accounts(
         ExpectedMovement.source_type == ExpectedSource.commitment,
         ExpectedMovement.source_id.in_(moved_bills),
     )
+    today = date.today()
+    other_movements = select(ExpectedMovement.id).where(
+        ExpectedMovement.household_id == source.household_id,
+        ExpectedMovement.expected_date >= today,
+        ExpectedMovement.dismissed_at.is_(None),
+        or_(ExpectedMovement.account_id == source.id,
+            ExpectedMovement.transfer_source_account_id == source.id,
+            ExpectedMovement.transfer_dest_account_id == source.id),
+        or_(ExpectedMovement.source_type != ExpectedSource.commitment,
+            ExpectedMovement.source_id.not_in(moved_bills)),
+    )
+    # Active definitions also matter when their next occurrence has not materialized yet.
+    schedules = (
+        other_movements,
+        select(Subscription.id).where(Subscription.account_id == source.id,
+                                      Subscription.status == SubscriptionStatus.active),
+        select(SavingsGoal.id).where(SavingsGoal.account_id == source.id,
+                                     SavingsGoal.active.is_(True)),
+        select(Employment.id).where(
+            Employment.paid_into_account_id == source.id,
+            Employment.is_active.is_(True),
+            or_(Employment.end_date.is_(None), Employment.end_date >= today),
+        ),
+        select(TransferRule.id).where(
+            or_(TransferRule.source_account_id == source.id,
+                TransferRule.dest_account_id == source.id),
+            TransferRule.active.is_(True),
+            or_(TransferRule.end_date.is_(None), TransferRule.end_date >= today),
+        ),
+    )
+    if session.scalar(select(or_(*(query.exists() for query in schedules)))):
+        raise AccountMergeError(
+            "move or remove the source account's non-bill schedules before merging"
+        )
     other = aliased(ExpectedMovement)
     collision = select(other.id).where(
         other.account_id == target.id, other.source_type == ExpectedSource.commitment,

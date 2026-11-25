@@ -189,6 +189,8 @@ transfer accounts are open when proposing and confirming a match. Current schedu
 totals, funding requirements and reminders exclude those accounts. Accountless household
 plans remain visible. A bill keeps its recorded settlements and write-offs when its
 account is merged. Overlapping occurrences of the same bill must be resolved before merging. A queued transfer match expires if its expected movement is removed.
+Before merging accounts, move or remove active non-bill schedules on the source account.
+Bills and their occurrences move with the merge.
 
 Employer payday settings include an optional payroll cutoff day (1–31); leave it
 blank to retain calendar-month earning periods. Category pickers sort by name and
