@@ -23,6 +23,7 @@ from app.persistence.models import (
     Loan,
     LoanDirection,
     MonthlyAggregate,
+    Repayment,
     Transaction,
     TransactionStatus,
 )
@@ -78,7 +79,7 @@ MAX_REBUILD_MONTHS = 600
 
 
 def _grouped_months(session: Session, household_id: int,
-                    external: bool, account_ids: list[int] | None = None,
+                    external: bool, through: date, account_ids: list[int] | None = None,
                     ) -> dict[date, tuple[int, int]]:
     """One grouped ledger pass: month → (income_pence, expense_pence).
     ``external=True`` applies the #90 transfer-leg exclusion."""
@@ -99,13 +100,13 @@ def _grouped_months(session: Session, household_id: int,
                                     amounts.c.amount_pence), else_=0)), 0),
         func.coalesce(func.sum(case((expense,
                                     -amounts.c.amount_pence), else_=0)), 0),
-    ).group_by(month))
+    ).where(amounts.c.date <= through).group_by(month))
     return {date(int(ym[:4]), int(ym[5:]), 1): (int(inc), int(exp))
             for ym, inc, exp in rows}
 
 
-def _monthly_net(session: Session, household_id: int, account_ids: list[int] | None = None,
-                 ) -> dict[date, int]:
+def _monthly_net(session: Session, household_id: int, through: date,
+                 account_ids: list[int] | None = None) -> dict[date, int]:
     """Signed per-month ledger total INCLUDING transfer legs — balance
     accumulation, same basis as ``net_worth_at``/``current_balance``
     (legs dated either side of a month boundary are in-flight money)."""
@@ -115,7 +116,7 @@ def _monthly_net(session: Session, household_id: int, account_ids: list[int] | N
         .join(Account, Transaction.account_id == Account.id)
         .where(Account.household_id == household_id,
                *([Account.id.in_(account_ids)] if account_ids is not None else []),
-               Transaction.status != TransactionStatus.void)
+               Transaction.status != TransactionStatus.void, Transaction.date <= through)
         .group_by(_MONTH_EXPR))
     return {date(int(ym[:4]), int(ym[5:]), 1): int(net)
             for ym, net in session.execute(stmt)}
@@ -123,33 +124,43 @@ def _monthly_net(session: Session, household_id: int, account_ids: list[int] | N
 
 def _figures(session: Session, household_id: int,
              through: date | None = None, *, account_ids: list[int] | None = None,
-             loan_ids: list[int] | None = None) -> list[tuple[date, dict[str, int]]]:
+             loan_ids: list[int] | None = None, limit: int = MAX_REBUILD_MONTHS,
+             ) -> list[tuple[date, dict[str, int]]]:
     """Fresh monthly economics and raw ledger stock, without materialising rows."""
-    through = through or session.execute(
-        select(func.max(Transaction.date)).join(Account).where(
-            *([Account.id.in_(account_ids)] if account_ids is not None else []),
-            Account.household_id == household_id)).scalar_one()
-    if through is None:
-        return []
-    earliest = session.execute(select(func.min(Transaction.date)).join(Account).where(
-        *([Account.id.in_(account_ids)] if account_ids is not None else []),
-        Account.household_id == household_id)).scalar_one()
-    if earliest is None:
-        return []
-    months = months_between(earliest, _month_start(through))[:MAX_REBUILD_MONTHS]
-    if not months:
-        return []
-    flows = _grouped_months(session, household_id, external=True, account_ids=account_ids)
-    nets = _monthly_net(session, household_id, account_ids)
+    cutoff = through or date.today()
+    posting_start, posting_end = session.execute(select(
+        func.min(Transaction.date), func.max(Transaction.date)).join(Account).where(
+            Account.household_id == household_id, Transaction.date <= cutoff,
+            Transaction.status != TransactionStatus.void,
+            *([Account.id.in_(account_ids)] if account_ids is not None else []))).one()
     loans = session.scalars(select(Loan).where(
-        *([Loan.id.in_(loan_ids)] if loan_ids is not None else []),
-        Loan.household_id == household_id, Loan.start_date <= _month_end(months[-1]))).all()
-    balance = 0
+        Loan.household_id == household_id, Loan.start_date <= cutoff,
+        *([Loan.id.in_(loan_ids)] if loan_ids is not None else []))).all()
+    starts = [loan.start_date for loan in loans]
+    if posting_start is not None:
+        starts.append(posting_start)
+    if not starts:
+        return []
+    # Outstanding loan principal and interest continue to affect net worth in
+    # quiet months. Closed loans still contribute dated repayments to history.
+    if through is None and not any(loan.active for loan in loans):
+        last_repayment = session.scalar(select(func.max(Repayment.date)).where(
+            Repayment.loan_id.in_([loan.id for loan in loans]), Repayment.date <= cutoff))
+        cutoff = max(d for d in [*starts, posting_end, last_repayment] if d is not None)
+    earliest = _month_start(min(starts))
+    last_month = _month_start(cutoff)
+    first_index = max((earliest.year - 1) * 12 + earliest.month - 1,
+                      (last_month.year - 1) * 12 + last_month.month - limit)
+    months = months_between(date(first_index // 12 + 1, first_index % 12 + 1, 1), last_month)
+    flows = _grouped_months(session, household_id, external=True, through=cutoff,
+                            account_ids=account_ids)
+    nets = _monthly_net(session, household_id, cutoff, account_ids)
+    balance = sum(net for month, net in nets.items() if month < months[0])
     result = []
     for month in months:
         inc, exp = flows.get(month, (0, 0))
         balance += nets.get(month, 0)
-        end = _month_end(month)
+        end = min(cutoff, _month_end(month))
         net_worth = balance + sum(
             -outstanding if loan.direction == LoanDirection.we_owe else outstanding
             for loan in loans if loan.start_date <= end
@@ -185,6 +196,7 @@ def series(session: Session, household_id: int,
            loan_ids: list[int] | None = None) -> list[MonthlyAggregate]:
     """Fresh chronological monthly values; never write or trust stale cache rows."""
     with session.no_autoflush:
-        rows = _figures(session, household_id, account_ids=account_ids, loan_ids=loan_ids)
+        rows = _figures(session, household_id, account_ids=account_ids, loan_ids=loan_ids,
+                        limit=max(1, min(months, 120)))
     return [MonthlyAggregate(household_id=household_id, month=month, **figures)
-            for month, figures in rows[-max(1, min(months, 120)):]]
+            for month, figures in rows]

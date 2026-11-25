@@ -117,8 +117,8 @@ export function Reports() {
         }
       />
 
-      {trendData.length > 1 && (
-        <Panel title={TREND_TITLES[trendMode]} description="Last 12 months" className="mb-4"
+      {trendData.length > 0 && (
+        <Panel title={TREND_TITLES[trendMode]} description="Up to 12 months of household history" className="mb-4"
           actions={
             <Segmented label="Trend view" value={trendMode} onChange={setTrendMode}
               options={TREND_OPTIONS} />
@@ -130,7 +130,7 @@ export function Reports() {
                   <TrendShared />
                   <Legend wrapperStyle={{ fontSize: 12 }} iconSize={9} />
                   <Area dataKey="Net worth" stroke="var(--chart-line)" fill="var(--chart-line)"
-                    fillOpacity={0.16} strokeWidth={2} type="monotone" isAnimationActive={false} />
+                    dot={trendData.length === 1} fillOpacity={0.16} strokeWidth={2} type="monotone" isAnimationActive={false} />
                 </AreaChart>
               ) : (
                 <BarChart data={trendData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
