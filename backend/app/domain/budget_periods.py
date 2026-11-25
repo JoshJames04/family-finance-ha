@@ -191,13 +191,22 @@ def resolve_period(session: Session, budget: Budget, *,
     if (basis == "calendar" or budget.owner_profile_id is None
             or budget.period_type != BudgetPeriodType.monthly):
         return calendar
+    return resolve_member_period(
+        session, budget.household_id, budget.owner_profile_id, calendar.start, calendar.end)
+
+
+def resolve_member_period(
+    session: Session, household_id: int, profile_id: int, start: date, end: date,
+) -> BudgetWindow:
+    """Resolve a labelled calendar month using a member's configured Budget payday."""
+    calendar = BudgetWindow(start, end, "calendar")
     with session.no_autoflush:
-        year, month = budget.start_date.year, budget.start_date.month
+        year, month = start.year, start.month
         previous_year = year - 1 if month == 1 else year
         previous_month = month - 1 or 12
-        manual = session.get(AppMeta, _day_key(budget.household_id, budget.owner_profile_id))
+        manual = session.get(AppMeta, _day_key(household_id, profile_id))
         if manual is not None:
-            day = selected_day(session, budget.household_id, budget.owner_profile_id)
+            day = selected_day(session, household_id, profile_id)
             if day is None:
                 return BudgetWindow(calendar.start, calendar.end, "calendar", warning=(
                     "Invalid configured payday day; showing calendar dates."))
@@ -205,10 +214,10 @@ def resolve_period(session: Session, budget: Budget, *,
             return BudgetWindow(pay_date(rule, previous_year, previous_month),
                                 pay_date(rule, year, month) - timedelta(days=1), "pay_cycle")
         sources = [e for e in _employments(
-            session, budget.household_id, budget.owner_profile_id)
+            session, household_id, profile_id)
             if _monthly_rule(e) is not None]
-        selected = selected_anchor(session, budget.household_id,
-                                   budget.owner_profile_id)
+        selected = selected_anchor(session, household_id,
+                                   profile_id)
         opening = _boundary(sources, previous_year, previous_month, selected)
         closing = _boundary(sources, year, month, selected)
         if len(opening) != 1 or len(closing) != 1:

@@ -128,7 +128,7 @@ export function Shared() {
               </Panel>
             )}
 
-            <SharedPot period={{
+            <SharedPot sharedTotal={detail.data ? total : undefined} period={{
               start: shared.start_date, end: shared.end_date,
             }} />
           </>

@@ -78,6 +78,82 @@ def _movement(session: Session, household: Household,
     return m
 
 
+def test_shared_standing_uses_each_current_pay_cycle_and_separate_next_payment(
+    session: Session, household: Household, pair: tuple[Account, Account, TransferRule],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.v1 import expected
+    from app.domain import budget_periods
+    from app.persistence.models import UserProfile
+
+    class Today(date):
+        @classmethod
+        def today(cls) -> date:
+            return date(2026, 11, 25)
+
+    monkeypatch.setattr(expected, "date", Today)
+    source, pot, first_rule = pair
+    josh = UserProfile(household_id=household.id, display_name="Josh")
+    chloe = UserProfile(household_id=household.id, display_name="Chloe")
+    session.add_all([josh, chloe])
+    session.flush()
+    source.owner_profile_id = josh.id
+    second_source = Account(household_id=household.id, name="Personal",
+                            type="personal", owner_profile_id=chloe.id,
+                            opening_date=date(2026, 1, 1))
+    session.add(second_source)
+    session.flush()
+    second_rule = TransferRule(
+        household_id=household.id, name="Second share", source_account_id=second_source.id,
+        dest_account_id=pot.id, amount_spec='{"kind":"fixed","pence":20000}',
+        frequency=Frequency.monthly, day_of_month=11, start_date=date(2026, 1, 1),
+    )
+    session.add(second_rule)
+    session.flush()
+    budget_periods.set_day(session, household.id, josh.id, 28)
+    budget_periods.set_day(session, household.id, chloe.id, 11)
+    for rule, paid, upcoming, amount in [
+        (first_rule, date(2026, 10, 28), date(2026, 11, 28), 30000),
+        (second_rule, date(2026, 11, 11), date(2026, 12, 11), 20000),
+    ]:
+        movement = _movement(session, household, pot, amount, paid, rule.id)
+        receipt = _leg(session, household, pot, amount, paid)
+        if rule is first_rule:
+            debit = Transaction(account_id=source.id, date=paid, amount_pence=-amount,
+                                payee="Shared contribution", transfer_id=receipt.transfer_id)
+            session.add(debit)
+            session.flush()
+            planned_debit = _movement(session, household, source, -amount, paid, rule.id)
+            contributions.confirm(session, planned_debit, debit)
+        else:
+            contributions.confirm(session, movement, receipt)
+        _movement(session, household, pot, amount, upcoming, rule.id)
+    internal = TransferRule(
+        household_id=household.id, name="Shared top-up", source_account_id=pot.id,
+        dest_account_id=source.id, amount_spec='{"kind":"fixed","pence":999}',
+        frequency=Frequency.monthly, day_of_month=25, start_date=date(2026, 1, 1),
+    )
+    session.add(internal)
+    session.flush()
+    _movement(session, household, source, 999, date(2026, 11, 25), internal.id)
+
+    rows = {row.profile_id: row for row in expected.contribution_cycles(
+        household, session, None, date(2026, 11, 1), date(2026, 11, 30), pot.id)}
+    assert (rows[josh.id].start, rows[josh.id].end) == (
+        date(2026, 10, 28), date(2026, 11, 26))
+    assert (rows[chloe.id].start, rows[chloe.id].end) == (
+        date(2026, 11, 11), date(2026, 12, 10))
+    for user, amount, due in [
+        (josh, 30000, date(2026, 11, 28)), (chloe, 20000, date(2026, 12, 11)),
+    ]:
+        row = rows[user.id]
+        payment, = row.payments
+        assert payment.matched_pence == payment.expected_pence == amount
+        assert row.next_payment is not None
+        assert row.next_payment.due_date == due
+        assert row.next_payment.matched_pence == 0
+
+
 class TestStates:
     def test_satisfied_by_full_match(
             self, session: Session, household: Household,
@@ -246,6 +322,52 @@ class TestApi:
         settings = Settings.load({"FF_DATA_DIR": str(tmp_path)})
         with TestClient(create_app(settings)) as c:
             yield c
+
+    def test_guided_split_is_atomic_and_preserves_existing_payment_days(
+        self, client: TestClient,
+    ) -> None:
+        base = "/api/v1"
+        household = client.post(f"{base}/households", json={"name": "Test"}).json()["id"]
+        headers = {"X-Household-Id": str(household)}
+
+        def post(path, payload):
+            response = client.post(f"{base}/{path}", headers=headers, json=payload)
+            assert response.status_code == 201, response.text
+            return response.json()["id"]
+
+        def account(name, owner=None):
+            return post("accounts", {"name": name, "type": "personal" if owner else "joint",
+                                     "owner_profile_id": owner, "opening_balance": 0,
+                                     "opening_date": "2026-01-01"})
+
+        josh = post("profiles", {"display_name": "Josh"})
+        chloe = post("profiles", {"display_name": "Chloe"})
+        josh_account, chloe_account = account("Josh Main", josh), account("Chloe Main", chloe)
+        pot = account("Joint Main")
+        rule_id = post("transfer-rules", {
+            "name": "Josh share", "source_account_id": josh_account, "dest_account_id": pot,
+            "amount_spec": {"kind": "fixed", "pence": 10000}, "frequency": "monthly",
+            "day_of_month": 28, "start_date": "2026-01-01",
+        })
+        route = f"{base}/transfer-rules/shared-split"
+        body = {"account_id": pot, "target_pence": 30001, "shares": [
+            {"profile_id": josh, "rule_id": rule_id, "pence": 18001},
+            {"profile_id": chloe, "source_account_id": josh_account, "day_of_month": 11,
+             "pence": 12000},
+        ]}
+        assert client.post(route, headers=headers, json=body).status_code == 422
+
+        def rules():
+            return client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
+
+        (old,) = rules()
+        assert old["amount_spec"]["pence"] == 10000
+        body["shares"][1]["source_account_id"] = chloe_account
+        assert client.post(route, headers=headers, json=body).status_code == 204
+        refreshed = {rule["source_account_id"]: rule for rule in rules()}
+        assert refreshed[josh_account]["day_of_month"] == 28
+        assert refreshed[chloe_account]["day_of_month"] == 11
+        assert sum(rule["amount_spec"]["pence"] for rule in refreshed.values()) == 30001
 
     def test_match_and_status_flow(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",

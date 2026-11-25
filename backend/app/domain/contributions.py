@@ -79,6 +79,50 @@ def matched_totals(session: Session, movement_ids: Collection[int]) -> dict[int,
     return totals
 
 
+def shared_payment_totals(
+    session: Session,
+    incoming: list[ExpectedMovement],
+    outgoing: dict[int, ExpectedMovement],
+) -> dict[int, int]:
+    """Credit a paired receipt once even if both scheduled legs were matched."""
+    received = {movement.id: movement for movement in incoming}
+    amounts: dict[int, dict[int, int]] = {mid: {} for mid in received}
+    if not received:
+        return {}
+    evidence = eligible_matches([*received, *outgoing])
+    rows = session.execute(
+        select(evidence.c.movement_id, evidence.c.matched_pence, Transaction)
+        .select_from(evidence).join(Transaction, Transaction.id == evidence.c.transaction_id)
+        .where(evidence.c.movement_id.in_([*received, *outgoing]))
+    ).all()
+    transfer_ids = {tx.transfer_id for mid, _, tx in rows
+                    if mid in outgoing and tx.transfer_id is not None}
+    credits: dict[tuple[int, int], list[Transaction]] = {}
+    if transfer_ids:
+        for credit in session.scalars(select(Transaction).where(
+                Transaction.transfer_id.in_(transfer_ids),
+                Transaction.status != TransactionStatus.void, Transaction.amount_pence > 0)):
+            assert credit.transfer_id is not None
+            credits.setdefault((credit.transfer_id, credit.account_id), []).append(credit)
+    direct_receipts = {tx.id: mid for mid, _, tx in rows if mid in received}
+    credited = dict(direct_receipts)
+    for mid, pence, tx in rows:
+        target = outgoing.get(mid)
+        if target is not None:
+            candidates = (credits.get((tx.transfer_id, target.account_id), [])
+                          if tx.transfer_id is not None and target.account_id is not None else [])
+            if len(candidates) != 1:
+                continue
+            tx = candidates[0]
+            mid = target.id
+            if credited.setdefault(tx.id, mid) != mid:
+                continue
+        payment = amounts[mid]
+        payment[tx.id] = max(payment.get(tx.id, 0), min(pence, tx.amount_pence))
+    return {mid: min(received[mid].amount_pence, sum(payments.values()))
+            for mid, payments in amounts.items()}
+
+
 def status(session: Session, movement: ExpectedMovement,
            today: date | None = None) -> ContributionStatus:
     return _status(movement, matched_total(session, movement.id), today)

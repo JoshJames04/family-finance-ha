@@ -27,8 +27,8 @@ import { formatDayMonth, formatPence, toISODate } from "../lib/format";
 import { toneFor } from "../lib/visuals";
 
 type Profile = components["schemas"]["ProfileOut"];
-type Movement = components["schemas"]["ExpectedMovementOut"];
-type Contribution = components["schemas"]["ContributionStatusOut"];
+type Payment = components["schemas"]["SharedContributionPayment"];
+type Cycle = components["schemas"]["SharedContributionCycle"];
 type Rule = components["schemas"]["TransferRuleOut"];
 type Txn = components["schemas"]["TransactionOut"];
 type Account = components["schemas"]["AccountOut"];
@@ -49,8 +49,9 @@ function specLabel(spec: Rule["amount_spec"]): string {
   return k;
 }
 
-export function SharedPot({ period }: {
+export function SharedPot({ period, sharedTotal }: {
   period: { start: string; end: string };
+  sharedTotal?: number;
 }) {
   const ready = useReady();
   const identity = useIdentity();
@@ -58,18 +59,9 @@ export function SharedPot({ period }: {
   const [rev, setRev] = useState(0);
   const accounts = useAccounts(rev);
   const rules = useApi(() => api.get("/api/v1/transfer-rules"), ready, [rev]);
-  const movements = useApi(
-    () => api.get("/api/v1/expected-movements", { query: { start: period.start, end: period.end } }),
-    ready, [period.start, period.end, rev]);
-  const contributions = useApi(
-    () => api.get("/api/v1/expected-movements/contributions", { query: { start: period.start, end: period.end } }),
-    ready, [period.start, period.end, rev]);
-  const byMember = useApi(
-    () => api.get("/api/v1/expected-movements/contributions/by-member", { query: { start: period.start, end: period.end } }),
-    ready, [period.start, period.end, rev]);
   const [editing, setEditing] = useState<Rule | "new" | null>(null);
   const [removing, setRemoving] = useState<Rule | null>(null);
-  const [matching, setMatching] = useState<{ movement: Movement; member: string } | null>(null);
+  const [matching, setMatching] = useState<{ movement: Payment; member: string } | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [potId, setPotId] = useState<number | null>(null);
@@ -87,12 +79,6 @@ export function SharedPot({ period }: {
   const inactiveRules = useMemo(
     () => (rules.data?.items ?? []).filter((r) => !r.active),
     [rules.data]);
-  const ruleById = useMemo(() => {
-    const m = new Map<number, Rule>();
-    for (const r of rules.data?.items ?? []) m.set(r.id, r);
-    return m;
-  }, [rules.data]);
-
   /** The member a transfer rule belongs to — its source account owner. */
   const ruleOwner = (r: Rule) => acctById.get(r.source_account_id)?.owner_profile_id ?? null;
   /** Shared (pot) accounts: unowned accounts that rules pay into. */
@@ -106,62 +92,6 @@ export function SharedPot({ period }: {
     return ids;
   }, [ruleItems, acctById]);
 
-  const statusByMovement = useMemo(() => {
-    const m = new Map<number, Contribution>();
-    for (const c of (Array.isArray(contributions.data) ? contributions.data : [])) {
-      m.set(c.movement_id, c);
-    }
-    return m;
-  }, [contributions.data]);
-
-  type MemberStanding = {
-    profile: Profile;
-    expected: number;
-    matched: number;
-    outstanding: number;
-    rules: Rule[];
-    state: string;
-    unpaid: Movement[];
-  };
-  const standings = useMemo<MemberStanding[]>(() => {
-    const mvts = (Array.isArray(movements.data) ? movements.data : [])
-      .filter((m) =>
-        m.source_type === "transfer_rule" && m.dismissed_at == null &&
-        m.amount_pence > 0 &&
-        m.account_id != null && sharedAccountIds.has(m.account_id));
-    const paid = new Map<number, number>();
-    for (const c of (Array.isArray(byMember.data) ? byMember.data : [])) {
-      paid.set(c.profile_id, c.contributed_pence);
-    }
-    const members = (identity.data ?? []).filter((p) => p.is_active);
-    return members.map((p) => {
-      const mine = mvts.filter((m) => {
-        const rule = ruleById.get(m.source_id);
-        return rule ? ruleOwner(rule) === p.id : false;
-      });
-      const expected = mine.reduce((s, m) => s + m.amount_pence, 0);
-      const matched = mine.reduce(
-        (s, m) => s + (statusByMovement.get(m.id)?.matched_pence ?? 0), 0);
-      // Paid-in transfers may exceed scheduled expectations (early/extra).
-      const effective = Math.max(matched, paid.get(p.id) ?? 0);
-      const outstanding = Math.max(0, expected - effective);
-      const memberRules = ruleItems.filter((r) => ruleOwner(r) === p.id);
-      const state = memberRules.length === 0 ? "none"
-        : expected === 0 ? "scheduled"
-        : outstanding === 0 ? "satisfied"
-        : effective > 0 ? "partial" : "outstanding";
-      return {
-        profile: p, expected, matched: effective, outstanding,
-        rules: memberRules,
-        state,
-        unpaid: mine.filter((m) =>
-          (statusByMovement.get(m.id)?.outstanding_pence ?? m.amount_pence) > 0),
-      };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [movements.data, contributions.data, byMember.data, identity.data,
-      ruleById, ruleItems, sharedAccountIds, acctById]);
-
   /* ---- The split (issue #293): pot total + each member's share from
    * the fixed rules into the pot. Adjust patches those rules; rules
    * recur monthly so the split carries forward until changed. ---- */
@@ -171,15 +101,38 @@ export function SharedPot({ period }: {
     [sharedAccountIds, acctById]);
   const pot = (potId != null ? acctById.get(potId) : undefined) ?? pots[0];
 
+  const cycles = useApi(
+    () => api.get("/api/v1/expected-movements/contributions/cycles", {
+      query: { start: period.start, end: period.end, account_id: pot?.id },
+    }), ready, [period.start, period.end, pot?.id, rev]);
+  const cycleByMember = new Map<number, Cycle>(
+    (Array.isArray(cycles.data) ? cycles.data : []).map((cycle) => [cycle.profile_id, cycle]));
+  const today = toISODate(new Date());
+  const standings = (identity.data ?? []).filter((p) => p.is_active).map((profile) => {
+    const cycle = cycleByMember.get(profile.id);
+    const payments = cycle?.payments ?? [];
+    const expected = payments.reduce((sum, p) => sum + p.expected_pence, 0);
+    const matched = payments.reduce((sum, p) => sum + p.matched_pence, 0);
+    const unpaid = payments.filter((p) => p.matched_pence < p.expected_pence);
+    const memberRules = ruleItems.filter((r) =>
+      ruleOwner(r) === profile.id && (pot == null || r.dest_account_id === pot.id));
+    const state = expected === 0 ? (memberRules.length ? "scheduled" : "none")
+      : unpaid.length === 0 ? "satisfied"
+      : unpaid.some((p) => p.due_date < today) ? "overdue"
+      : matched > 0 ? "partial" : "outstanding";
+    return { profile, cycle, expected, matched, unpaid, state,
+      outstanding: expected - matched, rules: memberRules };
+  });
+
   const memberShare = useMemo(() => {
     const members = (identity.data ?? []).filter((p) => p.is_active);
     return members.map((p) => {
       const fixed = ruleItems.filter((r) =>
         ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id
-        && r.amount_spec.kind === "fixed");
+        && r.amount_spec.kind === "fixed" && r.frequency === "monthly");
       const custom = ruleItems.filter((r) =>
         ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id
-        && r.amount_spec.kind !== "fixed");
+        && (r.amount_spec.kind !== "fixed" || r.frequency !== "monthly"));
       const pence = fixed.reduce(
         (s, r) => s + Math.abs(Number((r.amount_spec as { pence?: number }).pence ?? 0)), 0);
       return { profile: p, fixed, custom, pence };
@@ -217,7 +170,7 @@ export function SharedPot({ period }: {
   return (
     <Panel
       title={pot ? `Shared pot — ${pot.name}` : "Shared pot"}
-      description="Who funds the shared accounts, and whether this month's share is in."
+      description="Who funds this shared account and when their next payment is due."
       actions={
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {pots.length > 1 && (
@@ -246,11 +199,11 @@ export function SharedPot({ period }: {
     >
       <DataView
         state={{
-          loading: rules.loading || movements.loading || contributions.loading,
-          retrying: rules.retrying || movements.retrying || contributions.retrying,
-          error: rules.error ?? movements.error ?? contributions.error,
+          loading: rules.loading || cycles.loading,
+          retrying: rules.retrying || cycles.retrying,
+          error: rules.error ?? cycles.error,
           data: "ready",
-          refetch: () => { rules.refetch(); movements.refetch(); contributions.refetch(); },
+          refetch: () => { rules.refetch(); cycles.refetch(); },
         }}
         empty=""
       >
@@ -302,13 +255,13 @@ export function SharedPot({ period }: {
                 </ul>
                 {customRules.length > 0 && (
                   <p className="mt-2 text-[12px] text-fg-subtle">
-                    {customRules.length} non-fixed share{customRules.length === 1 ? "" : "s"} not in this total.
+                    {customRules.length} share rule{customRules.length === 1 ? "" : "s"} outside the fixed monthly split.
                   </p>
                 )}
               </div>
             )}
 
-            {/* Member standing for the viewed month */}
+            {/* Member standing for the relevant pay cycle */}
             <div className="grid gap-3 sm:grid-cols-2">
               {standings.map((m) => (
                 <div key={m.profile.id}
@@ -324,9 +277,17 @@ export function SharedPot({ period }: {
                       {m.profile.id === me && <span className="ml-1 text-[12px] font-normal text-fg-subtle">(you)</span>}
                     </p>
                     <Badge tone={STATE_TONE[m.state] ?? "neutral"}>
-                      {m.state === "none" ? "no share" : m.state}
+                      {m.state === "none" ? "No share" : m.state === "satisfied" ? "Paid"
+                        : m.state === "partial" ? "Part paid" : m.state === "outstanding" ? "Due" : m.state}
                     </Badge>
                   </div>
+                  {m.cycle && (
+                    <p className="mb-2 text-[12px] text-fg-subtle">
+                      {m.cycle.basis === "pay_cycle" ? "Pay cycle" : "Calendar period"}{" "}
+                      {formatDayMonth(m.cycle.start)} – {formatDayMonth(m.cycle.end)}
+                      {m.cycle.basis === "calendar" && " · Configure a pay-cycle source in Budget"}
+                    </p>
+                  )}
                   {m.expected > 0 ? (
                     <>
                       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 text-[12.5px]">
@@ -355,10 +316,22 @@ export function SharedPot({ period }: {
                   ) : (
                     <p className="wrap-anywhere text-[12.5px] text-fg-subtle">
                       {m.rules.length > 0
-                        ? "Nothing due this month."
+                        ? "Nothing due this cycle."
                         : `No share set — use Set a share to add ${m.profile.display_name}'s.`}
                     </p>
                   )}
+                  {m.cycle?.next_payment && (() => {
+                    const next = m.cycle.next_payment;
+                    const remaining = next.expected_pence - next.matched_pence;
+                    return (
+                      <p className="mt-3 border-t border-border pt-2 text-[12.5px] text-fg-muted">
+                        Next payment · {formatDayMonth(next.due_date)} ·{" "}
+                        {remaining === 0 ? "Paid early" : <>
+                          <Money pence={remaining} /> {next.matched_pence > 0 ? "left to pay" : "due"}
+                        </>}
+                      </p>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
@@ -422,6 +395,7 @@ export function SharedPot({ period }: {
         <SplitDialog
           pot={pot}
           shares={memberShare}
+          sharedTotal={sharedTotal}
           accounts={accounts.data?.items ?? []}
           onClose={() => setAdjusting(false)}
           onSaved={() => { setAdjusting(false); refresh(); }}
@@ -476,27 +450,46 @@ type MemberShare = {
  * on save each member's fixed rule into the pot is patched, created,
  * or paused to match. The rules recur monthly — the split carries
  * forward until next edited. */
-function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
+function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
   pot: Account;
   shares: MemberShare[];
+  sharedTotal?: number;
   accounts: Account[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const total0 = shares.reduce((s, m) => s + m.pence, 0);
+  const total0 = shares.reduce((sum, m) => sum + m.pence, 0);
+  const guided = sharedTotal != null && sharedTotal > 0;
+  const target = guided ? sharedTotal : total0;
   const [mode, setMode] = useState<"amount" | "percent">("amount");
-  const [amounts, setAmounts] = useState<Record<number, string>>(() =>
-    Object.fromEntries(shares.map((m) =>
-      [m.profile.id, m.pence ? String(m.pence / 100) : ""])));
   const [pcts, setPcts] = useState<Record<number, string>>(() => {
-    const o: Record<number, string> = {};
-    for (const m of shares) {
-      o[m.profile.id] = total0 > 0
-        ? String(Math.round((m.pence / total0) * 100)) : "";
-    }
-    return o;
+    let remaining = 100;
+    return Object.fromEntries(shares.map((m, index) => {
+      const share = total0 > 0 ? m.pence / total0 : 1 / shares.length;
+      const value = index === shares.length - 1 ? remaining : Math.min(remaining, Math.round(share * 100));
+      remaining -= value;
+      return [m.profile.id, String(value)];
+    }));
   });
-  const [totalPounds, setTotalPounds] = useState(String(total0 / 100));
+  const [amounts, setAmounts] = useState<Record<number, string>>(() => {
+    let remaining = target;
+    return Object.fromEntries(shares.map((m, index) => {
+      const ratio = total0 > 0 ? m.pence / total0 : 1 / shares.length;
+      const pence = !guided ? m.pence : index === shares.length - 1
+        ? remaining : Math.min(remaining, Math.round(target * ratio));
+      remaining -= pence;
+      return [m.profile.id, String(pence / 100)];
+    }));
+  });
+  const [totalPounds, setTotalPounds] = useState(String(target / 100));
+  const [days, setDays] = useState<Record<number, number>>({});
+  const [sources, setSources] = useState<Record<number, number>>({});
+  const sourceOptions = (id: number) =>
+    accounts.filter((a) => !a.archived && a.owner_profile_id === id);
+  const sourceFor = (id: number) => {
+    const options = sourceOptions(id);
+    return sources[id] ?? (options.length === 1 ? options[0]?.id : undefined);
+  };
   const [busy, setBusy] = useState(false);
 
   const toPence = (s: string) => Math.round(Number(s || "0") * 100);
@@ -504,19 +497,31 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
   const pctSum = shares.reduce((s, m) => s + Number(pcts[m.profile.id] || "0"), 0);
   const percentTotal = Math.round(Number(totalPounds || "0") * 100);
 
-  /** Target pence per member in the active mode. */
-  const targets = useMemo(() => {
-    const o: Record<number, number> = {};
-    for (const m of shares) {
-      o[m.profile.id] = mode === "amount"
-        ? toPence(amounts[m.profile.id] ?? "")
-        : Math.round(percentTotal * Number(pcts[m.profile.id] || "0") / 100);
-    }
-    return o;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, amounts, pcts, percentTotal, shares]);
+  const percentOk = pctSum === 100 && Object.values(pcts).every((value) =>
+    Number(value) >= 0 && Number(value) <= 100);
+  let remaining = percentTotal;
+  const targets = Object.fromEntries(shares.map((m, index) => {
+    const pence = mode === "amount" ? toPence(amounts[m.profile.id] ?? "")
+      : percentOk && index === shares.length - 1 ? remaining
+      : Math.min(remaining, Math.round(percentTotal * Number(pcts[m.profile.id] || "0") / 100));
+    remaining -= pence;
+    return [m.profile.id, pence];
+  }));
+  const otherSchedules = guided && shares.some((m) => m.custom.length > 0 || m.fixed.length > 1);
+  const canSave = shares.length > 0 && !otherSchedules
+    && (mode === "amount" ? (!guided || amountTotal === target) : percentOk)
+    && shares.every((m) => (targets[m.profile.id] ?? 0) <= 0 || m.fixed[0]
+      || (guided ? sourceFor(m.profile.id) != null && (days[m.profile.id] ?? 0) >= 1
+        && (days[m.profile.id] ?? 0) <= 31 : sourceOptions(m.profile.id).length > 0));
 
-  const percentOk = mode === "amount" || Math.round(pctSum) === 100;
+  const setAmount = (id: number, value: string) => {
+    setAmounts((current) => {
+      const next = { ...current, [id]: value };
+      const other = shares.length === 2 ? shares.find((m) => m.profile.id !== id) : undefined;
+      if (guided && other && value !== "") next[other.profile.id] = String(Math.max(0, target - toPence(value)) / 100);
+      return next;
+    });
+  };
 
   // Two members: editing one % auto-balances the other to 100.
   const setPct = (id: number, v: string) => {
@@ -534,8 +539,27 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!percentOk) return;
+    if (!canSave) return;
     setBusy(true);
+    if (guided) {
+      api.post("/api/v1/transfer-rules/shared-split", {
+        body: {
+          account_id: pot.id,
+          target_pence: target,
+          shares: shares.map((m) => ({
+            profile_id: m.profile.id,
+            rule_id: m.fixed[0]?.id,
+            source_account_id: sourceFor(m.profile.id),
+            day_of_month: days[m.profile.id],
+            pence: targets[m.profile.id] ?? 0,
+          })),
+        },
+      }).then(() => {
+        toast.success("Split updated — applies every month from now on");
+        onSaved();
+      }).catch((err: Error) => { toast.error(err.message); setBusy(false); });
+      return;
+    }
     const jobs: Promise<unknown>[] = [];
     for (const m of shares) {
       const pence = targets[m.profile.id] ?? 0;
@@ -582,7 +606,7 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-split"
-          disabled={busy || !percentOk}>
+          disabled={busy || !canSave}>
           {busy ? "Saving…" : "Save split"}
         </Button>
       </>}>
@@ -592,11 +616,22 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
             { value: "amount", label: "By amount" },
             { value: "percent", label: "By percentage" },
           ]} />
+        {otherSchedules && (
+          <p role="alert" className="text-[12.5px] text-warning">
+            Use one fixed monthly share per person to allocate the Shared budget total.
+            Review the existing share rules before saving.
+          </p>
+        )}
+        {guided && (
+          <p className="text-[13px] text-fg-muted">
+            Shared budget total <Money pence={target} className="font-medium text-fg" />
+          </p>
+        )}
         {mode === "percent" && (
           <Field label="Total into the pot each month (£)">{(id) => (
             <Input id={id} required type="number" step="0.01" min="0"
               aria-label="Total monthly amount"
-              value={totalPounds} onChange={(e) => setTotalPounds(e.target.value)} />
+              value={totalPounds} readOnly={guided} onChange={(e) => setTotalPounds(e.target.value)} />
           )}</Field>
         )}
         <ul className="grid gap-3">
@@ -609,13 +644,34 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
               <span className="min-w-0 flex-1 basis-32 wrap-anywhere text-[13.5px] font-medium">
                 {m.profile.display_name}
               </span>
+              {guided && !m.fixed.length && (targets[m.profile.id] ?? 0) > 0 && (
+                <>
+                <Select aria-label={`${m.profile.display_name} payment account`}
+                  value={sourceFor(m.profile.id) ?? ""}
+                  onChange={(e) => setSources((current) => ({
+                    ...current, [m.profile.id]: Number(e.target.value),
+                  }))}>
+                  <option value="" disabled>Choose payment account</option>
+                  {sourceOptions(m.profile.id).map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+                </Select>
+                <Input type="number" min="1" max="31" placeholder="Day of month"
+                  aria-label={`${m.profile.display_name} payment day of month`}
+                  value={days[m.profile.id] ?? ""}
+                  onChange={(e) => setDays((current) => ({
+                    ...current, [m.profile.id]: Number(e.target.value),
+                  }))} />
+                </>
+              )}
               {mode === "amount" ? (
                 <>
                   <Input aria-label={`${m.profile.display_name} share amount`}
-                    type="number" step="0.01" min="0" className="min-h-11 w-full sm:w-28"
+                    type="number" step="0.01" min="0" max={guided ? target / 100 : undefined}
+                    className="min-h-11 w-full sm:w-28"
                     placeholder="0.00"
                     value={amounts[m.profile.id] ?? ""}
-                    onChange={(e) => setAmounts((a) => ({ ...a, [m.profile.id]: e.target.value }))} />
+                    onChange={(e) => setAmount(m.profile.id, e.target.value)} />
                   <span className="tnum w-14 text-right text-[12.5px] text-fg-subtle">
                     {amountTotal > 0
                       ? `${Math.round((toPence(amounts[m.profile.id] ?? "") / amountTotal) * 100)}%`
@@ -639,7 +695,10 @@ function SplitDialog({ pot, shares, accounts, onClose, onSaved }: {
         </ul>
         {mode === "amount" ? (
           <p className="text-[13px] text-fg-subtle">
-            Total: <Money pence={amountTotal} className="font-medium text-fg" /> per month
+            Allocated <Money pence={amountTotal} className="font-medium text-fg" /> per month
+            {guided && amountTotal !== target && (
+              <span role="alert"> · Shares must add up to the Shared budget total.</span>
+            )}
           </p>
         ) : !percentOk ? (
           <p role="alert" className="text-[12.5px] text-warning">
@@ -782,7 +841,7 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
 /** Record a real payment against an expected contribution — picks an
  * unmatched transfer transaction into the shared account. */
 function MatchDialog({ movement, member, onClose, onDone }: {
-  movement: Movement;
+  movement: Payment;
   member: string;
   onClose: () => void;
   onDone: () => void;
@@ -805,7 +864,7 @@ function MatchDialog({ movement, member, onClose, onDone }: {
     if (!txnId) return;
     setBusy(true);
     api.post("/api/v1/expected-movements/{mid}/matches", {
-      path: { mid: movement.id },
+      path: { mid: movement.movement_id },
       body: { transaction_id: Number(txnId) },
     }).then(() => { toast.success("Payment recorded"); onDone(); })
       .catch((err: Error) => toast.error(err.message))
@@ -815,7 +874,7 @@ function MatchDialog({ movement, member, onClose, onDone }: {
   return (
     <Dialog open className="wrap-anywhere [&_button]:min-h-11 [&_input]:min-h-11 [&_select]:min-h-11" onOpenChange={(o) => { if (!o) onClose(); }}
       title={`Record ${member}'s payment`}
-      description={<>Match a transfer into the shared account to <Money pence={movement.amount_pence} /> expected on {formatDayMonth(movement.expected_date)}.</>}
+      description={<>Match a transfer into the shared account to <Money pence={movement.expected_pence} /> expected on {formatDayMonth(movement.due_date)}.</>}
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-match" className="min-h-11" disabled={busy || !txnId}>
