@@ -11,13 +11,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.persistence.models import (
     Account,
     AccountType,
     BalanceVerification,
+    ExpectedMovement,
     MergeCandidate,
     RecurringCommitment,
     Transaction,
@@ -121,6 +123,14 @@ def current_balance(session: Session, account_id: int) -> int:
         .where(Transaction.account_id == account_id,
                Transaction.status != TransactionStatus.void)
     ).scalar_one())
+
+
+def current_movement_account() -> ColumnElement[bool]:
+    """Accountless household plans and movements assigned to an open account."""
+    return or_(ExpectedMovement.account_id.is_(None), ExpectedMovement.account_id.in_(
+        select(Account.id).where(Account.archived.is_(False),
+                                 Account.household_id == ExpectedMovement.household_id)
+        .correlate(ExpectedMovement)))
 
 
 def active_accounts(session: Session, household_id: int) -> list[Account]:

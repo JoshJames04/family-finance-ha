@@ -3,6 +3,7 @@
  * revision editing, visible lock state, and an expected-movements
  * side panel for the selected period — the money picture at a glance,
  * not a spreadsheet wall. */
+import { outstandingMovements } from "../lib/outstandingMovements";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -167,7 +168,7 @@ export function Budget() {
     : null;
   const movementRequest = useApi(
     () => api.get("/api/v1/expected-movements",
-      { query: { start: period!.from, end: period!.to, budget_id: aggregate ? undefined : id! } }).then((items) => ({ budgetId: id, aggregate, from: period!.from, to: period!.to, items })),
+      { query: { start: period!.from, end: period!.to, budget_id: aggregate ? undefined : id! } }).then((items) => ({ budgetId: id, aggregate, from: period!.from, to: period!.to, items: outstandingMovements(items) })),
     period !== null, [period?.from, period?.to, id, aggregate]);
   const movements = {
     ...movementRequest,

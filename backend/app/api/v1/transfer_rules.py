@@ -66,7 +66,11 @@ def list_rules(
     stmt = select(TransferRule).where(
         TransferRule.household_id == household.id)
     if not include_inactive:
-        stmt = stmt.where(TransferRule.active.is_(True))
+        current_accounts = select(Account.id).where(
+            Account.household_id == household.id, Account.archived.is_(False))
+        stmt = stmt.where(TransferRule.active.is_(True),
+                          TransferRule.source_account_id.in_(current_accounts),
+                          TransferRule.dest_account_id.in_(current_accounts))
     rows = list(session.execute(stmt).scalars().all())
     return schemas.Page(
         items=[schemas.TransferRuleOut.model_validate(r) for r in rows],

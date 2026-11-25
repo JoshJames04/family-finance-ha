@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import budgets, energy, goals, loans, outbox, seasonal
+from app.domain.accounts import current_movement_account
 from app.persistence.models import (
     Account,
     AppMeta,
@@ -225,6 +226,7 @@ def evaluate_paydays(session: Session, household_id: int, *, today: date | None 
     occurrences: dict[tuple[int, date], ExpectedMovement] = {}
     for movement in session.scalars(
         select(ExpectedMovement).where(
+            current_movement_account(),
             ExpectedMovement.household_id == household_id,
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= today + timedelta(days=3),

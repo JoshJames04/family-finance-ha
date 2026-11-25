@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.accounts import current_movement_account
 from app.domain.expected_matches import (
     SALARY_SOURCES,
     acyclic_transaction_ids,
@@ -168,6 +169,7 @@ def auto_match(session: Session, household_id: int, *,
     today = today or date.today()
     movements = list(session.execute(
         select(ExpectedMovement).where(
+            current_movement_account(),
             ExpectedMovement.household_id == household_id,
             ExpectedMovement.source_type ==
             ExpectedSource.transfer_rule,
@@ -216,6 +218,7 @@ def contributions(session: Session, household_id: int, *,
     """Status for every transfer-rule movement in the window."""
     movements = session.execute(
         select(ExpectedMovement).where(
+            current_movement_account(),
             ExpectedMovement.household_id == household_id,
             ExpectedMovement.source_type ==
             ExpectedSource.transfer_rule,
@@ -258,6 +261,7 @@ def outstanding(session: Session, household_id: int, *,
     today = today or date.today()
     rows = session.execute(
         select(ExpectedMovement).where(
+            current_movement_account(),
             ExpectedMovement.household_id == household_id,
             ExpectedMovement.expected_date < today,
             ExpectedMovement.dismissed_at.is_(None))
@@ -285,6 +289,7 @@ def requirement_totals(session: Session, household_id: int, *,
     outstanding = scheduled − satisfied, per row."""
     rows = session.execute(
         select(ExpectedMovement).where(
+            current_movement_account(),
             ExpectedMovement.household_id == household_id,
             ExpectedMovement.source_type ==
             ExpectedSource.transfer_rule,

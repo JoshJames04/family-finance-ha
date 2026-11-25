@@ -184,7 +184,9 @@ actuals retain the full budget period for historical analysis. Part-paid bills
 remain in Bills remaining until their outstanding amount is zero. On **Bills**,
 open **Overdue** to see past occurrences on non-archived accounts still awaiting
 recorded settlement. The list shows any residual amount after linked payments.
-Occurrences on archived accounts are retained in history.
+Occurrences on archived accounts stay in history. Current scheduled cash flow, unpaid bill
+totals, funding requirements and reminders exclude those accounts. Accountless household
+plans remain visible.
 
 Employer payday settings include an optional payroll cutoff day (1–31); leave it
 blank to retain calendar-month earning periods. Category pickers sort by name and

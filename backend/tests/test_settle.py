@@ -185,11 +185,30 @@ def test_bill_summary_omits_archived_account_occurrence_without_recreating_it(
     page = list_commitments(household, session, None, include_overdue=True)
     payments = {item.id: item.overdue_payments for item in page.items}
     assert payments[bill.id] == []
-    assert payments[archived_bill.id] == []
+    assert archived_bill.id not in payments
     assert [(p.account_id, p.outstanding_pence) for p in payments[valid_bill.id] or []] == [
         (account.id, 1599),
     ]
     assert session.get(ExpectedMovement, imported.id) is not None
+
+
+def test_archived_account_drops_out_of_current_obligations(session, household, account):
+    from app.domain import budgets, schedule
+    from app.persistence.models import Budget
+
+    due = TODAY - timedelta(days=1)
+    bill = _commitment(session, household, account, next_date=due)
+    movement = _movement(session, household, account, on=due, source_id=bill.id)
+    budget = Budget(household_id=household.id, start_date=due, end_date=TODAY)
+    for archived in (False, True, False):
+        account.archived = archived
+        session.flush()
+        assert [m.id for m in schedule.stream(
+            session, household.id, start=due, end=TODAY)] == ([] if archived else [movement.id])
+        outstanding = contributions.outstanding(session, household.id, today=TODAY)
+        assert len(outstanding) == int(not archived)
+        assert budgets.bills_remaining(session, budget) == ((0, 0) if archived else (1599, 1))
+        assert session.get(ExpectedMovement, movement.id) is movement
 
 
 class TestAutoSettlement:

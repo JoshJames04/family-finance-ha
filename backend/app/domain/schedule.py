@@ -18,6 +18,7 @@ from sqlalchemy import delete, select, true, update
 from sqlalchemy.orm import Session
 
 from app.domain import goals, outbox, pay_calendar, paydays, payroll_totals, payrun, transfer_rules
+from app.domain.accounts import current_movement_account
 from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
     AmountKind,
@@ -741,6 +742,7 @@ def stream(
     session: Session, household_id: int, *, start: date, end: date, account_id: int | None = None
 ) -> list[ExpectedMovement]:
     stmt = select(ExpectedMovement).where(
+        current_movement_account(),
         ExpectedMovement.household_id == household_id,
         ExpectedMovement.expected_date >= start,
         ExpectedMovement.expected_date <= end,

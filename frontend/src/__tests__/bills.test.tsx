@@ -116,7 +116,7 @@ describe("Bills", () => {
     await waitFor(() => expect(document.activeElement).toBe(card));
   });
 
-  it("groups old overdue payments by their original archived account", async () => {
+  it("excludes archived overdue payments from the Shared list and count", async () => {
     const data = relativeCommitments({ "Moved bill": 5 });
     const base = stubFetch([], data).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
@@ -147,8 +147,8 @@ describe("Bills", () => {
     await user.click(await screen.findByRole("radio", { name: "Shared" }));
     await user.click(screen.getByRole("button", { name: /overdue/i }));
     const dialog = screen.getByRole("dialog", { name: "Overdue bills" });
-    expect(within(dialog).getByRole("listitem").textContent).toContain("Joint");
-    expect(within(dialog).getByText("£3.00")).toBeTruthy();
+    expect(within(dialog).queryAllByRole("listitem")).toHaveLength(0);
+    expect(within(dialog).getByText("No overdue bills in this view.")).toBeTruthy();
   });
 
   it("#412: earliest upcoming wins; due today says 'Due today'", async () => {
