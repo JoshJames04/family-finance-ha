@@ -86,8 +86,10 @@ def emit_lifecycle(session: Session, c: RecurringCommitment, event_type: str) ->
                          "status": "active" if c.active else "paused"})
 
 
-def _rescheduled_matches(session: Session, c: RecurringCommitment) -> dict[date, ExpectedMovement]:
-    """Recover the original date of a matched occurrence from its recorded reschedules."""
+def _rescheduled_occurrences(
+    session: Session, c: RecurringCommitment,
+) -> dict[date, ExpectedMovement]:
+    """Recover original dates for matched or written-off occurrences from their reschedules."""
     rows = session.execute(select(
         ExpectedMovement, func.json_extract(AuditEvent.payload, "$.from"),
         func.json_extract(AuditEvent.payload, "$.to"),
@@ -96,7 +98,8 @@ def _rescheduled_matches(session: Session, c: RecurringCommitment) -> dict[date,
         ExpectedMovement.account_id == c.account_id,
         ExpectedMovement.source_type == ExpectedSource.commitment,
         ExpectedMovement.source_id == c.id,
-        ExpectedMovement.id.in_(select(ExpectedMatch.movement_id)),
+        or_(ExpectedMovement.dismissed_at.is_not(None),
+            ExpectedMovement.id.in_(select(ExpectedMatch.movement_id))),
         AuditEvent.household_id == c.household_id, AuditEvent.entity_type == "expected_movement",
         AuditEvent.action == "reschedule", AuditEvent.created_at >= ExpectedMovement.created_at,
     ).order_by(AuditEvent.id.desc()))
@@ -135,7 +138,7 @@ def materialise(
         or_(ExpectedMovement.dismissed_at.is_not(None),
             ExpectedMovement.id.in_(select(ExpectedMatch.movement_id))),
     ))
-    moved = _rescheduled_matches(session, c)
+    moved = _rescheduled_occurrences(session, c)
     moved_ids = {m.id for m in moved.values()}
     by_date = {m.expected_date: m for m in preserved if m.id not in moved_ids}
     by_date.update(moved)
