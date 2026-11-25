@@ -15,6 +15,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.domain.expected_matches import eligible_matches
 from app.persistence.models import (
     Account,
     AccountType,
@@ -118,7 +119,6 @@ def merge_accounts(
     today = date.today()
     other_movements = select(ExpectedMovement.id).where(
         ExpectedMovement.household_id == source.household_id,
-        ExpectedMovement.expected_date >= today,
         ExpectedMovement.dismissed_at.is_(None),
         or_(ExpectedMovement.account_id == source.id,
             ExpectedMovement.transfer_source_account_id == source.id,
@@ -126,9 +126,14 @@ def merge_accounts(
         or_(ExpectedMovement.source_type != ExpectedSource.commitment,
             ExpectedMovement.source_id.not_in(moved_bills)),
     )
+    matches = eligible_matches(other_movements)
+    paid = select(func.coalesce(func.sum(matches.c.matched_pence), 0)).where(
+        matches.c.movement_id == ExpectedMovement.id,
+    ).scalar_subquery()
+    outstanding = other_movements.where(paid < func.abs(ExpectedMovement.amount_pence))
     # Active definitions also matter when their next occurrence has not materialized yet.
     schedules = (
-        other_movements,
+        outstanding,
         select(Subscription.id).where(Subscription.account_id == source.id,
                                       Subscription.status == SubscriptionStatus.active),
         select(SavingsGoal.id).where(SavingsGoal.account_id == source.id,
