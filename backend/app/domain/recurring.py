@@ -14,12 +14,13 @@ import calendar
 from collections.abc import Iterator
 from datetime import date, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain import contributions, outbox
 from app.persistence.models import (
     Account,
+    AuditEvent,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
@@ -85,6 +86,28 @@ def emit_lifecycle(session: Session, c: RecurringCommitment, event_type: str) ->
                          "status": "active" if c.active else "paused"})
 
 
+def _rescheduled_matches(session: Session, c: RecurringCommitment) -> dict[date, ExpectedMovement]:
+    """Recover the original date of a matched occurrence from its recorded reschedules."""
+    rows = session.execute(select(
+        ExpectedMovement, func.json_extract(AuditEvent.payload, "$.from"),
+        func.json_extract(AuditEvent.payload, "$.to"),
+    ).join(AuditEvent, AuditEvent.entity_id == ExpectedMovement.id).where(
+        ExpectedMovement.household_id == c.household_id,
+        ExpectedMovement.account_id == c.account_id,
+        ExpectedMovement.source_type == ExpectedSource.commitment,
+        ExpectedMovement.source_id == c.id,
+        ExpectedMovement.id.in_(select(ExpectedMatch.movement_id)),
+        AuditEvent.household_id == c.household_id, AuditEvent.entity_type == "expected_movement",
+        AuditEvent.action == "reschedule", AuditEvent.created_at >= ExpectedMovement.created_at,
+    ).order_by(AuditEvent.id.desc()))
+    origins: dict[ExpectedMovement, date] = {}
+    for movement, previous, target in rows:
+        current = origins.get(movement, movement.expected_date)
+        if current.isoformat() == target and previous:
+            origins[movement] = date.fromisoformat(previous)
+    return {original: movement for movement, original in origins.items()}
+
+
 def materialise(
     session: Session,
     c: RecurringCommitment,
@@ -112,12 +135,20 @@ def materialise(
         or_(ExpectedMovement.dismissed_at.is_not(None),
             ExpectedMovement.id.in_(select(ExpectedMatch.movement_id))),
     ))
-    by_date = {m.expected_date: m for m in preserved}
+    moved = _rescheduled_matches(session, c)
+    moved_ids = {m.id for m in moved.values()}
+    by_date = {m.expected_date: m for m in preserved if m.id not in moved_ids}
+    by_date.update(moved)
     paid = contributions.matched_totals(session, [m.id for m in by_date.values()])
     created: list[Transaction] = []
     latest: date | None = None
     anchor_dom = c.day_of_month if c.day_of_month is not None else c.next_date.day
-    for d in occurrences(c, horizon):
+    nominal_dates = set(occurrences(c, horizon))
+    deferred_dates = {original for original, movement in moved.items()
+                      if c.last_generated is not None and original <= c.last_generated
+                      and movement.expected_date <= horizon and movement.dismissed_at is None
+                      and paid[movement.id] < abs(movement.amount_pence)}
+    for d in sorted(nominal_dates | deferred_dates):
         ref = f"rec:{c.id}:{d.isoformat()}"
         exists = session.execute(
             select(Transaction.id).where(
@@ -133,9 +164,10 @@ def materialise(
         elif movement is not None:
             remainder = max(0, abs(movement.amount_pence) - paid[movement.id])
             amount = remainder if movement.amount_pence > 0 else -remainder
-        if exists is None and (movement is None or amount != 0):
+        due = movement.expected_date if movement is not None else d
+        if exists is None and due <= horizon and (movement is None or amount != 0):
             t = Transaction(
-                account_id=c.account_id, date=d,
+                account_id=c.account_id, date=due,
                 amount_pence=amount,
                 payee=c.name, category_id=c.category_id,
                 status=TransactionStatus.pending,
@@ -146,9 +178,10 @@ def materialise(
                 session.flush()
                 contributions.confirm(session, movement, t)
             created.append(t)
-        c.last_generated = d
-        c.generated_count += 1
-        latest = d
+        if d in nominal_dates:
+            c.last_generated = d
+            c.generated_count += 1
+            latest = d
     if latest is not None:
         c.next_date = advance(latest, c.frequency, anchor_dom)
         session.flush()

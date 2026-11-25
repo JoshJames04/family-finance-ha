@@ -338,6 +338,8 @@ balances and net worth continue to include opening stock.
 evidence already exists for that date and account, it creates a pending ledger
 transaction only for the outstanding amount and links that transaction to the
 occurrence. Prepaid and written-off dates advance without another ledger entry.
+A rescheduled partial payment retains its original occurrence identity and posts
+the remaining amount on its revised due date once the posting horizon reaches it.
 
 Expected movements retain their original scheduled amounts and expose
 `outstanding_pence` from contribution matching plus `dismissed_at`. Budget salary

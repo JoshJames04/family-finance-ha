@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.audit import emit
 from app.domain import contributions, schedule, settle
 from app.domain.recurring import advance, materialise, occurrences
 from app.persistence.models import (
@@ -113,6 +114,31 @@ class TestMaterialise:
         assert [contributions.status(session, m).outstanding_pence for m in movements] == [0, 0]
         assert bill.generated_count == 2
         assert materialise(session, bill, date(2026, 2, 28)) == []
+
+    def test_rescheduled_partial_posts_only_on_its_new_due_date(
+        self, session: Session, account: Account,
+    ) -> None:
+        bill = _rc(account, occurrence_count=1)
+        session.add(bill)
+        session.flush()
+        schedule.rematerialize_commitment(session, bill, today=bill.next_date)
+        movement = session.scalars(select(ExpectedMovement)).one()
+        tx = Transaction(account_id=account.id, amount_pence=-6000, payee="Partial payment",
+                         date=bill.next_date, status="cleared")
+        session.add(tx)
+        session.flush()
+        settle.settle_occurrence(session, movement, tx, manual=True)
+        for due in [date(2026, 2, 2), date(2026, 2, 4)]:
+            old = movement.expected_date
+            contributions.reschedule(session, movement, due)
+            emit(session, account.household_id, "test", "reschedule", "expected_movement",
+                 movement.id, {"from": str(old), "to": str(due)})
+        assert materialise(session, bill, date(2026, 1, 31)) == []
+        posted = materialise(session, bill, date(2026, 2, 4))
+        assert [(t.date, t.amount_pence) for t in posted] == [(date(2026, 2, 4), -9000)]
+        assert contributions.status(session, movement).outstanding_pence == 0
+        assert bill.generated_count == 1
+        assert materialise(session, bill, date(2026, 2, 4)) == []
 
     @pytest.mark.parametrize("partially_paid", [False, True])
     def test_written_off_occurrence_advances_without_posting(
