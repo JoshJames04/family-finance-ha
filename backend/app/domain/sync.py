@@ -26,7 +26,7 @@ from math import isfinite
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain import banking_events, outbox
+from app.domain import banking_events, financial_events, outbox
 from app.domain.sync_lock import claim
 from app.persistence.models import (
     Account,
@@ -139,7 +139,12 @@ def _ingest_item(session: Session, account: Account,
             # PENDING -> SETTLED arrives as the same ref again)
             if (item.status is not None and dup.status != item.status
                     and dup.status not in (TransactionStatus.reconciled, TransactionStatus.void)):
-                dup.status = item.status
+                if item.status == TransactionStatus.void:
+                    with financial_events.observe_loan_evidence(
+                            session, account.household_id, dup.id):
+                        dup.status = item.status
+                else:
+                    dup.status = item.status
                 if item.status == TransactionStatus.cleared:
                     banking_events.transaction_changed(session, dup, "transaction.settled")
             if item.provider_category is not None \

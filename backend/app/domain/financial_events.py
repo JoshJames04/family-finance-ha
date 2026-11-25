@@ -289,24 +289,27 @@ def record_backup_status(
 
 
 @contextmanager
-def observe_loan_evidence(session: Session, household_id: int, *transaction_ids: int
-                          ) -> Iterator[None]:
+def observe_loan_evidence(session: Session, household_id: int, *transaction_ids: int,
+                          loan: Loan | None = None) -> Iterator[None]:
     """Record any balance transition while a transaction ceases to qualify."""
-    current, adjacent = aliased(Transaction), aliased(Transaction)
-    family = select(Transaction.id.label("id")).where(
-        Transaction.id.in_(transaction_ids)).cte(recursive=True)
-    family = family.union(select(adjacent.id).select_from(family).join(
-        current, current.id == family.c.id).join(adjacent, or_(
-            adjacent.corrects_id == current.id, current.corrects_id == adjacent.id)))
-    affected = session.scalars(select(Loan).where(
-        Loan.household_id == household_id, Loan.id.in_(select(Repayment.loan_id).where(
-            Repayment.transaction_id.in_(select(family.c.id)))))).all()
-    for loan in affected:
-        evaluate_loan(session, loan)
+    affected = [loan] if loan is not None else []
+    if transaction_ids:
+        current, adjacent = aliased(Transaction), aliased(Transaction)
+        family = select(Transaction.id.label("id")).where(
+            Transaction.id.in_(transaction_ids)).cte(recursive=True)
+        family = family.union(select(adjacent.id).select_from(family).join(
+            current, current.id == family.c.id).join(adjacent, or_(
+                adjacent.corrects_id == current.id, current.corrects_id == adjacent.id)))
+        affected.extend(session.scalars(select(Loan).where(
+            Loan.household_id == household_id, Loan.id.in_(select(Repayment.loan_id).where(
+                Repayment.transaction_id.in_(select(family.c.id)))))).all())
+    participants = list(dict.fromkeys(affected))
+    for row in participants:
+        evaluate_loan(session, row)
     yield
     session.flush()
-    for loan in affected:
-        evaluate_loan(session, loan)
+    for row in participants:
+        evaluate_loan(session, row)
 
 
 def evaluate_loan(session: Session, loan: Loan, *, today: date | None = None) -> None:

@@ -253,3 +253,37 @@ def test_voided_settlement_reopens_interest_without_daily_replay(session, househ
     periods.transition(session, tx, TransactionStatus.void)
     assert [(e.payload["old_outstanding_pence"], e.payload["outstanding_pence"])
             for e in events(session)] == [(0, 366_100)]
+
+
+def test_deleting_alias_claim_and_provider_void_observe_each_affected_loan(session, household):
+    from app.api.v1.loans import delete_repayment
+    from app.domain import sync
+    from app.persistence.models import Account, Transaction, TransactionSource, TransactionStatus
+
+    first, second = make_loan(session, household), make_loan(session, household)
+    account = Account(household_id=household.id, name="Synthetic", type="joint", opening_date=TODAY)
+    session.add(account)
+    session.flush()
+    original = Transaction(account_id=account.id, date=TODAY, amount_pence=-3000,
+                           payee="Original", status=TransactionStatus.void)
+    session.add(original)
+    session.flush()
+    live = Transaction(account_id=account.id, date=TODAY, amount_pence=-3000,
+                       payee="Reissued", corrects_id=original.id, source=TransactionSource.starling,
+                       external_ref="synthetic-repayment", status=TransactionStatus.cleared)
+    session.add(live)
+    session.flush()
+    winner = repay(session, first, 3000)
+    winner.transaction_id = original.id
+    repay(session, second, 3000).transaction_id = live.id
+    financial_events.evaluate_loan(session, first)
+    financial_events.evaluate_loan(session, second)
+    delete_repayment(first.id, winner.id, household, session, "test", None)
+    changes = {(e.entity_id, e.payload["outstanding_pence"]) for e in events(session)}
+    assert changes == {(first.id, 10000), (second.id, 7000)}
+
+    reverse = sync.FeedItem("synthetic-repayment", TODAY, -3000, "Reissued", TransactionStatus.void)
+    sync.sync_account(session, account, TransactionSource.starling,
+                      lambda cursor: iter([sync.FeedPage([reverse])]))
+    assert events(session)[-1].entity_id == second.id
+    assert events(session)[-1].payload["outstanding_pence"] == 10000
