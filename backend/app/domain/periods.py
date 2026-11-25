@@ -108,6 +108,11 @@ def transition(
         raise PeriodLockedError(
             f"{txn.date} falls inside locked period {p.label!r}"
         )
+    if to == TransactionStatus.void:
+        from app.domain.financial_events import observe_loan_evidence
+        with observe_loan_evidence(session, account.household_id, txn.id):
+            txn.status = to
+        return
     txn.status = to
     if to == TransactionStatus.cleared:
         from app.domain import banking_events

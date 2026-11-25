@@ -187,3 +187,69 @@ def test_reactivation_seeds_without_replaying_inactive_changes(session, househol
     evaluate(session, loan)
     assert events(session)[0].payload["old_outstanding_pence"] == 6000
     assert events(session)[0].payload["outstanding_pence"] == 5000
+
+def test_voided_correction_emits_loan_change_in_transaction(session, household):
+    from app.domain import loans, periods, transactions
+    from app.persistence.models import Account, Transaction, TransactionStatus
+
+    loan = make_loan(session, household)
+    account = Account(household_id=household.id, name="Loan account", type="joint",
+                      opening_date=TODAY)
+    session.add(account)
+    session.flush()
+    original = Transaction(account_id=account.id, date=TODAY, amount_pence=-3000,
+                           payee="Loan payment", status=TransactionStatus.reconciled)
+    session.add(original)
+    session.flush()
+    loans.link_repayment(session, repay(session, loan, 3000), original)
+    financial_events.evaluate_loan(session, loan)
+    replacement = transactions.correct(session, original, "label")
+    assert events(session) == []
+    periods.transition(session, replacement, TransactionStatus.void)
+    assert [(e.event_type, e.payload["outstanding_pence"]) for e in events(session)] == [
+        ("loan.balance_changed", 10000)]
+    session.rollback()
+    assert events(session) == []
+
+def test_reclassifying_a_repayment_as_transfer_emits_loan_change(session, household):
+    from app.domain import loans, transfers
+    from app.persistence.models import Account, Transaction
+
+    loan = make_loan(session, household)
+    checking, saving = (Account(household_id=household.id, name=name, type="joint",
+                                opening_date=TODAY) for name in ("First", "Second"))
+    session.add_all([checking, saving])
+    session.flush()
+    debit = Transaction(account_id=checking.id, date=TODAY, amount_pence=-3000, payee="Payment")
+    credit = Transaction(account_id=saving.id, date=TODAY, amount_pence=3000, payee="Receipt")
+    session.add_all([debit, credit])
+    session.flush()
+    loans.link_repayment(session, repay(session, loan, 3000), debit)
+    transfers.create_transfer(session, household.id, debit, credit)
+    assert [event.payload["outstanding_pence"] for event in events(session)] == [10000]
+
+
+def test_voided_settlement_reopens_interest_without_daily_replay(session, household):
+    from app.domain import loans, periods
+    from app.persistence.models import Account, Transaction, TransactionStatus
+
+    today = date.today()
+    paid = today - timedelta(days=1)
+    loan = make_loan(session, household)
+    loan.start_date = today - timedelta(days=11)
+    loan.principal_pence = 365_000
+    loan.interest_bps_pa = 1000
+    account = Account(household_id=household.id, name="Test", type="joint", opening_date=paid)
+    session.add(account)
+    session.flush()
+    tx = Transaction(account_id=account.id, date=paid, amount_pence=-366_000,
+                     payee="Settlement", status=TransactionStatus.cleared)
+    session.add(tx)
+    session.flush()
+    loans.link_repayment(session, repay(session, loan, 366_000, paid), tx)
+    evaluate(session, loan, paid)
+    evaluate(session, loan, today)
+    assert events(session) == []
+    periods.transition(session, tx, TransactionStatus.void)
+    assert [(e.payload["old_outstanding_pence"], e.payload["outstanding_pence"])
+            for e in events(session)] == [(0, 366_100)]

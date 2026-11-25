@@ -83,9 +83,11 @@ system.
 Bank-linked loan repayments count against a balance only while their payment
 is live or has a single financially equivalent live correction. Voided and
 ambiguous evidence remains in repayment history without reducing the balance.
-One live payment supports one repayment across the household. Simple interest
-stops on the first effective repayment date that covers the principal and
-interest due that day. Reversing that evidence recalculates the settlement.
+One live payment supports one repayment across the household. Voiding or
+reclassifying a linked payment as an internal transfer updates its loan
+balance event in the same transaction. Simple interest stops on the first
+effective repayment date that covers the principal and interest due that
+day. Reversing that evidence recalculates the settlement.
 
 ## 4. SQLite suitability assessment (ADR-0001 condition)
 
