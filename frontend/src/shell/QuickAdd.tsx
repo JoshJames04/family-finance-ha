@@ -22,10 +22,12 @@ export function QuickAdd({
   open,
   onOpenChange,
   onSaved,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const accounts = useApi(() => api.get("/api/v1/accounts"), open);
   const categories = useApi(
@@ -110,6 +112,7 @@ export function QuickAdd({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       title="Add transaction"
       description="Record a payment or income manually."
       footer={

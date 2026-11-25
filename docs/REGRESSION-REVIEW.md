@@ -116,6 +116,11 @@ backend, alongside the endpoint contract tests.
 
 ## Financial navigation and Home Assistant
 
+On mobile, opening Search, Add transaction or More with Enter and dismissing it
+with Escape returns keyboard focus to the button that opened it. Opening the
+command menu inside Quick Add and selecting Add transaction returns to the active
+field. Escape then returns to the original Add button.
+
 The command menu searches authorised transactions by literal payee, notes,
 category (including split categories), and a signed or unsigned GBP amount.
 It carries the search into the transaction page. Forecast links carry the
