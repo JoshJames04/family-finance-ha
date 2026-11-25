@@ -21,15 +21,14 @@ BACKEND_DIR = Path(os.environ.get(
 
 def alembic_config(db_url: str) -> Config:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    cfg.attributes["db_url"] = db_url
     cfg.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
-    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations").replace("%", "%%"))
     return cfg
 
 
 def upgrade_head(db_url: str) -> None:
-    cfg = alembic_config(db_url)
-    cfg.attributes["db_url"] = db_url
-    command.upgrade(cfg, "head")
+    command.upgrade(alembic_config(db_url), "head")
 
 
 def current_revision(engine: Engine) -> str | None:
