@@ -12,7 +12,7 @@ import { Button } from "../components/Button";
 import { Panel } from "../components/Panel";
 import { SharedPot } from "../components/SharedPot";
 import { IconTile, PageHeader, Stat } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { Users2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { formatMonthOf, toISODate } from "../lib/format";
@@ -100,8 +100,8 @@ export function Shared() {
               <Stat
                 className="rounded-xl border border-border bg-surface p-4 shadow-card"
                 label={`Shared total · ${formatMonthOf(shared.start_date)}`}
-                value={<Money pence={total} />}
-                hint={`${expense.length} planned expenses`}
+                value={detail.data ? <Money pence={total} /> : "—"}
+                hint={detail.data ? `${expense.length} planned expenses` : undefined}
               />
               <Stat
                 className="rounded-xl border border-border bg-surface p-4 shadow-card"
@@ -110,6 +110,8 @@ export function Shared() {
                 hint={`${shared.start_date} → ${shared.end_date}`}
               />
             </div>
+
+            {detail.error && <ErrorState message={detail.error} onRetry={detail.refetch} />}
 
             {rows.length > 0 && (
               <Panel className="mb-4 p-4">
