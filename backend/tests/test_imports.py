@@ -215,16 +215,21 @@ class TestApi:
         assert client.post(f"/api/v1/imports/{retry['import_row']['id']}/commit",
                            headers=h).json()["rows_imported"] == 2
 
-    @pytest.mark.parametrize("choice, inserted", [(1, 1), (None, 2)])
+    @pytest.mark.parametrize("choice, inserted, status", [
+        (1, 1, TransactionStatus.reconciled),
+        (1, 1, TransactionStatus.cleared),
+        (None, 2, TransactionStatus.reconciled),
+    ])
     def test_reconcile_legacy_payment_and_reimport(self, client: TestClient,
-                                                 choice: int | None, inserted: int) -> None:
+                                                 choice: int | None, inserted: int,
+                                                 status: TransactionStatus) -> None:
         h, aid = self._setup(client)
         old = self._upload(client, h, aid)["import_row"]["id"]
         assert client.post(f"/api/v1/imports/{old}/commit", headers=h).status_code == 200
         with Session(client.app.state.engine) as session:
             purchase = session.scalars(select(Transaction).where(
                 Transaction.statement_import_id == old, Transaction.amount_pence == -2540)).one()
-            purchase.status = TransactionStatus.reconciled
+            purchase.status = status
             purchase_id, fingerprint = purchase.id, purchase.external_ref
             session.commit()
         records = "".join(f"<STMTTRN><DTPOSTED>20250401<TRNAMT>-25.40<NAME>TESCO STORES"
@@ -247,7 +252,10 @@ class TestApi:
         with Session(client.app.state.engine) as session:
             historic = session.get(Transaction, purchase_id)
             assert historic is not None and historic.external_ref == fingerprint
-            assert historic.status is TransactionStatus.reconciled
+            assert historic.status is status
+        if status is TransactionStatus.cleared and choice is not None:
+            assert client.post(f"/api/v1/imports/{old}/rollback", headers=h).status_code == 409
+            assert all(r["duplicate"] for r in preview()["rows"])
         assert client.post(f"{url}/rollback", headers=h).status_code == 200
         assert all(r["legacy_transaction_id"] == purchase_id for r in preview()["rows"])
 

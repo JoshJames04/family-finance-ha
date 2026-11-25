@@ -11,7 +11,7 @@ depends_on = None
 def upgrade() -> None:
     op.create_table("statement_bank_identity",
         sa.Column("transaction_id", sa.Integer(),
-                  sa.ForeignKey("transaction.id", ondelete="CASCADE"), primary_key=True),
+                  sa.ForeignKey("transaction.id"), primary_key=True),
         sa.Column("account_id", sa.Integer(), sa.ForeignKey("account.id"), nullable=False),
         sa.Column("bank_ref", sa.String(68), nullable=False),
         sa.Column("import_id", sa.Integer(), sa.ForeignKey("statement_import.id"), nullable=False),

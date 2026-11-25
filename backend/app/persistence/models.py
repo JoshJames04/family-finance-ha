@@ -460,7 +460,7 @@ class StatementBankIdentity(Base):
     """A reviewed OFX identity for a previously unidentified imported transaction."""
     __tablename__ = "statement_bank_identity"
     transaction_id: Mapped[int] = mapped_column(
-        ForeignKey("transaction.id", ondelete="CASCADE"), primary_key=True)
+        ForeignKey("transaction.id"), primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("account.id"), nullable=False)
     bank_ref: Mapped[str] = mapped_column(String(68), nullable=False)
     import_id: Mapped[int] = mapped_column(ForeignKey("statement_import.id"), nullable=False)
