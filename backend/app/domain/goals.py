@@ -92,16 +92,21 @@ def sinking_schedule(session: Session, goal: SavingsGoal, *,
     if goal.target_date is None:
         return []
     today = today or date.today()
+    if goal.target_date < today:
+        return []
     need = remaining_pence(session, goal, today)
+    if not need:
+        return []
     months = _months_between(today, goal.target_date)
     per = -(-need // months)
     out: list[tuple[date, int]] = []
-    y, m = today.year, today.month
-    for _ in range(months):
-        m += 1
-        if m > 12:
-            m, y = 1, y + 1
-        out.append((date(y, m, 1), per))
+    for offset in range(1, months + 1):
+        due = goal.target_date if offset == months else _add_months(today, offset)
+        amount = min(per, need)
+        out.append((due, amount))
+        need -= amount
+        if need == 0:
+            break
     return out
 
 

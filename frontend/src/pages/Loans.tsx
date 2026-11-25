@@ -152,10 +152,10 @@ function LoanCard({ loan: l, rev, owner, onEdit, onRepay }: { loan: Loan; rev: n
         <Stat label="Repaid" value={position.loading ? "…" : <Money pence={p?.repaid_pence ?? 0} />}
           hint={`of ${formatPence(l.principal_pence)}`} />
         <Stat label="Payoff"
-          value={projection.data?.baseline.payoff_date
+          value={projection.data?.baseline.months === 0 ? "Paid off" : projection.data?.baseline.payoff_date
             ? formatDayMonthYear(projection.data.baseline.payoff_date)
             : "—"}
-          hint={projection.data?.baseline.months != null ? `in ${projection.data.baseline.months} mo` : undefined} />
+          hint={projection.data?.baseline.months ? `in ${projection.data.baseline.months} mo` : undefined} />
       </div>
 
       <div className="mt-3">

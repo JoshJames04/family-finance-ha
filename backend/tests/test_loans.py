@@ -405,6 +405,12 @@ class TestProjection:
         # £500k − £200k repaid = £300k at £10k/mo → 30 months
         assert p.months == 30
 
+    @pytest.mark.parametrize("expected", [None, 1000])
+    def test_already_paid_off(self, session, loan, expected):
+        loan.expected_payment_pence = expected
+        _repay(session, loan, loan.principal_pence, TODAY)
+        assert loans.projected_payoff(session, loan, on=TODAY) == loans.Projection(0, TODAY)
+
     def test_no_rate_never_pays_off(
             self, session: Session, household: Household) -> None:
         ln = Loan(household_id=household.id, party="Free",

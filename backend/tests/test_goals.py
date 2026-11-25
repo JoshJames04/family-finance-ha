@@ -356,6 +356,16 @@ class TestSinkingMaths:
 
 
 class TestMaterialise:
+    @pytest.mark.parametrize("deadline, due", [
+        (date(2025, 4, 9), None), (TODAY, TODAY), (date(2025, 4, 25), date(2025, 4, 25)),
+    ])
+    def test_deadline_month(self, session, household, pot, deadline, due):
+        goal = _goal(session, household, pot, target=125, target_date=deadline)
+        schedule.rematerialize_goal(session, goal, today=TODAY)
+        rows = session.execute(select(ExpectedMovement.expected_date,
+                                      ExpectedMovement.amount_pence)).all()
+        assert rows == ([(due, 125)] if due else [])
+
     def test_sinking_schedule_emits_estimated(
             self, session: Session, household: Household,
             pot: Account) -> None:

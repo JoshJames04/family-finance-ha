@@ -284,6 +284,10 @@ Report internal outflow totals sum negative internal effective legs, including
 confirmed unpaired movements. Internal movement counts include each paired
 transfer ID once and each unpaired internal transaction once; their drill covers
 both directions, while the internal outflow drill selects negative legs.
+A zero loan balance has zero projected months remaining. Savings goals place
+their last required contribution on the target date and generate no new
+contributions after that date. The Goals page marks unfunded deadlines due
+today or overdue.
 Opening transactions (`system`, `open:<account-id>`) remain balance stock and are
 excluded from period flow. The returned itemised bridge uses effective split
 amounts and preserves uncategorised status without writing classifications.
