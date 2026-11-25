@@ -16,6 +16,7 @@ from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.domain import financial_events, rbac, splits
 from app.domain import transactions as txn_domain
+from app.domain.confirmed_transfers import classified_amounts
 from app.domain.money import Money
 from app.domain.periods import assert_editable
 from app.domain.periods import transition as apply_transition
@@ -133,15 +134,12 @@ def list_transactions(
         stmt = stmt.where(or_(*matches))
     if (direction is not None or internal is not None or category_id is not None or uncategorised
             or budget_side is not None):
-        effective = splits.effective_category_amounts()
+        scoped_ids = stmt.with_only_columns(Transaction.id).correlate(None)
+        effective = splits.effective_category_amounts(Transaction.id.in_(scoped_ids))
+        if internal is not None:
+            effective = classified_amounts(effective, internal_category_ids(),
+                                           internal_only=internal == "only")
         eligible = select(effective.c.transaction_id)
-        if internal == "only":
-            eligible = eligible.where(or_(effective.c.transfer_id.is_not(None),
-                effective.c.category_id.in_(internal_category_ids())))
-        elif internal == "exclude":
-            eligible = eligible.where(effective.c.transfer_id.is_(None), or_(
-                effective.c.category_id.is_(None),
-                effective.c.category_id.not_in(internal_category_ids())))
         if category_id is not None:
             eligible = eligible.where(effective.c.category_id == category_id)
         if uncategorised:
