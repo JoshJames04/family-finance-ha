@@ -86,6 +86,41 @@ class TestDelivery:
         assert d.status == "sent" and d.sent_at is not None
         assert n.calls[0][0] is None     # no service → broadcast
 
+    def test_overlapping_manual_and_scheduler_delivery(self, session, household):
+        rule = _rule(session, household)
+        _deliverable(session, rule)
+        hid = household.id
+        session.commit()
+        second = FakeNotifier()
+
+        class Overlap(FakeNotifier):
+            def notify(self, service, title, message):
+                with Session(session.get_bind()) as other:
+                    result = deliver.deliver_pending(other, hid, second)
+                    assert result == deliver.DeliverResult(sent=0, failed=0)
+                super().notify(service, title, message)
+
+        first = Overlap()
+        assert deliver.deliver_pending(session, hid, first).sent == 1
+        assert len(first.calls) == 1 and second.calls == []
+        assert session.scalar(select(NotificationDelivery.status)) == "sent"
+
+    def test_interrupted_worker_releases_household_claim(self, session, household):
+        rule = _rule(session, household)
+        _deliverable(session, rule)
+        hid = household.id
+        session.commit()
+
+        class Interrupted(FakeNotifier):
+            def notify(self, service, title, message):
+                raise KeyboardInterrupt
+
+        with pytest.raises(KeyboardInterrupt):
+            deliver.deliver_pending(session, hid, Interrupted())
+        with Session(session.get_bind()) as other:
+            assert deliver.deliver_pending(other, hid, FakeNotifier()).sent == 1
+            assert other.scalar(select(NotificationDelivery.status)) == "sent"
+
     def test_per_member_service_routing(self, session, household):
         rule = _rule(session, household,
                      service="mobile_app_pixel")

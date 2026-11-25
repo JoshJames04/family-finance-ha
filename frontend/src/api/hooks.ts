@@ -1,4 +1,5 @@
 /** Shared read-model hooks used across pages and dashboard widgets. */
+import { outstandingMovements } from "../lib/outstandingMovements";
 import { useMemo } from "react";
 import { api } from "./client";
 import { useApi, useIdentity } from "./useApi";
@@ -72,7 +73,7 @@ export function useUpcoming(days = 90, rev = 0) {
     return { start: toISODate(start), end: toISODate(end) };
   }, [days]);
   return useApi(
-    () => api.get("/api/v1/expected-movements", { query: range }),
+    () => api.get("/api/v1/expected-movements", { query: range }).then(outstandingMovements),
     useReady(), [range.start, range.end, rev]);
 }
 

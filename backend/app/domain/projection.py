@@ -21,7 +21,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.accounts import active_accounts, current_balance
+from app.domain.accounts import active_accounts, current_balance, current_movement_account
 from app.domain.contributions import matched_totals
 from app.persistence.models import (
     Account,
@@ -60,7 +60,7 @@ def _movement_rows(session: Session, account_id: int, start: date,
     rows — the level scenario ops need to address individual items."""
     stmt = (
         select(ExpectedMovement)
-        .where(ExpectedMovement.account_id == account_id,
+        .where(current_movement_account(), ExpectedMovement.account_id == account_id,
                ExpectedMovement.expected_date > start,
                ExpectedMovement.expected_date <= end,
                ExpectedMovement.dismissed_at.is_(None)))

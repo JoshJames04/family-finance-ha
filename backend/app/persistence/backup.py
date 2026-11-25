@@ -11,12 +11,19 @@ from __future__ import annotations
 import re
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from sqlalchemy.engine import Engine
+from alembic.script import ScriptDirectory
+from sqlalchemy.engine import URL, Engine
 
+from app.persistence import models  # noqa: F401 - register application tables
+from app.persistence.base import Base
 from app.persistence.engine import vacuum_into
+from app.persistence.migrate import alembic_config, upgrade_head
 
 SNAPSHOT_RE = re.compile(r"ff-\d{8}T\d{6}(-\d+)?\.db")
 RESTORE_MARKER = "restore.pending"
@@ -52,7 +59,7 @@ def create_snapshot(engine: Engine, backup_dir: Path,
         taken_at = taken_at.replace(tzinfo=UTC)
     # Embedded in the snapshot itself: downloads, copies and restores
     # preserve provenance independently of filename and filesystem mtime.
-    with sqlite3.connect(target) as conn:
+    with closing(sqlite3.connect(target)) as conn, conn:
         conn.execute("CREATE TABLE IF NOT EXISTS ff_backup_manifest (taken_at TEXT NOT NULL)")
         conn.execute("DELETE FROM ff_backup_manifest")
         conn.execute("INSERT INTO ff_backup_manifest VALUES (?)",
@@ -63,7 +70,7 @@ def create_snapshot(engine: Engine, backup_dir: Path,
 def snapshot_taken_at(path: Path) -> datetime | None:
     """Read embedded UTC provenance, falling back to legacy filenames."""
     try:
-        with sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True) as conn:
+        with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
             row = conn.execute("SELECT taken_at FROM ff_backup_manifest LIMIT 1").fetchone()
         if row is not None:
             stamp = datetime.fromisoformat(row[0])
@@ -105,31 +112,55 @@ def rotate(backup_dir: Path, keep: int) -> int:
     return len(doomed)
 
 
+@cache
+def _supported_revisions() -> frozenset[str]:
+    scripts = ScriptDirectory.from_config(alembic_config("sqlite://"))
+    return frozenset(revision.revision for revision in scripts.walk_revisions())
+
+
 def verify_snapshot(path: Path) -> bool:
-    """True when the snapshot opens and passes integrity_check."""
+    """Check file integrity, Family Finance identity and supported migration history."""
     if not path.is_file() or not SNAPSHOT_RE.fullmatch(path.name):
         return False
-    conn: sqlite3.Connection | None = None
     try:
-        conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro",
-                               uri=True)
-        rows = conn.execute("PRAGMA integrity_check").fetchall()
+        with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                return False
+            conn.execute("SELECT key, value FROM app_meta LIMIT 0")
+            revisions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
+            return bool(revisions) and revisions <= _supported_revisions()
     except sqlite3.Error:
         return False
-    finally:
-        if conn is not None:
-            conn.close()
-    return len(rows) == 1 and rows[0][0] == "ok"
 
 
-def restore_from(snapshot: Path, db_path: Path) -> None:
-    """Replace ``db_path`` with ``snapshot`` (engine must be disposed).
-
-    Stale WAL/SHM sidecars are removed first so no pre-restore journal
-    can replay over the restored file."""
-    for suffix in ("-wal", "-shm", "-journal"):
-        Path(f"{db_path}{suffix}").unlink(missing_ok=True)
-    shutil.copyfile(snapshot, db_path)
+def restore_from(snapshot: Path, db_path: Path, *, migrate: bool = False) -> None:
+    """Prepare an isolated copy, then replace the destination in one SQLite transaction."""
+    with TemporaryDirectory(dir=db_path.parent) as directory:
+        staged = Path(directory) / snapshot.name
+        shutil.copyfile(snapshot, staged)
+        if migrate:
+            if not verify_snapshot(staged):
+                raise ValueError("Incompatible or damaged Family Finance snapshot")
+            upgrade_head(URL.create("sqlite", database=staged.as_posix()).render_as_string())
+        with closing(sqlite3.connect(staged)) as source:
+            if source.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise ValueError("Damaged Family Finance snapshot")
+            if migrate:
+                # A stamped revision alone does not prove the app can use these tables.
+                columns = {
+                    (table, column) for table, column in source.execute(
+                        "SELECT m.name, p.name FROM sqlite_master m, pragma_table_info(m.name) p "
+                        "WHERE m.type='table'"
+                    )
+                }
+                if any((table.name, column.name) not in columns
+                       for table in Base.metadata.tables.values() for column in table.columns):
+                    raise ValueError("Restored database is missing required application columns")
+                if source.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                    raise ValueError("Restored database contains invalid references")
+            # SQLite owns the destination journal and rolls back on write failure.
+            with closing(sqlite3.connect(db_path)) as destination:
+                source.backup(destination)
 
 
 def request_restore(marker: Path, snapshot_name: str) -> None:

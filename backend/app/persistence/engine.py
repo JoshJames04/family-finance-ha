@@ -11,7 +11,8 @@ import sqlite3
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.util import asbool
 
 PRAGMAS = (
     "PRAGMA journal_mode=WAL",
@@ -22,19 +23,22 @@ PRAGMAS = (
 
 
 def create_app_engine(url: str) -> Engine:
-    if url.startswith("sqlite"):
-        db_path = url.removeprefix("sqlite:///")
-        if db_path not in (":memory:", ""):
+    parsed = make_url(url)
+    sqlite = parsed.get_backend_name() == "sqlite"
+    if sqlite:
+        db_path = parsed.database
+        uri = asbool(parsed.query.get("uri", False))
+        if db_path and db_path != ":memory:" and not uri:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     engine = create_engine(
         url,
         connect_args={"check_same_thread": False, "timeout": 5}
-        if url.startswith("sqlite") else {},
+        if sqlite else {},
         pool_pre_ping=True,
     )
 
-    if url.startswith("sqlite"):
+    if sqlite:
         @event.listens_for(engine, "connect")
         def _set_pragmas(dbapi_conn: sqlite3.Connection,
                          _record: object) -> None:
@@ -58,5 +62,5 @@ def vacuum_into(engine: Engine, target: str | Path) -> Path:
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     with engine.connect() as conn:
-        conn.execute(text(f"VACUUM INTO '{target.as_posix()}'"))
+        conn.execute(text("VACUUM INTO :target"), {"target": target.as_posix()})
     return target

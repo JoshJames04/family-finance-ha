@@ -117,6 +117,12 @@ SQLite is sufficient **provided**:
 HA entity history is **never** the financial store — integration publishes
 read-model sensors only.
 
+Monthly net-worth history begins with the first visible posting or loan. Active
+loans extend the series to the server date, including months without postings.
+Closed loans contribute their repayment dates. A partial month uses the same
+date for ledger stock and loan balances. Historical windows retain opening
+stock from before the oldest displayed month.
+
 ## 5. Background jobs
 
 - Starling sync (scheduled + manual), notification rules, recurring-schedule
@@ -297,7 +303,9 @@ Monthly series derive fresh values from authorised raw ledger and loan records
 without writing on GET or depending on a manual cache rebuild; the explicit
 rebuild endpoint remains available for materialised-table compatibility.
 Report internal outflow totals sum negative internal effective legs, including
-confirmed unpaired movements. Internal movement counts include each paired
+manual transfer-rule confirmations on uncategorised or externally categorised
+transactions. The matching portion counts once and any external remainder
+continues to appear in the spending or income drill. Internal movement counts include each paired
 transfer ID once and each unpaired internal transaction once; their drill covers
 both directions, while the internal outflow drill selects negative legs.
 A zero loan balance has zero projected months remaining. Savings goals place

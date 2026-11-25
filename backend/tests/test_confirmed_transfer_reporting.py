@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.api.v1.transfer_rules import delete_rule
-from app.domain.reporting import external_category_amounts
+from app.domain.reporting import external_category_amounts, internal_category_amounts
 from app.persistence.models import (
     Account,
     Category,
@@ -84,6 +84,8 @@ def test_internal_legs_consume_match_before_duplicate_external_categories(
                          [(external, 50), (internal, 100), (external, 25), (external, -25)])
     assert sum(amounts(session, tx)) == 25
     assert -25 in amounts(session, tx)
+    internal_legs = internal_category_amounts(Transaction.id == tx.id)
+    assert sum(session.scalars(select(internal_legs.c.amount_pence))) == 125
 
 
 @pytest.mark.parametrize("invalid", ["automatic", "refund", "wrong_account", "wrong_sign",
@@ -218,3 +220,24 @@ def test_deleted_rule_snapshot_still_validates_counterpart(session, household, e
         evidence[0 if invalid == "foreign_source" else 1].household_id = foreign.id
     session.flush()
     assert amounts(session, tx) == [150]
+
+@pytest.mark.parametrize("debit", [-125, -150])
+def test_report_and_drills_include_manually_confirmed_portion(session, household, evidence, debit):
+    from app.api.v1.transactions import list_transactions
+    from app.domain.reports import build_report
+
+    tx, _, _ = confirmed(session, household, evidence, debit)
+    tx.category_id = None
+    session.flush()
+    report = build_report(session, household.id, DAY, DAY)
+    figures = {f["key"]: f for section in report["sections"] for f in section["figures"]}
+    assert figures["transfer_total"]["amount_pence"] == 125
+    assert figures["transfer_count"]["count"] == 1
+    for key in ("transfer_total", "transfer_count"):
+        params = {**figures[key]["drill"]["params"], "date_from": DAY, "date_to": DAY}
+        rows = list_transactions(household=household, session=session, profile=None, **params)
+        assert [item.id for item in rows.items] == [tx.id]
+    external = list_transactions(household=household, session=session, profile=None,
+                                 internal="exclude", budget_side="expense")
+    assert [item.id for item in external.items] == ([tx.id] if debit < -125 else [])
+    assert figures.get("uncategorised", {}).get("amount_pence", 0) == -debit - 125

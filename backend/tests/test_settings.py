@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from sqlalchemy.engine import make_url
+
 from app.core.settings import Settings
 
 
@@ -14,7 +16,8 @@ def test_env_vars_load() -> None:
 
 def test_database_url_defaults_into_data_dir(tmp_path: Path) -> None:
     s = Settings.load({"FF_DATA_DIR": str(tmp_path)})
-    assert s.resolved_database_url == f"sqlite:///{(tmp_path / 'family_finance.db').as_posix()}"
+    assert make_url(s.resolved_database_url).database == (tmp_path / "family_finance.db").as_posix()
+    assert s.database_path == tmp_path / "family_finance.db"
 
 
 def test_explicit_database_url_wins(tmp_path: Path) -> None:

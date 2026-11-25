@@ -1,12 +1,14 @@
 """Persistence layer: pragmas, concurrency, migrations, backup."""
 
+import os
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import URL, text
 
 from app.persistence.engine import (
     create_app_engine,
@@ -24,6 +26,55 @@ from app.persistence.migrate import (
 @pytest.fixture()
 def db_url(tmp_path: Path) -> str:
     return f"sqlite:///{(tmp_path / 't.db').as_posix()}"
+
+
+def test_creates_decoded_database_directory(tmp_path: Path) -> None:
+    target = tmp_path / "new %20 directory" / "nested" / "family.db"
+    engine = create_app_engine(str(URL.create("sqlite", database=target.as_posix())))
+    try:
+        assert integrity_check(engine)
+        assert target.is_file()
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows forbids colons in directory names")
+def test_file_prefix_without_uri_creates_literal_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    engine = create_app_engine("sqlite:///file:new/family.db")
+    try:
+        assert integrity_check(engine)
+        assert (tmp_path / "file:new" / "family.db").is_file()
+    finally:
+        engine.dispose()
+
+
+def test_sqlite_uri_memory_target_does_not_create_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    engine = create_app_engine("sqlite:///file:memory/test?mode=memory&uri=true")
+    try:
+        assert integrity_check(engine)
+        assert not list(tmp_path.iterdir())
+    finally:
+        engine.dispose()
+
+
+def test_backup_path_with_apostrophe(tmp_path: Path, db_url: str) -> None:
+    engine = create_app_engine(db_url)
+    target = tmp_path / "O'Brien" / "snapshot.db"
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE example (value INTEGER)"))
+            conn.execute(text("INSERT INTO example VALUES (7)"))
+        vacuum_into(engine, target)
+        with closing(sqlite3.connect(target)) as db:
+            assert db.execute("SELECT value FROM example").fetchone() == (7,)
+    finally:
+        engine.dispose()
 
 
 def test_pragmas_applied(db_url: str) -> None:

@@ -20,6 +20,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL, make_url
 
 Environment = Literal["dev", "ci", "prod"]
 
@@ -82,15 +83,15 @@ class Settings(BaseSettings):
         url = self.resolved_database_url
         if not url.startswith("sqlite:///"):
             return None
-        path = Path(url.removeprefix("sqlite:///"))
-        return None if path.name == ":memory:" else path
+        database = make_url(url).database
+        return Path(database) if database and database != ":memory:" else None
 
     @property
     def resolved_database_url(self) -> str:
         if self.database_url:
             return self.database_url
         db = self.data_dir / "family_finance.db"
-        return f"sqlite:///{db.as_posix()}"
+        return URL.create("sqlite", database=db.as_posix()).render_as_string()
 
     @classmethod
     def load(cls, environ: dict[str, str] | None = None) -> Settings:

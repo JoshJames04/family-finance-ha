@@ -55,11 +55,10 @@ export function Subscriptions() {
     tab === "cancelled" ? s.status === "cancelled" : s.status !== "cancelled");
   const pending = (Array.isArray(candidates.data) ? candidates.data : [])
     .filter((c) => c.status === "pending");
-  const monthlyTotal = list
-    .filter((s) => s.status !== "cancelled")
+  const active = (subs.data ?? []).filter((s) => s.status !== "cancelled");
+  const monthlyTotal = active
     .reduce((sum, s) => sum + monthlyPence(s), 0);
-  const next = [...list]
-    .filter((s) => s.status !== "cancelled")
+  const next = [...active]
     .sort((a, b) => a.next_renewal_date.localeCompare(b.next_renewal_date))[0];
 
   const runDetection = () =>
@@ -97,12 +96,12 @@ export function Subscriptions() {
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Monthly equivalent"
-          value={<Money pence={monthlyTotal} />} hint="across active services" />
+          value={subs.data ? <Money pence={monthlyTotal} /> : "—"} hint="across active services" />
         <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Annualised"
           value={annualised.data ? <Money pence={annualised.data.total_annualised_pence} /> : "—"}
           hint="true yearly cost" />
         <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Active"
-          value={String((subs.data ?? []).filter((s) => s.status !== "cancelled").length)}
+          value={subs.data ? String(active.length) : "—"}
           hint={pending.length ? `${pending.length} candidate${pending.length === 1 ? "" : "s"} to review` : undefined} />
         <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Next renewal"
           value={next ? formatDayMonth(next.next_renewal_date) : "—"}

@@ -18,7 +18,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input } from "../components/Field";
 import { PageHeader, Stat } from "../components/Display";
-import { EmptyState, Skeleton } from "../components/Feedback";
+import { EmptyState, ErrorState, Skeleton } from "../components/Feedback";
 import {
   formatDayMonth, formatKwh, formatPence, formatSmartDate, formatUnitRate,
   toISODate,
@@ -39,6 +39,7 @@ export function Energy() {
   const configured = config.data?.meter_entity != null
     || (tariffs.data?.length ?? 0) > 0
     || (readings.data?.length ?? 0) > 0;
+  const setupKnown = config.data != null && tariffs.data != null && readings.data != null;
   const report = useApi(
     () => api.get("/api/v1/energy/report"),
     ready && configured, [rev, configured]);
@@ -71,14 +72,16 @@ export function Energy() {
         }
       />
 
-      {config.data && !configured && (
+      {[config, readings, tariffs, report, estimate].map((state, index) =>
+        state.error && <ErrorState key={index} message={state.error} onRetry={state.refetch} />)}
+      {setupKnown && !configured && (
         <div className="mb-4 rounded-xl border border-info/25 bg-info-soft px-4 py-3 text-[13.5px] text-fg">
           <b className="font-semibold">Set up energy tracking:</b> link your meter entity in Home Assistant or add readings and a tariff manually — the report fills itself in from there.
         </div>
       )}
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {report.loading ? (
+        {configured && report.loading ? (
           [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)
         ) : r ? (
           <>
@@ -100,9 +103,9 @@ export function Energy() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         <Panel title="Daily use — last 30 days" description="kWh per day from meter readings">
-          {estimate.loading ? (
+          {(configured && estimate.loading) || (!setupKnown && !configured && !config.error && !tariffs.error && !readings.error) ? (
             <Skeleton className="h-64 w-full" />
-          ) : days.length === 0 ? (
+          ) : (estimate.error || (!setupKnown && !configured)) && days.length === 0 ? null : days.length === 0 ? (
             <EmptyState compact icon={Gauge} title="No readings yet"
               description="Add meter readings to chart daily consumption." />
           ) : (
@@ -133,8 +136,8 @@ export function Energy() {
         </Panel>
 
         <Panel flush title="Tariffs" description="Unit rate history"
-          actions={<Badge tone="neutral">{tariffs.data?.length ?? 0}</Badge>}>
-          {(tariffs.data ?? []).length === 0 ? (
+          actions={<Badge tone="neutral">{tariffs.data?.length ?? "—"}</Badge>}>
+          {tariffs.data == null ? (tariffs.loading ? <Skeleton className="h-12" /> : null) : tariffs.data.length === 0 ? (
             <EmptyState compact icon={Zap} title="No tariffs"
               description="Add your unit rate and standing charge." />
           ) : (
@@ -177,17 +180,18 @@ function AddReadingDialog({ open, onOpenChange, onSaved }: {
       body: { date, wh: Math.round(Number(reading) * 1000), source: "manual" },
     })
       .then(() => { toast.success("Reading saved"); setReading(""); onSaved(); onOpenChange(false); })
-      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Add meter reading"
-      description="Cumulative meter total in kWh — daily use is derived between readings."
+    <Dialog open={open} onOpenChange={onOpenChange} title="Add daily electricity use"
+      description="Enter the electricity used on the selected day in kWh. For a cumulative meter, subtract the previous day's reading first."
       footer={<>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant="primary" type="submit" form="ff-reading" disabled={!valid || busy}>{busy ? "Saving…" : "Save reading"}</Button>
       </>}>
       <form id="ff-reading" onSubmit={submit} className="grid gap-4">
-        <Field label="Meter reading (kWh)">{(id) => <Input id={id} autoFocus inputMode="decimal" placeholder="e.g. 18234.5" value={reading} onChange={(e) => setReading(e.target.value.trim())} />}</Field>
+        <Field label="Electricity used that day (kWh)">{(id) => <Input id={id} autoFocus inputMode="decimal" placeholder="e.g. 8.25" value={reading} onChange={(e) => setReading(e.target.value.trim())} />}</Field>
         <Field label="Date">{(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
       </form>
     </Dialog>
@@ -216,7 +220,8 @@ function AddTariffDialog({ open, onOpenChange, onSaved }: {
       },
     })
       .then(() => { toast.success("Tariff saved"); setRate(""); setStanding(""); onSaved(); onOpenChange(false); })
-      .catch((err: Error) => { toast.error(err.message); setBusy(false); });
+      .catch((err: Error) => toast.error(err.message))
+      .finally(() => setBusy(false));
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Add tariff"

@@ -114,7 +114,9 @@ def list_commitments(
     stmt = select(RecurringCommitment).where(
         RecurringCommitment.household_id == household.id)
     if not include_inactive:
-        stmt = stmt.where(RecurringCommitment.active.is_(True))
+        stmt = stmt.where(RecurringCommitment.active.is_(True),
+                          RecurringCommitment.account_id.in_(select(Account.id).where(
+                              Account.household_id == household.id, Account.archived.is_(False))))
     rows = list(session.execute(stmt).scalars().all())
     items = [schemas.CommitmentOut.model_validate(c) for c in rows]
     if include_overdue:

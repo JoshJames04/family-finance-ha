@@ -111,7 +111,7 @@ export function Accounts() {
         <Stat
           className="rounded-xl border border-border bg-surface p-4 shadow-card"
           label="Accounts"
-          value={String((accounts.data?.items ?? []).filter((a) => !a.archived).length)}
+          value={accounts.data ? String(accounts.data.items.filter((a) => !a.archived).length) : "—"}
           hint={archivedCount ? `${archivedCount} archived` : undefined}
         />
         <Stat

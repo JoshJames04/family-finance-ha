@@ -99,7 +99,7 @@ export function SharedPot({ period }: {
   const sharedAccountIds = useMemo(() => {
     const ids = new Set<number>();
     for (const r of ruleItems) {
-      if ((acctById.get(r.dest_account_id)?.owner_profile_id ?? null) === null) {
+      if (acctById.get(r.dest_account_id)?.owner_profile_id === null) {
         ids.add(r.dest_account_id);
       }
     }
@@ -126,7 +126,7 @@ export function SharedPot({ period }: {
   const standings = useMemo<MemberStanding[]>(() => {
     const mvts = (Array.isArray(movements.data) ? movements.data : [])
       .filter((m) =>
-        m.source_type === "transfer_rule" &&
+        m.source_type === "transfer_rule" && m.dismissed_at == null &&
         m.amount_pence > 0 &&
         m.account_id != null && sharedAccountIds.has(m.account_id));
     const paid = new Map<number, number>();
