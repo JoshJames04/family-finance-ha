@@ -113,6 +113,12 @@ SQLite is sufficient **provided**:
 HA entity history is **never** the financial store — integration publishes
 read-model sensors only.
 
+Monthly net-worth history begins with the first visible posting or loan. Active
+loans extend the series to the server date, including months without postings.
+Closed loans contribute their repayment dates. A partial month uses the same
+date for ledger stock and loan balances. Historical windows retain opening
+stock from before the oldest displayed month.
+
 ## 5. Background jobs
 
 - Starling sync (scheduled + manual), notification rules, recurring-schedule

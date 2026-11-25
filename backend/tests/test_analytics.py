@@ -162,6 +162,46 @@ class TestRebuild:
 
 
 class TestSeriesAndApi:
+    def test_loan_only_then_repayment_after_last_posting(self, session, household):
+        loan = _loan(session, household, LoanDirection.we_owe, 50000, date(2025, 2, 1))
+        rows = analytics.series(session, household.id, 12)
+        assert rows[-1].net_worth_pence == -50000
+        assert analytics.series(session, household.id, 12, account_ids=[], loan_ids=[]) == []
+        account = _acct(session, household)
+        _txn(session, account, 3000, date(2025, 1, 5))
+        session.add(Repayment(loan_id=loan.id, date=date(2025, 4, 5), amount_pence=10000))
+        session.flush()
+        assert analytics.rebuild(session, household.id, through=date(2025, 4, 30)) == 4
+        rows = analytics.series(session, household.id, 120)
+        by_month = {r.month: r for r in rows}
+        for month, end in [(1, 31), (2, 28), (3, 31), (4, 30)]:
+            row = by_month[date(2025, month, 1)]
+            assert row.net_worth_pence == analytics.net_worth_at(
+                session, household.id, date(2025, month, end))
+        assert by_month[date(2025, 4, 1)].net_worth_pence == -37000
+
+    def test_closed_loan_tail_and_partial_month_cutoff(self, session, household):
+        loan = _loan(session, household, LoanDirection.we_owe, 50000)
+        loan.active = False
+        account = _acct(session, household, opening=2000)
+        for day, amount in [(5, 1000), (20, 4000)]:
+            session.add(Repayment(loan_id=loan.id, date=date(2025, 4, day), amount_pence=amount))
+        _txn(session, account, 3000, date(2025, 4, 20))
+        session.flush()
+        rows = analytics.series(session, household.id, 1)
+        assert [(r.month, r.net_worth_pence) for r in rows] == [(date(2025, 4, 1), -40000)]
+        analytics.rebuild(session, household.id, through=date(2025, 4, 10))
+        april = session.scalar(select(MonthlyAggregate).where(
+            MonthlyAggregate.household_id == household.id, MonthlyAggregate.month == rows[0].month))
+        assert april.net_worth_pence == -47000
+        assert april.income_pence == 0
+        loan.interest_bps_pa = 1000
+        session.flush()
+        # A past final month is valued at its end, even when the last payment
+        # and bank posting happened earlier in that month.
+        assert analytics.series(session, household.id, 1)[0].net_worth_pence == (
+            analytics.net_worth_at(session, household.id, date(2025, 4, 30)))
+
     def test_series_chronological_and_capped(
             self, session: Session, household: Household) -> None:
         a = _acct(session, household, opening=1_000)
