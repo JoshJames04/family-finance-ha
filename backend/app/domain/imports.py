@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.persistence.models import (
     ReportingPeriod,
+    StatementBankIdentity,
     StatementImport,
     Transaction,
     TransactionSource,
@@ -51,6 +52,8 @@ class ParsedRow:
     payee: str
     notes: str | None = None
     bank_ref: str | None = None
+    bank_id_hint: str | None = None
+    legacy_transaction_id: int | None = field(default=None, init=False)
     fingerprint: str = field(default="", init=False)
     duplicate: bool = field(default=False, init=False)
 
@@ -187,6 +190,7 @@ def parse_ofx(content: bytes) -> list[ParsedRow]:
         out.append(ParsedRow(
             date=d, amount_pence=amount, payee=payee[:200],
             notes=(tags.get("MEMO", "")[:2000] or None),
+            bank_id_hint=tags.get("FITID", "")[-16:] or None,
             bank_ref=("ofx:" + hashlib.sha256(tags["FITID"].encode()).hexdigest()
                       if tags.get("FITID") else None)))
     if not out:
@@ -237,21 +241,28 @@ def mark_duplicates(session: Session, account_id: int,
         or_(Transaction.external_ref.in_(keys),
             and_(Transaction.external_ref.like("ofx:%"),
                  Transaction.date.in_({r.date for r in rows})))))
+    legacy: dict[str, int] = {}
     found: set[str] = set()
     content_keys: set[str] = set()
     for tx in recorded:
         if tx.external_ref is not None:
             found.add(tx.external_ref)
+            if tx.external_ref.startswith("imp:"):
+                legacy[tx.external_ref] = tx.id
         content_keys.add(ParsedRow(tx.date, tx.amount_pence, tx.payee).fingerprint)
-    # An old row lacks a bank ID. Silently choosing which distinct OFX entry it
-    # represents could omit a genuine payment or insert the same one twice.
-    if any(r.bank_ref and r.bank_ref not in found and r.fingerprint in found for r in rows):
-        raise ImportError_("an OFX entry matches a previous import without a bank ID; "
-                           "reconcile the existing entry before importing")
+    bindings = {txn_id: ref for txn_id, ref in session.execute(select(
+        StatementBankIdentity.transaction_id,
+        StatementBankIdentity.bank_ref).join(Transaction).where(
+            Transaction.account_id == account_id,
+            or_(StatementBankIdentity.transaction_id.in_(list(legacy.values())),
+                StatementBankIdentity.bank_ref.in_(keys))))}
+    found.update(bindings.values())
     for r in rows:
         key = r.bank_ref or r.fingerprint
-        r.duplicate = (key in found or r.fingerprint in found
-                       or (r.bank_ref is None and r.fingerprint in content_keys))
+        r.duplicate = key in found or (r.bank_ref is None and r.fingerprint in content_keys)
+        historical_id = legacy.get(r.fingerprint)
+        if r.bank_ref and not r.duplicate and historical_id and historical_id not in bindings:
+            r.legacy_transaction_id = historical_id
         found.add(key)
         content_keys.add(r.fingerprint)
 
@@ -266,7 +277,8 @@ def _ensure_unlocked(session: Session, household_id: int, dates: set[date]) -> N
         raise ImportError_("the import contains transactions in a locked period")
 
 
-def commit(session: Session, batch: StatementImport) -> tuple[int, int]:
+def commit(session: Session, batch: StatementImport,
+           choices: dict[int, int | None] | None = None) -> tuple[int, int]:
     """Insert non-duplicate preview rows. Returns (inserted, skipped).
 
     The fingerprint external_ref makes a concurrent duplicate raise
@@ -281,7 +293,29 @@ def commit(session: Session, batch: StatementImport) -> tuple[int, int]:
                       bank_ref=cast("str | None", r.get("bank_ref")))
             for r in raw_rows]
     mark_duplicates(session, batch.account_id, rows)
+    choices = choices or {}
+    pending = {r.legacy_transaction_id for r in rows if r.legacy_transaction_id is not None}
+    if pending != set(choices):
+        raise ImportError_("review the current historical statement matches before committing")
+    links = []
+    for legacy_id, index in choices.items():
+        if index is None:
+            continue
+        if not 0 <= index < len(rows) or rows[index].legacy_transaction_id != legacy_id:
+            raise ImportError_("the selected statement row no longer matches the historical entry")
+        selected = rows[index]
+        assert selected.bank_ref is not None
+        links.append(StatementBankIdentity(transaction_id=legacy_id, bank_ref=selected.bank_ref,
+                                           account_id=batch.account_id, import_id=batch.id))
+        selected.duplicate = True
     _ensure_unlocked(session, batch.household_id, {r.date for r in rows if not r.duplicate})
+    if links:
+        try:
+            with session.begin_nested():
+                session.add_all(links)
+                session.flush()
+        except IntegrityError as exc:
+            raise ImportError_("the historical match changed; preview the statement again") from exc
     inserted = skipped = 0
     for r in rows:
         if r.duplicate:
@@ -328,4 +362,6 @@ def rollback(session: Session, batch: StatementImport) -> int:
                 Transaction.id.in_(ids)).returning(Transaction.id)).all()
     except IntegrityError as exc:
         raise ImportError_("linked transactions require individual reconciliation") from exc
+    session.execute(delete(StatementBankIdentity).where(
+        StatementBankIdentity.import_id == batch.id))
     return len(removed)

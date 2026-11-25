@@ -975,6 +975,7 @@ function ImportDialog({ accounts, onClose, onDone }: {
   const [cols, setCols] = useState({ date: "Date", payee: "Description",
     amount: "Amount", debit: "Money Out", credit: "Money In" });
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [matches, setMatches] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fmt = (file?.name.split(".").pop() ?? "csv").toLowerCase();
@@ -983,7 +984,7 @@ function ImportDialog({ accounts, onClose, onDone }: {
   const doPreview = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || !accountId) return;
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setMatches({});
     const mapping = isCsv ? JSON.stringify({
       date: cols.date, payee: cols.payee,
       amount: cols.amount || undefined,
@@ -1001,7 +1002,9 @@ function ImportDialog({ accounts, onClose, onDone }: {
     if (!preview) return;
     setBusy(true);
     api.post("/api/v1/imports/{import_id}/commit",
-      { path: { import_id: preview.import_row.id } })
+      { path: { import_id: preview.import_row.id },
+        body: { legacy_matches: Object.fromEntries(Object.entries(matches).map(
+          ([key, value]) => [key, value === "none" ? null : Number(value)])) } })
       .then((r) => {
         const imp = r as Preview["import_row"];
         toast.success(`Imported ${imp.rows_imported} transaction${imp.rows_imported === 1 ? "" : "s"}${imp.rows_skipped ? `, ${imp.rows_skipped} duplicates skipped` : ""}`);
@@ -1010,7 +1013,16 @@ function ImportDialog({ accounts, onClose, onDone }: {
       .catch((err: Error) => { setError(err.message); setBusy(false); });
   };
 
-  const dupCount = preview?.rows.filter((r) => r.duplicate).length ?? 0;
+  const groups = new Map<number, { row: Row; index: number }[]>();
+  preview?.rows.forEach((row, index) => {
+    if (row.legacy_transaction_id == null) return;
+    const group = groups.get(row.legacy_transaction_id) ?? [];
+    group.push({ row, index });
+    groups.set(row.legacy_transaction_id, group);
+  });
+  const unresolved = [...groups.keys()].some((id) => !matches[id]);
+  const dupCount = (preview?.rows.filter((r) => r.duplicate).length ?? 0)
+    + Object.values(matches).filter((v) => v && v !== "none").length;
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}
       title="Import statement"
@@ -1019,8 +1031,8 @@ function ImportDialog({ accounts, onClose, onDone }: {
         <>
           <Button variant="ghost" onClick={() => setPreview(null)}>Back</Button>
           <Button variant="primary" onClick={doCommit}
-            disabled={busy || preview.rows.length - dupCount === 0}>
-            {busy ? "Importing…" : `Import ${preview.rows.length - dupCount} transaction${preview.rows.length - dupCount === 1 ? "" : "s"}`}
+            disabled={busy || unresolved || (preview.rows.length === dupCount && groups.size === 0)}>
+            {busy ? "Importing…" : preview.rows.length === dupCount ? "Save matches" : `Import ${preview.rows.length - dupCount} transaction${preview.rows.length - dupCount === 1 ? "" : "s"}`}
           </Button>
         </>
       ) : (
@@ -1034,6 +1046,20 @@ function ImportDialog({ accounts, onClose, onDone }: {
       )}>
       {preview ? (
         <div className="max-h-72 overflow-auto">
+          {[...groups].map(([id, candidates]) => (
+            <Field key={id} label={`Match existing transaction #${id}`}>
+              {(fieldId) => <Select id={fieldId} value={matches[id] ?? ""}
+                onChange={(event) => setMatches({ ...matches, [id]: event.target.value })}>
+                <option value="">Choose the matching statement entry</option>
+                {candidates.map(({ row, index }) => (
+                  <option key={index} value={String(index)}>
+                    Row {index + 1} · {row.date} · {row.payee} · {row.bank_id_hint}
+                  </option>
+                ))}
+                <option value="none">These are separate payments</option>
+              </Select>}
+            </Field>
+          ))}
           <table className="w-full text-[13px]">
             <tbody>
               {preview.rows.slice(0, 50).map((r: Row, i) => (

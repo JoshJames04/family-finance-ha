@@ -88,7 +88,8 @@ async def preview(
         import_row=_out(batch),
         rows=[schemas.StatementImportRowOut(
             date=r.date, amount_pence=r.amount_pence, payee=r.payee,
-            notes=r.notes, duplicate=r.duplicate) for r in rows])
+            notes=r.notes, duplicate=r.duplicate, bank_id_hint=r.bank_id_hint,
+            legacy_transaction_id=r.legacy_transaction_id) for r in rows])
 
 
 @router.post("/{import_id}/commit",
@@ -96,13 +97,14 @@ async def preview(
 def commit_import(
     import_id: int, household: HouseholdDep,
     session: SessionDep, actor: ActorDep, profile: ProfileDep,
+    body: schemas.StatementImportChoices | None = None,
 ) -> schemas.StatementImportOut:
     b = _batch(session, household.id, import_id, profile)
     if b.status != StatementImportStatus.preview:
         raise HTTPException(
             409, f"import is {b.status.value}, cannot commit")
     try:
-        inserted, skipped = imports.commit(session, b)
+        inserted, skipped = imports.commit(session, b, body.legacy_matches if body else None)
     except imports.ImportError_ as exc:
         raise HTTPException(409, str(exc)) from exc
     b.status = StatementImportStatus.committed

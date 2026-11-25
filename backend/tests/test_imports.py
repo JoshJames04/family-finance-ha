@@ -21,6 +21,7 @@ from app.persistence.models import (
     Household,
     Transaction,
     TransactionSource,
+    TransactionStatus,
     UserProfile,
 )
 
@@ -214,16 +215,41 @@ class TestApi:
         assert client.post(f"/api/v1/imports/{retry['import_row']['id']}/commit",
                            headers=h).json()["rows_imported"] == 2
 
-    def test_legacy_overlap_requires_review(self, session, household) -> None:
-        acct = Account(household_id=household.id, name="Shared", type="joint",
-                       opening_date=date(2025, 1, 1))
-        session.add(acct)
-        session.flush()
-        old = imports.ParsedRow(date(2025, 4, 1), -2540, "Tesco")
-        _txn(session, acct, old)
-        identified = imports.ParsedRow(old.date, old.amount_pence, old.payee, bank_ref="ofx:A")
-        with pytest.raises(ImportError_, match="without a bank ID"):
-            imports.mark_duplicates(session, acct.id, [identified])
+    @pytest.mark.parametrize("choice, inserted", [(1, 1), (None, 2)])
+    def test_reconcile_legacy_payment_and_reimport(self, client: TestClient,
+                                                 choice: int | None, inserted: int) -> None:
+        h, aid = self._setup(client)
+        old = self._upload(client, h, aid)["import_row"]["id"]
+        assert client.post(f"/api/v1/imports/{old}/commit", headers=h).status_code == 200
+        with Session(client.app.state.engine) as session:
+            purchase = session.scalars(select(Transaction).where(
+                Transaction.statement_import_id == old, Transaction.amount_pence == -2540)).one()
+            purchase.status = TransactionStatus.reconciled
+            purchase_id, fingerprint = purchase.id, purchase.external_ref
+            session.commit()
+        records = "".join(f"<STMTTRN><DTPOSTED>20250401<TRNAMT>-25.40<NAME>TESCO STORES"
+                          f"<FITID>{fitid}</STMTTRN>" for fitid in ("first", "second"))
+
+        def preview() -> dict:
+            result = client.post("/api/v1/imports/preview", headers=h,
+                data={"account_id": str(aid), "fmt": "ofx"},
+                files={"file": ("statement.ofx", records.encode())})
+            assert result.status_code == 201, result.text
+            return result.json()
+
+        staged = preview()
+        assert [r["legacy_transaction_id"] for r in staged["rows"]] == [purchase_id, purchase_id]
+        url = f"/api/v1/imports/{staged['import_row']['id']}"
+        assert client.post(f"{url}/commit", headers=h).status_code == 409
+        assert client.post(f"{url}/commit", headers=h,
+            json={"legacy_matches": {str(purchase_id): choice}}).json()["rows_imported"] == inserted
+        assert all(r["duplicate"] for r in preview()["rows"])
+        with Session(client.app.state.engine) as session:
+            historic = session.get(Transaction, purchase_id)
+            assert historic is not None and historic.external_ref == fingerprint
+            assert historic.status is TransactionStatus.reconciled
+        assert client.post(f"{url}/rollback", headers=h).status_code == 200
+        assert all(r["legacy_transaction_id"] == purchase_id for r in preview()["rows"])
 
     def test_referenced_batch_stays_intact(self, client: TestClient) -> None:
         h, aid = self._setup(client)

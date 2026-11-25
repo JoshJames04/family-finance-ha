@@ -29,9 +29,9 @@ type JsonBody<
   P extends keyof paths,
   M extends keyof paths[P] & string,
 > = paths[P][M] extends {
-  requestBody: { content: { "application/json": infer B } };
+  requestBody?: infer R;
 }
-  ? B
+  ? R extends { content: { "application/json": infer B } } ? B : never
   : never;
 
 /** Query params type for path+method (`never` → omit). */

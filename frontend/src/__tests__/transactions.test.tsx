@@ -172,13 +172,13 @@ describe("Transactions", () => {
       ]);
     });
   });
-  it("import wizard previews then commits (#288)", async () => {
+  it.each([false, true])("import wizard commits the reviewed matches (legacy=%s)", async (legacy) => {
     const calls: { url: string; method: string; body: string }[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(
       (input, init) => {
         const url = String(input);
         const method = init?.method ?? "GET";
-        calls.push({ url, method, body: "" });
+        calls.push({ url, method, body: typeof init?.body === "string" ? init.body : "" });
         const body = method !== "GET"
           ? url.includes("/commit")
             ? { id: 5, account_id: 1, filename: "s.csv", format: "csv",
@@ -190,7 +190,8 @@ describe("Transactions", () => {
                     created_at: "2026-04-01T00:00:00" },
                 rows: [
                   { date: "2026-04-01", amount_pence: -2540,
-                    payee: "TESCO", notes: null, duplicate: false },
+                    payee: "TESCO", notes: null, duplicate: false,
+                    legacy_transaction_id: legacy ? 11 : null, bank_id_hint: "abc" },
                   { date: "2026-04-02", amount_pence: -1099,
                     payee: "NETFLIX", notes: null, duplicate: true },
                 ] }
@@ -221,12 +222,19 @@ describe("Transactions", () => {
     // Preview shows both rows, dup flagged, commit counts only new.
     await screen.findByText("TESCO");
     expect(screen.getByText("dup")).toBeTruthy();
-    await user.click(
-      screen.getByRole("button", { name: "Import 1 transaction" }));
+    if (legacy) {
+      expect(screen.getByRole("button", { name: "Import 1 transaction" }).hasAttribute("disabled")).toBe(true);
+      await user.selectOptions(screen.getByLabelText("Match existing transaction #11"), "0");
+    }
+    await user.click(screen.getByRole("button", {
+      name: legacy ? "Save matches" : "Import 1 transaction",
+    }));
     await waitFor(() =>
       expect(calls.some((c) =>
         c.url.includes("/imports/5/commit")
         && c.method === "POST")).toBe(true));
+    const commit = calls.find((call) => call.url.includes("/imports/5/commit"));
+    expect(JSON.parse(commit!.body)).toEqual({ legacy_matches: legacy ? { "11": 0 } : {} });
     // The upload itself went to /imports/preview as multipart.
     expect(calls.some((c) =>
       c.url.includes("/imports/preview")
