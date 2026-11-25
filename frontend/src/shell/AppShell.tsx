@@ -35,6 +35,11 @@ import {
 
 export { NAV_ITEMS };
 
+function restoreFocus(event: Event, opener: HTMLElement | null) {
+  event.preventDefault();
+  if (opener?.isConnected) opener.focus();
+}
+
 function NavRow({
   item,
   badge,
@@ -160,6 +165,23 @@ export function AppShell() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const commandOpener = useRef<HTMLElement | null>(null);
+  const quickAddOpener = useRef<HTMLElement | null>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const openCommand = useCallback(() => {
+    commandOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setCommandOpen(true);
+  }, []);
+  const openQuickAdd = useCallback(() => {
+    quickAddOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setQuickAddOpen(true);
+  }, []);
+  const addFromCommand = () => {
+    // The palette is about to unmount. Give its opener to the new dialog.
+    quickAddOpener.current = commandOpener.current;
+    commandOpener.current = null;
+    setQuickAddOpen(true);
+  };
   const [dataVersion, setDataVersion] = useState(0);
   const review = useReview(dataVersion);
   const version = useApi(() => api.get("/api/v1/version"), households.data !== null);
@@ -169,12 +191,13 @@ export function AppShell() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setCommandOpen((o) => !o);
+        if (commandOpen) setCommandOpen(false);
+        else openCommand();
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [commandOpen, openCommand]);
 
   useEffect(() => {
     document.title = current ? `${current.label} · Family Finance` : "Family Finance";
@@ -182,11 +205,11 @@ export function AppShell() {
 
   const ctx = useMemo(
     () => ({
-      openQuickAdd: () => setQuickAddOpen(true),
-      openCommand: () => setCommandOpen(true),
+      openQuickAdd,
+      openCommand,
       dataVersion,
     }),
-    [dataVersion],
+    [dataVersion, openCommand, openQuickAdd],
   );
   const onSaved = useCallback(() => setDataVersion((v) => v + 1), []);
   const versionText = version.data ? String(version.data["version"] ?? "") : "";
@@ -207,7 +230,7 @@ export function AppShell() {
             <Brand household={household} />
           </div>
           <div className="px-3 pb-3">
-            <SearchButton onClick={() => setCommandOpen(true)} />
+            <SearchButton onClick={openCommand} />
           </div>
           <nav aria-label="Main" className="scrollbar-thin flex flex-1 flex-col overflow-y-auto px-3 pt-1 pb-4">
             <NavBody reviewCount={review.total} />
@@ -246,7 +269,7 @@ export function AppShell() {
               <span className="font-medium text-fg">{current?.label ?? "Dashboard"}</span>
             </nav>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Search" className="lg:hidden" onClick={() => setCommandOpen(true)}>
+          <Button variant="ghost" size="icon" aria-label="Search" className="lg:hidden" onClick={openCommand}>
             <Search />
           </Button>
           <NavLink
@@ -259,10 +282,10 @@ export function AppShell() {
               <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-negative ring-2 ring-bg" />
             )}
           </NavLink>
-          <Button variant="primary" size="md" onClick={() => setQuickAddOpen(true)} className="hidden sm:inline-flex">
+          <Button variant="primary" size="md" onClick={openQuickAdd} className="hidden sm:inline-flex">
             <Plus /> Add
           </Button>
-          <Button variant="primary" size="icon" aria-label="Add transaction" onClick={() => setQuickAddOpen(true)} className="sm:hidden">
+          <Button variant="primary" size="icon" aria-label="Add transaction" onClick={openQuickAdd} className="sm:hidden">
             <Plus />
           </Button>
         </header>
@@ -275,10 +298,7 @@ export function AppShell() {
           id="ff-drawer"
           side="left"
           hideTitle
-          onCloseAutoFocus={(e) => {
-            e.preventDefault();
-            burgerRef.current?.focus();
-          }}
+          onCloseAutoFocus={(event) => restoreFocus(event, burgerRef.current)}
         >
           <div className="flex flex-col gap-4 p-3">
             <div className="flex items-center justify-between px-1 pt-1">
@@ -329,6 +349,7 @@ export function AppShell() {
           })}
           <button
             type="button"
+            ref={moreButton}
             onClick={() => setMoreOpen(true)}
             className="flex h-15 flex-col items-center justify-center gap-1 text-[10.5px] font-medium text-fg-subtle"
           >
@@ -337,7 +358,7 @@ export function AppShell() {
           </button>
         </nav>
 
-        <Sheet open={moreOpen} onOpenChange={setMoreOpen} title="More" side="bottom">
+        <Sheet onCloseAutoFocus={(event) => restoreFocus(event, moreButton.current)} open={moreOpen} onOpenChange={setMoreOpen} title="More" side="bottom">
           <div className="grid grid-cols-3 gap-2 p-3">
             {NAV_ITEMS.filter((i) => !MOBILE_TABS.includes(i.to)).map((item) => {
               const Icon = item.icon;
@@ -361,8 +382,8 @@ export function AppShell() {
           </div>
         </Sheet>
 
-        <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} onQuickAdd={() => setQuickAddOpen(true)} />
-        <QuickAdd open={quickAddOpen} onOpenChange={setQuickAddOpen} onSaved={onSaved} />
+        <CommandPalette onCloseAutoFocus={(event) => restoreFocus(event, commandOpener.current)} open={commandOpen} onOpenChange={setCommandOpen} onQuickAdd={addFromCommand} />
+        <QuickAdd onCloseAutoFocus={(event) => restoreFocus(event, quickAddOpener.current)} open={quickAddOpen} onOpenChange={setQuickAddOpen} onSaved={onSaved} />
         <Toaster
           position="bottom-right"
           toastOptions={{

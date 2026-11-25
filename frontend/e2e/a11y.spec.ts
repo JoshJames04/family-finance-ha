@@ -65,3 +65,42 @@ test("keyboard journey: drawer opens, Escape closes at mid width", async ({
   await expect(drawer).not.toBeVisible();
   await expect(burger).toBeFocused();
 });
+
+for (const opener of ["Search", "Add transaction", "More"]) {
+  test(`mobile keyboard restores focus to ${opener} after Escape`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    const button = page.getByRole("button", { name: opener, exact: true });
+    await button.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(button).toBeFocused();
+  });
+}
+
+test("Search hands focus to Quick Add and back to its original opener", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const search = page.getByRole("button", { name: "Search", exact: true });
+  await search.focus();
+  await page.keyboard.press("Enter");
+  const command = page.getByRole("dialog", { name: "Command menu" });
+  await command.getByRole("option", { name: "Add transaction" }).click();
+  const add = page.getByRole("dialog", { name: "Add transaction" });
+  await expect(add.getByPlaceholder("0.00")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(search).toBeFocused();
+});
+
+test("closing keyboard search returns focus to the control used for Ctrl+K", async ({ page }) => {
+  await page.goto("/");
+  const opener = page.getByRole("link", { name: "Accounts", exact: true }).first();
+  await opener.focus();
+  await page.keyboard.press("Control+k");
+  await expect(page.getByRole("dialog", { name: "Command menu" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(opener).toBeFocused();
+});
