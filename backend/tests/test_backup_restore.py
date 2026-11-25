@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -126,6 +127,55 @@ class TestSnapshots:
         bad.write_bytes(b"not a database")
         assert backup.verify_snapshot(bad) is False
         assert backup.verify_snapshot(tmp_path / "evil.db") is False
+
+
+@pytest.mark.parametrize("unrelated", [False, True])
+def test_empty_and_unrelated_snapshots_are_rejected(tmp_path, unrelated):
+    path = tmp_path / "ff-20260101T000000.db"
+    with closing(sqlite3.connect(path)) as conn:
+        if unrelated:
+            conn.execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)")
+    assert not backup.verify_snapshot(path)
+
+
+def test_incomplete_staged_schema_preserves_active_database(tmp_path, migrated_database):
+    import shutil
+
+    snapshot = tmp_path / "ff-20260101T000000.db"
+    destination = tmp_path / "active.db"
+    shutil.copyfile(migrated_database, snapshot)
+    with closing(sqlite3.connect(snapshot)) as db:
+        db.execute("DROP TABLE notification_delivery")
+    with closing(sqlite3.connect(destination)) as db:
+        db.execute("CREATE TABLE keep_me (id INTEGER PRIMARY KEY)")
+    with pytest.raises(ValueError):
+        backup.restore_from(snapshot, destination, migrate=True)
+    with closing(sqlite3.connect(destination)) as db:
+        assert db.execute("SELECT COUNT(*) FROM keep_me").fetchone() == (0,)
+
+
+def test_historical_restore_migrates_only_the_staged_copy(tmp_path, monkeypatch):
+    from alembic import command
+
+    from app.persistence.migrate import alembic_config, head_revision
+
+    snapshot = tmp_path / "ff-20260101T000000.db"
+    destination = tmp_path / "active.db"
+    revision = "0002_core_schema"
+    url = f"sqlite:///{snapshot.as_posix()}"
+    command.upgrade(alembic_config(url), revision)
+    with closing(sqlite3.connect(snapshot)) as db, db:
+        db.execute("INSERT INTO household (name) VALUES ('Historical')")
+    unrelated = tmp_path / "unrelated.db"
+    monkeypatch.setenv("FF_DATABASE_URL", f"sqlite:///{unrelated.as_posix()}")
+    backup.restore_from(snapshot, destination, migrate=True)
+    assert not unrelated.exists()
+    with closing(sqlite3.connect(snapshot)) as db:
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (revision,)
+    with closing(sqlite3.connect(destination)) as db:
+        assert db.execute("SELECT name FROM household").fetchall() == [("Historical",)]
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            head_revision(url),)
 
 
 class TestAdminEndpoints:

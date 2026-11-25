@@ -63,7 +63,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 snap = backup_dir / pending
                 if snap.is_file():
                     log.warning("applying pending restore: %s", pending)
-                    backup.restore_from(snap, db_path)
+                    try:
+                        backup.restore_from(snap, db_path, migrate=True)
+                    except Exception:
+                        log.exception("pending restore failed; preserving existing database")
+                        app.state.boot_error = "restore_failed"
                 else:
                     log.error("pending restore %s missing — ignored",
                               pending)
@@ -235,11 +239,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> Response:
         # Recovery endpoints remain available to the administrator. A
         # restored old schema must never accept new financial mutations.
-        if (getattr(request.app.state, "boot_error", None)
+        boot_error = getattr(request.app.state, "boot_error", None)
+        if (boot_error
                 and request.method not in {"GET", "HEAD", "OPTIONS"}
                 and request.url.path.startswith("/api/")
                 and not request.url.path.startswith("/api/v1/admin/")):
-            return JSONResponse({"detail": "migration_failed: financial writes disabled"},
+            return JSONResponse({"detail": f"{boot_error}: financial writes disabled"},
                                 status_code=503, headers={"Retry-After": "30"})
         return await call_next(request)
 

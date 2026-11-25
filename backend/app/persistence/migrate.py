@@ -27,7 +27,9 @@ def alembic_config(db_url: str) -> Config:
 
 
 def upgrade_head(db_url: str) -> None:
-    command.upgrade(alembic_config(db_url), "head")
+    cfg = alembic_config(db_url)
+    cfg.attributes["db_url"] = db_url
+    command.upgrade(cfg, "head")
 
 
 def current_revision(engine: Engine) -> str | None:
