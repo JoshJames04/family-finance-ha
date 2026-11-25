@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -20,11 +20,13 @@ from app.persistence.models import (
     AccountType,
     BalanceVerification,
     ExpectedMovement,
+    ExpectedSource,
     MergeCandidate,
     RecurringCommitment,
     Transaction,
     TransactionSource,
     TransactionStatus,
+    TransferRule,
 )
 
 OPENING_PAYEE = "Opening balance"
@@ -126,11 +128,26 @@ def current_balance(session: Session, account_id: int) -> int:
 
 
 def current_movement_account() -> ColumnElement[bool]:
-    """Accountless household plans and movements assigned to an open account."""
-    return or_(ExpectedMovement.account_id.is_(None), ExpectedMovement.account_id.in_(
-        select(Account.id).where(Account.archived.is_(False),
-                                 Account.household_id == ExpectedMovement.household_id)
-        .correlate(ExpectedMovement)))
+    """A transfer is actionable only while both of its accounts are open."""
+    active = select(Account.id).where(
+        Account.household_id == ExpectedMovement.household_id,
+        Account.archived.is_(False)).correlate(ExpectedMovement)
+    movement = ExpectedMovement
+    # Confirmed historical transfers can outlive the scheduling rule.
+    # Prefer their saved endpoints when present.
+    inactive_rule = select(TransferRule.id).where(
+        TransferRule.id == movement.source_id,
+        TransferRule.household_id == movement.household_id,
+        or_(TransferRule.source_account_id.not_in(active),
+            TransferRule.dest_account_id.not_in(active))).correlate(movement).exists()
+    return and_(
+        or_(movement.account_id.is_(None), movement.account_id.in_(active)),
+        or_(movement.source_type != ExpectedSource.transfer_rule,
+            and_(movement.transfer_source_account_id.in_(active),
+                 movement.transfer_dest_account_id.in_(active)),
+            and_(movement.transfer_source_account_id.is_(None),
+                 movement.transfer_dest_account_id.is_(None), ~inactive_rule)),
+    )
 
 
 def active_accounts(session: Session, household_id: int) -> list[Account]:

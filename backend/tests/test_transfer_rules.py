@@ -76,6 +76,22 @@ def _rows(session: Session, rule: TransferRule) -> list[ExpectedMovement]:
             ExpectedMovement.source_id == rule.id)).scalars())
 
 
+@pytest.mark.parametrize("endpoint", [0, 1])
+def test_archiving_either_endpoint_excludes_both_transfer_legs(
+        session, household, accounts, endpoint):
+    rule = _rule(session, household, accounts, {"kind": "fixed", "pence": 3500})
+    due = date(2025, 5, 1)
+    schedule.rematerialize_transfer_rule(
+        session, rule, today=TODAY, horizon_days=(due - TODAY).days)
+    for archived in (False, True, False):
+        accounts[endpoint].archived = archived
+        session.flush()
+        movements = schedule.stream(session, household.id, start=due, end=due)
+        assert sorted(m.amount_pence for m in movements) == ([] if archived else [-3500, 3500])
+        requirements = contributions.requirement_totals(session, household.id, start=due, end=due)
+        assert len(requirements) == int(not archived)
+
+
 class TestParseSpec:
     def test_fixed(self) -> None:
         s = transfer_rules.parse_spec({"kind": "fixed", "pence": 5000})
