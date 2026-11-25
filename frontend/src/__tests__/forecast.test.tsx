@@ -6,6 +6,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { ProjectionChart } from "../components/ProjectionChart";
 import { Forecast } from "../pages/Forecast";
 import { formatMonth } from "../lib/format";
 
@@ -24,7 +25,7 @@ const PROJECTION = {
   committed_until_payday_pence: 25000,
   safe_to_spend_pence: 75000,
   min_balance_pence: 42000,
-  min_balance_date: plus(20),
+  min_balance_date: plus(3),
   threshold_pence: 30000,
   below_threshold: false,
   days: Array.from({ length: 10 }, (_, i) => ({
@@ -77,6 +78,29 @@ function stubFetch(salaryAccountId: number | null = 7, movements = MOVEMENTS) {
 
 describe("Forecast", () => {
   afterEach(cleanup);
+  it("dates the opening minimum before the first projected day across a year boundary", () => {
+    render(<ProjectionChart projection={{
+      ...PROJECTION, start_balance_pence: 10000, min_balance_pence: 10000,
+      min_balance_date: null, days: [
+        { date: "2027-01-01", movements_pence: 2000, balance_pence: 12000 },
+      ],
+    }} />);
+    expect(screen.getByRole("img").getAttribute("aria-label"))
+      .toContain("lowest £100.00 on 2026-12-31");
+  });
+
+  it("labels the minimum on the first future date it is reached", () => {
+    render(<ProjectionChart projection={{
+      ...PROJECTION, start_balance_pence: 10000, min_balance_pence: 9200,
+      min_balance_date: "2027-01-01", days: [
+        { date: "2027-01-01", movements_pence: -800, balance_pence: 9200 },
+        { date: "2027-01-02", movements_pence: 0, balance_pence: 9200 },
+      ],
+    }} />);
+    expect(screen.getByRole("img").getAttribute("aria-label"))
+      .toContain("lowest £92.00 on 2027-01-01");
+  });
+
   it("uses the member's salary account even when another account is first", async () => {
     const fetch = stubFetch();
     render(<MemoryRouter><Forecast /></MemoryRouter>);

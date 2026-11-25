@@ -173,7 +173,7 @@ export function Forecast() {
               <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Safe to spend"
                 value={<Money pence={proj.safe_to_spend_pence} className={proj.below_threshold ? "text-negative" : ""} />} hint="until next payday" />
               <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Lowest balance"
-                value={<Money pence={proj.min_balance_pence} />} hint={proj.min_balance_date ? `on ${formatDayMonth(proj.min_balance_date)}` : undefined} />
+                value={<Money pence={proj.min_balance_pence} />} hint={proj.min_balance_date ? `on ${formatDayMonth(proj.min_balance_date)}` : "at opening"} />
               <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Next payday"
                 value={proj.next_payday ? formatDayMonth(proj.next_payday) : "—"}
                 hint={proj.next_payday ? `in ${daysUntil(proj.next_payday)} days` : "Not scheduled"} />
@@ -184,6 +184,7 @@ export function Forecast() {
               description={[
                 selectedAccount?.name,
                 `Next ${HORIZONS.find((h) => h.value === horizon)?.label}`,
+                "Includes scheduled transfers. Bills paid from other accounts appear in their own forecasts.",
                 proj.threshold_pence ? `Buffer ${formatPence(proj.threshold_pence)} shown dashed` : null,
               ].filter(Boolean).join(" · ")}
               className="mb-4">

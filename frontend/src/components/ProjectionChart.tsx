@@ -18,6 +18,9 @@ import {
   formatDayMonth,
   formatPence,
   formatPenceCompact,
+  formatPenceSigned,
+  parseISODate,
+  toISODate,
   formatWeekdayDayMonth,
 } from "../lib/format";
 
@@ -28,14 +31,19 @@ function ChartTooltip({
   payload,
 }: {
   active?: boolean;
-  payload?: ReadonlyArray<{ payload?: { date: string; balance: number } }>;
+  payload?: ReadonlyArray<{ payload?: { date: string; balance: number; movement: number | null } }>;
 }) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
   return (
     <div className="rounded-lg border border-border bg-surface px-3 py-2 text-[12.5px] shadow-lg">
       <p className="text-fg-subtle">{formatWeekdayDayMonth(p.date)}</p>
-      <p className="tnum font-semibold text-fg">{formatPence(p.balance)}</p>
+      <p className="tnum font-semibold text-fg">
+        {p.movement === null ? "Opening balance" : "Closing balance"} {formatPence(p.balance)}
+      </p>
+      {p.movement !== null && (
+        <p className="tnum">Net scheduled change {formatPenceSigned(p.movement)}</p>
+      )}
     </div>
   );
 }
@@ -51,18 +59,24 @@ export function ProjectionChart({
 }) {
   const gid = `bal-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const days = projection.days;
-  if (days.length < 2) return null;
-  const data = days.map((d) => ({ date: d.date, balance: d.balance_pence }));
-  const balances = data.map((d) => d.balance);
-  const minIdx = balances.indexOf(Math.min(...balances));
-  const minDay = data[minIdx]!;
+  if (!days.length) return null;
+  const opening = parseISODate(days[0]!.date);
+  opening.setDate(opening.getDate() - 1);
+  const openingDate = toISODate(opening);
+  const data = [
+    { date: openingDate, balance: projection.start_balance_pence, movement: null },
+    ...days.map((day) => ({
+      date: day.date, balance: day.balance_pence, movement: day.movements_pence,
+    })),
+  ];
+  const minDate = projection.min_balance_date ?? openingDate;
   const threshold = projection.threshold_pence ?? 0;
-  const lo = Math.min(...balances, threshold);
+  const lo = Math.min(projection.min_balance_pence, threshold);
   const crossesZero = lo < 0;
   return (
     <div
       role="img"
-      aria-label={`Balance projection to ${days[days.length - 1]!.date}: lowest ${formatPence(projection.min_balance_pence)} on ${minDay.date}`}
+      aria-label={`Balance projection to ${days[days.length - 1]!.date}: lowest ${formatPence(projection.min_balance_pence)} on ${minDate}`}
       className="ff-projection-chart w-full"
       style={{ height }}
     >
@@ -118,11 +132,11 @@ export function ProjectionChart({
             isAnimationActive={false}
           />
           <ReferenceDot
-            x={minDay.date}
-            y={minDay.balance}
+            x={minDate}
+            y={projection.min_balance_pence}
             r={4.5}
             fill="var(--surface)"
-            stroke={minDay.balance < threshold ? "var(--negative)" : "var(--chart-line)"}
+            stroke={projection.min_balance_pence < threshold ? "var(--negative)" : "var(--chart-line)"}
             strokeWidth={2.5}
           />
         </AreaChart>
