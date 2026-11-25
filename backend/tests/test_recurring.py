@@ -1,6 +1,6 @@
 """Recurring commitments: scheduling, end conditions, materialise (issue #38)."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import select
@@ -113,6 +113,26 @@ class TestMaterialise:
         assert [contributions.status(session, m).outstanding_pence for m in movements] == [0, 0]
         assert bill.generated_count == 2
         assert materialise(session, bill, date(2026, 2, 28)) == []
+
+    @pytest.mark.parametrize("partially_paid", [False, True])
+    def test_written_off_occurrence_advances_without_posting(
+        self, session: Session, account: Account, partially_paid: bool,
+    ) -> None:
+        bill = _rc(account, occurrence_count=1)
+        session.add(bill)
+        session.flush()
+        schedule.rematerialize_commitment(session, bill, today=bill.next_date)
+        movement = session.scalars(select(ExpectedMovement)).one()
+        if partially_paid:
+            tx = Transaction(account_id=account.id, amount_pence=-6000,
+                             payee="Partial payment", date=bill.next_date, status="cleared")
+            session.add(tx)
+            session.flush()
+            settle.settle_occurrence(session, movement, tx, manual=True)
+        contributions.write_off(session, movement, when=datetime.now(UTC))
+        assert materialise(session, bill, bill.next_date) == []
+        assert bill.generated_count == 1
+        assert bill.next_date == date(2026, 2, 28)
 
     def test_idempotent_rerun(
         self, session: Session, account: Account
