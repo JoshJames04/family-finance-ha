@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import banking_events, goals
+from app.domain import banking_events, financial_events, goals
 from app.persistence.models import Transaction, Transfer
 
 
@@ -43,8 +43,8 @@ def create_transfer(
                  rule_ref=rule_ref, notes=notes)
     session.add(t)
     session.flush()
-    debit.transfer_id = credit.transfer_id = t.id
-    session.flush()
+    with financial_events.observe_loan_evidence(session, household_id, debit.id, credit.id):
+        debit.transfer_id = credit.transfer_id = t.id
     for txn in (debit, credit):
         banking_events.transaction_changed(session, txn, "transaction.transfer_linked",
                                            dedup_key=f"transfer.linked:{t.id}:{txn.id}")
