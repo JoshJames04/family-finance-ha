@@ -49,31 +49,15 @@ const MONTH = (() => {
   };
 })();
 
-const MOVEMENTS = [
-  { id: 10, source_type: "transfer_rule", source_id: 1, account_id: 2,
-    expected_date: MONTH.end, amount_pence: -80000, label: "Alice share (out)" },
-  { id: 11, source_type: "transfer_rule", source_id: 1, account_id: 4,
-    expected_date: MONTH.end, amount_pence: 80000, label: "Alice share (in)" },
-  { id: 12, source_type: "transfer_rule", source_id: 2, account_id: 3,
-    expected_date: MONTH.end, amount_pence: -70000, label: "Carol share (out)" },
-  { id: 13, source_type: "transfer_rule", source_id: 2, account_id: 4,
-    expected_date: MONTH.end, amount_pence: 70000, label: "Carol share (in)" },
-];
-
-const CONTRIBUTIONS = [
-  { movement_id: 10, expected_pence: 80000, matched_pence: 80000,
-    outstanding_pence: 0, state: "satisfied" },
-  { movement_id: 11, expected_pence: 80000, matched_pence: 80000,
-    outstanding_pence: 0, state: "satisfied" },
-  { movement_id: 12, expected_pence: 70000, matched_pence: 0,
-    outstanding_pence: 70000, state: "pending" },
-  { movement_id: 13, expected_pence: 70000, matched_pence: 0,
-    outstanding_pence: 70000, state: "pending" },
-];
-
-const BY_MEMBER = [
-  { profile_id: 1, display_name: "Alice", contributed_pence: 80000 },
-  { profile_id: 2, display_name: "Carol", contributed_pence: 0 },
+const CYCLES = [
+  { profile_id: 1, start: MONTH.start, end: MONTH.end, basis: "pay_cycle",
+    payments: [{ movement_id: 11, account_id: 4, due_date: MONTH.end,
+      expected_pence: 80000, matched_pence: 80000 }],
+    next_payment: { movement_id: 21, account_id: 4, due_date: "2027-01-28",
+      expected_pence: 80000, matched_pence: 20000 } },
+  { profile_id: 2, start: MONTH.start, end: MONTH.end, basis: "calendar",
+    payments: [{ movement_id: 13, account_id: 4, due_date: MONTH.end,
+      expected_pence: 70000, matched_pence: 0 }] },
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
@@ -94,20 +78,16 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
               ? { items: ACCOUNTS, total: ACCOUNTS.length }
               : url.includes("/api/v1/transfer-rules")
                 ? { items: rules, total: rules.length }
-                : url.includes("/contributions/by-member")
-                  ? BY_MEMBER
-                  : url.includes("/contributions")
-                    ? CONTRIBUTIONS
-                    : url.includes("/expected-movements")
-                      ? MOVEMENTS
-                      : { items: [], total: 0 };
+                : url.includes("/contributions/cycles")
+                  ? CYCLES
+                  : { items: [], total: 0 };
       return Promise.resolve(new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json" } }));
     });
 }
 
-const open = () => render(
-  <MemoryRouter><SharedPot period={{ start: MONTH.start, end: MONTH.end }} /></MemoryRouter>);
+const open = (sharedTotal?: number) => render(
+  <MemoryRouter><SharedPot sharedTotal={sharedTotal} period={{ start: MONTH.start, end: MONTH.end }} /></MemoryRouter>);
 
 describe("SharedPot", () => {
   afterEach(cleanup);
@@ -116,8 +96,10 @@ describe("SharedPot", () => {
     stubFetch([]);
     open();
     // Alice satisfied, Carol outstanding — £1,500 due, £800 in.
-    await screen.findByText(/satisfied/i);
-    expect(screen.getByText(/^outstanding$/i)).toBeTruthy();
+    await screen.findByText(/^Paid$/i);
+    expect(screen.getByText(/Next payment/).textContent).toContain("£600.00 left to pay");
+    expect(screen.getByText(/Configure a pay-cycle source/)).toBeTruthy();
+    expect(screen.getByText(/^Due$/i)).toBeTruthy();
     expect(screen.getAllByText("£1,500.00").length).toBeGreaterThan(0);
     expect(screen.getByText(/to go/)).toBeTruthy();
   });
@@ -126,7 +108,7 @@ describe("SharedPot", () => {
     stubFetch([]);
     open();
     await screen.findByText("Shared pot — Joint Bills");
-    const bar = screen.getByRole("img", { name: /Alice \d+%, Carol \d+%/ });
+    const bar = await screen.findByRole("img", { name: /Alice \d+%, Carol \d+%/ });
     expect(bar.getAttribute("aria-label")).toBe("Alice 53%, Carol 47%");
   });
 
@@ -189,13 +171,37 @@ describe("SharedPot", () => {
     });
   });
 
+  it("uses the Shared target and allocates every penny when changing the split", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    open(150001);
+    await user.click(await screen.findByRole("button", { name: /Adjust split/ }));
+    const alice = screen.getByLabelText("Alice share amount");
+    await user.clear(alice);
+    await user.type(alice, "801");
+    expect((screen.getByLabelText("Carol share amount") as HTMLInputElement).value).toBe("699.01");
+    await user.click(screen.getByRole("radio", { name: "By percentage" }));
+    const pct = screen.getByLabelText("Alice share percent");
+    await user.clear(pct);
+    await user.type(pct, "50");
+    await user.click(screen.getByRole("button", { name: "Save split" }));
+    await waitFor(() => {
+      const write = calls.find((call) => call.method === "POST" && call.url.endsWith("/shared-split"));
+      expect(write).toBeDefined();
+      const body = JSON.parse(write!.body);
+      expect(body.target_pence).toBe(150001);
+      expect(body.shares.map((share: { pence: number }) => share.pence)).toEqual([75001, 75000]);
+    });
+  });
+
   it("rules list hides behind a disclosure", async () => {
     stubFetch([]);
     const user = userEvent.setup();
     open();
     await screen.findByText("Shared pot — Joint Bills");
     expect(screen.queryByText("Alice share")).toBeNull();
-    await user.click(screen.getByRole("button", { name: /Share rules/ }));
+    await user.click(await screen.findByRole("button", { name: /Share rules/ }));
     await screen.findByText("Alice share");
     expect(screen.getByText("Carol share")).toBeTruthy();
   });

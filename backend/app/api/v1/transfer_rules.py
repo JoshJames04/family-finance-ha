@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.api import schemas
 from app.api.audit import emit
-from app.api.deps import ActorDep, HouseholdDep, SessionDep
-from app.domain import schedule, transfer_rules
+from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
+from app.domain import rbac, schedule, transfer_rules
 from app.persistence.models import (
     Account,
     AmountKind,
@@ -20,6 +20,7 @@ from app.persistence.models import (
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
+    Frequency,
     TransferRule,
 )
 
@@ -192,6 +193,64 @@ def update_rule(
     emit(session, household.id, actor, "update", "transfer_rule", r.id,
          {"fields": sorted(changes)})
     return schemas.TransferRuleOut.model_validate(r)
+
+
+@router.post("/shared-split", status_code=204)
+def save_shared_split(
+    body: schemas.SharedSplitIn, household: HouseholdDep, session: SessionDep,
+    actor: ActorDep, profile: ProfileDep,
+) -> None:
+    """Apply all of a shared pot's monthly shares in one transaction."""
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot edit shared schedules")
+    pot = session.get(Account, body.account_id)
+    if (pot is None or pot.household_id != household.id or pot.archived
+            or pot.owner_profile_id is not None):
+        raise HTTPException(404, "shared account not found")
+    if transfer_rules.space_parent(session, pot.id) is not None:
+        raise HTTPException(409, "choose the shared account that receives the bank transfers")
+    if (sum(share.pence for share in body.shares) != body.target_pence
+            or len({share.profile_id for share in body.shares}) != len(body.shares)):
+        raise HTTPException(422, "unique member shares must add up to the target")
+
+    accounts = {account.id: account for account in session.scalars(select(Account).where(
+        Account.household_id == household.id, Account.owner_profile_id.is_not(None),
+        Account.archived.is_(False),
+    ))}
+    existing = list(session.scalars(select(TransferRule).where(
+        TransferRule.household_id == household.id, TransferRule.dest_account_id == pot.id,
+        TransferRule.active.is_(True), TransferRule.source_account_id.in_(accounts),
+    )))
+    submitted = {share.rule_id for share in body.shares if share.rule_id is not None}
+    if (submitted != {rule.id for rule in existing}
+            or any(rule.frequency != Frequency.monthly
+                   or json.loads(rule.amount_spec).get("kind") != "fixed" for rule in existing)):
+        raise HTTPException(409, "share rules changed or are not fixed monthly amounts")
+    rules = {rule.id: rule for rule in existing}
+    for share in body.shares:
+        rule = rules.get(share.rule_id) if share.rule_id is not None else None
+        if rule is None and share.pence == 0:
+            continue
+        source_id = rule.source_account_id if rule is not None else share.source_account_id
+        source = accounts.get(source_id) if source_id is not None else None
+        if source is None or source.owner_profile_id != share.profile_id:
+            raise HTTPException(422, "select each member's own payment account")
+        if rule is not None:
+            patch = (schemas.TransferRulePatch(active=False) if share.pence == 0 else
+                     schemas.TransferRulePatch.model_validate({
+                         "amount_spec": {"kind": "fixed", "pence": share.pence},
+                     }))
+            update_rule(rule.id, patch, household, session, actor)
+        else:
+            if share.day_of_month is None:
+                raise HTTPException(422, "choose a payment day for each new share")
+            create_rule(schemas.TransferRuleIn.model_validate({
+                "name": f"{source.name} to {pot.name}"[:120],
+                "source_account_id": source.id, "dest_account_id": pot.id,
+                "amount_spec": {"kind": "fixed", "pence": share.pence},
+                "frequency": "monthly", "day_of_month": share.day_of_month,
+                "start_date": date.today(),
+            }), household, session, actor)
 
 
 @router.delete("/{rid}", status_code=204)

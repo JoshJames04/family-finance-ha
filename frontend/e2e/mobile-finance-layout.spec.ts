@@ -59,8 +59,18 @@ async function fixture(page: Page, state: State) {
     else if (path.endsWith("/budgets/1")) body = detail;
     else if (path.endsWith("/categories")) body = { items: [{ id: 1, name: category, parent_id: null, household_id: 1 }], total: 1 };
     else if (path.endsWith("/transfer-rules")) body = { items: state === "pot-empty" ? [] : rules, total: state === "pot-empty" ? 0 : 3 };
-    else if (path.endsWith("/contributions/by-member")) body = profiles.map(p => ({ profile_id: p.id, contributed_pence: 100000 }));
-    else if (path.endsWith("/contributions")) body = movements.map(m => ({ movement_id: m.id, matched_pence: 100000, outstanding_pence: m.outstanding_pence }));
+    else if (path.endsWith("/contributions/cycles")) {
+      const selectedPot = Number(url.searchParams.get("account_id") ?? 10);
+      body = profiles.map(profile => ({
+        profile_id: profile.id, start, end, basis: "pay_cycle",
+        payments: state === "pot-empty" ? [] : rules
+          .filter(rule => rule.source_account_id === 20 + profile.id && rule.dest_account_id === selectedPot)
+          .map(rule => ({
+            movement_id: 100 + rule.id, account_id: rule.dest_account_id, due_date: start,
+            expected_pence: rule.pence, matched_pence: 100000,
+          })),
+      }));
+    }
     else if (path.endsWith("/expected-movements")) body = movements;
     else if (path.endsWith("/transactions")) {
       if (url.searchParams.get("direction") !== "income") {

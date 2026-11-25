@@ -220,6 +220,13 @@ their authorized account actuals still contribute to All. Section category table
 include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+On Shared, choose the account you and other members pay into. Adjust split uses
+the Shared expense total as a suggested funding target. For two members, editing
+one amount allocates the remainder to the other. The transfers change only when
+you save. Each contribution card shows the member's Budget pay cycle and the
+next payment separately. Members without a monthly payday use the calendar
+period. The shared budget and transfers between shared accounts keep their
+existing calendar and accounting treatment.
 
 Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
 checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).

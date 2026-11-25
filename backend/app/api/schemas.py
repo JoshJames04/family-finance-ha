@@ -1147,6 +1147,20 @@ class TransferRulePatch(BaseModel):
     active: bool | None = None
 
 
+class SharedSplitShare(BaseModel):
+    profile_id: int
+    source_account_id: int | None = None
+    rule_id: int | None = None
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
+    pence: int = Field(ge=0)
+
+
+class SharedSplitIn(BaseModel):
+    account_id: int
+    target_pence: int = Field(gt=0)
+    shares: list[SharedSplitShare] = Field(min_length=1)
+
+
 class TransferRuleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -1203,6 +1217,24 @@ class ContributionStatusOut(BaseModel):
     matched_pence: int
     outstanding_pence: int
     state: str
+
+
+class SharedContributionPayment(BaseModel):
+    movement_id: int
+    account_id: int
+    due_date: date
+    expected_pence: int
+    matched_pence: int
+
+
+class SharedContributionCycle(BaseModel):
+    profile_id: int
+    start: date
+    end: date
+    basis: Literal["calendar", "pay_cycle"]
+    warning: str | None = None
+    payments: list[SharedContributionPayment]
+    next_payment: SharedContributionPayment | None = None
 
 
 class MatchResult(BaseModel):
