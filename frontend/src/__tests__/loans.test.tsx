@@ -28,11 +28,12 @@ const PROFILES = [
     totp_enabled: false },
 ];
 
-function stubFetch(positionUnavailable = false) {
+function stubFetch(positionUnavailable = false, failAfterFirst = false) {
+  let reads = 0;
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input) => {
       const url = String(input);
-      if (positionUnavailable && /\/api\/v1\/loans\/1$/.test(url)) {
+      if (/\/api\/v1\/loans\/1$/.test(url) && (positionUnavailable || (failAfterFirst && reads++ > 0))) {
         return Promise.resolve(new Response(JSON.stringify({ detail: "Position unavailable" }), {
           status: 400, headers: { "Content-Type": "application/json" },
         }));
@@ -50,7 +51,7 @@ function stubFetch(positionUnavailable = false) {
                 ? [{ id: 7, loan_id: 1, date: "2026-01-10", amount_pence: 10000,
                      balance_after_pence: 40000, notes: null, transaction_id: null }] : [])
           : /\/api\/v1\/loans\/\d/.test(url)
-            ? { outstanding_pence: 0, repaid_pence: 0,
+            ? { outstanding_pence: 40000, repaid_pence: 10000,
                 accrued_interest_pence: 0,
                 expected_to_date_pence: 0, drift_pence: 0 }
             : url.includes("/api/v1/loans")
@@ -72,6 +73,19 @@ describe("Loans scope filter", () => {
     expect(await screen.findByText("1 repayment")).toBeTruthy();
     expect(screen.queryByRole("progressbar", { name: "Mum repaid" })).toBeNull();
     expect(within(warning).getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("labels the last known balances when a repayment refresh fails", async () => {
+    stubFetch(false, true);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Loans /></MemoryRouter>);
+    expect(await screen.findByText("20% repaid")).toBeTruthy();
+    await user.click(screen.getAllByRole("button", { name: "Record repayment" })[0]!);
+    await user.type(screen.getByLabelText("Amount (£)"), "10");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Record repayment" }));
+    const warning = await screen.findByRole("alert");
+    expect(warning.textContent).toContain("last known");
+    expect(screen.getByText("20% repaid")).toBeTruthy();
   });
 
   it("narrows loans by Mine / Shared / All", async () => {

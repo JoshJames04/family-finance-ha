@@ -280,7 +280,7 @@ report drills send `uncategorised=true` so they cannot expand to all expenses.
 Loan positions calculate outstanding, repaid, interest and drift through the same
 date. Future-dated repayments appear in the history and count toward the
 position on their repayment date. The Loans page offers a retry if a position
-is unavailable.
+is unavailable and labels the last known balances after a failed refresh.
 Monthly series derive fresh values from authorised raw ledger and loan records
 without writing on GET or depending on a manual cache rebuild; the explicit
 rebuild endpoint remains available for materialised-table compatibility.

@@ -36,7 +36,7 @@ export function Loans() {
   const [repaying, setRepaying] = useState<Loan | null>(null);
   const loans = useApi(
     () => api.get("/api/v1/loans", { query: { include_inactive: true } }),
-    ready, [rev]);
+    ready, [rev], []);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const me = useMeProfileId();
   const memberCount = (profiles.data?.items ?? []).filter((p) => p.is_active).length;
@@ -115,14 +115,14 @@ export function Loans() {
 function LoanCard({ loan: l, rev, owner, onEdit, onRepay }: { loan: Loan; rev: number; owner: string | null; onEdit: () => void; onRepay: () => void }) {
   const position = useApi(
     () => api.get("/api/v1/loans/{lid}", { path: { lid: l.id } }),
-    true, [l.id, rev]);
+    true, [l.id, rev], [l.id]);
   const projection = useApi(
     () => api.get("/api/v1/loans/{lid}/projection", { path: { lid: l.id } }),
     true, [l.id, rev]);
   const repayments = useApi(
     () => api.get("/api/v1/loans/{lid}/repayments", { path: { lid: l.id } }),
     true, [l.id, rev]);
-  const p: Position | null = position.error ? null : position.data;
+  const p: Position | null = position.data;
   const missingPosition = position.loading ? "…" : "—";
   const owed = l.direction === "they_owe";
   const drift = p?.drift_pence ?? 0;
@@ -147,7 +147,9 @@ function LoanCard({ loan: l, rev, owner, onEdit, onRepay }: { loan: Loan; rev: n
         {l.active && behind && <Badge tone="warning">Behind schedule</Badge>}
       </div>
 
-      {position.error && <ErrorState message={position.error} onRetry={position.refetch} />}
+      {position.error && <ErrorState
+        message={p ? `Showing last known balances. ${position.error}` : position.error}
+        onRetry={position.refetch} />}
       <div className="mt-4 grid grid-cols-3 gap-3">
         <Stat label="Outstanding"
           value={p ? <Money pence={p.outstanding_pence} /> : missingPosition} />
