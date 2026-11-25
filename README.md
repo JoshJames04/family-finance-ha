@@ -169,7 +169,8 @@ Dashboard and Forecast default to the signed-in member's salary payment account
 when their active employments point to one available account. Otherwise, the
 account selector lets them choose which account to forecast. The balance chart
 uses that account's scheduled movements. The calendar defaults to the same
-account and can also show all visible accounts.
+account and can also show all visible accounts. Before an account is selected,
+the calendar shows all visible accounts and labels that scope.
 
 Budget starts with **All**, combining the visible plans for the selected period.
 The section tables show planned spending and income alongside their actual totals.
