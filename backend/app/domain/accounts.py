@@ -188,12 +188,12 @@ def merge_accounts(
     archive(session, source)
 
 
-def current_balance(session: Session, account_id: int, *, as_of: date | None = None) -> int:
-    """Ledger balance in pence, optionally through a given transaction date."""
+def current_balance(session: Session, account_id: int, *, through: date | None = None) -> int:
+    """Sum the non-void ledger including the opening, optionally through a statement date."""
     stmt = select(func.coalesce(func.sum(Transaction.amount_pence), 0)).where(
         Transaction.account_id == account_id, Transaction.status != TransactionStatus.void)
-    if as_of is not None:
-        stmt = stmt.where(Transaction.date <= as_of)
+    if through is not None:
+        stmt = stmt.where(Transaction.date <= through)
     return int(session.execute(stmt).scalar_one())
 
 

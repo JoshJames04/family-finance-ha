@@ -185,7 +185,7 @@ def run(session: Session, scenario: Scenario, account: Account,
                            today, end)
 
     postings = _ledger_movements(session, account.id, today, end)
-    balance = current_balance(session, account.id, as_of=today)
+    balance = current_balance(session, account.id, through=today)
     payday = _next_payday(session, account.id, today, end)
 
     base_net, base_neg = _aggregate(postings + base_rows)

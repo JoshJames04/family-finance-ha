@@ -167,7 +167,7 @@ def project(session: Session, account: Account, days: int,
     rows.extend((day, amount) for _, day, amount in _movement_rows(session, account.id, today, end))
     movements, negatives = _aggregate(rows)
     payday = _next_payday(session, account.id, today, end)
-    balance = current_balance(session, account.id, as_of=today)
+    balance = current_balance(session, account.id, through=today)
     return _assemble(account, balance, movements, negatives,
                      payday, today, end)
 
