@@ -93,7 +93,49 @@ class TestOutstanding:
         assert loans.accrued_interest(loan, TODAY) == 0
 
 
+@pytest.mark.parametrize("direction", list(LoanDirection))
+def test_interest_stops_at_effective_settlement_and_reopens_after_void(session, household, loan,
+                                                                      direction):
+    loan.direction = direction
+    loan.principal_pence = 365_000
+    loan.interest_bps_pa = 1000  # 100p daily.
+    payoff = date(2025, 1, 11)
+    later = date(2025, 1, 21)
+    account = Account(household_id=household.id, name="Test", type="joint",
+                      opening_date=loan.start_date)
+    session.add(account)
+    session.flush()
+    _repay(session, loan, 100_000, payoff)
+    amount = 266_000
+    tx = Transaction(account_id=account.id, date=payoff, payee="Settlement",
+                     amount_pence=-amount if direction == LoanDirection.we_owe else amount,
+                     status=TransactionStatus.cleared)
+    session.add(tx)
+    session.flush()
+    loans.link_repayment(session, _repay(session, loan, amount, payoff), tx)
+    _repay(session, loan, 1, later)
+    before = loans.balance_at(session, loan, date(2025, 1, 10))
+    assert before == loans.LoanBalance(0, 900, 365_900)
+    assert loans.balance_at(session, loan, payoff) == loans.LoanBalance(366_000, 1000, 0)
+    assert loans.balance_at(session, loan, later) == loans.LoanBalance(366_001, 1000, 0)
+    assert loans.repayment_balances(session, loan)[-1][1] == 0
+    assert loans.projected_payoff(session, loan, on=later) == loans.Projection(0, later)
+    tx.status = TransactionStatus.void
+    session.flush()
+    assert loans.balance_at(session, loan, later) == loans.LoanBalance(100_001, 2000, 266_999)
+    assert loans.repayment_balances(session, loan)[-1][1] == 266_999
+
+
 class TestDrift:
+    def test_settled_loan_never_falls_behind_later(self, session: Session, loan: Loan) -> None:
+        loan.interest_bps_pa = 1000
+        payoff = date(2025, 1, 11)
+        actual = loan.principal_pence + loans.accrued_interest(loan, payoff)
+        _repay(session, loan, actual, payoff)
+        drift = loans.schedule_drift(session, loan, date(2035, 1, 1))
+        assert drift.actual_pence == drift.expected_pence == actual
+        assert drift.drift_pence == 0
+
     def test_behind_schedule(self, session: Session,
                              loan: Loan) -> None:
         """Jan→Apr = 3 months expected (£300); £100 paid → £200 drift."""

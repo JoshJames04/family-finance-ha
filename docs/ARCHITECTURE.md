@@ -88,6 +88,10 @@ reclassifying a linked payment as an internal transfer updates its loan
 balance event in the same transaction, including provider reversals. If deleting
 a repayment activates an existing claim on another loan, both balances are observed.
 
+Simple interest stops on the first effective repayment date that covers the principal
+and interest due that day. Once settled, the schedule comparison is capped at
+the total debt paid. Reversing that evidence recalculates the settlement.
+
 ## 4. SQLite suitability assessment (ADR-0001 condition)
 
 SQLite is sufficient **provided**:

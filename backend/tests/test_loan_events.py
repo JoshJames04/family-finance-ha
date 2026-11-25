@@ -228,6 +228,33 @@ def test_reclassifying_a_repayment_as_transfer_emits_loan_change(session, househ
     transfers.create_transfer(session, household.id, debit, credit)
     assert [event.payload["outstanding_pence"] for event in events(session)] == [10000]
 
+
+def test_voided_settlement_reopens_interest_without_daily_replay(session, household):
+    from app.domain import loans, periods
+    from app.persistence.models import Account, Transaction, TransactionStatus
+
+    today = date.today()
+    paid = today - timedelta(days=1)
+    loan = make_loan(session, household)
+    loan.start_date = today - timedelta(days=11)
+    loan.principal_pence = 365_000
+    loan.interest_bps_pa = 1000
+    account = Account(household_id=household.id, name="Test", type="joint", opening_date=paid)
+    session.add(account)
+    session.flush()
+    tx = Transaction(account_id=account.id, date=paid, amount_pence=-366_000,
+                     payee="Settlement", status=TransactionStatus.cleared)
+    session.add(tx)
+    session.flush()
+    loans.link_repayment(session, repay(session, loan, 366_000, paid), tx)
+    evaluate(session, loan, paid)
+    evaluate(session, loan, today)
+    assert events(session) == []
+    periods.transition(session, tx, TransactionStatus.void)
+    assert [(e.payload["old_outstanding_pence"], e.payload["outstanding_pence"])
+            for e in events(session)] == [(0, 366_100)]
+
+
 def test_deleting_alias_claim_and_provider_void_observe_each_affected_loan(session, household):
     from app.api.v1.loans import delete_repayment
     from app.domain import sync
