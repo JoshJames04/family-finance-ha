@@ -67,7 +67,7 @@ def _emit_row(
 def _drop_future(
     session: Session, source: ExpectedSource, source_id: int, today: date
 ) -> dict[tuple[date, int | None], ExpectedMovement]:
-    """Delete unmatched FUTURE rows for a source; return the matched
+    """Delete open unmatched future rows; return matched and dismissed
     survivors keyed by ``(expected_date, account_id)`` so callers can
     re-price them in place. Matched rows can't be deleted —
     ``expected_match`` FKs to them — and shouldn't be: real money
@@ -570,7 +570,7 @@ def rematerialize_goal(
     """Sinking-fund monthly expectations into the pot account —
     `estimated` (the need recomputes as contributions land)."""
     today = today or date.today()
-    _drop_future(session, ExpectedSource.savings_goal, goal.id, today)
+    survivors = _drop_future(session, ExpectedSource.savings_goal, goal.id, today)
     if not goal.active:
         session.flush()
         return 0
@@ -578,17 +578,17 @@ def rematerialize_goal(
     for d, pence in goals.sinking_schedule(session, goal, today=today):
         if d < today:
             continue
-        session.add(
-            _emit_row(
-                goal.household_id,
-                account_id=goal.account_id,
-                expected_date=d,
-                amount_pence=pence,
-                label=f"{goal.name} contribution",
-                confidence=Confidence.estimated,
-                source=ExpectedSource.savings_goal,
-                source_id=goal.id,
-            )
+        _upsert(
+            session,
+            survivors,
+            goal.household_id,
+            account_id=goal.account_id,
+            expected_date=d,
+            amount_pence=pence,
+            label=f"{goal.name} contribution",
+            confidence=Confidence.estimated,
+            source=ExpectedSource.savings_goal,
+            source_id=goal.id,
         )
         n += 1
     session.flush()
@@ -607,7 +607,7 @@ def rematerialize_subscription(
     nothing: history stays, the forecast forgets."""
     today = today or date.today()
     horizon = today + timedelta(days=horizon_days)
-    _drop_future(session, ExpectedSource.subscription, sub.id, today)
+    survivors = _drop_future(session, ExpectedSource.subscription, sub.id, today)
     if sub.status is SubscriptionStatus.cancelled:
         session.flush()
         return 0
@@ -615,17 +615,17 @@ def rematerialize_subscription(
     d = sub.next_renewal_date
     while d <= horizon:
         if d >= today:
-            session.add(
-                _emit_row(
-                    sub.household_id,
-                    account_id=sub.account_id,
-                    expected_date=d,
-                    amount_pence=-sub.expected_pence,
-                    label=f"{sub.payee} subscription",
-                    confidence=Confidence.scheduled,
-                    source=ExpectedSource.subscription,
-                    source_id=sub.id,
-                )
+            _upsert(
+                session,
+                survivors,
+                sub.household_id,
+                account_id=sub.account_id,
+                expected_date=d,
+                amount_pence=-sub.expected_pence,
+                label=f"{sub.payee} subscription",
+                confidence=Confidence.scheduled,
+                source=ExpectedSource.subscription,
+                source_id=sub.id,
             )
             n += 1
         d = advance(d, sub.frequency, sub.anchor_day)

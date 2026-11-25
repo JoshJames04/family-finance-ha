@@ -4,7 +4,7 @@ leaving forecasts, price history."""
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -119,6 +119,24 @@ class TestForecastEmission:
                 == ExpectedSource.subscription)).scalars().all()
         assert all(r.amount_pence == -1_099 for r in rows)
         assert rows[0].expected_date == date(2026, 3, 15)
+
+    def test_dismissed_occurrence_survives_repeated_rebuild(
+            self, session: Session, sub: Subscription) -> None:
+        schedule.rematerialize_subscription(session, sub, today=date(2026, 3, 1))
+        row = session.scalars(select(ExpectedMovement).order_by(ExpectedMovement.id)).first()
+        assert row is not None
+        row.dismissed_at = datetime(2026, 1, 1)
+        session.flush()
+        query = select(ExpectedMovement).where(
+            ExpectedMovement.expected_date == row.expected_date,
+            ExpectedMovement.source_id == row.source_id,
+            ExpectedMovement.account_id == row.account_id,
+        )
+        for _ in range(2):
+            schedule.rematerialize_subscription(session, sub, today=date(2026, 3, 1))
+            retained = session.scalars(query).one()
+            assert retained.id == row.id
+            assert retained.dismissed_at == datetime(2026, 1, 1)
 
     def test_cancel_drops_future_expectations(
             self, session: Session, sub: Subscription) -> None:

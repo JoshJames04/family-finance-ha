@@ -4,7 +4,7 @@ maths, expected-movement materialisation."""
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -370,6 +370,25 @@ class TestMaterialise:
         assert all(m.expected_date.day == 1 for m in rows)
         assert {m.amount_pence for m in rows} == {15_000}
         assert all(m.account_id == pot.id for m in rows)
+
+    def test_dismissed_occurrence_survives_repeated_rebuild(
+            self, session: Session, household: Household, pot: Account) -> None:
+        g = _goal(session, household, pot, target=60_000, target_date=date(2025, 8, 1))
+        schedule.rematerialize_goal(session, g, today=TODAY)
+        row = session.scalars(select(ExpectedMovement).order_by(ExpectedMovement.id)).first()
+        assert row is not None
+        row.dismissed_at = datetime(2026, 1, 1)
+        session.flush()
+        query = select(ExpectedMovement).where(
+            ExpectedMovement.expected_date == row.expected_date,
+            ExpectedMovement.source_id == row.source_id,
+            ExpectedMovement.account_id == row.account_id,
+        )
+        for _ in range(2):
+            schedule.rematerialize_goal(session, g, today=TODAY)
+            retained = session.scalars(query).one()
+            assert retained.id == row.id
+            assert retained.dismissed_at == datetime(2026, 1, 1)
 
     def test_deactivate_drops_future(
             self, session: Session, household: Household,
