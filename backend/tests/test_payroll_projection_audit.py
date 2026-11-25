@@ -593,9 +593,13 @@ def test_real_run_reuses_matched_employment_projection(session, household):
     # Received salary stays in the ledger after estimate/run/correction replacement.
     assert match.matched_pence >= rows[0].amount_pence
     forecast = projection.project(session, a, 35, from_date=TODAY)
-    assert forecast.start_balance_pence == txn.amount_pence
-    assert sum(day.movements_pence for day in forecast.days) == 0
+    assert forecast.start_balance_pence == 0
+    assert [(day.date, day.movements_pence) for day in forecast.days if day.movements_pence] == [
+        (txn.date, txn.amount_pence)]
     assert forecast.next_payday is None
+    received = projection.project(session, a, 1, from_date=txn.date)
+    assert received.start_balance_pence == txn.amount_pence
+    assert received.days[0].movements_pence == 0
 
 
 def test_dismissal_survives_real_run_supersession(session, household):
