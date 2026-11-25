@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 1.5.6
+
+- Exclude archived accounts from actionable bills, forecasts and reconciliation.
+  Use remaining unpaid amounts, preserve write-offs and protect scheduled
+  payments when accounts merge (#587, #589, #590, #610, #611, #622).
+- Keep loan balances, repayment evidence, interest, payoff dates and monthly
+  net worth consistent after settlement or reversal (#591, #605, #607, #616, #617, #626).
+- Count confirmed transfers in reports, display savings rates as percentages and
+  show above-target income as favourable (#592, #597, #606).
+- Validate backups before restoring, handle valid SQLite paths and avoid sending
+  the same pending Home Assistant notification twice (#594, #595, #615, #623).
+- Distinguish unavailable data from zero, make repeat energy entry work, and
+  label energy input as daily consumption (#602, #603, #619).
+- Restore keyboard focus after closing mobile dialogs (#596).
+
 ## 1.5.5
 
 - Preserve incomplete historical payroll and dependent forecasts when overtime

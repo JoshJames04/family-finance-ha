@@ -286,6 +286,24 @@ class TestApi:
         assert position["repaid_pence"] == 1000
         assert position["drift_pence"] == -1000
 
+    def test_paid_off_loan_position_is_not_behind_schedule(self, client: TestClient) -> None:
+        household = client.post("/api/v1/households", json={"name": "Test"}).json()
+        headers = {"X-Household-Id": str(household["id"])}
+        start = date.today() - timedelta(days=365)
+        response = client.post("/api/v1/loans", headers=headers, json={
+            "party": "Test lender", "direction": "we_owe", "principal": 10_000,
+            "start_date": start.isoformat(), "expected_payment": 10_000, "interest_bps_pa": 1000,
+        })
+        assert response.status_code == 201
+        route = f"/api/v1/loans/{response.json()['id']}"
+        payment = client.post(f"{route}/repayments", headers=headers,
+                              json={"date": start.isoformat(), "amount": 10_000})
+        assert payment.status_code == 201
+        position = client.get(route, headers=headers).json()
+        assert position["outstanding_pence"] == 0
+        assert position["expected_to_date_pence"] == 10_000
+        assert position["drift_pence"] == 0
+
     def test_owner_round_trips(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
                           json={"name": "H"}).json()["id"]
