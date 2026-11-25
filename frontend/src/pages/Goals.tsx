@@ -15,7 +15,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Progress, Ring } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { formatDayMonthYear, formatPence, toISODate } from "../lib/format";
 
 type Goal = components["schemas"]["SavingsGoalOut"];
@@ -106,10 +106,11 @@ function GoalCard({ goal: g, rev, onClose }: { goal: Goal; rev: number; onClose:
         {!done && p?.on_track === false && <Badge tone="warning">Behind</Badge>}
       </div>
 
+      {progress.error && <ErrorState message={progress.error} onRetry={progress.refetch} />}
       <div className="mt-4 flex items-center gap-4">
-        <Ring ratio={pct / 100} size={84} stroke={9}>
+        {p && <Ring ratio={pct / 100} size={84} stroke={9}>
           <span className="tnum text-[15px] font-semibold">{pct}%</span>
-        </Ring>
+        </Ring>}
         <div className="min-w-0 flex-1 space-y-1 text-[13px]">
           {progress.loading ? (
             <><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /></>
@@ -126,7 +127,7 @@ function GoalCard({ goal: g, rev, onClose }: { goal: Goal; rev: number; onClose:
       </div>
 
       <div className="mt-4 border-t border-border pt-3">
-        <Progress value={p?.contributed_pence ?? 0} max={g.target_pence} tone="positive" label={`${g.name} funded`} />
+        {p && <Progress value={p.contributed_pence} max={g.target_pence} tone="positive" label={`${g.name} funded`} />}
         {g.active && (
           <div className="mt-3 flex justify-end">
             <Button size="sm" variant="ghost" onClick={onClose} aria-label={`Close ${g.name}`}>Close goal</Button>

@@ -78,6 +78,8 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   the signed-in member's current salary payment account. Missing or ambiguous
   salary destinations prompt for an account instead of guessing.
 
+Goal progress and energy panels show a retry when a read fails. Subscription summary figures cover active services across both register tabs.
+
 ## Architecture at a glance
 
 | Component | Technology |
