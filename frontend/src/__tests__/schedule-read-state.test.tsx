@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
+import * as hooks from "../api/hooks";
 import { Forecast } from "../pages/Forecast";
 import { Upcoming } from "../pages/Upcoming";
 
@@ -30,4 +31,15 @@ it.each([Upcoming, Forecast])("distinguishes a failed schedule from a successful
   await userEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect((await screen.findAllByText(/\u00a30\.00/)).length).toBeGreaterThan(0);
   expect(screen.queryByText(/Schedule unavailable/)).toBeNull();
+});
+
+it("retains a previously loaded empty schedule alongside a refresh warning", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ items: [], total: 0 }));
+  vi.spyOn(hooks, "useUpcoming").mockReturnValue({
+    data: [], loading: false, retrying: false, error: "Refresh failed", refetch: vi.fn(),
+  });
+  render(<MemoryRouter><Upcoming /></MemoryRouter>);
+  expect(await screen.findByText("Refresh failed")).toBeTruthy();
+  expect(screen.getByText("0 movements")).toBeTruthy();
+  expect(screen.getAllByText(/\u00a30\.00/)).toHaveLength(3);
 });

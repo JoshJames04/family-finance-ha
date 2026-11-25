@@ -72,7 +72,7 @@ export function Upcoming() {
       />
 
       <div className="mb-4 grid grid-cols-3 gap-3">
-        {state.loading ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />) : next30 && !state.error ? (
+        {state.loading ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />) : next30 ? (
           <>
             <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Coming in · 30 days" value={<Money pence={next30.inP} className="text-positive" />} />
             <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Going out · 30 days" value={<Money pence={Math.abs(next30.outP)} />} />
