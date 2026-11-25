@@ -5778,6 +5778,11 @@ export interface components {
         };
         /** GoalProgressOut */
         GoalProgressOut: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
             /** Contributed Pence */
             contributed_pence: number;
             /** Remaining Pence */
