@@ -118,7 +118,10 @@ def schedule_drift(session: Session, loan: Loan,
     behind the repayment expectation."""
     on = on or date.today()
     expected = expected_to_date(loan, on)
-    actual = repaid_pence(session, loan, on)
+    balance = balance_at(session, loan, on)
+    actual = balance.repaid_pence
+    if balance.outstanding_pence == 0:
+        expected = min(expected, loan.principal_pence + balance.accrued_interest_pence)
     return Drift(expected_pence=expected, actual_pence=actual,
                  drift_pence=expected - actual)
 

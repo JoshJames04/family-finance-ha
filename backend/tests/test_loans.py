@@ -127,6 +127,15 @@ def test_interest_stops_at_effective_settlement_and_reopens_after_void(session, 
 
 
 class TestDrift:
+    def test_settled_loan_never_falls_behind_later(self, session: Session, loan: Loan) -> None:
+        loan.interest_bps_pa = 1000
+        payoff = date(2025, 1, 11)
+        actual = loan.principal_pence + loans.accrued_interest(loan, payoff)
+        _repay(session, loan, actual, payoff)
+        drift = loans.schedule_drift(session, loan, date(2035, 1, 1))
+        assert drift.actual_pence == drift.expected_pence == actual
+        assert drift.drift_pence == 0
+
     def test_behind_schedule(self, session: Session,
                              loan: Loan) -> None:
         """Jan→Apr = 3 months expected (£300); £100 paid → £200 drift."""
