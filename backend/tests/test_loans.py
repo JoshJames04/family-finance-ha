@@ -139,6 +139,42 @@ class TestLink:
         loans.link_repayment(session, r, tx)
         assert r.transaction_id == tx.id
 
+    @pytest.mark.parametrize("replacement", ["none", "equivalent", "changed", "ambiguous"])
+    def test_linked_evidence_tracks_corrections(self, session, household, loan, replacement):
+        account = Account(household_id=household.id, name="Joint", type="joint", opening_date=TODAY)
+        session.add(account)
+        session.flush()
+        original = Transaction(account_id=account.id, date=TODAY, amount_pence=-1000,
+                               payee="Original", status=TransactionStatus.cleared)
+        session.add(original)
+        session.flush()
+        repayment = _repay(session, loan, 1000, TODAY)
+        loans.link_repayment(session, repayment, original)
+        _repay(session, loan, 500, TODAY)  # Manual payments remain effective.
+        original.status = TransactionStatus.void
+        if replacement != "none":
+            live = Transaction(account_id=account.id, date=TODAY, corrects_id=original.id,
+                               amount_pence=-200 if replacement == "changed" else -1000,
+                               payee="Corrected", status=TransactionStatus.cleared)
+            session.add(live)
+            if replacement == "ambiguous":
+                session.add(Transaction(account_id=account.id, date=TODAY, corrects_id=original.id,
+                                        amount_pence=-1000, payee="Other replacement"))
+        session.flush()
+        counted = 1500 if replacement == "equivalent" else 500
+        assert loans.repaid_pence(session, loan) == counted
+        assert loans.repayment_balances(session, loan)[-1][1] == loan.principal_pence - counted
+        assert repayment.transaction_id == original.id
+        if replacement == "equivalent":
+            with pytest.raises(LoanError, match="already attributed"):
+                loans.link_repayment(session, Repayment(loan_id=loan.id, date=TODAY,
+                                                        amount_pence=1000), live)
+            # A pre-existing duplicate alias must not consume the payment twice.
+            session.add(Repayment(loan_id=loan.id, date=TODAY, amount_pence=1000,
+                                  transaction_id=live.id))
+            session.flush()
+            assert loans.repaid_pence(session, loan) == counted
+
     def test_cross_household_link_rejected(
             self, session: Session, household: Household,
             loan: Loan) -> None:

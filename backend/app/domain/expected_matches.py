@@ -49,6 +49,27 @@ def acyclic_transaction_ids(transaction_ids: Collection[int] | Select[Any]) -> S
         tip, tip.id == ancestry.c.transaction_id).where(~has_parent).distinct()
 
 
+def live_payment_evidence(anchor: Select[Any, Any]) -> Subquery:
+    """Resolve (match_id, transaction_id) references through equivalent void corrections.
+
+    Consumers accept exactly one live branch. The stored reference stays intact.
+    """
+    parent, child = aliased(Transaction), aliased(Transaction)
+    requested = anchor.subquery()
+    anchor = anchor.where(anchor.selected_columns.transaction_id.in_(acyclic_transaction_ids(
+        select(requested.c.transaction_id))))
+    lineage = anchor.cte(recursive=True)
+    lineage = lineage.union(select(lineage.c.match_id, child.id).join(
+        parent, parent.id == lineage.c.transaction_id).join(
+        child, child.corrects_id == parent.id).where(
+        parent.status == TransactionStatus.void,
+        _equivalent(parent, child)))
+    return select(lineage.c.match_id, lineage.c.transaction_id,
+        func.count().over(partition_by=lineage.c.match_id).label("branches")).join(
+        Transaction, Transaction.id == lineage.c.transaction_id).where(
+        Transaction.status != TransactionStatus.void).subquery()
+
+
 def eligible_matches(movement_ids: Collection[int] | Select[Any] | None = None, *,
                      transaction_ids: Collection[int] | Select[Any] | None = None) -> Subquery:
     """Resolve each match to one eligible live payment; allocate its pence once.
@@ -80,19 +101,7 @@ def eligible_matches(movement_ids: Collection[int] | Select[Any] | None = None, 
                 child.corrects_id == parent.id, parent.corrects_id == child.id)).where(
                     _equivalent(parent, child)))
         anchor = anchor.where(ExpectedMatch.transaction_id.in_(select(family.c.transaction_id)))
-    requested = anchor.subquery()
-    anchor = anchor.where(ExpectedMatch.transaction_id.in_(acyclic_transaction_ids(
-        select(requested.c.transaction_id))))
-    lineage = anchor.cte(recursive=True)
-    lineage = lineage.union(select(lineage.c.match_id, child.id).join(
-        parent, parent.id == lineage.c.transaction_id).join(
-        child, child.corrects_id == parent.id).where(
-        parent.status == TransactionStatus.void,
-        _equivalent(parent, child)))
-    live = select(lineage.c.match_id, lineage.c.transaction_id,
-        func.count().over(partition_by=lineage.c.match_id).label("branches")).join(
-        Transaction, Transaction.id == lineage.c.transaction_id).where(
-        Transaction.status != TransactionStatus.void).subquery()
+    live = live_payment_evidence(anchor)
     claims = select(ExpectedMatch.id, ExpectedMatch.movement_id,
         live.c.transaction_id, ExpectedMatch.manual,
         func.abs(Transaction.amount_pence).label("capacity"),

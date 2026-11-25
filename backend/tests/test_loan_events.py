@@ -187,3 +187,76 @@ def test_reactivation_seeds_without_replaying_inactive_changes(session, househol
     evaluate(session, loan)
     assert events(session)[0].payload["old_outstanding_pence"] == 6000
     assert events(session)[0].payload["outstanding_pence"] == 5000
+
+def test_voided_correction_emits_loan_change_in_transaction(session, household):
+    from app.domain import loans, periods, transactions
+    from app.persistence.models import Account, Transaction, TransactionStatus
+
+    loan = make_loan(session, household)
+    account = Account(household_id=household.id, name="Loan account", type="joint",
+                      opening_date=TODAY)
+    session.add(account)
+    session.flush()
+    original = Transaction(account_id=account.id, date=TODAY, amount_pence=-3000,
+                           payee="Loan payment", status=TransactionStatus.reconciled)
+    session.add(original)
+    session.flush()
+    loans.link_repayment(session, repay(session, loan, 3000), original)
+    financial_events.evaluate_loan(session, loan)
+    replacement = transactions.correct(session, original, "label")
+    assert events(session) == []
+    periods.transition(session, replacement, TransactionStatus.void)
+    assert [(e.event_type, e.payload["outstanding_pence"]) for e in events(session)] == [
+        ("loan.balance_changed", 10000)]
+    session.rollback()
+    assert events(session) == []
+
+def test_reclassifying_a_repayment_as_transfer_emits_loan_change(session, household):
+    from app.domain import loans, transfers
+    from app.persistence.models import Account, Transaction
+
+    loan = make_loan(session, household)
+    checking, saving = (Account(household_id=household.id, name=name, type="joint",
+                                opening_date=TODAY) for name in ("First", "Second"))
+    session.add_all([checking, saving])
+    session.flush()
+    debit = Transaction(account_id=checking.id, date=TODAY, amount_pence=-3000, payee="Payment")
+    credit = Transaction(account_id=saving.id, date=TODAY, amount_pence=3000, payee="Receipt")
+    session.add_all([debit, credit])
+    session.flush()
+    loans.link_repayment(session, repay(session, loan, 3000), debit)
+    transfers.create_transfer(session, household.id, debit, credit)
+    assert [event.payload["outstanding_pence"] for event in events(session)] == [10000]
+
+def test_deleting_alias_claim_and_provider_void_observe_each_affected_loan(session, household):
+    from app.api.v1.loans import delete_repayment
+    from app.domain import sync
+    from app.persistence.models import Account, Transaction, TransactionSource, TransactionStatus
+
+    first, second = make_loan(session, household), make_loan(session, household)
+    account = Account(household_id=household.id, name="Synthetic", type="joint", opening_date=TODAY)
+    session.add(account)
+    session.flush()
+    original = Transaction(account_id=account.id, date=TODAY, amount_pence=-3000,
+                           payee="Original", status=TransactionStatus.void)
+    session.add(original)
+    session.flush()
+    live = Transaction(account_id=account.id, date=TODAY, amount_pence=-3000,
+                       payee="Reissued", corrects_id=original.id, source=TransactionSource.starling,
+                       external_ref="synthetic-repayment", status=TransactionStatus.cleared)
+    session.add(live)
+    session.flush()
+    winner = repay(session, first, 3000)
+    winner.transaction_id = original.id
+    repay(session, second, 3000).transaction_id = live.id
+    financial_events.evaluate_loan(session, first)
+    financial_events.evaluate_loan(session, second)
+    delete_repayment(first.id, winner.id, household, session, "test", None)
+    changes = {(e.entity_id, e.payload["outstanding_pence"]) for e in events(session)}
+    assert changes == {(first.id, 10000), (second.id, 7000)}
+
+    reverse = sync.FeedItem("synthetic-repayment", TODAY, -3000, "Reissued", TransactionStatus.void)
+    sync.sync_account(session, account, TransactionSource.starling,
+                      lambda cursor: iter([sync.FeedPage([reverse])]))
+    assert events(session)[-1].entity_id == second.id
+    assert events(session)[-1].payload["outstanding_pence"] == 10000
