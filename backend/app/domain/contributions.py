@@ -126,6 +126,12 @@ def assert_payment_eligible(session: Session, movement: ExpectedMovement,
     if session.scalar(select(Account.household_id).where(
             Account.id == tx.account_id)) != movement.household_id:
         raise MatchError("transaction household does not match the movement")
+    if session.scalar(select(ExpectedMovement.id).where(
+        ExpectedMovement.id == movement.id,
+        ExpectedMovement.dismissed_at.is_(None),
+        current_movement_account(),
+    )) is None:
+        raise MatchError("expected movement is no longer available")
     if session.scalar(acyclic_transaction_ids([tx.id]).limit(1)) is None:
         raise MatchError("cyclic transaction corrections cannot satisfy expected movements")
 
@@ -170,6 +176,7 @@ def auto_match(session: Session, household_id: int, *,
     movements = list(session.execute(
         select(ExpectedMovement).where(
             current_movement_account(),
+            ExpectedMovement.dismissed_at.is_(None),
             ExpectedMovement.household_id == household_id,
             ExpectedMovement.source_type ==
             ExpectedSource.transfer_rule,
