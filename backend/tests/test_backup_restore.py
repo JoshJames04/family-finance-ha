@@ -160,7 +160,8 @@ def test_historical_restore_migrates_only_the_staged_copy(tmp_path, monkeypatch)
     from app.persistence.migrate import alembic_config, head_revision
 
     snapshot = tmp_path / "ff-20260101T000000.db"
-    destination = tmp_path / "active.db"
+    destination = tmp_path / "data%20literal" / "active.db"
+    destination.parent.mkdir()
     revision = "0002_core_schema"
     url = f"sqlite:///{snapshot.as_posix()}"
     command.upgrade(alembic_config(url), revision)

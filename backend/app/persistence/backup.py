@@ -18,7 +18,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from alembic.script import ScriptDirectory
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import URL, Engine
 
 from app.persistence import models  # noqa: F401 - register application tables
 from app.persistence.base import Base
@@ -141,7 +141,7 @@ def restore_from(snapshot: Path, db_path: Path, *, migrate: bool = False) -> Non
         if migrate:
             if not verify_snapshot(staged):
                 raise ValueError("Incompatible or damaged Family Finance snapshot")
-            upgrade_head(f"sqlite:///{staged.as_posix()}")
+            upgrade_head(URL.create("sqlite", database=staged.as_posix()).render_as_string())
         with closing(sqlite3.connect(staged)) as source:
             if source.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                 raise ValueError("Damaged Family Finance snapshot")

@@ -21,7 +21,7 @@ BACKEND_DIR = Path(os.environ.get(
 
 def alembic_config(db_url: str) -> Config:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-    cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
     cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     return cfg
 
