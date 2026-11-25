@@ -94,10 +94,12 @@ def projected_payoff(
     first month at or below zero. ``None`` months means the rate
     never covers the principal."""
     on = on or date.today()
+    base = repaid_pence(session, loan, on)
+    if base >= loan.principal_pence + accrued_interest(loan, on):
+        return Projection(months=0, payoff_date=on)
     rate = (loan.expected_payment_pence or 0) + extra_monthly_pence
     if rate <= 0:
         return Projection(months=None, payoff_date=None)
-    base = repaid_pence(session, loan, on)
     anchor = date(on.year, on.month, 1)
     for m in range(1, max_months + 1):
         future = date(anchor.year + (anchor.month - 1 + m) // 12,

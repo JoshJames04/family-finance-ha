@@ -89,6 +89,8 @@ function GoalCard({ goal: g, rev, onClose }: { goal: Goal; rev: number; onClose:
   const p: ProgressOut | null = progress.data;
   const pct = p ? p.pct : 0;
   const done = pct >= 100;
+  const due = p && !done && g.active && g.target_date && g.target_date <= p.as_of
+    ? (g.target_date === p.as_of ? "Due today" : "Overdue") : null;
   return (
     <Panel className={g.active ? undefined : "opacity-60"}>
       <div id={`savings_goal-${g.id}`} className="flex items-start gap-3">
@@ -101,9 +103,10 @@ function GoalCard({ goal: g, rev, onClose }: { goal: Goal; rev: number; onClose:
             {!g.active ? " · closed" : ""}
           </p>
         </div>
+        {due && <Badge tone="warning">{due}</Badge>}
         {done && <Badge tone="success">Funded</Badge>}
-        {!done && p?.on_track === true && <Badge tone="info">On track</Badge>}
-        {!done && p?.on_track === false && <Badge tone="warning">Behind</Badge>}
+        {!due && !done && p?.on_track === true && <Badge tone="info">On track</Badge>}
+        {!due && !done && p?.on_track === false && <Badge tone="warning">Behind</Badge>}
       </div>
 
       <div className="mt-4 flex items-center gap-4">
@@ -116,7 +119,7 @@ function GoalCard({ goal: g, rev, onClose }: { goal: Goal; rev: number; onClose:
           ) : p ? (
             <>
               <p><Money pence={p.contributed_pence} className="font-semibold" /> <span className="text-fg-subtle">of {formatPence(g.target_pence)}</span></p>
-              <p className="text-fg-subtle"><Money pence={p.remaining_pence} /> to go{p.monthly_need_pence !== null ? ` · ${formatPence(p.monthly_need_pence)}/mo needed` : ""}</p>
+              <p className="text-fg-subtle"><Money pence={p.remaining_pence} /> to go{!due && p.monthly_need_pence !== null ? ` · ${formatPence(p.monthly_need_pence)}/mo needed` : ""}</p>
               {p.projected_date && !done && (
                 <p className="text-fg-subtle">Projected {formatDayMonthYear(p.projected_date)}</p>
               )}
