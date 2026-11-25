@@ -1,11 +1,12 @@
 """Account lifecycle: opening, archive, delete-guard, merge (issue #41)."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
 
 from app.domain.accounts import (
+    AccountMergeError,
     AccountNotEmptyError,
     active_accounts,
     all_accounts,
@@ -20,10 +21,17 @@ from app.domain.accounts import (
 from app.persistence.models import (
     Account,
     AccountType,
+    Confidence,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
+    Frequency,
     Household,
+    Subscription,
     Transaction,
     TransactionSource,
     TransactionStatus,
+    TransferRule,
 )
 
 D0 = date(2026, 1, 1)
@@ -131,6 +139,96 @@ class TestMerge:
         assert transaction_count(session, src.id) == 0
         # 5000 (moved opening) - 200 (moved txn) + 100 (own opening)
         assert current_balance(session, tgt.id) == 4900
+
+    @pytest.mark.parametrize("schedule_type", ["manual", "overdue", "subscription", "transfer"])
+    def test_merge_rejects_unmoved_schedules_before_changes(
+        self, session: Session, household: Household, schedule_type: str,
+    ) -> None:
+        source = _open(session, household, "Old", pence=5000)
+        target = _open(session, household, "New", pence=100)
+        future = date.today() + timedelta(days=180)
+        if schedule_type in {"manual", "overdue"}:
+            due = future if schedule_type == "manual" else date.today() - timedelta(days=1)
+            session.add(ExpectedMovement(
+                household_id=household.id, account_id=source.id, expected_date=due,
+                amount_pence=-200, label="Planned expense", confidence=Confidence.scheduled,
+                source_type=ExpectedSource.manual, source_id=1,
+            ))
+        elif schedule_type == "subscription":
+            session.add(Subscription(
+                household_id=household.id, payee="Test", payee_normalised="test",
+                account_id=source.id, frequency=Frequency.monthly, expected_pence=200,
+                next_renewal_date=future, anchor_day=1,
+            ))
+        else:
+            session.add(TransferRule(
+                household_id=household.id, name="Recurring transfer",
+                source_account_id=target.id, dest_account_id=source.id,
+                amount_spec='{"kind":"fixed","pence":200}', frequency=Frequency.monthly,
+                day_of_month=1, start_date=future,
+            ))
+        session.flush()
+
+        with pytest.raises(AccountMergeError, match="non-bill schedules"):
+            merge_accounts(session, source, target)
+
+        assert not source.archived
+        assert current_balance(session, source.id) == 5000
+        assert current_balance(session, target.id) == 100
+
+    @pytest.mark.parametrize("matched", [125, 200])
+    def test_merge_checks_remaining_amount_on_overdue_plan(
+        self, session: Session, household: Household, matched: int,
+    ) -> None:
+        source = _open(session, household, "Old")
+        target = _open(session, household, "New")
+        due = date.today() - timedelta(days=5)
+        movement = ExpectedMovement(
+            household_id=household.id, account_id=source.id, expected_date=due,
+            amount_pence=-200, label="Planned expense", confidence=Confidence.scheduled,
+            source_type=ExpectedSource.manual, source_id=1,
+        )
+        payment = Transaction(account_id=source.id, date=due, amount_pence=-matched,
+                              payee="Plan payment", status=TransactionStatus.cleared)
+        session.add_all([movement, payment])
+        session.flush()
+        session.add(ExpectedMatch(movement_id=movement.id, transaction_id=payment.id,
+                                  matched_pence=matched, manual=True))
+        session.flush()
+
+        if matched < 200:
+            with pytest.raises(AccountMergeError, match="non-bill schedules"):
+                merge_accounts(session, source, target)
+            assert not source.archived
+        else:
+            merge_accounts(session, source, target)
+            assert source.archived
+
+    def test_merge_protects_opposite_unpaid_leg_of_paused_transfer(
+        self, session: Session, household: Household,
+    ) -> None:
+        source = _open(session, household, "Old", pence=5000)
+        target = _open(session, household, "New", pence=100)
+        due = date.today() - timedelta(days=5)
+        rule = TransferRule(
+            household_id=household.id, name="Paused contribution",
+            source_account_id=source.id, dest_account_id=target.id,
+            amount_spec='{"kind":"fixed","pence":200}', frequency=Frequency.monthly,
+            day_of_month=1, start_date=due, active=False,
+        )
+        session.add(rule)
+        session.flush()
+        session.add(ExpectedMovement(
+            household_id=household.id, account_id=target.id, expected_date=due,
+            amount_pence=200, label=rule.name, confidence=Confidence.scheduled,
+            source_type=ExpectedSource.transfer_rule, source_id=rule.id,
+        ))
+        session.flush()
+
+        with pytest.raises(AccountMergeError, match="non-bill schedules"):
+            merge_accounts(session, source, target)
+        assert not source.archived
+        assert current_balance(session, source.id) == 5000
 
     def test_merge_into_self_rejected(
         self, session: Session, household: Household

@@ -16,6 +16,7 @@ export function Dialog({
   children,
   footer,
   className,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -24,6 +25,7 @@ export function Dialog({
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const opener = useRef<HTMLElement | null>(null);
   return (
@@ -36,12 +38,12 @@ export function Dialog({
             opener.current = active instanceof HTMLElement && active !== document.body
               ? active : null;
           }}
-          onCloseAutoFocus={(event) => {
+          onCloseAutoFocus={onCloseAutoFocus ?? ((event) => {
             if (opener.current?.isConnected) {
               event.preventDefault();
               opener.current.focus();
             }
-          }}
+          })}
           className={cn(
             "fixed top-1/2 left-1/2 z-50 flex max-h-[min(90vh,720px)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col",
             "rounded-2xl border border-border bg-surface shadow-2xl",

@@ -3,6 +3,7 @@
  * one — onto a copy of the movement stream; "run" replays the
  * projection and diffs it against baseline: does the balance dip lower,
  * can you still afford it, does it breach payday? */
+import { outstandingMovements } from "../lib/outstandingMovements";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { undoToast } from "../lib/toast";
@@ -65,7 +66,7 @@ export function Scenarios() {
     end.setDate(end.getDate() + 365);
     return api.get("/api/v1/expected-movements", {
       query: { start: toISODate(today), end: toISODate(end) },
-    });
+    }).then(outstandingMovements);
   }, ready && current != null, [current?.id, rev]);
 
   const [accountId, setAccountId] = useState("");

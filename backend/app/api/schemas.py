@@ -1260,6 +1260,7 @@ class SavingsGoalOut(BaseModel):
 
 
 class GoalProgressOut(BaseModel):
+    as_of: date
     contributed_pence: int
     remaining_pence: int
     monthly_need_pence: int | None

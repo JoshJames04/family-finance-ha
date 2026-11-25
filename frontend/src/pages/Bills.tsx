@@ -85,7 +85,8 @@ export function Bills() {
   const ownerOf = (c: Commitment) =>
     c.account_id == null ? null : accountsById.get(c.account_id)?.owner_profile_id ?? null;
   const inScope = (c: Commitment) =>
-    scope === "all" || (scope === "mine" ? ownerOf(c) === me : ownerOf(c) === null);
+    accountsById.has(c.account_id) && !accountsById.get(c.account_id)?.archived &&
+    (scope === "all" || (scope === "mine" ? me != null && ownerOf(c) === me : ownerOf(c) === null));
 
   const items = commitments.data?.items ?? [];
   const active = items.filter((c) => c.active && inScope(c));
@@ -106,9 +107,10 @@ export function Bills() {
       : [];
     return (bill.overdue_payments ?? legacyPayment).map(payment => ({ bill, ...payment }));
   }).filter(payment => {
-    if (scope === "all") return true;
     const account = accountsById.get(payment.account_id);
-    if (!account || (scope === "mine" && me == null)) return false;
+    if (!account || account.archived) return false;
+    if (scope === "all") return true;
+    if (scope === "mine" && me == null) return false;
     return account.owner_profile_id === (scope === "mine" ? me : null);
   }).sort((a, b) => a.expected_date.localeCompare(b.expected_date) || a.bill.name.localeCompare(b.bill.name));
   const next = upcoming[0];
@@ -231,7 +233,6 @@ export function Bills() {
                         <p className="text-sm text-fg-muted">
                           Due {formatWeekdayDayMonth(expected_date)}
                           {accountsById.has(account_id) ? ` · ${accountsById.get(account_id)!.name}` : ""}
-                          {accountsById.get(account_id)?.archived ? " (archived)" : ""}
                         </p>
                       </div>
                       {outstanding_pence == null ? "Variable amount" : <Money pence={Math.abs(outstanding_pence)} />}

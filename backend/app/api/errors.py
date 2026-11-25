@@ -41,7 +41,7 @@ def install_error_handlers(app: FastAPI) -> None:
         )
 
     # Domain-rule violations → 409 Conflict
-    from app.domain.accounts import AccountNotEmptyError
+    from app.domain.accounts import AccountMergeError, AccountNotEmptyError
     from app.domain.budgets import BudgetError
     from app.domain.categories import CategoryCycleError
     from app.domain.contributions import MatchError
@@ -63,6 +63,7 @@ def install_error_handlers(app: FastAPI) -> None:
     from app.domain.transfers import TransferError
 
     domain_conflicts = (
+        AccountMergeError,
         AccountNotEmptyError,
         BudgetError,
         CategoryCycleError,

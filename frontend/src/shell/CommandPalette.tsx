@@ -1,5 +1,6 @@
 /** ⌘K command palette: jump to any page, run global actions. */
 import { Command } from "cmdk";
+import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Monitor, Moon, Plus, Sun } from "lucide-react";
@@ -14,10 +15,12 @@ export function CommandPalette({
   open,
   onOpenChange,
   onQuickAdd,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onQuickAdd: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const navigate = useNavigate();
   const ready = useReady();
@@ -37,14 +40,8 @@ export function CommandPalette({
   const item =
     "flex h-10 cursor-pointer items-center gap-3 rounded-lg px-3 text-[13.5px] text-fg-muted " +
     "data-[selected=true]:bg-surface-2 data-[selected=true]:text-fg [&_svg]:size-4";
-  return (
-    <Command.Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-      label="Command menu"
-      overlayClassName="fixed inset-0 z-50 bg-[var(--overlay)] backdrop-blur-[2px]"
-      contentClassName="fixed top-[14vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
-    >
+  const menu = (
+    <Command label="Command menu">
       <Command.Input
         value={query}
         onValueChange={setQuery}
@@ -96,6 +93,18 @@ export function CommandPalette({
           ))}
         </Command.Group>
       </Command.List>
-    </Command.Dialog>
+    </Command>
+  );
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-[var(--overlay)] backdrop-blur-[2px]" />
+        <Dialog.Content onCloseAutoFocus={onCloseAutoFocus} aria-describedby={undefined}
+          className="fixed top-[14vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+          <Dialog.Title className="sr-only">Command menu</Dialog.Title>
+          {menu}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

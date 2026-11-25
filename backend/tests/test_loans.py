@@ -4,7 +4,7 @@ schedule-vs-actual drift; repayment↔transaction links."""
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -93,7 +93,49 @@ class TestOutstanding:
         assert loans.accrued_interest(loan, TODAY) == 0
 
 
+@pytest.mark.parametrize("direction", list(LoanDirection))
+def test_interest_stops_at_effective_settlement_and_reopens_after_void(session, household, loan,
+                                                                      direction):
+    loan.direction = direction
+    loan.principal_pence = 365_000
+    loan.interest_bps_pa = 1000  # 100p daily.
+    payoff = date(2025, 1, 11)
+    later = date(2025, 1, 21)
+    account = Account(household_id=household.id, name="Test", type="joint",
+                      opening_date=loan.start_date)
+    session.add(account)
+    session.flush()
+    _repay(session, loan, 100_000, payoff)
+    amount = 266_000
+    tx = Transaction(account_id=account.id, date=payoff, payee="Settlement",
+                     amount_pence=-amount if direction == LoanDirection.we_owe else amount,
+                     status=TransactionStatus.cleared)
+    session.add(tx)
+    session.flush()
+    loans.link_repayment(session, _repay(session, loan, amount, payoff), tx)
+    _repay(session, loan, 1, later)
+    before = loans.balance_at(session, loan, date(2025, 1, 10))
+    assert before == loans.LoanBalance(0, 900, 365_900)
+    assert loans.balance_at(session, loan, payoff) == loans.LoanBalance(366_000, 1000, 0)
+    assert loans.balance_at(session, loan, later) == loans.LoanBalance(366_001, 1000, 0)
+    assert loans.repayment_balances(session, loan)[-1][1] == 0
+    assert loans.projected_payoff(session, loan, on=later) == loans.Projection(0, later)
+    tx.status = TransactionStatus.void
+    session.flush()
+    assert loans.balance_at(session, loan, later) == loans.LoanBalance(100_001, 2000, 266_999)
+    assert loans.repayment_balances(session, loan)[-1][1] == 266_999
+
+
 class TestDrift:
+    def test_settled_loan_never_falls_behind_later(self, session: Session, loan: Loan) -> None:
+        loan.interest_bps_pa = 1000
+        payoff = date(2025, 1, 11)
+        actual = loan.principal_pence + loans.accrued_interest(loan, payoff)
+        _repay(session, loan, actual, payoff)
+        drift = loans.schedule_drift(session, loan, date(2035, 1, 1))
+        assert drift.actual_pence == drift.expected_pence == actual
+        assert drift.drift_pence == 0
+
     def test_behind_schedule(self, session: Session,
                              loan: Loan) -> None:
         """Jan→Apr = 3 months expected (£300); £100 paid → £200 drift."""
@@ -138,6 +180,42 @@ class TestLink:
         r = _repay(session, loan, 10_000, date(2025, 2, 1))
         loans.link_repayment(session, r, tx)
         assert r.transaction_id == tx.id
+
+    @pytest.mark.parametrize("replacement", ["none", "equivalent", "changed", "ambiguous"])
+    def test_linked_evidence_tracks_corrections(self, session, household, loan, replacement):
+        account = Account(household_id=household.id, name="Joint", type="joint", opening_date=TODAY)
+        session.add(account)
+        session.flush()
+        original = Transaction(account_id=account.id, date=TODAY, amount_pence=-1000,
+                               payee="Original", status=TransactionStatus.cleared)
+        session.add(original)
+        session.flush()
+        repayment = _repay(session, loan, 1000, TODAY)
+        loans.link_repayment(session, repayment, original)
+        _repay(session, loan, 500, TODAY)  # Manual payments remain effective.
+        original.status = TransactionStatus.void
+        if replacement != "none":
+            live = Transaction(account_id=account.id, date=TODAY, corrects_id=original.id,
+                               amount_pence=-200 if replacement == "changed" else -1000,
+                               payee="Corrected", status=TransactionStatus.cleared)
+            session.add(live)
+            if replacement == "ambiguous":
+                session.add(Transaction(account_id=account.id, date=TODAY, corrects_id=original.id,
+                                        amount_pence=-1000, payee="Other replacement"))
+        session.flush()
+        counted = 1500 if replacement == "equivalent" else 500
+        assert loans.repaid_pence(session, loan) == counted
+        assert loans.repayment_balances(session, loan)[-1][1] == loan.principal_pence - counted
+        assert repayment.transaction_id == original.id
+        if replacement == "equivalent":
+            with pytest.raises(LoanError, match="already attributed"):
+                loans.link_repayment(session, Repayment(loan_id=loan.id, date=TODAY,
+                                                        amount_pence=1000), live)
+            # A pre-existing duplicate alias must not consume the payment twice.
+            session.add(Repayment(loan_id=loan.id, date=TODAY, amount_pence=1000,
+                                  transaction_id=live.id))
+            session.flush()
+            assert loans.repaid_pence(session, loan) == counted
 
     def test_cross_household_link_rejected(
             self, session: Session, household: Household,
@@ -190,6 +268,41 @@ class TestApi:
         assert client.get(f"/api/v1/loans/{lid}",
                           headers=h).json()["outstanding_pence"] \
             == 500_000
+
+    def test_position_counts_only_repayments_through_today(self, client: TestClient) -> None:
+        today = date.today()
+        hid = client.post("/api/v1/households", json={"name": "H"}).json()["id"]
+        headers = {"X-Household-Id": str(hid)}
+        loan = client.post("/api/v1/loans", headers=headers, json={
+            "party": "Family", "direction": "we_owe", "principal": 10000,
+            "start_date": today.isoformat()}).json()
+        route = f"/api/v1/loans/{loan['id']}"
+        for day, amount in [(today, 1000), (today + timedelta(days=1), 4000)]:
+            response = client.post(f"{route}/repayments", headers=headers,
+                                   json={"date": day.isoformat(), "amount": amount})
+            assert response.status_code == 201
+        position = client.get(route, headers=headers).json()
+        assert position["outstanding_pence"] == 9000
+        assert position["repaid_pence"] == 1000
+        assert position["drift_pence"] == -1000
+
+    def test_paid_off_loan_position_is_not_behind_schedule(self, client: TestClient) -> None:
+        household = client.post("/api/v1/households", json={"name": "Test"}).json()
+        headers = {"X-Household-Id": str(household["id"])}
+        start = date.today() - timedelta(days=365)
+        response = client.post("/api/v1/loans", headers=headers, json={
+            "party": "Test lender", "direction": "we_owe", "principal": 10_000,
+            "start_date": start.isoformat(), "expected_payment": 10_000, "interest_bps_pa": 1000,
+        })
+        assert response.status_code == 201
+        route = f"/api/v1/loans/{response.json()['id']}"
+        payment = client.post(f"{route}/repayments", headers=headers,
+                              json={"date": start.isoformat(), "amount": 10_000})
+        assert payment.status_code == 201
+        position = client.get(route, headers=headers).json()
+        assert position["outstanding_pence"] == 0
+        assert position["expected_to_date_pence"] == 10_000
+        assert position["drift_pence"] == 0
 
     def test_owner_round_trips(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
@@ -404,6 +517,12 @@ class TestProjection:
             session, loan, on=date(2025, 2, 10))
         # £500k − £200k repaid = £300k at £10k/mo → 30 months
         assert p.months == 30
+
+    @pytest.mark.parametrize("expected", [None, 1000])
+    def test_already_paid_off(self, session, loan, expected):
+        loan.expected_payment_pence = expected
+        _repay(session, loan, loan.principal_pence, TODAY)
+        assert loans.projected_payoff(session, loan, on=TODAY) == loans.Projection(0, TODAY)
 
     def test_no_rate_never_pays_off(
             self, session: Session, household: Household) -> None:

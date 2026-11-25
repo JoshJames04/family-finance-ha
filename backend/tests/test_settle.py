@@ -166,6 +166,89 @@ def test_bill_summary_keeps_old_unpaid_occurrence_after_schedule_edit(session, h
             page.items[0].overdue_payments or []] == [(due, account.id, 1599)]
 
 
+def test_bill_summary_omits_archived_account_occurrence_without_recreating_it(
+        session, household, account):
+    from app.api.v1.commitments import list_commitments
+
+    today = date.today()
+    due = today - timedelta(days=1)
+    archived = Account(household_id=household.id, name="Imported", type="personal",
+                       opening_balance_pence=0, opening_date=due, archived=True)
+    session.add(archived)
+    session.flush()
+    bill = _commitment(session, household, account, next_date=due, pence=-5000)
+    imported = _movement(session, household, archived, on=due, pence=-2999,
+                         source_id=bill.id)
+    archived_bill = _commitment(session, household, archived, next_date=due)
+    valid_bill = _commitment(session, household, account, next_date=due)
+
+    page = list_commitments(household, session, None, include_overdue=True)
+    payments = {item.id: item.overdue_payments for item in page.items}
+    assert payments[bill.id] == []
+    assert archived_bill.id not in payments
+    assert [(p.account_id, p.outstanding_pence) for p in payments[valid_bill.id] or []] == [
+        (account.id, 1599),
+    ]
+    assert session.get(ExpectedMovement, imported.id) is not None
+
+
+def test_archived_account_drops_out_of_current_obligations(session, household, account):
+    from app.domain import budgets, schedule
+    from app.persistence.models import Budget
+
+    due = TODAY - timedelta(days=1)
+    bill = _commitment(session, household, account, next_date=due)
+    movement = _movement(session, household, account, on=due, source_id=bill.id)
+    budget = Budget(household_id=household.id, start_date=due, end_date=TODAY)
+    for archived in (False, True, False):
+        account.archived = archived
+        session.flush()
+        assert [m.id for m in schedule.stream(
+            session, household.id, start=due, end=TODAY)] == ([] if archived else [movement.id])
+        outstanding = contributions.outstanding(session, household.id, today=TODAY)
+        assert len(outstanding) == int(not archived)
+        assert budgets.bills_remaining(session, budget) == ((0, 0) if archived else (1599, 1))
+        assert session.get(ExpectedMovement, movement.id) is movement
+
+
+def test_merge_keeps_dismissed_occurrence_on_surviving_bill(session, household, account):
+    from app.domain import accounts, schedule
+
+    target = Account(household_id=household.id, name="Destination", type="personal",
+                     opening_date=TODAY)
+    session.add(target)
+    session.flush()
+    bill = _commitment(session, household, account, next_date=TODAY)
+    schedule.rematerialize_commitment(session, bill, today=TODAY, horizon_days=0)
+    movement = session.scalars(select(ExpectedMovement)).one()
+    dismissed = datetime(2025, 1, 15)
+    movement.dismissed_at = dismissed
+    session.flush()
+    accounts.merge_accounts(session, account, target)
+
+    for _ in range(2):
+        schedule.rematerialize_commitment(session, bill, today=TODAY, horizon_days=0)
+        remaining = session.scalars(select(ExpectedMovement)).one()
+        assert remaining.id == movement.id
+        assert (remaining.account_id, remaining.dismissed_at) == (target.id, dismissed)
+
+
+def test_overlapping_bill_merge_rejected_before_source_changes(session, household, account):
+    from app.domain.accounts import AccountMergeError, merge_accounts
+
+    target = Account(household_id=household.id, name="Destination", type="personal",
+                     opening_date=TODAY)
+    session.add(target)
+    session.flush()
+    bill = _commitment(session, household, account, next_date=TODAY)
+    for acct in (account, target):
+        _movement(session, household, acct, on=TODAY, source_id=bill.id)
+    with pytest.raises(AccountMergeError, match="overlapping"):
+        merge_accounts(session, account, target)
+    assert bill.account_id == account.id
+    assert not account.archived
+
+
 class TestAutoSettlement:
 
     def test_cleared_bank_txn_settles_commitment(

@@ -78,6 +78,8 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   the signed-in member's current salary payment account. Missing or ambiguous
   salary destinations prompt for an account instead of guessing.
 
+Manual energy entries represent the kWh consumed on the selected day. Goal progress and energy panels show a retry when a read fails. Subscription summary figures cover active services across both register tabs.
+
 ## Architecture at a glance
 
 | Component | Technology |
@@ -182,8 +184,16 @@ Expand **Reconcile spending** for the transaction and split amounts behind the
 headline, including budget-covered, unallocated and uncategorised totals. Category
 actuals retain the full budget period for historical analysis. Part-paid bills
 remain in Bills remaining until their outstanding amount is zero. On **Bills**,
-open **Overdue** to see past occurrences still awaiting recorded settlement.
-The list shows any residual amount after linked payments.
+open **Overdue** to see past occurrences on non-archived accounts still awaiting
+recorded settlement. The list shows any residual amount after linked payments.
+Occurrences on archived accounts stay in history. Bank reconciliation checks that both
+transfer accounts are open when proposing and confirming a match. Current scheduled cash flow, unpaid bill
+totals, funding requirements and reminders exclude those accounts. Accountless household
+plans remain visible. A bill keeps its recorded settlements and write-offs when its
+account is merged. Overlapping occurrences of the same bill must be resolved before merging. A queued transfer match expires if its expected movement is removed.
+Before merging accounts, move active non-bill schedules and resolve outstanding non-bill
+movements on the source account.
+Bills and their occurrences move with the merge.
 
 Employer payday settings include an optional payroll cutoff day (1–31); leave it
 blank to retain calendar-month earning periods. Category pickers sort by name and
@@ -213,3 +223,5 @@ the stated date; future periods show currently known funds, not future receipts.
 
 Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
 checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).
+
+Reports display net savings in pounds, the savings rate as a percentage, and changes in that rate in percentage points.

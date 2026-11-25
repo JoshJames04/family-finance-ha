@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import banking_events, categorise, contributions, settle
+from app.domain.accounts import current_movement_account
 from app.domain.expected_matches import (
     SALARY_SOURCES,
     acyclic_transaction_ids,
@@ -158,6 +159,7 @@ def reconcile_account(session: Session, account: Account,
         hi = date.fromordinal(txn.date.toordinal() + DATE_WINDOW)
         possible = list(session.scalars(
                 select(ExpectedMovement).where(
+                    current_movement_account(),
                     ExpectedMovement.account_id == account.id,
                     ExpectedMovement.household_id == account.household_id,
                     ExpectedMovement.expected_date.between(lo, hi),
@@ -230,6 +232,8 @@ def confirm(session: Session, r: Reconciliation) -> None:
     if (account is None or account.household_id != r.household_id
             or txn.account_id != r.account_id):
         raise contributions.MatchError("reconciliation payment scope has changed")
+    if account.archived:
+        raise contributions.MatchError("reconciliation account is archived")
     if not categorise.transaction_editable(session, txn):
         raise ReconError("transaction is protected")
     # settle the live movement the snapshot proposed (issue #429) —
@@ -244,9 +248,13 @@ def confirm(session: Session, r: Reconciliation) -> None:
                 ExpectedMovement.expected_date == r.expected_date,
                 ExpectedMovement.account_id == r.account_id)
         movement = session.scalars(target.where(
+            current_movement_account(),
             ExpectedMovement.household_id == r.household_id,
             ExpectedMovement.dismissed_at.is_(None))).first()
-        if movement is None and session.scalar(select(target.exists())):
+        if movement is None and (
+            r.expected_source_type == ExpectedSource.transfer_rule.value
+            or session.scalar(select(target.exists()))
+        ):
             raise contributions.MatchError("reconciliation target is no longer available")
     evidence = eligible_matches(transaction_ids=[txn.id])
     allocated = set(session.scalars(select(evidence.c.movement_id).where(

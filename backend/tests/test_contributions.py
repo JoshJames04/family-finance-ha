@@ -4,7 +4,7 @@ satisfied / partial / overdue states; auto + manual matching."""
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -196,6 +196,25 @@ class TestManualConfirm:
         assert m.manual is True
         assert contributions.status(
             session, mv, TODAY).state is ContributionState.satisfied
+
+    @pytest.mark.parametrize("unavailable", ["source", "destination", "dismissed"])
+    def test_unavailable_transfer_cannot_take_new_evidence(
+            self, session, household, pair, unavailable):
+        src, dst, rule = pair
+        due = date(2025, 4, 1)
+        movement = _movement(session, household, dst, 30_000, due, rule.id)
+        tx = _leg(session, household, dst, 30_000, due)
+        if unavailable == "dismissed":
+            movement.dismissed_at = datetime(2025, 4, 1)
+        else:
+            account = src if unavailable == "source" else dst
+            account.archived = True
+        session.flush()
+
+        with pytest.raises(MatchError, match="no longer available"):
+            contributions.confirm(session, movement, tx, today=due)
+        assert contributions.auto_match(session, household.id, today=due) == 0
+        assert contributions.status(session, movement, due).matched_pence == 0
 
     def test_confirm_rejects_wrong_account(
             self, session: Session, household: Household,

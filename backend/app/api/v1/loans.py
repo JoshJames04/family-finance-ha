@@ -35,14 +35,15 @@ def _write(ln: Loan, profile: UserProfile | None) -> None:
 
 
 def _position(session: Session, ln: Loan) -> schemas.LoanPositionOut:
-    d = loans.schedule_drift(session, ln)
+    today = date.today()
+    balance = loans.balance_at(session, ln, today)
+    drift = loans.schedule_drift(session, ln, today, balance=balance)
     return schemas.LoanPositionOut(
-        outstanding_pence=loans.outstanding(session, ln),
-        repaid_pence=loans.repaid_pence(session, ln),
-        accrued_interest_pence=loans.accrued_interest(
-            ln, date.today()),
-        expected_to_date_pence=d.expected_pence,
-        drift_pence=d.drift_pence)
+        outstanding_pence=balance.outstanding_pence,
+        repaid_pence=balance.repaid_pence,
+        accrued_interest_pence=balance.accrued_interest_pence,
+        expected_to_date_pence=drift.expected_pence,
+        drift_pence=drift.drift_pence)
 
 
 @router.get("", response_model=schemas.Page[schemas.LoanOut])
@@ -94,7 +95,6 @@ def patch_loan(
     """Edit a loan's terms, owner or active flag (#278)."""
     ln = _get(session, household.id, lid, profile)
     _write(ln, profile)
-    financial_events.evaluate_loan(session, ln)
     changed = body.model_dump(exclude_unset=True)
     new_owner = changed.get("owner_profile_id")
     if ("owner_profile_id" in changed and profile is not None
@@ -102,9 +102,11 @@ def patch_loan(
             and profile.role != Role.admin
             and new_owner not in (None, profile.id)):
         raise HTTPException(403, "cannot reassign ownership")
-    for k, v in changed.items():
-        setattr(ln, k, v)
-    financial_events.evaluate_loan(session, ln)
+    evidence = ([r.transaction_id for r in ln.repayments if r.transaction_id is not None]
+                if "direction" in changed else [])
+    with financial_events.observe_loan_evidence(session, household.id, *evidence, loan=ln):
+        for k, v in changed.items():
+            setattr(ln, k, v)
     emit(session, household.id, actor, "update", "loan", ln.id,
          {k: (v.value if hasattr(v, "value") else v)
           for k, v in changed.items()})
@@ -199,13 +201,12 @@ def delete_repayment(
 ) -> None:
     ln = _get(session, household.id, lid, profile)
     _write(ln, profile)
-    financial_events.evaluate_loan(session, ln)
     rp = session.get(Repayment, rid)
     if rp is None or rp.loan_id != ln.id:
         raise HTTPException(404, f"repayment {rid} not found")
-    session.delete(rp)
-    session.flush()
-    financial_events.evaluate_loan(session, ln)
+    evidence = [rp.transaction_id] if rp.transaction_id is not None else []
+    with financial_events.observe_loan_evidence(session, household.id, *evidence, loan=ln):
+        session.delete(rp)
     emit(session, household.id, actor, "delete", "repayment", rid,
          {"loan_id": ln.id})
 

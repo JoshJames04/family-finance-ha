@@ -21,8 +21,9 @@ BACKEND_DIR = Path(os.environ.get(
 
 def alembic_config(db_url: str) -> Config:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-    cfg.set_main_option("sqlalchemy.url", db_url)
-    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    cfg.attributes["db_url"] = db_url
+    cfg.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations").replace("%", "%%"))
     return cfg
 
 
@@ -46,7 +47,8 @@ def downgrade_one(config: Config) -> None:
     """Remove one applied leaf, choosing its branch explicitly at mergepoints."""
     overrides = dict(value.split("=", 1) for value in
                      (getattr(config.cmd_opts, "x", None) or []) if "=" in value)
-    db_url = (overrides.get("db_url") or os.environ.get("FF_DATABASE_URL")
+    db_url = (overrides.get("db_url") or config.attributes.get("db_url")
+              or os.environ.get("FF_DATABASE_URL")
               or config.get_main_option("sqlalchemy.url"))
     if not db_url:
         raise ValueError("A database URL is required for migration rollback")

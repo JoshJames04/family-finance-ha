@@ -4,7 +4,7 @@ maths, expected-movement materialisation."""
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -356,6 +356,16 @@ class TestSinkingMaths:
 
 
 class TestMaterialise:
+    @pytest.mark.parametrize("deadline, due", [
+        (date(2025, 4, 9), None), (TODAY, TODAY), (date(2025, 4, 25), date(2025, 4, 25)),
+    ])
+    def test_deadline_month(self, session, household, pot, deadline, due):
+        goal = _goal(session, household, pot, target=125, target_date=deadline)
+        schedule.rematerialize_goal(session, goal, today=TODAY)
+        rows = session.execute(select(ExpectedMovement.expected_date,
+                                      ExpectedMovement.amount_pence)).all()
+        assert rows == ([(due, 125)] if due else [])
+
     def test_sinking_schedule_emits_estimated(
             self, session: Session, household: Household,
             pot: Account) -> None:
@@ -370,6 +380,25 @@ class TestMaterialise:
         assert all(m.expected_date.day == 1 for m in rows)
         assert {m.amount_pence for m in rows} == {15_000}
         assert all(m.account_id == pot.id for m in rows)
+
+    def test_dismissed_occurrence_survives_repeated_rebuild(
+            self, session: Session, household: Household, pot: Account) -> None:
+        g = _goal(session, household, pot, target=60_000, target_date=date(2025, 8, 1))
+        schedule.rematerialize_goal(session, g, today=TODAY)
+        row = session.scalars(select(ExpectedMovement).order_by(ExpectedMovement.id)).first()
+        assert row is not None
+        row.dismissed_at = datetime(2026, 1, 1)
+        session.flush()
+        query = select(ExpectedMovement).where(
+            ExpectedMovement.expected_date == row.expected_date,
+            ExpectedMovement.source_id == row.source_id,
+            ExpectedMovement.account_id == row.account_id,
+        )
+        for _ in range(2):
+            schedule.rematerialize_goal(session, g, today=TODAY)
+            retained = session.scalars(query).one()
+            assert retained.id == row.id
+            assert retained.dismissed_at == datetime(2026, 1, 1)
 
     def test_deactivate_drops_future(
             self, session: Session, household: Household,
@@ -421,6 +450,7 @@ class TestApi:
         assert tr.status_code == 201
         prog = client.get(f"/api/v1/savings-goals/{gid}/progress",
                           headers=h).json()
+        assert prog["as_of"] == date.today().isoformat()
         assert prog["contributed_pence"] == 30000
         assert prog["pct"] == 25
         assert prog["monthly_need_pence"] is not None

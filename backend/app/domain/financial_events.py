@@ -8,13 +8,16 @@ is financial entity state, never an inference from summary counts.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.domain import budgets, energy, goals, loans, outbox, seasonal
+from app.domain.accounts import current_movement_account
 from app.persistence.models import (
     Account,
     AppMeta,
@@ -29,7 +32,9 @@ from app.persistence.models import (
     PayrollRun,
     Payslip,
     RecurringCommitment,
+    Repayment,
     SeasonalEvent,
+    Transaction,
 )
 
 
@@ -225,6 +230,7 @@ def evaluate_paydays(session: Session, household_id: int, *, today: date | None 
     occurrences: dict[tuple[int, date], ExpectedMovement] = {}
     for movement in session.scalars(
         select(ExpectedMovement).where(
+            current_movement_account(),
             ExpectedMovement.household_id == household_id,
             ExpectedMovement.expected_date >= today,
             ExpectedMovement.expected_date <= today + timedelta(days=3),
@@ -282,6 +288,30 @@ def record_backup_status(
             payload={"source": "backup", "status": "failed", "date": today.isoformat()},
             dedup_key=f"{key}:{change[1]}",
         )
+
+
+@contextmanager
+def observe_loan_evidence(session: Session, household_id: int, *transaction_ids: int,
+                          loan: Loan | None = None) -> Iterator[None]:
+    """Record any balance transition while a transaction ceases to qualify."""
+    affected = [loan] if loan is not None else []
+    if transaction_ids:
+        current, adjacent = aliased(Transaction), aliased(Transaction)
+        family = select(Transaction.id.label("id")).where(
+            Transaction.id.in_(transaction_ids)).cte(recursive=True)
+        family = family.union(select(adjacent.id).select_from(family).join(
+            current, current.id == family.c.id).join(adjacent, or_(
+                adjacent.corrects_id == current.id, current.corrects_id == adjacent.id)))
+        affected.extend(session.scalars(select(Loan).where(
+            Loan.household_id == household_id, Loan.id.in_(select(Repayment.loan_id).where(
+                Repayment.transaction_id.in_(select(family.c.id)))))).all())
+    participants = list(dict.fromkeys(affected))
+    for row in participants:
+        evaluate_loan(session, row)
+    yield
+    session.flush()
+    for row in participants:
+        evaluate_loan(session, row)
 
 
 def evaluate_loan(session: Session, loan: Loan, *, today: date | None = None) -> None:

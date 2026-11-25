@@ -46,7 +46,6 @@ from app.persistence.models import (
     Subscription,
     Transaction,
     TransactionStatus,
-    Transfer,
 )
 
 
@@ -384,17 +383,8 @@ def auto_pair_transfers(session: Session, household_id: int,
                 continue
             if not _automatic_editable(session, d) or not _automatic_editable(session, c):
                 continue
-            tr = Transfer(household_id=household_id)
-            session.add(tr)
-            session.flush()
-            d.transfer_id = tr.id
-            c.transfer_id = tr.id
-            session.flush()
-            from app.domain import banking_events, goals
-            for txn in (d, c):
-                banking_events.transaction_changed(session, txn, "transaction.transfer_linked",
-                                                   dedup_key=f"transfer.linked:{tr.id}:{txn.id}")
-            goals.emit_contribution_milestones(session, c)
+            from app.domain.transfers import create_transfer
+            create_transfer(session, household_id, d, c)
             pairs += 1
     session.flush()
     return pairs

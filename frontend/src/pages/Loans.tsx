@@ -16,7 +16,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Checkbox, Field, Input, Select, Textarea } from "../components/Field";
 import { PageHeader, Progress, Segmented, Stat } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import {
   formatDayMonthYear, formatPence, formatSmartDate, toISODate,
 } from "../lib/format";
@@ -36,7 +36,7 @@ export function Loans() {
   const [repaying, setRepaying] = useState<Loan | null>(null);
   const loans = useApi(
     () => api.get("/api/v1/loans", { query: { include_inactive: true } }),
-    ready, [rev]);
+    ready, [rev], []);
   const profiles = useApi(() => api.get("/api/v1/profiles"), ready);
   const me = useMeProfileId();
   const memberCount = (profiles.data?.items ?? []).filter((p) => p.is_active).length;
@@ -115,7 +115,7 @@ export function Loans() {
 function LoanCard({ loan: l, rev, owner, onEdit, onRepay }: { loan: Loan; rev: number; owner: string | null; onEdit: () => void; onRepay: () => void }) {
   const position = useApi(
     () => api.get("/api/v1/loans/{lid}", { path: { lid: l.id } }),
-    true, [l.id, rev]);
+    true, [l.id, rev], [l.id]);
   const projection = useApi(
     () => api.get("/api/v1/loans/{lid}/projection", { path: { lid: l.id } }),
     true, [l.id, rev]);
@@ -123,6 +123,7 @@ function LoanCard({ loan: l, rev, owner, onEdit, onRepay }: { loan: Loan; rev: n
     () => api.get("/api/v1/loans/{lid}/repayments", { path: { lid: l.id } }),
     true, [l.id, rev]);
   const p: Position | null = position.data;
+  const missingPosition = position.loading ? "…" : "—";
   const owed = l.direction === "they_owe";
   const drift = p?.drift_pence ?? 0;
   const behind = drift > 500; // expected-to-date exceeds actual by > £5
@@ -146,22 +147,25 @@ function LoanCard({ loan: l, rev, owner, onEdit, onRepay }: { loan: Loan; rev: n
         {l.active && behind && <Badge tone="warning">Behind schedule</Badge>}
       </div>
 
+      {position.error && <ErrorState
+        message={p ? `Showing last known balances. ${position.error}` : position.error}
+        onRetry={position.refetch} />}
       <div className="mt-4 grid grid-cols-3 gap-3">
         <Stat label="Outstanding"
-          value={position.loading ? "…" : <Money pence={p?.outstanding_pence ?? l.principal_pence} />} />
-        <Stat label="Repaid" value={position.loading ? "…" : <Money pence={p?.repaid_pence ?? 0} />}
+          value={p ? <Money pence={p.outstanding_pence} /> : missingPosition} />
+        <Stat label="Repaid" value={p ? <Money pence={p.repaid_pence} /> : missingPosition}
           hint={`of ${formatPence(l.principal_pence)}`} />
         <Stat label="Payoff"
-          value={projection.data?.baseline.payoff_date
+          value={projection.data?.baseline.months === 0 ? "Paid off" : projection.data?.baseline.payoff_date
             ? formatDayMonthYear(projection.data.baseline.payoff_date)
             : "—"}
-          hint={projection.data?.baseline.months != null ? `in ${projection.data.baseline.months} mo` : undefined} />
+          hint={projection.data?.baseline.months ? `in ${projection.data.baseline.months} mo` : undefined} />
       </div>
 
-      <div className="mt-3">
-        <Progress value={p?.repaid_pence ?? 0} max={l.principal_pence} tone="positive" label={`${l.party} repaid`} />
+      {p && <div className="mt-3">
+        <Progress value={p.repaid_pence} max={l.principal_pence} tone="positive" label={`${l.party} repaid`} />
         <p className="mt-1 text-[12px] text-fg-subtle">{repaidPct}% repaid{l.expected_payment_pence ? ` · expected ${formatPence(l.expected_payment_pence)}/payment` : ""}</p>
-      </div>
+      </div>}
 
       {(repayments.data ?? []).length > 0 && (
         <details className="mt-3 border-t border-border pt-2.5">

@@ -137,6 +137,27 @@ describe("Budget", () => {
     await screen.findByText("locked — read-only");
     expect(screen.queryByLabelText("Adjust Food")).toBeNull();
   });
+  it.each([
+    [15000, "2000-01-31", "above target"],
+    [10000, "2000-01-31", "On target"],
+    [5000, "2000-01-31", "below target"],
+    [5000, "2099-01-31", "still to receive"],
+  ] as const)("labels income lines and groups at %i through %s", async (actual, end, label) => {
+    const detail = { ...DETAIL, end_date: end, lines: [
+      { ...DETAIL.lines[0], side: "income", original_pence: 10000, effective_pence: 10000 },
+    ] };
+    const categories = { items: [
+      { ...FLAT_CATS.items[0], id: 10, name: "Earnings" },
+      { ...FLAT_CATS.items[0], parent_id: 10, name: "Wages" },
+    ] };
+    const actuals = { ...ACTUALS, lines: { "11": { ...ACTUALS.lines["11"],
+      effective_pence: 10000, actual_pence: actual, variance_pence: 10000 - actual } } };
+    stubFetch([], { detail, categories, actuals });
+    render(<MemoryRouter><Budget /></MemoryRouter>);
+    await screen.findByText("Wages");
+    expect(screen.getAllByText(label, { exact: false })).toHaveLength(2);
+    expect(screen.getByRole("progressbar", { name: "Wages received" })).toBeTruthy();
+  });
   it("groups lines into sections with subtotals when parents exist", async () => {
     const detail = {
       ...DETAIL,

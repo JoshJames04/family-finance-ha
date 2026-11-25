@@ -129,7 +129,10 @@ fresh PAT.
   (#340).
 - `GET /api/v1/admin/backups` + `/download` →
   `POST /api/v1/admin/restore/upload` → restart; boot applies the
-  pending restore before migrations open the engine.
+  pending restore before opening the active database. Boot migrates an isolated
+  copy, checks the application columns and foreign keys, then installs it in a
+  SQLite transaction. A failed staged restore preserves the current database
+  and reports `restore_failed` in readiness.
 
 ### Historical annotation preservation
 
@@ -264,3 +267,7 @@ existing backup restore procedure (including removal of stale WAL/SHM files).
 Confirm integrity, associations and ledger before restarting; restoring also
 returns the legacy constraint difference. Re-run the diagnostic after a successful
 repair and rehearse discovery on the disposable copy before operational sign-off.
+
+Programmatic migrations use the database selected by the caller, including staged restore copies. Percent characters in paths and URL escapes survive Alembic configuration interpolation.
+
+On first startup the app creates the parent directory for its configured SQLite file. Backup destinations may also include spaces, literal percent signs and apostrophes.

@@ -17,6 +17,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.sync_lock import claim
 from app.persistence.models import (
     NotificationDelivery,
     NotificationEvent,
@@ -80,7 +81,14 @@ def deliver_pending(session: Session, household_id: int,
     """Attempt every pending delivery for the household. Per-
     delivery try/except: failures are logged on the row and
     surfaced via status, never raised."""
-    now = now or datetime.now()
+    with claim(session, f"notification-delivery:{household_id}") as owned:
+        if not owned:
+            return DeliverResult(sent=0, failed=0)
+        return _deliver_pending(session, household_id, notifier, now or datetime.now())
+
+
+def _deliver_pending(session: Session, household_id: int, notifier: HaNotifier,
+                     now: datetime) -> DeliverResult:
     deliveries = session.scalars(
         select(NotificationDelivery).where(
             NotificationDelivery.household_id == household_id,
@@ -92,7 +100,7 @@ def deliver_pending(session: Session, household_id: int,
         if rule is None:
             d.status, d.error = "failed", "rule deleted"
             failed += 1
-            session.flush()
+            session.commit()
             continue
         title, message = compose(rule, list(d.events))
         try:

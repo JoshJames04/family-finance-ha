@@ -80,6 +80,18 @@ system.
   app fully functional without it; no payment initiation, ever, without a
   new explicit requirement.
 
+Bank-linked loan repayments count against a balance only while their payment
+is live or has a single financially equivalent live correction. Voided and
+ambiguous evidence remains in repayment history without reducing the balance.
+One live payment supports one repayment across the household. Voiding or
+reclassifying a linked payment as an internal transfer updates its loan
+balance event in the same transaction, including provider reversals. If deleting
+a repayment activates an existing claim on another loan, both balances are observed.
+
+Simple interest stops on the first effective repayment date that covers the principal
+and interest due that day. Once settled, the schedule comparison is capped at
+the total debt paid. Reversing that evidence recalculates the settlement.
+
 ## 4. SQLite suitability assessment (ADR-0001 condition)
 
 SQLite is sufficient **provided**:
@@ -104,6 +116,12 @@ SQLite is sufficient **provided**:
 
 HA entity history is **never** the financial store — integration publishes
 read-model sensors only.
+
+Monthly net-worth history begins with the first visible posting or loan. Active
+loans extend the series to the server date, including months without postings.
+Closed loans contribute their repayment dates. A partial month uses the same
+date for ledger stock and loan balances. Historical windows retain opening
+stock from before the oldest displayed month.
 
 ## 5. Background jobs
 
@@ -277,13 +295,23 @@ continues to examine gross external outflows, retaining mixed-split fee amounts.
 Category anomaly comparisons use the current category's effective subtotal;
 payee comparisons retain the full external transaction subtotal. Uncategorised
 report drills send `uncategorised=true` so they cannot expand to all expenses.
+Loan positions calculate outstanding, repaid, interest and drift through the same
+date. Future-dated repayments appear in the history and count toward the
+position on their repayment date. The Loans page offers a retry if a position
+is unavailable and labels the last known balances after a failed refresh.
 Monthly series derive fresh values from authorised raw ledger and loan records
 without writing on GET or depending on a manual cache rebuild; the explicit
 rebuild endpoint remains available for materialised-table compatibility.
 Report internal outflow totals sum negative internal effective legs, including
-confirmed unpaired movements. Internal movement counts include each paired
+manual transfer-rule confirmations on uncategorised or externally categorised
+transactions. The matching portion counts once and any external remainder
+continues to appear in the spending or income drill. Internal movement counts include each paired
 transfer ID once and each unpaired internal transaction once; their drill covers
 both directions, while the internal outflow drill selects negative legs.
+A zero loan balance has zero projected months remaining. Savings goals place
+their last required contribution on the target date and generate no new
+contributions after that date. The Goals page marks unfunded deadlines due
+today or overdue using the server date returned with the progress figures.
 Opening transactions (`system`, `open:<account-id>`) remain balance stock and are
 excluded from period flow. The returned itemised bridge uses effective split
 amounts and preserves uncategorised status without writing classifications.

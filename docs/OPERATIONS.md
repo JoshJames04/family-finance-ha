@@ -39,13 +39,15 @@ When the add-on shows "unhealthy": read the add-on Log first — the
 
 ## 4. Restore
 
-- **Same install:** `POST /api/v1/admin/restore` replaces the live
-  DB — it closes all sessions, swaps the file and re-checks
-  integrity on next boot.
+- **Same install:** `POST /api/v1/admin/restore` queues a listed snapshot
+  for the next boot. The server checks SQLite integrity and verifies the
+  Family Finance application metadata and migration revisions.
 - **Move installs (upload):** `POST /api/v1/admin/restore/upload`
-  accepts a downloaded snapshot file. Restored uploads appear in the
-  backup list under their uploaded name — verify the row you
-  intended before restoring.
+  accepts a downloaded snapshot and stores it in the pending directory.
+  Boot migrates a temporary copy, checks required columns and foreign
+  keys, then replaces the destination through SQLite. If validation
+  fails, readiness reports `restore_failed` and the current data stays
+  available. Select another backup or restart to resume using that data.
 - **After a restore:** bank connections need re-authentication
   (§5) — the vault key does not travel with the backup by design.
 
@@ -138,7 +140,10 @@ Two ticks run from the app lifespan (`sync_tick`, `notify_tick`):
   starves the feed pull; one mapping's failure marks its own
   run/cursor — never aborts the tick.
 - `notify_tick` evaluates enabled rules and delivers pending
-  notification deliveries. A rule's exception is logged and the tick
+  notification deliveries. Manual and scheduled sends share one delivery lock per
+  household. An overlapping caller reports zero sent while the active caller
+  finishes. If HA accepts a message just before the backend stops, the pending
+  row can still be retried on restart. A rule's exception is logged and the tick
   continues.
 
 After any successful ingest (scheduled, manual Sync, or a

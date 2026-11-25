@@ -1,6 +1,7 @@
 """Savings goals + sinking funds: CRUD, ledger, progress (#91)."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -91,8 +92,10 @@ def goal_progress(
     gid: int, household: HouseholdDep, session: SessionDep,
 ) -> schemas.GoalProgressOut:
     g = _get(session, household.id, gid)
-    p = goals.progress(session, g)
+    today = date.today()
+    p = goals.progress(session, g, today=today)
     return schemas.GoalProgressOut(
+        as_of=today,
         contributed_pence=p.contributed_pence,
         remaining_pence=p.remaining_pence,
         monthly_need_pence=p.monthly_need_pence, pct=p.pct,

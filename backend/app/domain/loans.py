@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.expression import Subquery
 
-from app.persistence.models import Loan, Repayment, Transaction
+from app.domain.expected_matches import acyclic_transaction_ids, live_payment_evidence
+from app.persistence.models import Account, Loan, LoanDirection, Repayment, Transaction
 
 
 class LoanError(Exception):
@@ -30,22 +33,66 @@ def accrued_interest(loan: Loan, on: date) -> int:
         // (10_000 * 365)
 
 
+def _linked_claims(loan: Loan) -> Subquery:
+    """Keep the first valid repayment per live bank transaction across household loans."""
+    anchor = select(Repayment.id.label("match_id"), Repayment.transaction_id).join(Loan).where(
+        Loan.household_id == loan.household_id, Repayment.transaction_id.is_not(None))
+    live = live_payment_evidence(anchor)
+    signed_amount = case((Loan.direction == LoanDirection.we_owe, -Repayment.amount_pence),
+                         else_=Repayment.amount_pence)
+    return select(func.min(Repayment.id).label("repayment_id"), live.c.transaction_id).select_from(
+        live).join(Repayment, Repayment.id == live.c.match_id).join(Loan).join(
+        Transaction, Transaction.id == live.c.transaction_id).join(
+        Account, Account.id == Transaction.account_id).where(
+            live.c.branches == 1, Account.household_id == Loan.household_id,
+            Transaction.transfer_id.is_(None), Transaction.amount_pence == signed_amount,
+        ).group_by(live.c.transaction_id).subquery()
+
+
+def _effective_repayments(loan: Loan) -> Select[Any]:
+    claims = _linked_claims(loan)
+    return select(Repayment.id).where(
+        Repayment.loan_id == loan.id, or_(Repayment.transaction_id.is_(None),
+            Repayment.id.in_(select(claims.c.repayment_id))))
+
+
 def repaid_pence(session: Session, loan: Loan,
                  before: date | None = None) -> int:
     q = select(func.coalesce(func.sum(Repayment.amount_pence), 0)
-               ).where(Repayment.loan_id == loan.id)
+               ).where(Repayment.id.in_(_effective_repayments(loan)))
     if before is not None:
         q = q.where(Repayment.date <= before)
     return int(session.execute(q).scalar_one())
 
 
-def outstanding(session: Session, loan: Loan,
-                on: date | None = None) -> int:
-    """principal + accrued interest − repayments to date, floored at
-    zero. Recomputes correctly after any repayment add/remove."""
-    on = on or date.today()
-    due = loan.principal_pence + accrued_interest(loan, on)
-    return max(0, due - repaid_pence(session, loan, on))
+@dataclass(frozen=True)
+class LoanBalance:
+    repaid_pence: int
+    accrued_interest_pence: int
+    outstanding_pence: int
+
+
+def balance_at(session: Session, loan: Loan, on: date) -> LoanBalance:
+    """Accrue simple interest until the first dated payment that settles the debt."""
+    if not loan.interest_bps_pa:
+        repaid = repaid_pence(session, loan, on)
+        return LoanBalance(repaid, 0, max(0, loan.principal_pence - repaid))
+    daily = select(Repayment.date, func.sum(Repayment.amount_pence)).where(
+        Repayment.id.in_(_effective_repayments(loan)), Repayment.date <= on,
+    ).group_by(Repayment.date).order_by(Repayment.date)
+    repaid = 0
+    settlement = None
+    for payment_date, amount in session.execute(daily):
+        repaid += amount
+        if settlement is None and repaid >= loan.principal_pence + accrued_interest(
+                loan, payment_date):
+            settlement = payment_date
+    interest = accrued_interest(loan, settlement or on)
+    return LoanBalance(repaid, interest, max(0, loan.principal_pence + interest - repaid))
+
+
+def outstanding(session: Session, loan: Loan, on: date | None = None) -> int:
+    return balance_at(session, loan, on or date.today()).outstanding_pence
 
 
 def expected_to_date(loan: Loan, on: date) -> int:
@@ -66,12 +113,16 @@ class Drift:
 
 
 def schedule_drift(session: Session, loan: Loan,
-                   on: date | None = None) -> Drift:
+                   on: date | None = None, *, balance: LoanBalance | None = None) -> Drift:
     """Schedule vs actual: positive drift means the household is
     behind the repayment expectation."""
     on = on or date.today()
     expected = expected_to_date(loan, on)
-    actual = repaid_pence(session, loan, on)
+    if balance is None:
+        balance = balance_at(session, loan, on)
+    actual = balance.repaid_pence
+    if balance.outstanding_pence == 0:
+        expected = min(expected, loan.principal_pence + balance.accrued_interest_pence)
     return Drift(expected_pence=expected, actual_pence=actual,
                  drift_pence=expected - actual)
 
@@ -94,16 +145,18 @@ def projected_payoff(
     first month at or below zero. ``None`` months means the rate
     never covers the principal."""
     on = on or date.today()
+    balance = balance_at(session, loan, on)
+    if balance.outstanding_pence == 0:
+        return Projection(months=0, payoff_date=on)
     rate = (loan.expected_payment_pence or 0) + extra_monthly_pence
     if rate <= 0:
         return Projection(months=None, payoff_date=None)
-    base = repaid_pence(session, loan, on)
     anchor = date(on.year, on.month, 1)
     for m in range(1, max_months + 1):
         future = date(anchor.year + (anchor.month - 1 + m) // 12,
                       (anchor.month - 1 + m) % 12 + 1, 1)
         due = (loan.principal_pence + accrued_interest(loan, future)
-               - base - rate * m)
+               - balance.repaid_pence - rate * m)
         if due <= 0:
             return Projection(months=m, payoff_date=future)
     return Projection(months=None, payoff_date=None)
@@ -115,12 +168,16 @@ def repayment_balances(
     """Repayment history with running outstanding after each entry
     (#94) — balance recomputed at each repayment's own date."""
     out: list[tuple[Repayment, int]] = []
+    effective = set(session.scalars(_effective_repayments(loan)))
     repaid = 0
+    settled = False
     for r in sorted(loan.repayments,
                     key=lambda x: (x.date, x.id)):
-        repaid += r.amount_pence
+        if r.id in effective:
+            repaid += r.amount_pence
         due = loan.principal_pence + accrued_interest(loan, r.date) - repaid
-        out.append((r, max(0, due)))
+        settled = settled or due <= 0
+        out.append((r, 0 if settled else due))
     return out
 
 
@@ -131,13 +188,16 @@ def link_repayment(session: Session, repayment: Repayment,
     if loan is None or tx.account.household_id != loan.household_id:
         raise LoanError("transaction belongs to another household")
     with session.no_autoflush:
+        claims = _linked_claims(loan)
         used = session.scalar(select(Repayment.id).where(
-            Repayment.transaction_id == tx.id,
-            Repayment.id != repayment.id).limit(1))
+            Repayment.id != repayment.id, or_(Repayment.transaction_id == tx.id,
+                Repayment.id.in_(select(claims.c.repayment_id).where(
+                    claims.c.transaction_id == tx.id)))).limit(1))
     if used is not None:
         raise LoanError("transaction already attributed to a repayment")
     expected_sign = -1 if loan.direction.value == "we_owe" else 1
-    if (tx.status.value == "void" or tx.transfer_id is not None
+    if (session.scalar(acyclic_transaction_ids([tx.id])) is None
+            or tx.status.value == "void" or tx.transfer_id is not None
             or tx.amount_pence * expected_sign != repayment.amount_pence):
         raise LoanError("repayment must match an eligible transaction amount and direction")
     repayment.transaction_id = tx.id
