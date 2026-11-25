@@ -46,7 +46,7 @@ const RUN = {
   diff: {
     min_balance_changed: true,
     baseline_min_balance_pence: 90000,
-    baseline_min_balance_date: "2026-11-19",
+    baseline_min_balance_date: null,
     scenario_min_balance_pence: 50000,
     scenario_min_balance_date: "2026-11-20",
     min_balance_delta_pence: -40000,
@@ -115,6 +115,7 @@ describe("Scenarios", () => {
       calls.some((c) => c.url.includes("/run") && c.url.includes("account_id=1")),
     ).toBe(true));
     expect(await screen.findByText("Lowest point change")).toBeTruthy();
+    expect(screen.getByText(/Opening balance.*20 Nov/)).toBeTruthy();
     expect(screen.getByText("Safe to spend change")).toBeTruthy();
     expect(screen.getByLabelText(/baseline/i)).toBeTruthy();
     await user.selectOptions(screen.getByRole("combobox", { name: "Horizon" }), "30");
