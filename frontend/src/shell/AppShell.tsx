@@ -177,6 +177,7 @@ export function AppShell() {
     setQuickAddOpen(true);
   }, []);
   const addFromCommand = () => {
+    if (quickAddOpen) return;
     // The palette is about to unmount. Give its opener to the new dialog.
     quickAddOpener.current = commandOpener.current;
     commandOpener.current = null;

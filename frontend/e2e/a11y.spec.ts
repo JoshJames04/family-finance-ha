@@ -104,3 +104,22 @@ test("closing keyboard search returns focus to the control used for Ctrl+K", asy
   await page.keyboard.press("Escape");
   await expect(opener).toBeFocused();
 });
+
+test("returning to the open Quick Add dialog preserves its original opener", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const opener = page.getByRole("button", { name: "Add transaction", exact: true });
+  await opener.focus();
+  await page.keyboard.press("Enter");
+  const add = page.getByRole("dialog", { name: "Add transaction" });
+  const amount = add.getByPlaceholder("0.00");
+  await expect(amount).toBeFocused();
+  await page.keyboard.press("Control+k");
+  const command = page.getByRole("dialog", { name: "Command menu" });
+  await expect(command).toBeVisible();
+  await command.getByRole("option", { name: "Add transaction" }).click();
+  await expect(command).toBeHidden();
+  await expect(amount).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(opener).toBeFocused();
+});
