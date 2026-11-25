@@ -266,3 +266,5 @@ returns the legacy constraint difference. Re-run the diagnostic after a successf
 repair and rehearse discovery on the disposable copy before operational sign-off.
 
 Programmatic migrations use the database selected by the caller, including staged restore copies. Percent characters in paths and URL escapes survive Alembic configuration interpolation.
+
+On first startup the app creates the parent directory for its configured SQLite file. Backup destinations may also include spaces, literal percent signs and apostrophes.
