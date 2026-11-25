@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
-from app.domain import contributions, schedule, transfer_rules
+from app.domain import contributions, reconcile, schedule, transfer_rules
 from app.domain.transfer_rules import TransferRuleError
 from app.main import create_app
 from app.persistence.models import (
@@ -36,7 +36,10 @@ from app.persistence.models import (
     Frequency,
     Household,
     MappingStatus,
+    Reconciliation,
+    ReconStatus,
     Transaction,
+    TransactionStatus,
     TransferRule,
 )
 
@@ -90,6 +93,49 @@ def test_archiving_either_endpoint_excludes_both_transfer_legs(
         assert sorted(m.amount_pence for m in movements) == ([] if archived else [-3500, 3500])
         requirements = contributions.requirement_totals(session, household.id, start=due, end=due)
         assert len(requirements) == int(not archived)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_reconciliation_rechecks_transfer_endpoints_before_matching(
+        session, household, accounts, legacy):
+    source, destination = accounts
+    rule = _rule(session, household, accounts, {"kind": "fixed", "pence": 3500})
+    due = date(2025, 5, 1)
+    schedule.rematerialize_transfer_rule(session, rule, today=TODAY, horizon_days=21)
+    rows = _rows(session, rule)
+    if legacy:
+        for movement in rows:
+            movement.transfer_source_account_id = movement.transfer_dest_account_id = None
+    debit = next(row for row in rows if row.account_id == source.id)
+    txn = Transaction(account_id=source.id, amount_pence=-3500, date=due,
+                      payee=debit.label, status=TransactionStatus.pending)
+    destination.archived = True
+    session.add(txn)
+    session.flush()
+    stats = reconcile.reconcile_account(session, source, due)
+    assert (stats.matched, stats.queued) == (0, 0)
+    assert session.scalar(select(ExpectedMatch)) is None
+
+    destination.archived = False
+    txn.date = due + timedelta(days=6)
+    txn.payee = "Other"
+    session.flush()
+    assert reconcile.reconcile_account(session, source, txn.date).queued == 1
+    proposal = session.scalars(select(Reconciliation)).one()
+    destination.archived = True
+    session.flush()
+    with pytest.raises(contributions.MatchError, match="no longer available"):
+        reconcile.confirm(session, proposal)
+    assert proposal.status == ReconStatus.pending and txn.status == TransactionStatus.pending
+    assert session.scalar(select(ExpectedMatch)) is None
+
+    destination.archived = False
+    session.flush()
+    reconcile.confirm(session, proposal)
+    destination.archived = True
+    session.flush()
+    assert proposal.status == ReconStatus.matched
+    assert session.scalars(select(ExpectedMatch.movement_id)).one() == debit.id
 
 
 class TestParseSpec:
