@@ -117,12 +117,21 @@ def merge_accounts(
         ExpectedMovement.source_id.in_(moved_bills),
     )
     today = date.today()
+    transfer_rules = select(TransferRule.id).where(
+        TransferRule.household_id == source.household_id,
+        or_(TransferRule.source_account_id == source.id,
+            TransferRule.dest_account_id == source.id),
+    )
     other_movements = select(ExpectedMovement.id).where(
         ExpectedMovement.household_id == source.household_id,
         ExpectedMovement.dismissed_at.is_(None),
         or_(ExpectedMovement.account_id == source.id,
             ExpectedMovement.transfer_source_account_id == source.id,
-            ExpectedMovement.transfer_dest_account_id == source.id),
+            ExpectedMovement.transfer_dest_account_id == source.id,
+            and_(ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+                 ExpectedMovement.transfer_source_account_id.is_(None),
+                 ExpectedMovement.transfer_dest_account_id.is_(None),
+                 ExpectedMovement.source_id.in_(transfer_rules))),
         or_(ExpectedMovement.source_type != ExpectedSource.commitment,
             ExpectedMovement.source_id.not_in(moved_bills)),
     )
@@ -143,9 +152,7 @@ def merge_accounts(
             Employment.is_active.is_(True),
             or_(Employment.end_date.is_(None), Employment.end_date >= today),
         ),
-        select(TransferRule.id).where(
-            or_(TransferRule.source_account_id == source.id,
-                TransferRule.dest_account_id == source.id),
+        transfer_rules.where(
             TransferRule.active.is_(True),
             or_(TransferRule.end_date.is_(None), TransferRule.end_date >= today),
         ),

@@ -204,6 +204,32 @@ class TestMerge:
             merge_accounts(session, source, target)
             assert source.archived
 
+    def test_merge_protects_opposite_unpaid_leg_of_paused_transfer(
+        self, session: Session, household: Household,
+    ) -> None:
+        source = _open(session, household, "Old", pence=5000)
+        target = _open(session, household, "New", pence=100)
+        due = date.today() - timedelta(days=5)
+        rule = TransferRule(
+            household_id=household.id, name="Paused contribution",
+            source_account_id=source.id, dest_account_id=target.id,
+            amount_spec='{"kind":"fixed","pence":200}', frequency=Frequency.monthly,
+            day_of_month=1, start_date=due, active=False,
+        )
+        session.add(rule)
+        session.flush()
+        session.add(ExpectedMovement(
+            household_id=household.id, account_id=target.id, expected_date=due,
+            amount_pence=200, label=rule.name, confidence=Confidence.scheduled,
+            source_type=ExpectedSource.transfer_rule, source_id=rule.id,
+        ))
+        session.flush()
+
+        with pytest.raises(AccountMergeError, match="non-bill schedules"):
+            merge_accounts(session, source, target)
+        assert not source.archived
+        assert current_balance(session, source.id) == 5000
+
     def test_merge_into_self_rejected(
         self, session: Session, household: Household
     ) -> None:
