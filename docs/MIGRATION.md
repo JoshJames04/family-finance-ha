@@ -264,3 +264,5 @@ existing backup restore procedure (including removal of stale WAL/SHM files).
 Confirm integrity, associations and ledger before restarting; restoring also
 returns the legacy constraint difference. Re-run the diagnostic after a successful
 repair and rehearse discovery on the disposable copy before operational sign-off.
+
+Programmatic migrations use the database selected by the caller, including staged restore copies. Percent characters in paths and URL escapes survive Alembic configuration interpolation.
