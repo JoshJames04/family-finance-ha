@@ -140,7 +140,10 @@ Two ticks run from the app lifespan (`sync_tick`, `notify_tick`):
   starves the feed pull; one mapping's failure marks its own
   run/cursor — never aborts the tick.
 - `notify_tick` evaluates enabled rules and delivers pending
-  notification deliveries. A rule's exception is logged and the tick
+  notification deliveries. Manual and scheduled sends share one delivery lock per
+  household. An overlapping caller reports zero sent while the active caller
+  finishes. If HA accepts a message just before the backend stops, the pending
+  row can still be retried on restart. A rule's exception is logged and the tick
   continues.
 
 After any successful ingest (scheduled, manual Sync, or a
