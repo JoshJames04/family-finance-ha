@@ -22,6 +22,7 @@ from app.main import create_app
 from app.persistence.models import (
     Account,
     Confidence,
+    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Household,
@@ -66,6 +67,35 @@ def _expect(session: Session, household: Household, a: Account,
 def _scenario(session: Session, household: Household,
               name: str = "What-if") -> Scenario:
     return scen.create_scenario(session, household.id, name)
+
+
+def test_future_postings_stay_on_their_dates_and_only_the_unpaid_remainder_moves(
+    session: Session, account: Account, household: Household,
+) -> None:
+    due = TODAY + timedelta(days=2)
+    expected = _expect(session, household, account, due, -1000)
+    payment = Transaction(
+        account_id=account.id, date=TODAY + timedelta(days=1), amount_pence=-600,
+        payee="Partial payment", status="pending", source="manual")
+    session.add_all([
+        payment,
+        Transaction(account_id=account.id, date=due, amount_pence=-9000,
+                    payee="Void", status="void", source="manual"),
+        Transaction(account_id=account.id, date=TODAY + timedelta(days=6), amount_pence=20000,
+                    payee="Beyond horizon", status="cleared", source="manual"),
+    ])
+    session.flush()
+    session.add(ExpectedMatch(movement_id=expected.id, transaction_id=payment.id,
+                              matched_pence=600, manual=True))
+    scenario = _scenario(session, household)
+    scen.add_op(session, scenario, kind=ScenarioOpKind.shift, expected_movement_id=expected.id,
+                expected_date=TODAY + timedelta(days=3))
+    result = scen.run(session, scenario, account, days=3, from_date=TODAY)
+    assert result.baseline.start_balance_pence == result.projection.start_balance_pence == 100_000
+    assert [d.movements_pence for d in result.baseline.days] == [-600, -400, 0]
+    assert [d.movements_pence for d in result.projection.days] == [-600, 0, -400]
+    assert result.baseline.committed_until_payday_pence == 1000
+    assert result.projection.committed_until_payday_pence == 1000
 
 
 class TestAddOp:

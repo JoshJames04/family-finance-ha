@@ -211,6 +211,24 @@ class TestApi:
         assert any(d["movements_pence"] == -10_000
                    for d in body["days"])
 
+    def test_post_next_keeps_a_future_bill_on_its_due_day(self, client: TestClient) -> None:
+        h, aid = self._seed(client)
+        due = (date.today() + timedelta(days=2)).isoformat()
+        bill = client.post("/api/v1/commitments", headers=h, json={
+            "name": "Example bill", "account_id": aid, "amount": -1800,
+            "frequency": "monthly", "next_date": due,
+        }).json()
+        path = f"/api/v1/accounts/{aid}/projection"
+        before = client.get(path, params={"days": 3}, headers=h).json()
+        posted = client.post(f"/api/v1/commitments/{bill['id']}/materialise",
+                             params={"horizon": due}, headers=h)
+        assert posted.status_code == 200
+        assert len(posted.json()["created"]) == 1
+        after = client.get(path, params={"days": 3}, headers=h).json()
+        assert before["start_balance_pence"] == 100_000
+        assert [d["movements_pence"] for d in before["days"]] == [0, -1800, 0]
+        assert after == before
+
     def test_min_balance_patchable(self, client: TestClient) -> None:
         h, aid = self._seed(client)
         res = client.patch(f"/api/v1/accounts/{aid}",

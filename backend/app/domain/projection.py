@@ -1,6 +1,6 @@
 """Issue #74 — per-account daily projection + safe-to-spend.
 
-Projection = ledger balance + Σ signed outstanding movements per day,
+Projection = opening ledger balance + dated postings and outstanding movements,
 for ``days`` ahead. Deterministic: same ledger + same movement
 stream → identical series.
 
@@ -27,6 +27,8 @@ from app.persistence.models import (
     Account,
     ExpectedMovement,
     ExpectedSource,
+    Transaction,
+    TransactionStatus,
 )
 
 DEFAULT_HORIZON_DAYS = 90
@@ -95,11 +97,13 @@ def _aggregate(rows: list[tuple[date, int]]
     return net, neg
 
 
-def _movements(session: Session, account_id: int, start: date,
-               end: date) -> tuple[dict[date, int], dict[date, int]]:
-    return _aggregate(
-        [(d, amt) for _, d, amt in
-         _movement_rows(session, account_id, start, end)])
+def _ledger_movements(session: Session, account_id: int, start: date,
+                      end: date) -> list[tuple[date, int]]:
+    """Posted ledger flows after the opening date, including pending transactions."""
+    return [(day, amount) for day, amount in session.execute(
+        select(Transaction.date, Transaction.amount_pence).where(
+            Transaction.account_id == account_id, Transaction.status != TransactionStatus.void,
+            Transaction.date > start, Transaction.date <= end))]
 
 
 def _assemble(account: Account, balance: int,
@@ -159,9 +163,11 @@ def project(session: Session, account: Account, days: int,
     today = from_date or date.today()
     end = today + timedelta(days=days)
 
-    movements, negatives = _movements(session, account.id, today, end)
+    rows = _ledger_movements(session, account.id, today, end)
+    rows.extend((day, amount) for _, day, amount in _movement_rows(session, account.id, today, end))
+    movements, negatives = _aggregate(rows)
     payday = _next_payday(session, account.id, today, end)
-    balance = current_balance(session, account.id)
+    balance = current_balance(session, account.id, as_of=today)
     return _assemble(account, balance, movements, negatives,
                      payday, today, end)
 
