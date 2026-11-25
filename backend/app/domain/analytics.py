@@ -150,8 +150,9 @@ def _figures(session: Session, household_id: int,
         window_end = max(d for d in [*starts, posting_end, last_repayment] if d is not None)
     earliest = _month_start(min(starts))
     last_month = _month_start(window_end)
-    first_index = max((earliest.year - 1) * 12 + earliest.month - 1,
-                      (last_month.year - 1) * 12 + last_month.month - limit)
+    earliest_index = (earliest.year - 1) * 12 + earliest.month - 1
+    last_index = (last_month.year - 1) * 12 + last_month.month - 1
+    first_index = max(earliest_index, last_index - limit + 1)
     months = months_between(date(first_index // 12 + 1, first_index % 12 + 1, 1), last_month)
     flows = _grouped_months(session, household_id, external=True, through=cutoff,
                             account_ids=account_ids)
