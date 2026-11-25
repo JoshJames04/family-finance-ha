@@ -48,7 +48,7 @@ def _check_subscription(session: Session, household_id: int, name: str) -> None:
 
 def _overdue_payments(
     session: Session, household_id: int, rows: list[RecurringCommitment],
-    today: date, allowed_accounts: set[int],
+    today: date, allowed_accounts: dict[int, Account],
 ) -> dict[int, list[schemas.OverdueBillPayment]]:
     active = {c.id: c for c in rows if c.active}
     if not active:
@@ -84,6 +84,10 @@ def _overdue_payments(
                                       for day in occurrences(c, today - timedelta(days=1))
                                       if day not in dates_with_history)
         for day, account_id in sorted(dates_and_accounts):
+            # Keep archived movements in the history above so an old occurrence
+            # cannot be recreated against the bill's current account.
+            if allowed_accounts[account_id].archived:
+                continue
             movement = historical.get((day, account_id))
             if (account_id, f"rec:{c.id}:{day.isoformat()}") in posted:
                 continue
@@ -115,7 +119,7 @@ def list_commitments(
     items = [schemas.CommitmentOut.model_validate(c) for c in rows]
     if include_overdue:
         accounts = session.scalars(select(Account).where(Account.household_id == household.id))
-        allowed = {a.id for a in accounts if rbac.visible(a.owner_profile_id, profile)}
+        allowed = {a.id: a for a in accounts if rbac.visible(a.owner_profile_id, profile)}
         overdue = _overdue_payments(session, household.id, rows, date.today(), allowed)
         for item in items:
             item.overdue_payments = overdue.get(item.id, [])

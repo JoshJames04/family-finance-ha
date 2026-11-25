@@ -166,6 +166,32 @@ def test_bill_summary_keeps_old_unpaid_occurrence_after_schedule_edit(session, h
             page.items[0].overdue_payments or []] == [(due, account.id, 1599)]
 
 
+def test_bill_summary_omits_archived_account_occurrence_without_recreating_it(
+        session, household, account):
+    from app.api.v1.commitments import list_commitments
+
+    today = date.today()
+    due = today - timedelta(days=1)
+    archived = Account(household_id=household.id, name="Imported", type="personal",
+                       opening_balance_pence=0, opening_date=due, archived=True)
+    session.add(archived)
+    session.flush()
+    bill = _commitment(session, household, account, next_date=due, pence=-5000)
+    imported = _movement(session, household, archived, on=due, pence=-2999,
+                         source_id=bill.id)
+    archived_bill = _commitment(session, household, archived, next_date=due)
+    valid_bill = _commitment(session, household, account, next_date=due)
+
+    page = list_commitments(household, session, None, include_overdue=True)
+    payments = {item.id: item.overdue_payments for item in page.items}
+    assert payments[bill.id] == []
+    assert payments[archived_bill.id] == []
+    assert [(p.account_id, p.outstanding_pence) for p in payments[valid_bill.id] or []] == [
+        (account.id, 1599),
+    ]
+    assert session.get(ExpectedMovement, imported.id) is not None
+
+
 class TestAutoSettlement:
 
     def test_cleared_bank_txn_settles_commitment(
