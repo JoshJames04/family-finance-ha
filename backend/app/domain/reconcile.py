@@ -251,7 +251,10 @@ def confirm(session: Session, r: Reconciliation) -> None:
             current_movement_account(),
             ExpectedMovement.household_id == r.household_id,
             ExpectedMovement.dismissed_at.is_(None))).first()
-        if movement is None and session.scalar(select(target.exists())):
+        if movement is None and (
+            r.expected_source_type == ExpectedSource.transfer_rule.value
+            or session.scalar(select(target.exists()))
+        ):
             raise contributions.MatchError("reconciliation target is no longer available")
     evidence = eligible_matches(transaction_ids=[txn.id])
     allocated = set(session.scalars(select(evidence.c.movement_id).where(

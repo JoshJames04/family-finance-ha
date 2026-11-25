@@ -138,6 +138,30 @@ def test_reconciliation_rechecks_transfer_endpoints_before_matching(
     assert session.scalars(select(ExpectedMatch.movement_id)).one() == debit.id
 
 
+def test_deleted_transfer_rule_cannot_confirm_queued_proposal(session, household, accounts):
+    from app.api.v1.transfer_rules import delete_rule
+
+    source, destination = accounts
+    rule = _rule(session, household, accounts, {"kind": "fixed", "pence": 3500})
+    due = date(2025, 5, 1)
+    schedule.rematerialize_transfer_rule(session, rule, today=TODAY, horizon_days=21)
+    txn = Transaction(account_id=source.id, amount_pence=-3500, date=due + timedelta(days=6),
+                      payee="Other", status=TransactionStatus.pending)
+    session.add(txn)
+    session.flush()
+    assert reconcile.reconcile_account(session, source, txn.date).queued == 1
+    proposal = session.scalars(select(Reconciliation)).one()
+    delete_rule(rule.id, household, session, "test")
+    destination.archived = True
+    session.flush()
+
+    with pytest.raises(contributions.MatchError, match="no longer available"):
+        reconcile.confirm(session, proposal)
+    assert proposal.status == ReconStatus.pending
+    assert txn.status == TransactionStatus.pending
+    assert session.scalar(select(ExpectedMatch)) is None
+
+
 class TestParseSpec:
     def test_fixed(self) -> None:
         s = transfer_rules.parse_spec({"kind": "fixed", "pence": 5000})
