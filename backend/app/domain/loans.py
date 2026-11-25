@@ -65,13 +65,34 @@ def repaid_pence(session: Session, loan: Loan,
     return int(session.execute(q).scalar_one())
 
 
-def outstanding(session: Session, loan: Loan,
-                on: date | None = None) -> int:
-    """principal + accrued interest − repayments to date, floored at
-    zero. Recomputes correctly after any repayment add/remove."""
-    on = on or date.today()
-    due = loan.principal_pence + accrued_interest(loan, on)
-    return max(0, due - repaid_pence(session, loan, on))
+@dataclass(frozen=True)
+class LoanBalance:
+    repaid_pence: int
+    accrued_interest_pence: int
+    outstanding_pence: int
+
+
+def balance_at(session: Session, loan: Loan, on: date) -> LoanBalance:
+    """Accrue simple interest until the first dated payment that settles the debt."""
+    if not loan.interest_bps_pa:
+        repaid = repaid_pence(session, loan, on)
+        return LoanBalance(repaid, 0, max(0, loan.principal_pence - repaid))
+    daily = select(Repayment.date, func.sum(Repayment.amount_pence)).where(
+        Repayment.id.in_(_effective_repayments(loan)), Repayment.date <= on,
+    ).group_by(Repayment.date).order_by(Repayment.date)
+    repaid = 0
+    settlement = None
+    for payment_date, amount in session.execute(daily):
+        repaid += amount
+        if settlement is None and repaid >= loan.principal_pence + accrued_interest(
+                loan, payment_date):
+            settlement = payment_date
+    interest = accrued_interest(loan, settlement or on)
+    return LoanBalance(repaid, interest, max(0, loan.principal_pence + interest - repaid))
+
+
+def outstanding(session: Session, loan: Loan, on: date | None = None) -> int:
+    return balance_at(session, loan, on or date.today()).outstanding_pence
 
 
 def expected_to_date(loan: Loan, on: date) -> int:
@@ -120,8 +141,8 @@ def projected_payoff(
     first month at or below zero. ``None`` months means the rate
     never covers the principal."""
     on = on or date.today()
-    base = repaid_pence(session, loan, on)
-    if base >= loan.principal_pence + accrued_interest(loan, on):
+    balance = balance_at(session, loan, on)
+    if balance.outstanding_pence == 0:
         return Projection(months=0, payoff_date=on)
     rate = (loan.expected_payment_pence or 0) + extra_monthly_pence
     if rate <= 0:
@@ -131,7 +152,7 @@ def projected_payoff(
         future = date(anchor.year + (anchor.month - 1 + m) // 12,
                       (anchor.month - 1 + m) % 12 + 1, 1)
         due = (loan.principal_pence + accrued_interest(loan, future)
-               - base - rate * m)
+               - balance.repaid_pence - rate * m)
         if due <= 0:
             return Projection(months=m, payoff_date=future)
     return Projection(months=None, payoff_date=None)
@@ -145,12 +166,14 @@ def repayment_balances(
     out: list[tuple[Repayment, int]] = []
     effective = set(session.scalars(_effective_repayments(loan)))
     repaid = 0
+    settled = False
     for r in sorted(loan.repayments,
                     key=lambda x: (x.date, x.id)):
         if r.id in effective:
             repaid += r.amount_pence
         due = loan.principal_pence + accrued_interest(loan, r.date) - repaid
-        out.append((r, max(0, due)))
+        settled = settled or due <= 0
+        out.append((r, 0 if settled else due))
     return out
 
 
