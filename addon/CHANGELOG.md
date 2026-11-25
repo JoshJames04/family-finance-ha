@@ -8,7 +8,7 @@
   Use remaining unpaid amounts, preserve write-offs and protect scheduled
   payments when accounts merge (#587, #589, #590, #610, #611, #622).
 - Keep loan balances, repayment evidence, interest, payoff dates and monthly
-  net worth consistent after settlement or reversal (#591, #605, #607, #616, #617).
+  net worth consistent after settlement or reversal (#591, #605, #607, #616, #617, #626).
 - Count confirmed transfers in reports, display savings rates as percentages and
   show above-target income as favourable (#592, #597, #606).
 - Validate backups before restoring, handle valid SQLite paths and avoid sending

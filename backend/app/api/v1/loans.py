@@ -37,13 +37,13 @@ def _write(ln: Loan, profile: UserProfile | None) -> None:
 def _position(session: Session, ln: Loan) -> schemas.LoanPositionOut:
     today = date.today()
     balance = loans.balance_at(session, ln, today)
-    expected = loans.expected_to_date(ln, today)
+    drift = loans.schedule_drift(session, ln, today, balance=balance)
     return schemas.LoanPositionOut(
         outstanding_pence=balance.outstanding_pence,
         repaid_pence=balance.repaid_pence,
         accrued_interest_pence=balance.accrued_interest_pence,
-        expected_to_date_pence=expected,
-        drift_pence=expected - balance.repaid_pence)
+        expected_to_date_pence=drift.expected_pence,
+        drift_pence=drift.drift_pence)
 
 
 @router.get("", response_model=schemas.Page[schemas.LoanOut])

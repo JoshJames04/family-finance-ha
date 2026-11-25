@@ -113,12 +113,13 @@ class Drift:
 
 
 def schedule_drift(session: Session, loan: Loan,
-                   on: date | None = None) -> Drift:
+                   on: date | None = None, *, balance: LoanBalance | None = None) -> Drift:
     """Schedule vs actual: positive drift means the household is
     behind the repayment expectation."""
     on = on or date.today()
     expected = expected_to_date(loan, on)
-    balance = balance_at(session, loan, on)
+    if balance is None:
+        balance = balance_at(session, loan, on)
     actual = balance.repaid_pence
     if balance.outstanding_pence == 0:
         expected = min(expected, loan.principal_pence + balance.accrued_interest_pence)
