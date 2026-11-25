@@ -158,7 +158,7 @@ def line_analysis(actual_pence: int,
                   line: BudgetLine) -> dict[str, object]:
     """Variance + accuracy per ADR-0007's honest-budgeting rule.
 
-    variance  = effective - actual (positive → under budget)
+    variance  = effective - actual (positive → unspent expense or income shortfall)
     accuracy  = 100 - |effective - actual| / max(|eff|, |act|, 1) * 100
     Both reported against original and revised so the planner can see
     whether revisions improved accuracy."""
@@ -464,6 +464,15 @@ def line_status(variance_pence: int, effective_pence: int,
     return "on_track"
 
 
+def income_status(variance_pence: int, *, period_ended: bool) -> str:
+    """Income can still arrive through the inclusive end of the period."""
+    if variance_pence < 0:
+        return "above_target"
+    if variance_pence == 0:
+        return "on_target"
+    return "below_target" if period_ended else "pending_income"
+
+
 def report_for_budget(
     session: Session, budget: Budget,
     warn_pct: float = 10.0, over_pct: float = 20.0,
@@ -472,6 +481,7 @@ def report_for_budget(
     variance_pct/accuracy/status. Golden-tested computations."""
     actuals = actuals_for_budget(session, budget)
     rows: list[dict[str, object]] = []
+    period_ended = budget.end_date < date.today()
     for line in budget.lines:
         a = line_analysis(actuals.get(line.id, 0), line)
         eff = int(str(a["effective_pence"]))
@@ -479,7 +489,9 @@ def report_for_budget(
         a["variance_pct"] = (
             round(var / eff * 100, 2) if eff else
             (0.0 if var >= 0 else -100.0))
-        a["status"] = line_status(var, eff, warn_pct, over_pct)
+        a["status"] = (income_status(var, period_ended=period_ended)
+                       if line.side == BudgetLineSide.income
+                       else line_status(var, eff, warn_pct, over_pct))
         a["line_id"] = line.id
         a["category_id"] = line.category_id
         rows.append(a)
