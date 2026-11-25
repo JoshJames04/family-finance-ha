@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.domain import goals, outbox, pay_calendar, paydays, payroll_totals, payrun, transfer_rules
 from app.domain.accounts import current_movement_account
-from app.domain.recurring import advance, occurrences
+from app.domain.recurring import advance, occurrences, rescheduled_occurrences
 from app.persistence.models import (
     AmountKind,
     Confidence,
@@ -65,22 +65,24 @@ def _emit_row(
 
 
 def _drop_future(
-    session: Session, source: ExpectedSource, source_id: int, today: date
+    session: Session, source: ExpectedSource, source_id: int, today: date,
+    *, keep_ids: tuple[int, ...] = (),
 ) -> dict[tuple[date, int | None], ExpectedMovement]:
     """Delete open unmatched future rows; return matched and dismissed
     survivors keyed by ``(expected_date, account_id)`` so callers can
     re-price them in place. Matched rows can't be deleted —
     ``expected_match`` FKs to them — and shouldn't be: real money
     already met the obligation they represent."""
-    session.execute(
-        delete(ExpectedMovement).where(
-            ExpectedMovement.source_type == source,
-            ExpectedMovement.source_id == source_id,
-            ExpectedMovement.expected_date >= today,
-            ExpectedMovement.dismissed_at.is_(None),
-            ExpectedMovement.id.not_in(select(ExpectedMatch.movement_id)),
-        )
+    removable = delete(ExpectedMovement).where(
+        ExpectedMovement.source_type == source,
+        ExpectedMovement.source_id == source_id,
+        ExpectedMovement.expected_date >= today,
+        ExpectedMovement.dismissed_at.is_(None),
+        ExpectedMovement.id.not_in(select(ExpectedMatch.movement_id)),
     )
+    if keep_ids:
+        removable = removable.where(ExpectedMovement.id.not_in(keep_ids))
+    session.execute(removable)
     return {
         (m.expected_date, m.account_id): m
         for m in session.execute(
@@ -139,13 +141,22 @@ def rematerialize_commitment(
     """Delete+regenerate FUTURE expected rows for one commitment."""
     today = today or date.today()
     horizon = today + timedelta(days=horizon_days)
-    survivors = _drop_future(session, ExpectedSource.commitment, c.id, today)
+    moved = rescheduled_occurrences(session, c) if c.active else {}
+    last_original = max(moved, default=horizon)
+    scheduled = list(occurrences(c, max(horizon, last_original))) if c.active else []
+    # A posted nominal date may still have a deferred, unpaid cash date.
+    retained = {moved[d].id for d in scheduled if d in moved}
+    retained.update(m.id for d, m in moved.items()
+                    if c.last_generated is not None and d <= c.last_generated)
+    survivors = _drop_future(session, ExpectedSource.commitment, c.id, today,
+                             keep_ids=tuple(retained))
     if not c.active:
         session.flush()
         return 0
     n = 0
-    for d in occurrences(c, horizon):
-        if d < today:
+    for original in scheduled:
+        d = moved[original].expected_date if original in moved else original
+        if not today <= d <= horizon:
             continue
         _upsert(
             session,
