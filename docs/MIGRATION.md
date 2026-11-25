@@ -129,7 +129,10 @@ fresh PAT.
   (#340).
 - `GET /api/v1/admin/backups` + `/download` →
   `POST /api/v1/admin/restore/upload` → restart; boot applies the
-  pending restore before migrations open the engine.
+  pending restore before opening the active database. Boot migrates an isolated
+  copy, checks the application columns and foreign keys, then installs it in a
+  SQLite transaction. A failed staged restore preserves the current database
+  and reports `restore_failed` in readiness.
 
 ### Historical annotation preservation
 
