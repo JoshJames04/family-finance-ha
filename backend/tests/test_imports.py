@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
@@ -20,6 +21,7 @@ from app.persistence.models import (
     Household,
     Transaction,
     TransactionSource,
+    UserProfile,
 )
 
 CSV_HEADER = "Date,Description,Money Out,Money In\n"
@@ -78,7 +80,7 @@ class TestOtherFormats:
         assert rows[1].notes == "monthly"
 
     def test_qif(self) -> None:
-        rows = imports.parse_qif(QIF.encode())
+        rows = imports.parse_qif(QIF.replace("^\n", "^\n\n").encode())
         assert [r.amount_pence for r in rows] == [-2540, 150_000]
 
 
@@ -171,6 +173,89 @@ class TestApi:
 
         hist = client.get("/api/v1/imports", headers=h).json()
         assert hist["total"] == 2
+
+    def test_scoped_import_history(self, client: TestClient) -> None:
+        h, aid = self._setup(client)
+        with Session(client.app.state.engine) as session:
+            owner = UserProfile(household_id=int(h["X-Household-Id"]), display_name="Owner",
+                                role="member", is_active=True)
+            session.add(owner)
+            session.flush()
+            account = session.get(Account, aid)
+            assert account is not None
+            account.owner_profile_id = owner.id
+            session.commit()
+            owner_headers = {**h, "X-Profile-Id": str(owner.id)}
+        batch = self._upload(client, owner_headers, aid)["import_row"]["id"]
+        assert client.get("/api/v1/imports", headers=owner_headers).json()["total"] == 1
+        assert client.get("/api/v1/imports", headers=h).json()["total"] == 0
+        assert client.post(f"/api/v1/imports/{batch}/commit", headers=owner_headers).json()[
+            "rows_imported"] == 3
+
+    def test_ofx_bank_ids_survive_commit_and_reimport(self, client: TestClient) -> None:
+        h, aid = self._setup(client)
+        records = "".join(f"<STMTTRN><DTPOSTED>20250401<TRNAMT>-25.40<NAME>TESCO STORES"
+                          f"<FITID>{fitid}</STMTTRN>" for fitid in ("one", "two", "one"))
+        def preview() -> dict:
+            response = client.post("/api/v1/imports/preview", headers=h,
+                                   data={"account_id": str(aid), "fmt": "ofx"},
+                                   files={"file": ("statement.ofx", records.encode())})
+            assert response.status_code == 201, response.text
+            return response.json()
+
+        batch = preview()
+        assert [row["duplicate"] for row in batch["rows"]] == [False, False, True]
+        url = f"/api/v1/imports/{batch['import_row']['id']}"
+        assert client.post(f"{url}/commit", headers=h).json()["rows_imported"] == 2
+        assert all(row["duplicate"] for row in preview()["rows"])
+        assert self._upload(client, h, aid)["rows"][0]["duplicate"]
+        assert client.post(f"{url}/rollback", headers=h).status_code == 200
+        retry = preview()
+        assert client.post(f"/api/v1/imports/{retry['import_row']['id']}/commit",
+                           headers=h).json()["rows_imported"] == 2
+
+    def test_legacy_overlap_requires_review(self, session, household) -> None:
+        acct = Account(household_id=household.id, name="Shared", type="joint",
+                       opening_date=date(2025, 1, 1))
+        session.add(acct)
+        session.flush()
+        old = imports.ParsedRow(date(2025, 4, 1), -2540, "Tesco")
+        _txn(session, acct, old)
+        identified = imports.ParsedRow(old.date, old.amount_pence, old.payee, bank_ref="ofx:A")
+        with pytest.raises(ImportError_, match="without a bank ID"):
+            imports.mark_duplicates(session, acct.id, [identified])
+
+    def test_referenced_batch_stays_intact(self, client: TestClient) -> None:
+        h, aid = self._setup(client)
+        batch = self._upload(client, h, aid)["import_row"]["id"]
+        url = f"/api/v1/imports/{batch}"
+        assert client.post(f"{url}/commit", headers=h).status_code == 200
+        with Session(client.app.state.engine) as session:
+            purchase = session.scalars(select(Transaction).where(
+                Transaction.statement_import_id == batch, Transaction.amount_pence < 0)).first()
+            assert purchase is not None
+            session.add(Transaction(account_id=aid, date=purchase.date,
+                                    amount_pence=125, payee="Refund", refund_of_id=purchase.id))
+            session.commit()
+        assert client.post(f"{url}/rollback", headers=h).status_code == 409
+        with Session(client.app.state.engine) as session:
+            assert len(list(session.scalars(select(Transaction.id).where(
+                Transaction.statement_import_id == batch)))) == 3
+
+    def test_locked_batch_stays_intact(self, client: TestClient) -> None:
+        from app.domain import periods
+
+        h, aid = self._setup(client)
+        batch = self._upload(client, h, aid)["import_row"]["id"]
+        url = f"/api/v1/imports/{batch}"
+        assert client.post(f"{url}/commit", headers=h).status_code == 200
+        with Session(client.app.state.engine) as session:
+            p = periods.open_period(session, int(h["X-Household-Id"]), "Synthetic",
+                                    date(2025, 4, 1), date(2025, 4, 30))
+            periods.lock_period(session, p)
+            session.commit()
+        assert client.post(f"{url}/rollback", headers=h).status_code == 409
+        assert client.get("/api/v1/imports", headers=h).json()["items"][0]["status"] == "committed"
 
     def test_commit_twice_rejected(self, client: TestClient) -> None:
         h, aid = self._setup(client)

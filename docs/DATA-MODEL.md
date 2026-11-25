@@ -52,7 +52,10 @@ is never hard-deleted.
   account, filename, format, column mapping, bounded preview payload,
   status (`preview`|`committed`|`rolled_back`), row counts.
 - `transaction.statement_import_id` links committed rows back to the
-  batch for audit + rollback.
+  batch for audit + rollback. OFX imports use the bank transaction ID when
+  available, so distinct payments with the same amount, payee and date survive.
+  CSV, QIF and older previews use the content fingerprint. An OFX identity
+  that overlaps an older unidentified entry requires reconciliation.
 
 ## 5. Payroll
 

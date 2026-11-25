@@ -13284,6 +13284,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;
@@ -13320,6 +13321,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 import_id: number;
@@ -13354,6 +13356,7 @@ export interface operations {
             header?: {
                 "x-household-id"?: number | null;
                 "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
             };
             path: {
                 import_id: number;
@@ -13389,6 +13392,7 @@ export interface operations {
             };
             header?: {
                 "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
             };
             path?: never;
             cookie?: never;

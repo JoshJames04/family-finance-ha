@@ -19,11 +19,12 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.persistence.models import (
+    ReportingPeriod,
     StatementImport,
     Transaction,
     TransactionSource,
@@ -49,6 +50,7 @@ class ParsedRow:
     amount_pence: int
     payee: str
     notes: str | None = None
+    bank_ref: str | None = None
     fingerprint: str = field(default="", init=False)
     duplicate: bool = field(default=False, init=False)
 
@@ -184,7 +186,9 @@ def parse_ofx(content: bytes) -> list[ParsedRow]:
         payee = (tags.get("NAME") or tags.get("MEMO") or "OFX entry")
         out.append(ParsedRow(
             date=d, amount_pence=amount, payee=payee[:200],
-            notes=(tags.get("MEMO", "")[:2000] or None)))
+            notes=(tags.get("MEMO", "")[:2000] or None),
+            bank_ref=("ofx:" + hashlib.sha256(tags["FITID"].encode()).hexdigest()
+                      if tags.get("FITID") else None)))
     if not out:
         raise ImportError_("no statement entries found")
     return out
@@ -208,7 +212,7 @@ def parse_qif(content: bytes) -> list[ParsedRow]:
                         payee=cur["P"][:200],
                         notes=(cur.get("M") or None)))
             cur = {}
-        elif line[:1] in "DTPM":
+        elif line and line[0] in "DTPM":
             cur[line[0]] = line[1:]
     if not out:
         raise ImportError_("no transactions found")
@@ -226,16 +230,40 @@ def parse(content: bytes, fmt: str,
 
 def mark_duplicates(session: Session, account_id: int,
                     rows: list[ParsedRow]) -> None:
-    """Flag rows already present under their fingerprint."""
-    existing = set(session.execute(
-        select(Transaction.external_ref).where(
-            Transaction.account_id == account_id,
-            Transaction.source == TransactionSource.file_import,
-            Transaction.external_ref.in_(
-                [r.fingerprint for r in rows]))
-    ).scalars())
+    """Use OFX bank identities when present, and legacy content keys otherwise."""
+    keys = {r.bank_ref or r.fingerprint for r in rows} | {r.fingerprint for r in rows}
+    recorded = session.scalars(select(Transaction).where(
+        Transaction.account_id == account_id, Transaction.source == TransactionSource.file_import,
+        or_(Transaction.external_ref.in_(keys),
+            and_(Transaction.external_ref.like("ofx:%"),
+                 Transaction.date.in_({r.date for r in rows})))))
+    found: set[str] = set()
+    content_keys: set[str] = set()
+    for tx in recorded:
+        if tx.external_ref is not None:
+            found.add(tx.external_ref)
+        content_keys.add(ParsedRow(tx.date, tx.amount_pence, tx.payee).fingerprint)
+    # An old row lacks a bank ID. Silently choosing which distinct OFX entry it
+    # represents could omit a genuine payment or insert the same one twice.
+    if any(r.bank_ref and r.bank_ref not in found and r.fingerprint in found for r in rows):
+        raise ImportError_("an OFX entry matches a previous import without a bank ID; "
+                           "reconcile the existing entry before importing")
     for r in rows:
-        r.duplicate = r.fingerprint in existing
+        key = r.bank_ref or r.fingerprint
+        r.duplicate = (key in found or r.fingerprint in found
+                       or (r.bank_ref is None and r.fingerprint in content_keys))
+        found.add(key)
+        content_keys.add(r.fingerprint)
+
+
+def _ensure_unlocked(session: Session, household_id: int, dates: set[date]) -> None:
+    if not dates:
+        return
+    periods = session.execute(select(ReportingPeriod.start_date, ReportingPeriod.end_date).where(
+        ReportingPeriod.household_id == household_id, ReportingPeriod.locked.is_(True),
+        ReportingPeriod.start_date <= max(dates), ReportingPeriod.end_date >= min(dates)))
+    if any(start <= day <= end for start, end in periods for day in dates):
+        raise ImportError_("the import contains transactions in a locked period")
 
 
 def commit(session: Session, batch: StatementImport) -> tuple[int, int]:
@@ -249,9 +277,11 @@ def commit(session: Session, batch: StatementImport) -> tuple[int, int]:
     rows = [ParsedRow(date=date.fromisoformat(str(r["date"])),
                       amount_pence=int(str(r["amount_pence"] or 0)),
                       payee=str(r["payee"]),
-                      notes=cast("str | None", r.get("notes")))
+                      notes=cast("str | None", r.get("notes")),
+                      bank_ref=cast("str | None", r.get("bank_ref")))
             for r in raw_rows]
     mark_duplicates(session, batch.account_id, rows)
+    _ensure_unlocked(session, batch.household_id, {r.date for r in rows if not r.duplicate})
     inserted = skipped = 0
     for r in rows:
         if r.duplicate:
@@ -264,10 +294,15 @@ def commit(session: Session, batch: StatementImport) -> tuple[int, int]:
                     amount_pence=r.amount_pence, payee=r.payee,
                     status=TransactionStatus.pending, notes=r.notes,
                     source=TransactionSource.file_import,
-                    external_ref=r.fingerprint,
+                    external_ref=r.bank_ref or r.fingerprint,
                     statement_import_id=batch.id))
                 session.flush()
         except IntegrityError:
+            if session.scalar(select(Transaction.id).where(
+                    Transaction.account_id == batch.account_id,
+                    Transaction.source == TransactionSource.file_import,
+                    Transaction.external_ref == (r.bank_ref or r.fingerprint))) is None:
+                raise
             skipped += 1
         else:
             inserted += 1
@@ -276,8 +311,21 @@ def commit(session: Session, batch: StatementImport) -> tuple[int, int]:
 
 def rollback(session: Session, batch: StatementImport) -> int:
     """Delete the batch's imported rows that are still editable."""
-    n = session.execute(delete(Transaction).where(
+    candidates = list(session.scalars(select(Transaction).where(
         Transaction.statement_import_id == batch.id,
-        Transaction.status != TransactionStatus.reconciled)
-        .returning(Transaction.id)).all()
-    return len(n)
+        Transaction.status.in_([TransactionStatus.pending, TransactionStatus.cleared]))))
+    _ensure_unlocked(session, batch.household_id, {t.date for t in candidates})
+    if any(t.account_id != batch.account_id for t in candidates):
+        raise ImportError_("account changes require individual reconciliation")
+    ids = [t.id for t in candidates]
+    if (any(t.transfer_id or t.refund_of_id or t.corrects_id for t in candidates)
+            or session.scalar(select(Transaction.id).where(
+                Transaction.id.in_(ids), Transaction.splits.any()).limit(1)) is not None):
+        raise ImportError_("linked or split transactions require individual reconciliation")
+    try:
+        with session.begin_nested():
+            removed = session.execute(delete(Transaction).where(
+                Transaction.id.in_(ids)).returning(Transaction.id)).all()
+    except IntegrityError as exc:
+        raise ImportError_("linked transactions require individual reconciliation") from exc
+    return len(removed)
