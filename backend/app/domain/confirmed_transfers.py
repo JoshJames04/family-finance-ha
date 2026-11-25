@@ -17,7 +17,8 @@ from app.persistence.models import (
 )
 
 
-def external_after_confirmed(amounts: Subquery, internal_categories: Select[Any]) -> Subquery:
+def classified_amounts(amounts: Subquery, internal_categories: Select[Any], *,
+                       internal_only: bool) -> Subquery:
     """Consume confirmed pence, internal legs first, without widening caller scope.
 
     The input contains every effective leg, including internal categories. Only
@@ -62,7 +63,8 @@ def external_after_confirmed(amounts: Subquery, internal_categories: Select[Any]
                 and_(Transaction.amount_pence < 0,
                      ExpectedMovement.amount_pence < 0)))
         .group_by(matches.c.transaction_id, Transaction.amount_pence).subquery())
-    internal = case((amounts.c.category_id.in_(internal_categories), 1), else_=0)
+    internal = case((or_(amounts.c.transfer_id.is_not(None),
+                         amounts.c.category_id.in_(internal_categories)), 1), else_=0)
     same_direction = amounts.c.amount_pence * Transaction.amount_pence > 0
     legs = (select(
         amounts,
@@ -77,13 +79,11 @@ def external_after_confirmed(amounts: Subquery, internal_categories: Select[Any]
         order_by=(legs.c.internal.desc(), legs.c.category_id, legs.c.amount_pence),
         rows=(None, -1)), 0)
     consumed = func.min(legs.c.eligible, func.max(0, legs.c.confirmed_pence - prior))
-    adjusted = (select(
+    internal_pence = case((legs.c.internal == 1, legs.c.amount_pence),
+                          (legs.c.amount_pence > 0, consumed), else_=-consumed)
+    amount = internal_pence if internal_only else legs.c.amount_pence - internal_pence
+    adjusted = select(
         legs.c.transaction_id, legs.c.date, legs.c.transfer_id, legs.c.refund_of_id,
-        legs.c.category_id, legs.c.internal,
-        (legs.c.amount_pence - case((legs.c.amount_pence > 0, consumed),
-                                   else_=-consumed)).label("amount_pence"))
-        .subquery())
-    return select(
-        adjusted.c.transaction_id, adjusted.c.date, adjusted.c.transfer_id,
-        adjusted.c.refund_of_id, adjusted.c.category_id, adjusted.c.amount_pence,
-    ).where(adjusted.c.internal == 0, adjusted.c.amount_pence != 0).subquery()
+        legs.c.category_id, amount.label("amount_pence"),
+    ).subquery()
+    return select(adjusted).where(adjusted.c.amount_pence != 0).subquery()

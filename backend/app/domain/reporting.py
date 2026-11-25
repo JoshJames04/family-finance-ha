@@ -49,7 +49,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.sql.expression import ColumnElement, Subquery
 
 from app.domain import splits
-from app.domain.confirmed_transfers import external_after_confirmed
+from app.domain.confirmed_transfers import classified_amounts
 from app.persistence.models import Category, Transaction, TransactionStatus
 
 
@@ -72,15 +72,18 @@ def external_category_amounts(
         ~((Transaction.source == "system") & Transaction.external_ref.like("open:%"))
         | Transaction.external_ref.is_(None))
     if classify_confirmed:
-        return external_after_confirmed(amounts, internal_category_ids())
+        return classified_amounts(amounts, internal_category_ids(), internal_only=False)
     return select(amounts).where(or_(
         amounts.c.category_id.is_(None),
         amounts.c.category_id.not_in(internal_category_ids()))).subquery()
 
 
-def internal_category_amounts(*wheres: ColumnElement[bool]) -> Subquery:
+def internal_category_amounts(*wheres: ColumnElement[bool],
+                              classify_confirmed: bool = True) -> Subquery:
     """Paired legs and confirmed unpaired internal legs, excluding external fees."""
     amounts = splits.effective_category_amounts(*wheres)
+    if classify_confirmed:
+        return classified_amounts(amounts, internal_category_ids(), internal_only=True)
     return select(amounts).where(or_(
         amounts.c.transfer_id.is_not(None),
         amounts.c.category_id.in_(internal_category_ids()))).subquery()

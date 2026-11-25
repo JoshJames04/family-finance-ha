@@ -299,7 +299,9 @@ Monthly series derive fresh values from authorised raw ledger and loan records
 without writing on GET or depending on a manual cache rebuild; the explicit
 rebuild endpoint remains available for materialised-table compatibility.
 Report internal outflow totals sum negative internal effective legs, including
-confirmed unpaired movements. Internal movement counts include each paired
+manual transfer-rule confirmations on uncategorised or externally categorised
+transactions. The matching portion counts once and any external remainder
+continues to appear in the spending or income drill. Internal movement counts include each paired
 transfer ID once and each unpaired internal transaction once; their drill covers
 both directions, while the internal outflow drill selects negative legs.
 A zero loan balance has zero projected months remaining. Savings goals place

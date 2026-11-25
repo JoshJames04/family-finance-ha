@@ -55,7 +55,7 @@ def budget_funding(
         | Transaction.external_ref.is_(None),
     )
     external = external_category_amounts(*wheres, classify_confirmed=False)
-    internal = internal_category_amounts(*wheres)
+    internal = internal_category_amounts(*wheres, classify_confirmed=False)
 
     def items(amounts: Any, *, receipts: bool = False) -> list[dict[str, Any]]:
         stmt = select(amounts, Transaction.account_id, Transaction.payee).join(
