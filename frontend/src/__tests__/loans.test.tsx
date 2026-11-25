@@ -28,10 +28,16 @@ const PROFILES = [
     totp_enabled: false },
 ];
 
-function stubFetch() {
+function stubFetch(positionUnavailable = false, failAfterFirst = false) {
+  let reads = 0;
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input) => {
       const url = String(input);
+      if (/\/api\/v1\/loans\/1$/.test(url) && (positionUnavailable || (failAfterFirst && reads++ > 0))) {
+        return Promise.resolve(new Response(JSON.stringify({ detail: "Position unavailable" }), {
+          status: 400, headers: { "Content-Type": "application/json" },
+        }));
+      }
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
         : url.includes("/api/v1/profiles")
@@ -41,9 +47,11 @@ function stubFetch() {
                 with_extra: { months: null, payoff_date: null },
                 extra_monthly_pence: 0, months_saved: null }
           : url.includes("/repayments")
-            ? []
+            ? (positionUnavailable && url.includes("/loans/1/")
+                ? [{ id: 7, loan_id: 1, date: "2026-01-10", amount_pence: 10000,
+                     balance_after_pence: 40000, notes: null, transaction_id: null }] : [])
           : /\/api\/v1\/loans\/\d/.test(url)
-            ? { outstanding_pence: 0, repaid_pence: 0,
+            ? { outstanding_pence: 40000, repaid_pence: 10000,
                 accrued_interest_pence: 0,
                 expected_to_date_pence: 0, drift_pence: 0 }
             : url.includes("/api/v1/loans")
@@ -56,6 +64,29 @@ function stubFetch() {
 
 describe("Loans scope filter", () => {
   afterEach(cleanup);
+
+  it("shows an unavailable position without inventing repayment progress", async () => {
+    stubFetch(true);
+    render(<MemoryRouter><Loans /></MemoryRouter>);
+    const warning = await screen.findByRole("alert");
+    expect(warning.textContent).toContain("Position unavailable");
+    expect(await screen.findByText("1 repayment")).toBeTruthy();
+    expect(screen.queryByRole("progressbar", { name: "Mum repaid" })).toBeNull();
+    expect(within(warning).getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("labels the last known balances when a repayment refresh fails", async () => {
+    stubFetch(false, true);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Loans /></MemoryRouter>);
+    expect(await screen.findByText("20% repaid")).toBeTruthy();
+    await user.click(screen.getAllByRole("button", { name: "Record repayment" })[0]!);
+    await user.type(screen.getByLabelText("Amount (£)"), "10");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Record repayment" }));
+    const warning = await screen.findByRole("alert");
+    expect(warning.textContent).toContain("last known");
+    expect(screen.getByText("20% repaid")).toBeTruthy();
+  });
 
   it("narrows loans by Mine / Shared / All", async () => {
     stubFetch();
