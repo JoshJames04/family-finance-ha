@@ -11,7 +11,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import URL, Engine, create_engine, text
 from sqlalchemy.engine import Connection
 
 from app.persistence.migrate import (
@@ -30,6 +30,22 @@ REVISIONS = [r.revision for r in reversed(list(
 def cfg(tmp_path: Path) -> Config:
     return alembic_config(
         f"sqlite:///{(tmp_path / 'm.db').as_posix()}")
+
+
+def test_programmatic_migration_uses_exact_target_even_with_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staged = tmp_path / "staged%20snapshot.db"
+    other = tmp_path / "configured.db"
+    monkeypatch.setenv("FF_DATABASE_URL", f"sqlite:///{other.as_posix()}")
+    target = URL.create("sqlite", database=staged.as_posix()).render_as_string()
+    cfg = alembic_config(target)
+    assert cfg.get_main_option("sqlalchemy.url") == target
+    command.upgrade(cfg, "head")
+    assert staged.exists()
+    assert not other.exists()
+    downgrade_one(cfg)
+    assert not other.exists()
 
 
 def _eng(c: Config) -> Engine:

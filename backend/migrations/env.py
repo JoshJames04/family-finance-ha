@@ -20,6 +20,7 @@ target_metadata = Base.metadata
 # URL precedence: -x db_url=... > FF_DATABASE_URL > alembic.ini
 url = (
     context.get_x_argument(as_dictionary=True).get("db_url")
+    or config.attributes.get("db_url")
     or os.environ.get("FF_DATABASE_URL")
     or config.get_main_option("sqlalchemy.url")
 )
