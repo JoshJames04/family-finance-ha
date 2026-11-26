@@ -214,7 +214,7 @@ def evaluate(session: Session, rule: NotificationRule,
         return _eval_sync_failure(session, rule, params, at=at)
     if rule.kind is NotificationKind.payroll_variance:
         return 0
-    if rule.kind is NotificationKind.payslip_review:
+    if rule.kind in (NotificationKind.payslip_review, NotificationKind.shared_contribution_change):
         return 0
     raise NotificationError(f"unknown rule kind {rule.kind}")
 

@@ -52,6 +52,13 @@ function eventSummary(e: Event, acctName: (id: number) => string): {
   title: string; detail: string;
 } {
   const p = (e.payload ?? {}) as Record<string, unknown>;
+  if (typeof p.old_pence === "number" && typeof p.new_pence === "number"
+      && typeof p.effective_date === "string" && typeof p.title === "string") {
+    return {
+      title: p.title,
+      detail: `${formatPence(p.old_pence)} to ${formatPence(p.new_pence)} · ${p.effective_date} · ${String(p.reason ?? "")}`,
+    };
+  }
   if ("payee" in p && "amount_pence" in p) {
     return {
       title: String(p.payee),

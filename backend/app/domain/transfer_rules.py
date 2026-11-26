@@ -80,7 +80,7 @@ def parse_spec(raw: str | dict[str, Any]) -> AmountSpec:
         raise TransferRuleError(f"unknown amount kind: {e}") from e
     if kind is AmountKind.fixed:
         pence = int(data["pence"])
-        if pence <= 0:
+        if pence < 0 or (pence == 0 and not data.get("effective_amounts")):
             raise TransferRuleError("fixed spec needs positive pence")
         return AmountSpec(kind, pence=pence)
     if kind is AmountKind.income_pct:
@@ -143,6 +143,12 @@ def evaluate(session: Session, rule: TransferRule,
     amount cannot be derived yet (no covering budget / no income)."""
     spec = parse_spec(rule.amount_spec)
     if spec.kind is AmountKind.fixed:
+        raw = json.loads(rule.amount_spec)
+        if "effective_amounts" in raw:
+            boundary = on.isoformat()
+            amount = next((item["pence"] for item in reversed(raw["effective_amounts"])
+                           if item["date"] <= boundary), raw["original_pence"])
+            return int(amount) or None
         return spec.pence
     if spec.kind is AmountKind.income_pct:
         since = _period_before(rule, on)

@@ -226,6 +226,11 @@ configured monthly payday or a selected day of the month. The setup previews
 the amount and first payment date and creates a forecast schedule in Family
 Finance. The account holder still makes the transfer at their bank.
 
+When the Shared target changes, Family Finance proposes a new amount to each
+affected contributor by default. Open the notification or go to Shared to
+accept the next amount or keep the agreed amount. Household admins can
+designate an approver or allow automatic changes with a notification.
+
 On Shared, choose the account you and other members pay into. Adjust split uses
 the Shared expense total as a suggested funding target. For two members, editing
 one amount allocates the remainder to the other. The transfers change only when

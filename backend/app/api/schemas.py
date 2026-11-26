@@ -1162,6 +1162,8 @@ class SharedSplitPolicy(BaseModel):
     remainder_profile_id: int | None = None
     percentages: dict[int, int] = Field(default_factory=dict)
     fixed_pence: dict[int, int] = Field(default_factory=dict)
+    approval: Literal["contributor", "delegated", "automatic"] | None = None
+    approver_profile_id: int | None = None
 
 
 class SharedSplitSetup(BaseModel):

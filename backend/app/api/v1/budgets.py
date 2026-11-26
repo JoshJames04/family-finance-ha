@@ -15,7 +15,14 @@ from app.api.deps import (
     ProfileDep,
     SessionDep,
 )
-from app.domain import budget_funding, budget_periods, financial_events, rbac, schedule
+from app.domain import (
+    budget_funding,
+    budget_periods,
+    financial_events,
+    rbac,
+    schedule,
+    shared_contribution_approvals,
+)
 from app.domain import budgets as dom
 from app.persistence.models import (
     Account,
@@ -198,6 +205,7 @@ def revise_line(
           "reason": body.reason})
     # a revised approved line changes budget-derived rule amounts (#86)
     if b.status is BudgetStatus.approved:
+        shared_contribution_approvals.propose(session, b, body.reason)
         affected = schedule.rematerialize_budget_derived_rules(
             session, household.id)
         if affected:
@@ -227,6 +235,7 @@ def remove_future_lines(
             "rollover": row.rollover,
         })
     if removed:
+        shared_contribution_approvals.propose(session, b, "A planned expense was removed")
         schedule.rematerialize_budget_derived_rules(session, household.id)
         financial_events.evaluate_budgets(session, household.id)
     return {"removed": len(removed)}
@@ -242,6 +251,7 @@ def approve_budget(
     _w(b, profile)
     emit(session, household.id, actor, "update", "budget", b.id,
          {"status": b.status.value})
+    shared_contribution_approvals.propose(session, b, "Shared budget approved")
     # budget-derived transfer rules recompute on approval (#86)
     affected = schedule.rematerialize_budget_derived_rules(
         session, household.id)
@@ -615,6 +625,8 @@ def bulk_revise_lines(
         dom.revise_line(session, line, item.amount.pence,
                         item.reason)
         updated += 1
+    if updated and b.status is BudgetStatus.approved:
+        shared_contribution_approvals.propose(session, b, "Shared budget revised")
     emit(session, household.id, actor, "update", "budget", b.id,
          {"bulk_revisions": updated, "skipped": skipped})
     return schemas.BulkReviseResult(updated=updated,

@@ -1691,6 +1691,7 @@ class NotificationKind(enum.StrEnum):
     sync_failure = "sync_failure"
     payroll_variance = "payroll_variance"
     payslip_review = "payslip_review"
+    shared_contribution_change = "shared_contribution_change"
 
 
 class NotificationState(enum.StrEnum):

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import delete, select, update
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import budget_periods, rbac, schedule, transfer_rules
+from app.domain import budget_periods, rbac, schedule, shared_contribution_approvals, transfer_rules
 from app.domain.paydays import PaydayRule, RuleKind, ShiftPolicy, pay_date
 from app.domain.recurring import advance
 from app.persistence.models import (
@@ -202,10 +202,6 @@ def update_rule(
     return schemas.TransferRuleOut.model_validate(r)
 
 
-def _split_key(household_id: int, account_id: int) -> str:
-    return f"shared_split:{household_id}:{account_id}"
-
-
 def _shared_pot(session: Session, household_id: int, account_id: int) -> Account:
     pot = session.get(Account, account_id)
     if (pot is None or pot.household_id != household_id or pot.archived
@@ -221,7 +217,7 @@ def get_shared_split(
     _shared_pot(session, household.id, account_id)
     if not rbac.visible(None, profile) and profile is not None:
         raise HTTPException(404, "shared account not found")
-    record = session.get(AppMeta, _split_key(household.id, account_id))
+    record = session.get(AppMeta, shared_contribution_approvals.split_key(household.id, account_id))
     today = date.today()
     paydays = {}
     for member_id in session.scalars(select(UserProfile.id).where(
@@ -369,8 +365,24 @@ def save_shared_split(
                 schedule.rematerialize_transfer_rule(session, new_rule)
 
     if body.policy is not None:
-        key = _split_key(household.id, pot.id)
+        key = shared_contribution_approvals.split_key(household.id, pot.id)
         record = session.get(AppMeta, key)
+        prior_policy = (schemas.SharedSplitPolicy.model_validate_json(record.value)
+                        if record else None)
+        if body.policy.approval is None:
+            body.policy.approval = prior_policy.approval if prior_policy else "contributor"
+            body.policy.approver_profile_id = (prior_policy.approver_profile_id
+                                               if prior_policy else None)
+        elif profile is not None and not rbac.can(profile, rbac.Action.admin) and (
+            prior_policy is None or (body.policy.approval, body.policy.approver_profile_id)
+            != (prior_policy.approval, prior_policy.approver_profile_id)
+        ):
+            raise HTTPException(403, "only a household admin can change the approval policy")
+        if body.policy.approval == "delegated":
+            if body.policy.approver_profile_id not in active_members:
+                raise HTTPException(422, "choose an active household approver")
+        else:
+            body.policy.approver_profile_id = None
         saved = body.policy.model_dump_json()
         if record is None:
             session.add(AppMeta(key=key, value=saved))
@@ -378,6 +390,57 @@ def save_shared_split(
             record.value = saved
         emit(session, household.id, actor, "update", "shared_split", pot.id,
              {"mode": body.policy.mode})
+
+
+@router.get(
+    "/shared-split/{account_id}/proposals",
+    response_model=list[shared_contribution_approvals.ContributionProposal],
+)
+def contribution_proposals(
+    account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
+) -> list[shared_contribution_approvals.ContributionProposal]:
+    _shared_pot(session, household.id, account_id)
+    _, changes = shared_contribution_approvals.read(session, household.id, account_id)
+    return [item for item in changes if item.state == "pending"
+            and rbac.visible(item.approver_profile_id or item.profile_id, profile)]
+
+
+@router.post("/shared-split/{account_id}/proposals/{proposal_id}/{decision}", status_code=204)
+def decide_contribution_change(
+    account_id: int, proposal_id: str, decision: Literal["accept", "keep"],
+    household: HouseholdDep, session: SessionDep, actor: ActorDep, profile: ProfileDep,
+) -> None:
+    _shared_pot(session, household.id, account_id)
+    row, changes = shared_contribution_approvals.read(session, household.id, account_id)
+    proposal = next((item for item in changes if item.id == proposal_id), None)
+    if proposal is None:
+        raise HTTPException(409, "this proposal has been replaced")
+    approver_id = proposal.approver_profile_id or proposal.profile_id
+    if profile is None or not rbac.write_allowed(approver_id, profile):
+        raise HTTPException(403, "only the contributor or an admin can decide this proposal")
+    state: Literal["accepted", "kept"] = "accepted" if decision == "accept" else "kept"
+    if proposal.state == state:
+        return
+    if proposal.state != "pending" or proposal.effective_date < date.today():
+        raise HTTPException(409, "this proposal has expired")
+    rule = _get(session, household.id, proposal.rule_id)
+    spec = json.loads(rule.amount_spec)
+    if (not rule.active or rule.dest_account_id != account_id
+            or spec.get("pence") != proposal.old_pence):
+        raise HTTPException(409, "the agreed schedule has changed")
+    if decision == "accept":
+        due = shared_contribution_approvals.next_unpaid_date(
+            session, rule, proposal.effective_date)
+        source = session.get(Account, rule.source_account_id)
+        if (due != proposal.effective_date or source is None
+                or source.owner_profile_id != proposal.profile_id):
+            raise HTTPException(409, "the scheduled payment date or account has changed")
+        shared_contribution_approvals.apply(session, rule, proposal)
+    proposal.state = state
+    shared_contribution_approvals.close_notification(session, proposal.id)
+    shared_contribution_approvals.save(session, household.id, account_id, row, changes)
+    emit(session, household.id, actor, state, "shared_contribution_proposal", rule.id,
+         {"proposal_id": proposal.id, "effective_date": proposal.effective_date.isoformat()})
 
 
 @router.delete("/{rid}", status_code=204)

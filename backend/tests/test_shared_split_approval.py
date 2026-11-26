@@ -1,0 +1,90 @@
+"""Approval protects the agreed Shared schedules from budget changes."""
+
+from __future__ import annotations
+
+from calendar import monthrange
+from datetime import date
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from app.core.settings import Settings
+from app.main import create_app
+
+
+def test_budget_change_requires_latest_proposal_approval(tmp_path: Path) -> None:
+    settings = Settings.load({"FF_DATA_DIR": str(tmp_path)})
+    with TestClient(create_app(settings)) as client:
+        base = "/api/v1"
+        household = client.post(f"{base}/households", json={"name": "Test"}).json()["id"]
+        headers = {"X-Household-Id": str(household)}
+
+        def post(path: str, payload: dict):
+            response = client.post(f"{base}/{path}", headers=headers, json=payload)
+            assert response.status_code == 201, response.text
+            return response.json()["id"]
+
+        alice = post("profiles", {"display_name": "Alice", "role": "admin"})
+        headers["X-Profile-Id"] = str(alice)
+        bob = post("profiles", {"display_name": "Bob"})
+        today = date.today()
+
+        def account(name: str, owner: int | None = None) -> int:
+            return post("accounts", {
+                "name": name, "type": "personal" if owner else "joint",
+                "owner_profile_id": owner, "opening_balance": 0,
+                "opening_date": today.isoformat(),
+            })
+
+        a, b, pot = account("Alice Current", alice), account("Bob Current", bob), account("Joint")
+        category = post("categories", {"name": "Bills"})
+        budget = post("budgets", {
+            "name": "Shared", "period_type": "monthly",
+            "start_date": today.replace(day=1).isoformat(),
+            "end_date": today.replace(day=monthrange(today.year, today.month)[1]).isoformat(),
+        })
+        line = post(f"budgets/{budget}/lines", {
+            "category_id": category, "side": "expense", "amount": 150000,
+        })
+        assert client.post(f"{base}/budgets/{budget}/approve", headers=headers).status_code == 200
+        assert client.post(f"{base}/transfer-rules/shared-split", headers=headers, json={
+            "account_id": pot, "target_pence": 150000,
+            "policy": {"mode": "fixed_remainder", "remainder_profile_id": alice},
+            "shares": [
+                {"profile_id": alice, "source_account_id": a, "day_of_month": 28, "pence": 0},
+                {"profile_id": bob, "source_account_id": b, "day_of_month": 11, "pence": 50000},
+            ],
+        }).status_code == 204
+
+        def revise(amount: int) -> None:
+            response = client.patch(f"{base}/budgets/{budget}/lines/{line}", headers=headers,
+                                    json={"amount": amount, "reason": "Bills changed"})
+            assert response.status_code == 200
+
+        path = f"{base}/transfer-rules/shared-split/{pot}/proposals"
+        revise(155000)
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, response.text
+        first, = response.json()
+        assert first["old_pence"] == 100000
+        assert first["new_pence"] == 105000
+        assert first["profile_id"] == alice
+        events = client.get(f"{base}/notifications/events", headers=headers).json()
+        assert len(events) == 1 and events[0]["payload"]["new_pence"] == 105000
+        as_bob = {**headers, "X-Profile-Id": str(bob)}
+        assert client.get(path, headers=as_bob).json() == []
+        assert client.post(f"{path}/{first['id']}/accept", headers=as_bob).status_code == 403
+
+        revise(157000)
+        latest, = client.get(path, headers=headers).json()
+        assert latest["new_pence"] == 107000
+        assert first["id"] != latest["id"]
+        events = client.get(f"{base}/notifications/events", headers=headers).json()
+        assert [event["state"] for event in events] == ["pending", "acked"]
+        assert client.post(f"{path}/{first['id']}/accept", headers=headers).status_code == 409
+        rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
+        assert {r["amount_spec"]["pence"] for r in rules} == {50000, 100000}
+        for _ in range(2):
+            assert client.post(f"{path}/{latest['id']}/accept", headers=headers).status_code == 204
+        rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
+        assert {r["amount_spec"]["pence"] for r in rules} == {50000, 107000}
