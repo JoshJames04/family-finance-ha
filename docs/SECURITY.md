@@ -255,3 +255,6 @@ Proposal details are visible in the scoped inbox of the designated approver,
 who is the contributor by default. The approver or a household admin can decide. Viewers cannot
 approve. A replacement approval or conflict notice falls back to an active
 household admin when the original recipient no longer has write access.
+Generic transfer edits cannot bypass the source joint account's approval policy
+by moving a recurring rule to a shared bills account or converting a one-off
+into a standing top-up. Use the Shared approval flow for standing amounts.

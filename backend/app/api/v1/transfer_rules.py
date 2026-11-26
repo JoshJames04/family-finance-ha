@@ -172,16 +172,32 @@ def update_rule(
     rid: int, body: schemas.TransferRulePatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.TransferRuleOut:
-    if body.amount_spec is not None:
-        rule = _get(session, household.id, rid)
-        source = session.get(Account, rule.source_account_id)
-        target = session.get(Account, rule.dest_account_id)
-        if (source is not None and source.type == AccountType.joint
-                and source.owner_profile_id is None and target is not None
+    rule = _get(session, household.id, rid)
+    current = (rule.source_account_id, rule.dest_account_id)
+    effective = (
+        body.source_account_id if body.source_account_id is not None else rule.source_account_id,
+        body.dest_account_id if body.dest_account_id is not None else rule.dest_account_id,
+    )
+    start = body.start_date or rule.start_date
+    end = body.end_date if "end_date" in body.model_fields_set else rule.end_date
+    changes_amount = body.amount_spec is not None
+    was_recurring = rule.start_date != rule.end_date
+    approval_endpoints = set()
+    if changes_amount and was_recurring:
+        approval_endpoints.add(current)
+    # Moving or converting a rule can establish a standing amount on a new account.
+    if start != end and (changes_amount or effective != current or not was_recurring):
+        approval_endpoints.add(effective)
+    for source_id, target_id in sorted(approval_endpoints):
+        source = session.get(Account, source_id)
+        target = session.get(Account, target_id)
+        if (source is not None and target is not None
+                and source.household_id == target.household_id == household.id
+                and source.type == AccountType.joint and source.owner_profile_id is None
                 and target.type == AccountType.bills and target.owner_profile_id is None
-                and rule.start_date != rule.end_date
-                and shared_contribution_approvals.top_up_policy(session, rule).approval
-                != "automatic"):
+                and shared_contribution_approvals.top_up_policy(
+                    session, household.id, source_id,
+                ).approval != "automatic"):
             raise HTTPException(409, "request a standing top-up amount change in Shared")
     return _update_rule(rid, body, household, session, actor)
 
@@ -653,7 +669,9 @@ def decide_contribution_change(
         if proposal.budget_id is None:
             if bills_space.derived_space_rule(session, household.id, rule.id):
                 raise HTTPException(409, "edit the source transfer for this linked bank space")
-            policy = shared_contribution_approvals.top_up_policy(session, rule)
+            policy = shared_contribution_approvals.top_up_policy(
+                session, rule.household_id, rule.source_account_id,
+            )
             expected_approver = shared_contribution_approvals.top_up_approver(
                 session, rule, policy, proposal.profile_id,
             )

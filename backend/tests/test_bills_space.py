@@ -48,19 +48,29 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
                     amount_pence=amount, confidence=Confidence.scheduled,
                 ))
 
+        savings = account("Savings", "joint", 0)
+        outflow = client.post(f"{base}/transfer-rules", headers=h, json={
+            "name": "Move to savings", "source_account_id": bills, "dest_account_id": savings,
+            "amount_spec": {"kind": "fixed", "pence": 2500},
+            "frequency": "monthly", "day_of_month": due.day, "start_date": due.isoformat(),
+        })
+        assert outflow.status_code == 201, outflow.text
+
         route = f"{base}/transfer-rules/bills-space/{bills}"
         joint_funding = client.get(f"{base}/transfer-rules/bills-space/{joint}", headers=h)
         assert joint_funding.status_code == 404
         default = client.get(route, headers=h).json()
-        assert default["top_up_pence"] == 10000 and default["next_top_up"] == due.isoformat()
+        assert default["top_up_pence"] == 12500 and default["next_top_up"] == due.isoformat()
         assert default["first_shortfall"] == today.isoformat()
         buffered = client.get(route, headers=h, params={"buffer_pence": 1500}).json()
-        assert buffered["top_up_pence"] == 11500
+        assert buffered["top_up_pence"] == 14000
         explicit = client.get(route, headers=h, params={"through": due.isoformat()}).json()
-        assert explicit["top_up_pence"] == 10000
+        assert explicit["top_up_pence"] == 12500
         assert any(row["pence"] == 10000 for row in explicit["movements"])
 
-        body = {"source_account_id": joint, "amount_pence": 10000, "buffer_pence": 0}
+        assert any(row["pence"] == -2500 for row in explicit["movements"])
+
+        body = {"source_account_id": joint, "amount_pence": 12500, "buffer_pence": 0}
         accepted = client.post(route, headers=h, json=body)
         assert accepted.status_code == 201, accepted.text
         assert accepted.json()["start_date"] == accepted.json()["end_date"] == today.isoformat()
@@ -129,3 +139,47 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
         proposal = fallback.json()
         assert (proposal["approver_profile_id"] or proposal["profile_id"]) == profile
         assert client.post(f"{path}/{proposal['id']}/accept", headers=h).status_code == 204
+
+
+def test_standing_top_up_approval_uses_effective_rule_endpoints(tmp_path: Path) -> None:
+    app = create_app(Settings.load({"FF_DATA_DIR": str(tmp_path)}))
+    today = date.today().isoformat()
+    base = "/api/v1"
+    with TestClient(app) as client:
+        household = client.post(f"{base}/households", json={"name": "Test"}).json()["id"]
+        h = {"X-Household-Id": str(household)}
+
+        def create_account(name: str, kind: str) -> int:
+            response = client.post(f"{base}/accounts", headers=h, json={
+                "name": name, "type": kind, "opening_balance": 0, "opening_date": today,
+            })
+            assert response.status_code == 201, response.text
+            return int(response.json()["id"])
+
+        joint = create_account("Joint", "joint")
+        savings = create_account("Savings", "joint")
+        bills = create_account("Bills", "bills")
+        response = client.post(f"{base}/transfer-rules", headers=h, json={
+            "name": "Standing transfer", "source_account_id": joint, "dest_account_id": savings,
+            "amount_spec": {"kind": "fixed", "pence": 5000},
+            "frequency": "monthly", "day_of_month": date.today().day, "start_date": today,
+        })
+        assert response.status_code == 201, response.text
+        path = f"{base}/transfer-rules/{response.json()['id']}"
+        amount = {"amount_spec": {"kind": "fixed", "pence": 9000}}
+        changed = client.patch(path, headers=h, json={**amount, "dest_account_id": bills})
+        assert changed.status_code == 409, changed.text
+        assert client.patch(path, headers=h, json=amount).status_code == 200
+        moved = client.patch(path, headers=h, json={"dest_account_id": bills})
+        assert moved.status_code == 409, moved.text
+
+        one_off = client.post(f"{base}/transfer-rules", headers=h, json={
+            "name": "One-off transfer", "source_account_id": joint, "dest_account_id": bills,
+            "amount_spec": {"kind": "fixed", "pence": 5000},
+            "frequency": "monthly", "day_of_month": date.today().day,
+            "start_date": today, "end_date": today,
+        })
+        assert one_off.status_code == 201, one_off.text
+        path = f"{base}/transfer-rules/{one_off.json()['id']}"
+        converted = client.patch(path, headers=h, json={"end_date": None})
+        assert converted.status_code == 409, converted.text
