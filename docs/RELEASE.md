@@ -41,6 +41,12 @@ For the 19 November 2026 maintenance batch, the owner explicitly selected
 payroll, bonus and automation follow-ups. This is a scoped release decision;
 future feature releases continue to follow the general versioning rules above.
 
+For the November 2026 maintenance batch, the owner selected **1.5.7** to
+ship the Shared contribution and bills-account funding changes and the
+Bills and Subscriptions payment-account filters before completing the
+remaining **1.6.0** work. The patch exception applies only to that batch.
+The general versioning rules apply to later releases.
+
 ## Changelog rules
 
 `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/):
