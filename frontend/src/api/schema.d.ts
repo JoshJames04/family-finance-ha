@@ -2497,6 +2497,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transfer-rules/bills-space/{account_id}/standing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose Bills Space Schedule Change */
+        post: operations["propose_bills_space_schedule_change_api_v1_transfer_rules_bills_space__account_id__standing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transfer-rules/shared-split/{account_id}/proposals": {
         parameters: {
             query?: never;
@@ -4317,6 +4334,10 @@ export interface components {
             through: string;
             /** Next Top Up */
             next_top_up: string | null;
+            /** Standing Rule Id */
+            standing_rule_id: number | null;
+            /** Standing Pence */
+            standing_pence: number | null;
             /** First Shortfall */
             first_shortfall: string | null;
             /** Top Up Pence */
@@ -4335,6 +4356,13 @@ export interface components {
             label: string;
             /** Pence */
             pence: number;
+        };
+        /** BillsSpaceStandingTopUpIn */
+        BillsSpaceStandingTopUpIn: {
+            /** Rule Id */
+            rule_id: number;
+            /** Amount Pence */
+            amount_pence: number;
         };
         /** BillsSpaceTopUpIn */
         BillsSpaceTopUpIn: {
@@ -5074,7 +5102,7 @@ export interface components {
             /** Rule Id */
             rule_id: number;
             /** Budget Id */
-            budget_id: number;
+            budget_id?: number | null;
             /** Old Pence */
             old_pence: number;
             /** New Pence */
@@ -14755,6 +14783,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TransferRuleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_bills_space_schedule_change_api_v1_transfer_rules_bills_space__account_id__standing_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillsSpaceStandingTopUpIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionProposal"];
                 };
             };
             /** @description Validation Error */

@@ -18,6 +18,7 @@ export function BillsSpaceFunding() {
   const [through, setThrough] = useState("");
   const [buffer, setBuffer] = useState("0");
   const [busy, setBusy] = useState(false);
+  const [standingAmount, setStandingAmount] = useState("");
   const bills = accounts.data?.items.filter(a => a.owner_profile_id === null && a.type === "bills") ?? [];
   const selected = bills.find(a => a.id === target) ?? bills[0];
   const sources = accounts.data?.items.filter(a => a.owner_profile_id === null && a.type === "joint") ?? [];
@@ -28,6 +29,10 @@ export function BillsSpaceFunding() {
     path: { account_id: selected!.id },
     query: { through: through || undefined, buffer_pence: bufferPence },
   }), ready && selected != null && validBuffer, [selected?.id, through, bufferPence]);
+
+  const approvals = useApi(() => api.get("/api/v1/transfer-rules/shared-split/{account_id}/proposals", {
+    path: { account_id: selected!.id },
+  }), ready && selected != null, [selected?.id]);
 
   if (!selected) return null;
   const save = async () => {
@@ -47,12 +52,44 @@ export function BillsSpaceFunding() {
       setBusy(false);
     }
   };
+  const propose = async (ruleId: number) => {
+    setBusy(true);
+    try {
+      const change = await api.post("/api/v1/transfer-rules/bills-space/{account_id}/standing", {
+        path: { account_id: selected.id },
+        body: { rule_id: ruleId, amount_pence: Math.round(Number(standingAmount) * 100) },
+      });
+      setStandingAmount("");
+      toast.success(change.state === "accepted" ? "Standing top-up updated" : "Sent for approval");
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      approvals.refetch();
+      funding.refetch();
+      setBusy(false);
+    }
+  };
+  const decide = async (id: string, decision: "accept" | "keep") => {
+    setBusy(true);
+    try {
+      await api.post("/api/v1/transfer-rules/shared-split/{account_id}/proposals/{proposal_id}/{decision}", {
+        path: { account_id: selected.id, proposal_id: id, decision },
+      });
+      toast.success(decision === "accept" ? "Standing top-up updated" : "Kept the existing top-up");
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      approvals.refetch();
+      funding.refetch();
+      setBusy(false);
+    }
+  };
   return (
     <Panel className="mt-4 space-y-3 p-4">
       <h2 className="text-sm font-semibold">Bills account funding</h2>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Bills account">{id => (
-          <Select id={id} value={selected.id} onChange={e => setTarget(Number(e.target.value))}>
+          <Select id={id} value={selected.id} onChange={e => { setTarget(Number(e.target.value)); setStandingAmount(""); }}>
             {bills.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </Select>
         )}</Field>

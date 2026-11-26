@@ -1158,9 +1158,16 @@ class BillsSpaceFunding(BaseModel):
     buffer_pence: int
     through: date
     next_top_up: date | None
+    standing_rule_id: int | None
+    standing_pence: int | None
     first_shortfall: date | None
     top_up_pence: int
     movements: list[BillsSpaceMovement]
+
+
+class BillsSpaceStandingTopUpIn(BaseModel):
+    rule_id: int
+    amount_pence: int = Field(gt=0, le=100_000_000)
 
 
 class BillsSpaceTopUpIn(BaseModel):

@@ -37,7 +37,7 @@ class ContributionProposal(BaseModel):
     profile_id: int
     approver_profile_id: int | None = None
     rule_id: int
-    budget_id: int
+    budget_id: int | None = None
     old_pence: int
     new_pence: int
     effective_date: date
@@ -88,10 +88,11 @@ def save(
 
 def _notify(session: Session, household_id: int, change: ContributionProposal) -> None:
     recipient = change.approver_profile_id or change.profile_id
+    label = "Bills account top-up" if change.budget_id is None else "Shared contribution"
     _notify_recipient(session, household_id, recipient, f"shared-change:{change.id}", {
         **change.model_dump(mode="json"), "path": "/shared",
-        "title": "Shared contribution updated" if change.state == "accepted"
-        else "Shared contribution change awaiting approval",
+        "title": f"{label} updated" if change.state == "accepted"
+        else f"{label} change awaiting approval",
     })
 
 
@@ -268,7 +269,7 @@ def propose(
                         change.state = "accepted"
                     _notify(session, household_id, change)
                 changes.append(change)
-        changes.sort(key=lambda item: (item.effective_date, item.profile_id, item.budget_id))
+        changes.sort(key=lambda item: (item.effective_date, item.profile_id, item.budget_id or 0))
         if changes != previous:
             active = {change.id for change in changes}
             for stale in previous:
@@ -313,9 +314,41 @@ def reassess_pending(session: Session, household_id: int, account_id: int) -> No
          [item for item in proposals if item.state != "pending"])
     for budget in session.scalars(select(Budget).where(
         Budget.household_id == household_id,
-        Budget.id.in_({item.budget_id for item in pending}),
+        Budget.id.in_({item.budget_id for item in pending if item.budget_id is not None}),
     ).order_by(Budget.start_date, Budget.id)):
         propose(session, budget, "Household approval policy updated", account_id=account_id)
+
+
+def top_up_policy(session: Session, rule: TransferRule) -> SharedSplitPolicy:
+    record = session.get(AppMeta, split_key(rule.household_id, rule.source_account_id))
+    if record is None:
+        return SharedSplitPolicy(mode="amount")
+    return SharedSplitPolicy.model_validate_json(record.value)
+
+
+def propose_top_up(
+    session: Session, rule: TransferRule, profile_id: int, effective_date: date, amount: int,
+) -> ContributionProposal:
+    policy = top_up_policy(session, rule)
+    current = transfer_rules.fixed_amount_at(rule, effective_date)
+    rows, previous = read(session, rule.household_id, rule.dest_account_id)
+    for item in previous:
+        if item.budget_id is None and item.rule_id == rule.id and item.state == "pending":
+            close_notification(session, item.id)
+            item.state = "expired"
+    proposal = ContributionProposal(
+        id=uuid4().hex, profile_id=profile_id, rule_id=rule.id,
+        approver_profile_id=policy.approver_profile_id if policy.approval == "delegated" else None,
+        old_pence=current, new_pence=amount, effective_date=effective_date,
+        old_target_pence=current, new_target_pence=amount,
+        reason="Standing bills account top-up",
+    )
+    if policy.approval == "automatic":
+        apply(session, rule, proposal)
+        proposal.state = "accepted"
+    _notify(session, rule.household_id, proposal)
+    save(session, rule.household_id, rule.dest_account_id, rows, [*previous, proposal])
+    return proposal
 
 
 def apply(session: Session, rule: TransferRule, proposal: ContributionProposal) -> None:

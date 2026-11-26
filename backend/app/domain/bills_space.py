@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import BillsSpaceFunding, BillsSpaceMovement
+from app.domain import transfer_rules
 from app.domain.accounts import current_balance, current_movement_account
 from app.domain.contributions import matched_totals
 from app.persistence.models import (
@@ -36,13 +37,12 @@ def suggest(
     rules = {rule.id: rule for rule in session.scalars(
         select(TransferRule).where(TransferRule.id.in_(rule_ids))
     )} if rule_ids else {}
-    next_top_up = None
-    if through is None:
-        next_top_up = next((movement.expected_date for movement in movements
-                            if movement.expected_date > today
-                            and movement.amount_pence > totals[movement.id]
-                            and _is_standing_top_up(rules, movement)), None)
-        through = next_top_up or today + timedelta(days=30)
+    standing = next((movement for movement in movements
+                     if movement.expected_date > today
+                     and movement.amount_pence > totals[movement.id]
+                     and _is_standing_top_up(rules, movement)), None)
+    next_top_up = standing.expected_date if standing and through is None else None
+    through = through or next_top_up or today + timedelta(days=30)
     balance = current_balance(session, account.id)
     running = balance
     low = None
@@ -93,7 +93,12 @@ def suggest(
             first_shortfall = today
     return BillsSpaceFunding(
         balance_pence=balance, buffer_pence=buffer_pence, through=through,
-        next_top_up=next_top_up, first_shortfall=first_shortfall,
+        next_top_up=next_top_up,
+        standing_rule_id=standing.source_id if standing else None,
+        standing_pence=(transfer_rules.fixed_amount_at(
+            rules[standing.source_id], standing.expected_date,
+        ) if standing else None),
+        first_shortfall=first_shortfall,
         top_up_pence=max(0, buffer_pence - low), movements=rows,
     )
 

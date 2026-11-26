@@ -27,6 +27,10 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
             assert response.status_code == 201, response.text
             return int(response.json()["id"])
 
+        profile = client.post(f"{base}/profiles", headers=h, json={
+            "display_name": "Admin", "role": "admin",
+        }).json()["id"]
+        h["X-Profile-Id"] = str(profile)
         joint = account("Joint", "joint", 60000)
         bills = account("Bills", "bills", 2000)
         response = client.post(f"{base}/transfer-rules", headers=h, json={
@@ -35,6 +39,7 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
             "frequency": "monthly", "day_of_month": due.day, "start_date": due.isoformat(),
         })
         assert response.status_code == 201, response.text
+        standing_id = response.json()["id"]
         with Session(app.state.engine) as session, session.begin():
             for key, day, amount in [(1, today, -5000), (2, due, -4000), (3, due, -3000)]:
                 session.add(ExpectedMovement(
@@ -60,4 +65,19 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
         assert client.get(route, headers=h).json()["top_up_pence"] == 0
         assert client.post(route, headers=h, json=body).status_code == 409
         rules = client.get(f"{base}/transfer-rules", headers=h).json()["items"]
-        assert next(r for r in rules if r["name"] == "Standing top-up")["end_date"] is None
+        assert next(r for r in rules if r["id"] == standing_id)["end_date"] is None
+
+        pending = client.post(f"{route}/standing", headers=h, json={
+            "rule_id": standing_id, "amount_pence": 14000,
+        })
+        assert pending.status_code == 201, pending.text
+        proposal = pending.json()
+        assert proposal["state"] == "pending"
+        assert proposal["effective_date"] == due.isoformat()
+        assert client.get(route, headers=h).json()["standing_pence"] == 10000
+        inbox = client.get(f"{base}/notifications/events", headers=h).json()
+        assert any(event["payload"]["title"] == "Bills account top-up change awaiting approval"
+                   for event in inbox)
+        decisions = f"{base}/transfer-rules/shared-split/{bills}/proposals/{proposal['id']}"
+        assert client.post(f"{decisions}/accept", headers=h).status_code == 204
+        assert client.get(route, headers=h).json()["standing_pence"] == 14000

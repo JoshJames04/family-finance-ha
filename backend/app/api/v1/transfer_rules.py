@@ -507,6 +507,33 @@ def schedule_bills_space_top_up(
     ), household, session, actor)
 
 
+@router.post(
+    "/bills-space/{account_id}/standing",
+    response_model=shared_contribution_approvals.ContributionProposal, status_code=201,
+)
+def propose_bills_space_schedule_change(
+    account_id: int, body: schemas.BillsSpaceStandingTopUpIn, household: HouseholdDep,
+    session: SessionDep, profile: ProfileDep,
+) -> shared_contribution_approvals.ContributionProposal:
+    if profile is None or not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "sign in as a member to propose standing transfer changes")
+    target = _shared_pot(session, household.id, account_id)
+    rule = _get(session, household.id, body.rule_id)
+    source = _shared_pot(session, household.id, rule.source_account_id)
+    if (rule.dest_account_id != target.id or source.type != AccountType.joint
+            or not rule.active or rule.start_date == rule.end_date
+            or json.loads(rule.amount_spec).get("kind") != "fixed"):
+        raise HTTPException(422, "choose the standing fixed transfer into this bills account")
+    due = shared_contribution_approvals.next_unpaid_date(
+        session, rule, date.today() + timedelta(days=1),
+    )
+    if due is None or transfer_rules.fixed_amount_at(rule, due) == body.amount_pence:
+        raise HTTPException(409, "there is no upcoming change to this standing transfer")
+    return shared_contribution_approvals.propose_top_up(
+        session, rule, profile.id, due, body.amount_pence,
+    )
+
+
 @router.get(
     "/shared-split/{account_id}/proposals",
     response_model=list[shared_contribution_approvals.ContributionProposal],
@@ -548,8 +575,17 @@ def decide_contribution_change(
         due = shared_contribution_approvals.next_unpaid_date(
             session, rule, proposal.effective_date)
         source = session.get(Account, rule.source_account_id)
-        if (due != proposal.effective_date or source is None
-                or source.owner_profile_id != proposal.profile_id):
+        if proposal.budget_id is None:
+            policy = shared_contribution_approvals.top_up_policy(session, rule)
+            expected_approver = (policy.approver_profile_id if policy.approval == "delegated"
+                                 else None)
+            if (expected_approver != proposal.approver_profile_id
+                    or policy.approval == "automatic"):
+                raise HTTPException(409, "approval policy changed, request the top-up again")
+            valid_source = source is not None and source.owner_profile_id is None
+        else:
+            valid_source = source is not None and source.owner_profile_id == proposal.profile_id
+        if due != proposal.effective_date or not valid_source:
             raise HTTPException(409, "the scheduled payment date or account has changed")
         shared_contribution_approvals.apply(session, rule, proposal)
     proposal.state = state
@@ -558,6 +594,7 @@ def decide_contribution_change(
     if decision == "accept":
         later_budgets = {item.budget_id for item in changes
                          if item.rule_id == rule.id and item.state == "pending"
+                         and item.budget_id is not None
                          and item.effective_date >= proposal.effective_date}
         for later in session.scalars(select(Budget).where(
             Budget.household_id == household.id, Budget.id.in_(later_budgets),
