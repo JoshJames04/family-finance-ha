@@ -11,6 +11,19 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-11-26
+
+### Changed
+
+- Guide Shared contributions from the budget, using each member's pay cycle and
+  showing the next payment separately (#627, #628, #656).
+- Ask for approval before changing agreed contributions, with automatic or
+  delegated approval available in household settings (#657).
+- Count eligible direct payments once and estimate bills-account top-ups from
+  upcoming bills, available funds and a chosen buffer (#658, #659).
+- Filter Bills and Subscriptions by payment account within All, Mine or Shared
+  (#661).
+
 ## [1.5.6] — 2026-11-25
 
 ### Fixed
