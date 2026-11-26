@@ -128,9 +128,10 @@ def member_payday_cycles(
             cycle = date.fromisoformat(month_text)
             old_day = date.fromisoformat(day_text)
             new_day = result.get(cycle)
-            # Keep an existing due date when the new date has already passed.
-            # A matched date also keeps its cycle even when the pay rule changes.
-            if old_day in matched or (new_day is not None and new_day < start <= old_day):
+            # Once a date is paid or due, keep that month's obligation there.
+            # Also keep the old date if moving it would create a retroactive due date.
+            if (old_day in matched or (new_day is not None
+                                      and (old_day <= start or new_day < start <= old_day))):
                 result[cycle] = old_day
     return result
 
