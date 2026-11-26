@@ -10,13 +10,14 @@ import {
   CalendarClock, Pause, Pencil, Play, Plus, ReceiptText, Send, Trash2,
 } from "lucide-react";
 import { api } from "../api/client";
-import { useApi, useIdentity, useMeProfileId } from "../api/useApi";
+import { useApi, useMeProfileId } from "../api/useApi";
 import { useAccounts, useCategories, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
+import { PaymentAccountFilter, usePaymentAccountFilter } from "../components/PaymentAccountFilter";
 import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Segmented, Stat } from "../components/Display";
 import { EmptyState, Skeleton } from "../components/Feedback";
@@ -64,15 +65,12 @@ function sectionOf(c: Commitment, byId: Map<number, Category>): string {
 export function Bills() {
   const ready = useReady();
   const [rev, setRev] = useState(0);
-  const [scope, setScope] = useState<"all" | "mine" | "shared">("all");
   const commitments = useApi(
     () => api.get("/api/v1/commitments", { query: { include_inactive: true, include_overdue: true } }),
     ready, [rev]);
   const accounts = useAccounts(rev, true);
   const categories = useCategories();
-  const identity = useIdentity();
   const me = useMeProfileId();
-  const memberCount = (identity.data ?? []).filter((p) => p.is_active).length;
   const [editing, setEditing] = useState<Commitment | "new" | null>(null);
   const [showOverdue, setShowOverdue] = useState(false);
   const refresh = () => setRev((r) => r + 1);
@@ -82,13 +80,12 @@ export function Bills() {
     for (const a of accounts.data?.items ?? []) m.set(a.id, a);
     return m;
   }, [accounts.data]);
-  const ownerOf = (c: Commitment) =>
-    c.account_id == null ? null : accountsById.get(c.account_id)?.owner_profile_id ?? null;
-  const inScope = (c: Commitment) =>
-    accountsById.has(c.account_id) && !accountsById.get(c.account_id)?.archived &&
-    (scope === "all" || (scope === "mine" ? me != null && ownerOf(c) === me : ownerOf(c) === null));
-
   const items = commitments.data?.items ?? [];
+  const accountFilter = usePaymentAccountFilter(accounts.data?.items ?? [],
+    new Set(items.map(item => item.account_id)), me);
+  const inScope = (c: Commitment) =>
+    accountsById.has(c.account_id) && !accountsById.get(c.account_id)?.archived
+    && accountFilter.includes(c.account_id);
   const active = items.filter((c) => c.active && inScope(c));
   const paused = items.filter((c) => !c.active && inScope(c));
 
@@ -109,9 +106,7 @@ export function Bills() {
   }).filter(payment => {
     const account = accountsById.get(payment.account_id);
     if (!account || account.archived) return false;
-    if (scope === "all") return true;
-    if (scope === "mine" && me == null) return false;
-    return account.owner_profile_id === (scope === "mine" ? me : null);
+    return accountFilter.includes(payment.account_id);
   }).sort((a, b) => a.expected_date.localeCompare(b.expected_date) || a.bill.name.localeCompare(b.bill.name));
   const next = upcoming[0];
   const oldestOverdue = overdue[0];
@@ -167,19 +162,8 @@ export function Bills() {
         title="Bills"
         description="Everything you pay on a schedule — each one an object, not a line item."
         actions={
-          <div className="flex items-center gap-2">
-            {memberCount > 1 && (
-              <Segmented
-                label="Bill scope"
-                value={scope}
-                onChange={setScope}
-                options={[
-                  { value: "all", label: "All" },
-                  { value: "mine", label: "Mine" },
-                  { value: "shared", label: "Shared" },
-                ]}
-              />
-            )}
+          <div className="flex flex-wrap items-start gap-2">
+            <PaymentAccountFilter label="Bill scope" filter={accountFilter} />
             <Button variant="primary" size="sm" onClick={() => setEditing("new")}>
               <Plus /> Add bill
             </Button>
