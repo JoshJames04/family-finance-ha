@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain import contributions, schedule, settle
+from app.domain import contributions, reconcile, schedule, settle
 from app.domain.recurring import advance, materialise, occurrences, rescheduled_occurrences
 from app.persistence.models import (
     Account,
@@ -15,6 +15,8 @@ from app.persistence.models import (
     ExpectedMovement,
     Frequency,
     Household,
+    MergeCandidate,
+    Reconciliation,
     RecurringCommitment,
     Transaction,
 )
@@ -146,6 +148,64 @@ class TestMaterialise:
             assert contributions.status(session, movement).outstanding_pence == 0
         assert bill.generated_count == 1
         assert materialise(session, bill, date(2026, 2, 4)) == []
+
+    @pytest.mark.parametrize("route", [
+        "auto", "review", "manual", "manual_partial", "matched_bank_merge", "queued_bank_merge",
+    ])
+    def test_bank_payment_can_replace_a_pending_bill_remainder(
+        self, session: Session, account: Account, route: str,
+    ) -> None:
+        bill = _rc(account, occurrence_count=1)
+        session.add(bill)
+        session.flush()
+        schedule.rematerialize_commitment(session, bill, today=bill.next_date)
+        movement = session.scalars(select(ExpectedMovement)).one()
+        initial = Transaction(account_id=account.id, date=bill.next_date, amount_pence=-6000,
+                              payee=bill.name, source="starling", status="cleared")
+        session.add(initial)
+        session.flush()
+        # The first receipt has its own matched reconciliation snapshot.
+        assert reconcile.reconcile_account(session, account, initial.date).queued == 1
+        reconcile.confirm(session, session.scalars(select(Reconciliation)).one())
+        pending, = materialise(session, bill, bill.next_date)
+        receipt = Transaction(account_id=account.id, date=date(2026, 2, 1),
+                              payee=bill.name if route == "auto" else "Bank description",
+                              amount_pence=-9000, source="starling", status="cleared")
+        if route == "review":
+            receipt.date = date(2026, 2, 5)
+        session.add(receipt)
+        session.flush()
+        if route.endswith("bank_merge"):
+            session.add(MergeCandidate(household_id=account.household_id, account_id=account.id,
+                        existing_txn_id=pending.id, incoming={"external_ref": "test-bank-ref"},
+                        status="merged" if route == "matched_bank_merge" else "pending"))
+            session.flush()
+            with pytest.raises(contributions.MatchError):
+                contributions.confirm(session, movement, receipt)
+            assert reconcile.reconcile_account(session, account, receipt.date).matched == 0
+            assert pending.status == "pending"
+            return
+        if route.startswith("manual"):
+            with pytest.raises(contributions.MatchError):
+                contributions.confirm(session, movement, receipt, pence=9500)
+            assert pending.status == "pending"
+            contributions.confirm(session, movement, receipt,
+                                  pence=4000 if route == "manual_partial" else None)
+        else:
+            stats = reconcile.reconcile_account(session, account, receipt.date)
+            if route == "review":
+                assert stats.queued == 1 and pending.status == "pending"
+                queued = session.scalars(select(Reconciliation).where(
+                    Reconciliation.transaction_id == receipt.id)).one()
+                reconcile.confirm(session, queued)
+            else:
+                assert stats.matched == 1
+            assert reconcile.reconcile_account(session, account, receipt.date).matched == 0
+        assert pending.status == "void"
+        remaining = 5000 if route == "manual_partial" else 0
+        assert contributions.status(session, movement).outstanding_pence == remaining
+        assert sum(t.amount_pence for t in session.scalars(select(Transaction)).all()
+                   if t.status != "void") == -15000
 
     def test_replacement_with_same_ids_has_its_own_posting_date(
         self, session: Session, account: Account,

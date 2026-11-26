@@ -52,13 +52,14 @@ def settle_occurrence(
     contributions.assert_payment_eligible(session, movement, txn)
     if txn.id in contributions._used_legs(session, household_id=movement.household_id):
         return None
-    outstanding = contributions.status(session, movement
-                                       ).outstanding_pence
+    provisional = contributions.pending_bill_posts(session, [movement], txn).get(movement.id)
+    matched = contributions.matched_total(session, movement.id)
+    outstanding = contributions.payment_outstanding(movement, matched, provisional)
     if outstanding <= 0:
         return None
     match = contributions._link(
         session, movement, txn,
-        min(abs(txn.amount_pence), outstanding), manual=manual)
+        min(abs(txn.amount_pence), outstanding), manual=manual, replaces=provisional)
     from app.domain import categorise
     categorise.inherit_movement_category(session, movement, txn)
     if txn.category_id is None:

@@ -90,22 +90,22 @@ def _label_pts(payee: str | None, label: str) -> int:
     return 10 if shared else 0
 
 
-def _score(txn: Transaction, exp: ExpectedMovement) -> int:
+def _score(txn: Transaction, exp: ExpectedMovement, expected_pence: int) -> int:
     return (_amount_pts(
-        abs(txn.amount_pence - exp.amount_pence),
-        abs(exp.amount_pence))
+        abs(txn.amount_pence - expected_pence),
+        abs(expected_pence))
         + _date_pts(abs((txn.date - exp.expected_date).days))
         + _label_pts(txn.payee, exp.label))
 
 
 def _snapshot(r: Reconciliation, exp: ExpectedMovement,
-              txn: Transaction) -> None:
+              txn: Transaction, expected_pence: int) -> None:
     r.expected_source_type = exp.source_type.value
     r.expected_source_id = exp.source_id
     r.expected_label = exp.label
     r.expected_date = exp.expected_date
-    r.expected_amount_pence = exp.amount_pence
-    r.amount_drift_pence = txn.amount_pence - exp.amount_pence
+    r.expected_amount_pence = expected_pence
+    r.amount_drift_pence = txn.amount_pence - expected_pence
     r.date_drift_days = (txn.date - exp.expected_date).days
 
 
@@ -169,15 +169,23 @@ def reconcile_account(session: Session, account: Account,
                     (ExpectedMovement.amount_pence < 0)
                     == (txn.amount_pence < 0))))
         totals = contributions.matched_totals(session, [e.id for e in possible])
-        candidates = [
-            (e, _score(txn, e)) for e in possible
-            if totals[e.id] < abs(e.amount_pence)
-            and (e.source_type.value, e.source_id, e.expected_date)
-            not in matched_keys
-            and (e.source_type.value, e.source_id, e.expected_date)
-            not in dismissed_keys
-            and not (txn.refund_of_id is not None and e.source_type in SALARY_SOURCES)
-        ]
+        provisional = contributions.pending_bill_posts(session, possible, txn)
+        candidates = []
+        scored_amounts: dict[int, int] = {}
+        for exp in possible:
+            key = (exp.source_type.value, exp.source_id, exp.expected_date)
+            posted = provisional.get(exp.id)
+            need = contributions.payment_outstanding(exp, totals[exp.id], posted)
+            if (need <= 0 or key in dismissed_keys
+                    or (key in matched_keys and not (exp.source_type == ExpectedSource.commitment
+                                                     and totals[exp.id] > 0))
+                    or (txn.refund_of_id is not None and exp.source_type in SALARY_SOURCES)):
+                continue
+            amount = exp.amount_pence
+            if exp.source_type == ExpectedSource.commitment and totals[exp.id]:
+                amount = need if amount > 0 else -need
+            scored_amounts[exp.id] = amount
+            candidates.append((exp, _score(txn, exp, amount)))
         candidates.sort(key=lambda c: c[1], reverse=True)
         if not candidates or candidates[0][1] < REVIEW_SCORE:
             continue
@@ -194,9 +202,9 @@ def reconcile_account(session: Session, account: Account,
             score=score,
             candidates={"ranked": [
                 {"label": e.label, "date": e.expected_date.isoformat(),
-                 "amount_pence": e.amount_pence, "score": s}
+                 "amount_pence": scored_amounts[e.id], "score": s}
                 for e, s in candidates[1:5]]})
-        _snapshot(r, top, txn)
+        _snapshot(r, top, txn, scored_amounts[top.id])
         if auto:
             # A competing receipt may already have satisfied the expectation.
             # Do not persist a matched snapshot when settlement did nothing.

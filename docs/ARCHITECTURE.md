@@ -338,6 +338,9 @@ balances and net worth continue to include opening stock.
 evidence already exists for that date and account, it creates a pending ledger
 transaction only for the outstanding amount and links that transaction to the
 occurrence. Prepaid and written-off dates advance without another ledger entry.
+A generated pending remainder is provisional. When a real payment is accepted
+for the same occurrence, the ledger voids the provisional posting and retains
+the actual payment. Ambiguous reconciliation proposals require confirmation.
 A rescheduled bill retains its original occurrence identity during schedule regeneration and posts
 the remaining amount on its revised due date once the posting horizon reaches it.
 
