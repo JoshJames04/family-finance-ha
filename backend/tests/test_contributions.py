@@ -156,9 +156,10 @@ def test_shared_standing_uses_each_current_pay_cycle_and_separate_next_payment(
         assert row.next_payment.matched_pence == 0
 
 
-def test_moving_payday_behind_today_preserves_the_existing_unpaid_date(
+@pytest.mark.parametrize("old_day,new_day", [(28, 17), (17, 28)])
+def test_moving_payday_across_today_preserves_the_existing_unpaid_date(
     session: Session, household: Household, pair: tuple[Account, Account, TransferRule],
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, old_day: int, new_day: int,
 ) -> None:
     source, _, rule = pair
     member = UserProfile(household_id=household.id, display_name="Test payer")
@@ -166,21 +167,22 @@ def test_moving_payday_behind_today_preserves_the_existing_unpaid_date(
     session.flush()
     source.owner_profile_id = member.id
     rule.amount_spec = '{"kind":"fixed","pence":30000,"on_member_payday":true}'
-    day = 28
+    day = old_day
 
     def member_payday(_session, _household, _profile, month):
         return month.replace(day=day)
 
     monkeypatch.setattr(budget_periods, "member_payday", member_payday)
     today = date(2025, 4, 20)
-    schedule.rematerialize_transfer_rule(session, rule, today=today, horizon_days=40)
-    day = 17
+    schedule.rematerialize_transfer_rule(
+        session, rule, today=date(2025, 4, 10), horizon_days=60)
+    day = new_day
     schedule.rematerialize_transfer_rule(session, rule, today=today, horizon_days=40)
     due = session.scalars(select(ExpectedMovement.expected_date).where(
         ExpectedMovement.source_type == ExpectedSource.transfer_rule,
         ExpectedMovement.source_id == rule.id,
     )).all()
-    assert sorted(due) == [date(2025, 4, 28)] * 2 + [date(2025, 5, 17)] * 2
+    assert sorted(due) == [date(2025, 4, old_day)] * 2 + [date(2025, 5, new_day)] * 2
 
 
 class TestStates:
