@@ -265,8 +265,14 @@ def propose(
                     and policy.remainder_profile_id in current and fixed_total > target)
         same_period = {owner for owner, due in dates.items()
                        if due is not None and due <= budget.end_date}
-        funded = (sum(amount if owner in same_period else current[owner]
-                      for owner, amount in next_amounts.items()) if next_amounts else target)
+        kept_rules = {(item.rule_id, item.old_pence, item.new_pence, item.effective_date)
+                      for item in previous if item.budget_id == budget.id and item.state == "kept"}
+        funded = (sum(
+            amount if owner in same_period and (
+                by_profile[owner].id, current[owner], amount, dates[owner],
+            ) not in kept_rules else current[owner]
+            for owner, amount in next_amounts.items()
+        ) if next_amounts else target)
         recipient = (policy.approver_profile_id or policy.remainder_profile_id
                      or min(current, default=None))
         if ambiguous:
@@ -318,7 +324,7 @@ def _reconcile_conflict(
 ) -> None:
     prefix = f"shared-split-conflict:{pot_id}:{budget_id}:"
     conflict = ambiguous or overlap or fixed_total is not None or funded != target
-    key = f"{prefix}{target}:{fixed_total}:{funded}:{overlap}:{ambiguous}:"
+    key = f"{prefix}{recipient}:{target}:{fixed_total}:{funded}:{overlap}:{ambiguous}:"
     for event in session.scalars(select(NotificationEvent).join(
         NotificationRule, NotificationRule.id == NotificationEvent.rule_id,
     ).where(

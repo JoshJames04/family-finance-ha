@@ -177,3 +177,14 @@ def test_budget_change_requires_latest_proposal_approval(
         events = client.get(f"{base}/notifications/events", headers=headers).json()
         assert next(event for event in events
                     if event["payload"].get("id") == expiring["id"])["state"] == "acked"
+
+        revise(162000)
+        kept = next(item for item in client.get(path, headers=headers).json()
+                    if item["budget_id"] == budget)
+        assert client.post(f"{path}/{kept['id']}/keep", headers=headers).status_code == 204
+        assert all(item["id"] != kept["id"] for item in client.get(path, headers=headers).json())
+        events = client.get(f"{base}/notifications/events", headers=headers).json()
+        warning = next(event["payload"] for event in events
+                       if event["payload"].get("new_target_pence") == 162000
+                       and "scheduled_total_pence" in event["payload"])
+        assert warning["scheduled_total_pence"] == 158500

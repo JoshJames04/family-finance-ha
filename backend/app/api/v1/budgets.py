@@ -531,6 +531,8 @@ def rollover(
     for e in events:
         emit(session, household.id, actor, "rollover", "budget_line",
              int(str(e["line_id"])), e)
+    if events:
+        shared_contribution_approvals.propose(session, target, "Shared budget rollover applied")
     return schemas.RolloverResult(applied=len(events),
                                   carries=events)
 
