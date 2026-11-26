@@ -81,8 +81,11 @@ export function Bills() {
     return m;
   }, [accounts.data]);
   const items = commitments.data?.items ?? [];
-  const accountFilter = usePaymentAccountFilter(accounts.data?.items ?? [],
-    new Set(items.map(item => item.account_id)), me);
+  const usedAccounts = new Set(items.flatMap(item => [
+    item.account_id,
+    ...(item.active ? item.overdue_payments?.map(payment => payment.account_id) ?? [] : []),
+  ]));
+  const accountFilter = usePaymentAccountFilter(accounts.data?.items ?? [], usedAccounts, me);
   const inScope = (c: Commitment) =>
     accountsById.has(c.account_id) && !accountsById.get(c.account_id)?.archived
     && accountFilter.includes(c.account_id);

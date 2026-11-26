@@ -24,6 +24,7 @@ it.each([
     { id: 2, name: "House Bills", owner_profile_id: null, archived: false },
     { id: 3, name: "Work Food", owner_profile_id: 7, archived: false },
     { id: 4, name: "Archived account", owner_profile_id: 7, archived: true },
+    { id: 5, name: "Previous Bills", owner_profile_id: 7, archived: false },
   ];
   const rows = [
     { id: 11, name: "Personal utility", account_id: 1 },
@@ -31,6 +32,8 @@ it.each([
     { id: 13, name: "Old utility", account_id: 4 },
   ].map(row => ({
     ...row, payee: row.name, next_date: "2090-01-01", next_renewal_date: "2090-01-01",
+    overdue_payments: row.id === 11
+      ? [{ expected_date: "2024-01-01", account_id: 5, outstanding_pence: 1700 }] : [],
     active: true, status: "active", amount_pence: -2500, expected_pence: 2500, frequency: "monthly",
   }));
   vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
@@ -53,6 +56,14 @@ it.each([
   await user.click(within(scope).getByRole("radio", { name: "Mine" }));
   expect(within(select).getByRole("option", { name: "Personal Bills" })).toBeTruthy();
   expect(within(select).queryByRole("option", { name: /Work Food|Archived account|House Bills/ })).toBeNull();
+  if (_name === "Bills") {
+    await user.selectOptions(select, "5");
+    await user.click(await screen.findByRole("button", { name: /overdue/i }));
+    expect(within(screen.getByRole("dialog")).getByText("£17.00")).toBeTruthy();
+    await user.keyboard("{Escape}");
+  } else {
+    expect(within(select).queryByRole("option", { name: "Previous Bills" })).toBeNull();
+  }
   await user.selectOptions(select, "1");
   expect(screen.queryByText("Shared utility")).toBeNull();
   await user.click(within(scope).getByRole("radio", { name: "Shared" }));
