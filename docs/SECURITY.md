@@ -256,5 +256,7 @@ who is the contributor by default. The approver or a household admin can decide.
 approve. A replacement approval or conflict notice falls back to an active
 household admin when the original recipient no longer has write access.
 Generic transfer edits cannot bypass the source joint account's approval policy
-by moving a recurring rule to a shared bills account or converting a one-off
-into a standing top-up. Use the Shared approval flow for standing amounts.
+by moving a fixed recurring rule to a shared bills account or extending a
+fixed one-off into a standing top-up. Use the Shared approval flow for changes
+to fixed standing amounts. Percentage and budget-linked rules retain their
+normal editing flow.
