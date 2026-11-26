@@ -60,7 +60,8 @@ def test_budget_change_requires_latest_proposal_approval(
             "account_id": pot, "target_pence": 150000,
             "policy": {"mode": "fixed_remainder", "remainder_profile_id": alice},
             "shares": [
-                {"profile_id": alice, "source_account_id": a, "day_of_month": 28, "pence": 0},
+                {"profile_id": alice, "source_account_id": a,
+                 "day_of_month": today.day, "pence": 0},
                 {"profile_id": bob, "source_account_id": b, "day_of_month": 11, "pence": 50000},
             ],
         }

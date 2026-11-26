@@ -104,6 +104,10 @@ def _deliver_pending(session: Session, household_id: int, notifier: HaNotifier,
             failed += 1
             session.commit()
             continue
+        if d.channel == "in_app":
+            d.status, d.sent_at = "sent", now
+            session.commit()
+            continue
         events = list(d.events)
         if rule.kind == NotificationKind.shared_contribution_change:
             events = [event for event in events if event.state != NotificationState.acked]
