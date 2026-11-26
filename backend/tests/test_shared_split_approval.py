@@ -76,6 +76,14 @@ def test_budget_change_requires_latest_proposal_approval(
             assert response.status_code == 200
 
         path = f"{base}/transfer-rules/shared-split/{pot}/proposals"
+        revise(50000)
+        pending_zero, = client.get(path, headers=headers).json()
+        assert pending_zero["new_pence"] == 0
+        assert client.post(f"{path}/{pending_zero['id']}/accept", headers=headers).status_code == 204
+        revise(150000)
+        pending_restore, = client.get(path, headers=headers).json()
+        assert (pending_restore["old_pence"], pending_restore["new_pence"]) == (0, 100000)
+        assert client.post(f"{path}/{pending_restore['id']}/accept", headers=headers).status_code == 204
         revise(155000)
         response = client.get(path, headers=headers)
         assert response.status_code == 200, response.text
@@ -84,7 +92,7 @@ def test_budget_change_requires_latest_proposal_approval(
         assert first["new_pence"] == 105000
         assert first["profile_id"] == alice
         events = client.get(f"{base}/notifications/events", headers=headers).json()
-        assert len(events) == 1 and events[0]["payload"]["new_pence"] == 105000
+        assert events[0]["payload"]["new_pence"] == 105000
         as_bob = {**headers, "X-Profile-Id": str(bob)}
         assert client.get(path, headers=as_bob).json() == []
         assert client.post(f"{path}/{first['id']}/accept", headers=as_bob).status_code == 403
@@ -94,7 +102,7 @@ def test_budget_change_requires_latest_proposal_approval(
         assert latest["new_pence"] == 107000
         assert first["id"] != latest["id"]
         events = client.get(f"{base}/notifications/events", headers=headers).json()
-        assert [event["state"] for event in events] == ["pending", "acked"]
+        assert [event["state"] for event in events[:2]] == ["pending", "acked"]
         assert client.post(f"{path}/{first['id']}/accept", headers=headers).status_code == 409
         rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
         assert {r["amount_spec"]["pence"] for r in rules} == {50000, 100000}
@@ -146,7 +154,7 @@ def test_budget_change_requires_latest_proposal_approval(
         assert all(item["id"] != stale["id"] for item in client.get(path, headers=headers).json())
         events = client.get(f"{base}/notifications/events", headers=headers).json()
         assert next(event for event in events
-                    if event["payload"]["id"] == stale["id"])["state"] == "acked"
+                    if event["payload"].get("id") == stale["id"])["state"] == "acked"
 
         revise(159000)
         expiring = next(item for item in client.get(path, headers=headers).json()
@@ -163,4 +171,4 @@ def test_budget_change_requires_latest_proposal_approval(
         assert all(item["id"] != expiring["id"] for item in remaining)
         events = client.get(f"{base}/notifications/events", headers=headers).json()
         assert next(event for event in events
-                    if event["payload"]["id"] == expiring["id"])["state"] == "acked"
+                    if event["payload"].get("id") == expiring["id"])["state"] == "acked"

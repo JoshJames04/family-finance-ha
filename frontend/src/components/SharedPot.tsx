@@ -606,7 +606,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
     && (mode !== "amount" || !guided || amountTotal === target)
     && (mode !== "percent" || percentOk)
     && (mode !== "fixed_remainder" || fixedRemainder >= 0)
-    && shares.every((m) => (targets[m.profile.id] ?? 0) <= 0 || m.fixed[0]
+    && shares.every((m) => ((targets[m.profile.id] ?? 0) <= 0 && (!guided || mode === "amount")) || m.fixed[0]
       || (guided ? sourceFor(m.profile.id) != null && ((payday[m.profile.id] && nextPayday(m.profile.id))
         || ((days[m.profile.id] ?? 0) >= 1 && (days[m.profile.id] ?? 0) <= 31)) : sourceOptions(m.profile.id).length > 0));
 
@@ -790,7 +790,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
               <span className="min-w-0 flex-1 basis-32 wrap-anywhere text-[13.5px] font-medium">
                 {m.profile.display_name}
               </span>
-              {guided && !m.fixed.length && (targets[m.profile.id] ?? 0) > 0 && (
+              {guided && !m.fixed.length && (mode !== "amount" || (targets[m.profile.id] ?? 0) > 0) && (
                 <>
                 <Select aria-label={`${m.profile.display_name} payment account`}
                   value={sourceFor(m.profile.id) ?? ""}

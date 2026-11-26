@@ -272,10 +272,14 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
 
 
 def apply(session: Session, rule: TransferRule, proposal: ContributionProposal) -> None:
+    set_effective_amount(session, rule, proposal.effective_date, proposal.new_pence)
+
+
+def set_effective_amount(session: Session, rule: TransferRule, on: date, pence: int) -> None:
     spec = json.loads(rule.amount_spec)
     changes = spec.get("effective_amounts", [])
-    changes = [item for item in changes if item["date"] != proposal.effective_date.isoformat()]
-    changes.append({"date": proposal.effective_date.isoformat(), "pence": proposal.new_pence})
+    changes = [item for item in changes if item["date"] != on.isoformat()]
+    changes.append({"date": on.isoformat(), "pence": pence})
     spec.setdefault("original_pence", spec["pence"])
     changes.sort(key=lambda item: item["date"])
     spec.update(pence=changes[-1]["pence"], effective_amounts=changes)

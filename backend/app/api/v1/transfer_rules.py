@@ -118,9 +118,21 @@ def create_rule(
     body: schemas.TransferRuleIn, household: HouseholdDep,
     session: SessionDep, actor: ActorDep,
 ) -> schemas.TransferRuleOut:
+    return _create_rule(body, household, session, actor)
+
+
+def _create_rule(
+    body: schemas.TransferRuleIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep, *, initial_zero_share: bool = False,
+) -> schemas.TransferRuleOut:
     _check_accounts(session, household.id, body.source_account_id,
                     body.dest_account_id)
-    spec = transfer_rules.parse_spec(body.amount_spec.model_dump())
+    amount_spec = body.amount_spec.model_dump()
+    if initial_zero_share:
+        amount_spec.update(pence=0, original_pence=0, effective_amounts=[
+            {"date": body.start_date.isoformat(), "pence": 0},
+        ])
+    spec = transfer_rules.parse_spec(amount_spec)
     parent = transfer_rules.space_parent(session, body.dest_account_id)
     external_dest = (parent.id
                      if parent is not None
@@ -130,7 +142,7 @@ def create_rule(
         household_id=household.id, name=body.name,
         source_account_id=body.source_account_id,
         dest_account_id=external_dest,
-        amount_spec=json.dumps(body.amount_spec.model_dump()),
+        amount_spec=json.dumps(amount_spec),
         frequency=body.frequency, day_of_month=body.day_of_month,
         start_date=body.start_date, end_date=body.end_date,
         notes=body.notes, active=True)
@@ -328,7 +340,8 @@ def save_shared_split(
         rule = owned[0] if owned else None
         if share.rule_id is not None and rules[share.rule_id] is not rule:
             raise HTTPException(422, "select each member's own payment rule")
-        if rule is None and pence == 0:
+        retain_zero = body.policy is not None and body.policy.mode != "amount"
+        if rule is None and pence == 0 and not retain_zero:
             continue
         source_id = rule.source_account_id if rule is not None else share.source_account_id
         source = accounts.get(source_id) if source_id is not None else None
@@ -343,7 +356,10 @@ def save_shared_split(
             continue
         if not rbac.write_allowed(source.owner_profile_id, profile):
             raise HTTPException(403, "only the account owner or an admin can change this share")
-        if rule is not None:
+        if rule is not None and pence == 0 and retain_zero:
+            shared_contribution_approvals.invalidate_for_rule(session, rule)
+            shared_contribution_approvals.set_effective_amount(session, rule, date.today(), 0)
+        elif rule is not None:
             patch = (schemas.TransferRulePatch(active=False) if pence == 0 else
                      schemas.TransferRulePatch.model_validate({
                          "amount_spec": {"kind": "fixed", "pence": pence},
@@ -367,17 +383,17 @@ def save_shared_split(
                 )
                 if first < date.today():
                     first = advance(first, Frequency.monthly, day)
-            created = create_rule(schemas.TransferRuleIn.model_validate({
+            created = _create_rule(schemas.TransferRuleIn.model_validate({
                 "name": f"{source.name} to {pot.name}"[:120],
                 "source_account_id": source.id, "dest_account_id": pot.id,
-                "amount_spec": {"kind": "fixed", "pence": pence},
+                "amount_spec": {"kind": "fixed", "pence": max(1, pence)},
                 "frequency": "monthly", "day_of_month": day,
                 "start_date": first,
-            }), household, session, actor)
+            }), household, session, actor, initial_zero_share=pence == 0)
             if share.on_member_payday:
                 new_rule = _get(session, household.id, created.id)
                 new_rule.amount_spec = json.dumps({
-                    "kind": "fixed", "pence": pence, "on_member_payday": True,
+                    **json.loads(new_rule.amount_spec), "on_member_payday": True,
                 })
                 schedule.rematerialize_transfer_rule(session, new_rule)
 
