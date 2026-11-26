@@ -1190,6 +1190,7 @@ class SharedSplitShare(BaseModel):
 
 class SharedSplitPolicy(BaseModel):
     mode: Literal["amount", "equal", "percent", "fixed_remainder"]
+    member_ids: list[int] = Field(default_factory=list)
     remainder_profile_id: int | None = None
     percentages: dict[int, int] = Field(default_factory=dict)
     fixed_pence: dict[int, int] = Field(default_factory=dict)
