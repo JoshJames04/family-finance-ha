@@ -246,6 +246,7 @@ def propose(
             continue
         policy = SharedSplitPolicy.model_validate_json(setting.value)
         by_profile: dict[int, TransferRule] = {}
+        ambiguous = False
         for rule, owner in session.execute(select(TransferRule, Account.owner_profile_id).join(
             Account, Account.id == TransferRule.source_account_id,
         ).where(
@@ -256,15 +257,16 @@ def propose(
             Account.owner_profile_id.is_not(None),
         )):
             if owner is None or owner in by_profile or not _is_monthly_fixed(rule):
-                by_profile.clear()
-                break
+                ambiguous = True
+                continue
             by_profile[owner] = rule
         dates = {owner: next_unpaid_date(session, rule, max(today, budget.start_date))
                  for owner, rule in by_profile.items()}
         current = {owner: transfer_rules.fixed_amount_at(
             rule, min(dates[owner] or budget.end_date, budget.end_date),
         ) for owner, rule in by_profile.items()}
-        next_amounts = _proposed_amounts(policy, current, target) if current else None
+        next_amounts = (_proposed_amounts(policy, current, target)
+                        if current and not ambiguous else None)
         row, previous = read(session, household_id, pot_id)
         changes = [item for item in previous
                    if item.budget_id != budget.id
@@ -278,9 +280,15 @@ def propose(
                       for owner, amount in next_amounts.items()) if next_amounts else target)
         recipient = (policy.approver_profile_id or policy.remainder_profile_id
                      or min(current, default=None))
+        if ambiguous:
+            recipient = session.scalar(select(UserProfile.id).where(
+                UserProfile.household_id == household_id, UserProfile.is_active.is_(True),
+                UserProfile.role == Role.admin,
+            ).order_by(UserProfile.id).limit(1)) or recipient
         _reconcile_conflict(session, household_id, pot_id, budget.id, recipient,
                             target, fixed_total if conflict else None, funded,
-                            overlap=bool(overlapping) and guided == {pot_id})
+                            overlap=bool(overlapping) and guided == {pot_id},
+                            ambiguous=ambiguous and guided == {pot_id})
         if next_amounts and not overlapping and guided == {pot_id}:
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
@@ -322,11 +330,11 @@ def propose(
 
 def _reconcile_conflict(
     session: Session, household_id: int, pot_id: int, budget_id: int, recipient: int | None,
-    target: int, fixed_total: int | None, funded: int, *, overlap: bool,
+    target: int, fixed_total: int | None, funded: int, *, overlap: bool, ambiguous: bool,
 ) -> None:
     prefix = f"shared-split-conflict:{pot_id}:{budget_id}:"
-    conflict = overlap or fixed_total is not None or funded != target
-    key = f"{prefix}{target}:{fixed_total}:{funded}:{overlap}:"
+    conflict = ambiguous or overlap or fixed_total is not None or funded != target
+    key = f"{prefix}{target}:{fixed_total}:{funded}:{overlap}:{ambiguous}:"
     for event in session.scalars(select(NotificationEvent).join(
         NotificationRule, NotificationRule.id == NotificationEvent.rule_id,
     ).where(
@@ -345,23 +353,26 @@ def _reconcile_conflict(
             "fixed_total_pence": fixed_total, "new_target_pence": target,
             "scheduled_total_pence": funded,
             "overlapping_budgets": overlap,
+            "ambiguous_schedules": ambiguous,
         })
 
 
 def reassess_pending(session: Session, household_id: int, account_id: int) -> None:
+    if session.get(AppMeta, split_key(household_id, account_id)) is None:
+        return
     rows, proposals = read(session, household_id, account_id)
     pending = [item for item in proposals if item.state == "pending"]
-    if not pending:
-        return
-    for item in pending:
-        close_notification(session, item.id)
-    save(session, household_id, account_id, rows,
-         [item for item in proposals if item.state != "pending"])
+    if pending:
+        for item in pending:
+            close_notification(session, item.id)
+        save(session, household_id, account_id, rows,
+             [item for item in proposals if item.state != "pending"])
     for budget in session.scalars(select(Budget).where(
-        Budget.household_id == household_id,
-        Budget.id.in_({item.budget_id for item in pending}),
+        Budget.household_id == household_id, Budget.owner_profile_id.is_(None),
+        Budget.end_date >= date.today(), Budget.period_type == BudgetPeriodType.monthly,
+        Budget.status.in_((BudgetStatus.approved, BudgetStatus.locked)),
     ).order_by(Budget.start_date, Budget.id)):
-        propose(session, budget, "Household approval policy updated", account_id=account_id)
+        propose(session, budget, "Shared contribution settings updated", account_id=account_id)
 
 
 def apply(session: Session, rule: TransferRule, proposal: ContributionProposal) -> None:

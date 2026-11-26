@@ -52,6 +52,12 @@ function eventSummary(e: Event, acctName: (id: number) => string): {
   title: string; detail: string;
 } {
   const p = (e.payload ?? {}) as Record<string, unknown>;
+  if (p.ambiguous_schedules === true) {
+    return {
+      title: "Shared contribution schedules need review",
+      detail: "Use one fixed monthly contribution per member to resume budget proposals.",
+    };
+  }
   if (p.overlapping_budgets === true) {
     return {
       title: "Shared budgets overlap",
