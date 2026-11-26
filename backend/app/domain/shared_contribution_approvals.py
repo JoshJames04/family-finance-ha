@@ -420,10 +420,20 @@ def top_up_policy(session: Session, rule: TransferRule) -> SharedSplitPolicy:
     return SharedSplitPolicy.model_validate_json(record.value)
 
 
+def top_up_approver(
+    session: Session, rule: TransferRule, policy: SharedSplitPolicy, profile_id: int,
+) -> int | None:
+    nominated = policy.approver_profile_id if policy.approval == "delegated" else profile_id
+    return eligible_approver(session, rule.household_id, nominated)
+
+
 def propose_top_up(
     session: Session, rule: TransferRule, profile_id: int, effective_date: date, amount: int,
-) -> ContributionProposal:
+) -> ContributionProposal | None:
     policy = top_up_policy(session, rule)
+    approver = top_up_approver(session, rule, policy, profile_id)
+    if approver is None:
+        return None
     current = transfer_rules.fixed_amount_at(rule, effective_date)
     rows, previous = read(session, rule.household_id, rule.dest_account_id)
     for item in previous:
@@ -432,7 +442,7 @@ def propose_top_up(
             item.state = "expired"
     proposal = ContributionProposal(
         id=uuid4().hex, profile_id=profile_id, rule_id=rule.id,
-        approver_profile_id=policy.approver_profile_id if policy.approval == "delegated" else None,
+        approver_profile_id=approver if approver != profile_id else None,
         old_pence=current, new_pence=amount, effective_date=effective_date,
         old_target_pence=current, new_target_pence=amount,
         reason="Standing bills account top-up",

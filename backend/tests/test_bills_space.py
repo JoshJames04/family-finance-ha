@@ -108,3 +108,24 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
         inbox = client.get(f"{base}/notifications/events", headers=h).json()
         assert next(event for event in inbox
                     if event["payload"].get("id") == stale)["state"] == "acked"
+
+
+        delegate = client.post(f"{base}/profiles", headers=h, json={
+            "display_name": "Delegate", "role": "member",
+        }).json()["id"]
+        split = client.post(f"{base}/transfer-rules/shared-split", headers=h, json={
+            "account_id": joint, "target_pence": 5000,
+            "policy": {"mode": "amount", "approval": "delegated", "approver_profile_id": delegate},
+            "shares": [{"profile_id": profile, "source_account_id": personal,
+                        "day_of_month": today.day, "pence": 5000}],
+        })
+        assert split.status_code == 204, split.text
+        demoted = client.patch(f"{base}/profiles/{delegate}", headers=h, json={"role": "viewer"})
+        assert demoted.status_code == 200, demoted.text
+        fallback = client.post(f"{route}/standing", headers=h, json={
+            "rule_id": standing_id, "amount_pence": 15000,
+        })
+        assert fallback.status_code == 201, fallback.text
+        proposal = fallback.json()
+        assert (proposal["approver_profile_id"] or proposal["profile_id"]) == profile
+        assert client.post(f"{path}/{proposal['id']}/accept", headers=h).status_code == 204

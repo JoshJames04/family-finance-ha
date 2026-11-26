@@ -603,9 +603,12 @@ def propose_bills_space_schedule_change(
     )
     if due is None or transfer_rules.fixed_amount_at(rule, due) == body.amount_pence:
         raise HTTPException(409, "there is no upcoming change to this standing transfer")
-    return shared_contribution_approvals.propose_top_up(
+    proposal = shared_contribution_approvals.propose_top_up(
         session, rule, profile.id, due, body.amount_pence,
     )
+    if proposal is None:
+        raise HTTPException(409, "choose an active approver for standing top-ups")
+    return proposal
 
 
 @router.get(
@@ -657,9 +660,10 @@ def decide_contribution_change(
             if bills_space.derived_space_rule(session, household.id, rule.id):
                 raise HTTPException(409, "edit the source transfer for this linked bank space")
             policy = shared_contribution_approvals.top_up_policy(session, rule)
-            expected_approver = (policy.approver_profile_id if policy.approval == "delegated"
-                                 else None)
-            if (expected_approver != proposal.approver_profile_id
+            expected_approver = shared_contribution_approvals.top_up_approver(
+                session, rule, policy, proposal.profile_id,
+            )
+            if (expected_approver != (proposal.approver_profile_id or proposal.profile_id)
                     or policy.approval == "automatic"):
                 raise HTTPException(409, "approval policy changed, request the top-up again")
             _bills_account(session, household.id, account_id)
