@@ -11,7 +11,7 @@ release pipeline (multi-arch GHCR image + GitHub release).
 
 ## [Unreleased]
 
-## [1.5.7]
+## [1.5.7] - 2026-11-26
 
 ### Changed
 
