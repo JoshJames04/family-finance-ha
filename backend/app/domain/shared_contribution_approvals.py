@@ -313,18 +313,23 @@ def propose(
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
                     continue
+                nominated = (policy.approver_profile_id if policy.approval == "delegated"
+                             else None) or owner
+                approver = eligible_approver(session, household_id, nominated)
+                if approver is None:
+                    continue
+                delegated = approver if approver != owner else None
                 rule = by_profile[owner]
                 date_due = dates[owner]
                 if date_due is None or date_due > budget.end_date:
                     continue
                 kept = next((item for item in previous if item.state in ("pending", "kept") and (
                     item.budget_id, item.rule_id, item.old_pence, item.new_pence,
-                    item.effective_date,
-                ) == (budget.id, rule.id, current[owner], amount, date_due)), None)
+                    item.effective_date, item.approver_profile_id,
+                ) == (budget.id, rule.id, current[owner], amount, date_due, delegated)), None)
                 change = kept or ContributionProposal(
                     id=uuid4().hex, profile_id=owner, rule_id=rule.id, budget_id=budget.id,
-                    approver_profile_id=policy.approver_profile_id if policy.approval == "delegated"
-                    else None,
+                    approver_profile_id=delegated,
                     old_pence=current[owner], new_pence=amount, effective_date=date_due,
                     old_target_pence=sum(current.values()), new_target_pence=target, reason=reason,
                 )
