@@ -249,6 +249,12 @@ def propose(
                 ambiguous = True
                 continue
             by_profile[owner] = rule
+        if policy.mode != "amount":
+            members = set(policy.member_ids or policy.percentages or policy.fixed_pence)
+            if policy.remainder_profile_id is not None:
+                members.add(policy.remainder_profile_id)
+            membership_changed = bool(members and members != by_profile.keys())
+            ambiguous = ambiguous or not by_profile or membership_changed
         dates = {owner: next_unpaid_date(session, rule, max(today, budget.start_date))
                  for owner, rule in by_profile.items()}
         current = {owner: transfer_rules.fixed_amount_at(
@@ -258,7 +264,7 @@ def propose(
                         if current and not ambiguous else None)
         row, previous = read(session, household_id, pot_id)
         changes = [item for item in previous
-                   if item.budget_id != budget.id
+                   if (item.budget_id != budget.id or item.state == "accepted")
                    and not (item.state == "pending" and item.budget_id in overlapping)]
         fixed_total = sum(policy.fixed_pence.values())
         conflict = (next_amounts is None and policy.mode == "fixed_remainder"
@@ -292,7 +298,7 @@ def propose(
                 date_due = dates[owner]
                 if date_due is None or date_due > budget.end_date:
                     continue
-                kept = next((item for item in previous if (
+                kept = next((item for item in previous if item.state in ("pending", "kept") and (
                     item.budget_id, item.rule_id, item.old_pence, item.new_pence,
                     item.effective_date,
                 ) == (budget.id, rule.id, current[owner], amount, date_due)), None)
