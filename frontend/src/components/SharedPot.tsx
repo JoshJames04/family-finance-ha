@@ -661,7 +661,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
         </Button>
       </>}>
       <form id="ff-split" onSubmit={submit} className="grid gap-4">
-        <Segmented label="Adjust by" value={mode} onChange={(next) => { setPcts(pcts); setMode(next); }}
+        <Segmented label="Adjust by" className="min-w-0 flex-wrap" value={mode} onChange={(next) => { setPcts(pcts); setMode(next); }}
           options={[
             { value: "amount", label: "By amount" },
             { value: "percent", label: "By percentage" },
