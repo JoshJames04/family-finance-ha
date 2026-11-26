@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -12,11 +12,19 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import budget_periods, rbac, schedule, shared_contribution_approvals, transfer_rules
+from app.domain import (
+    bills_space,
+    budget_periods,
+    rbac,
+    schedule,
+    shared_contribution_approvals,
+    transfer_rules,
+)
 from app.domain.paydays import PaydayRule, RuleKind, ShiftPolicy, pay_date
 from app.domain.recurring import advance
 from app.persistence.models import (
     Account,
+    AccountType,
     AmountKind,
     AppMeta,
     Budget,
@@ -447,6 +455,47 @@ def save_shared_split(
             record.value = saved
         emit(session, household.id, actor, "update", "shared_split", pot.id,
              {"mode": body.policy.mode})
+
+
+@router.get("/bills-space/{account_id}", response_model=schemas.BillsSpaceFunding)
+def bills_space_funding(
+    account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
+    through: date | None = None, buffer_pence: Annotated[int, Query(ge=0, le=100_000_000)] = 0,
+) -> schemas.BillsSpaceFunding:
+    account = _shared_pot(session, household.id, account_id)
+    if not rbac.visible(account.owner_profile_id, profile):
+        raise HTTPException(404, "bills account not found")
+    today = date.today()
+    if through is not None and not today <= through <= today + timedelta(days=90):
+        raise HTTPException(422, "choose a date within the next 90 days")
+    return bills_space.suggest(session, account, today, through, buffer_pence)
+
+
+@router.post("/bills-space/{account_id}", response_model=schemas.TransferRuleOut, status_code=201)
+def schedule_bills_space_top_up(
+    account_id: int, body: schemas.BillsSpaceTopUpIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
+) -> schemas.TransferRuleOut:
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot schedule shared transfers")
+    source = _shared_pot(session, household.id, body.source_account_id)
+    target = _shared_pot(session, household.id, account_id)
+    parent = transfer_rules.space_parent(session, target.id)
+    if (source.id == target.id or source.type != AccountType.joint
+            or (parent is not None and source.id != parent.id)):
+        raise HTTPException(422, "choose the joint account that funds this bills account")
+    estimate = bills_space_funding(account_id, household, session, profile,
+                                   through=body.through, buffer_pence=body.buffer_pence)
+    if estimate.top_up_pence != body.amount_pence:
+        raise HTTPException(409, "the suggested amount changed, refresh the calculation")
+    today = date.today()
+    return create_rule(schemas.TransferRuleIn(
+        name=f"One-off top-up for {target.name}"[:120], source_account_id=source.id,
+        dest_account_id=target.id,
+        amount_spec=schemas.FixedSpecIn(kind="fixed", pence=estimate.top_up_pence),
+        frequency=Frequency.monthly, day_of_month=today.day,
+        start_date=today, end_date=today,
+    ), household, session, actor)
 
 
 @router.get(

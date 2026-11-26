@@ -1,0 +1,106 @@
+"""Outstanding cash requirements for a shared bills account."""
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.schemas import BillsSpaceFunding, BillsSpaceMovement
+from app.domain.accounts import current_balance, current_movement_account
+from app.domain.contributions import matched_totals
+from app.persistence.models import (
+    Account,
+    Confidence,
+    ExpectedMovement,
+    ExpectedSource,
+    TransferRule,
+)
+
+
+def suggest(
+    session: Session, account: Account, today: date, through: date | None, buffer_pence: int,
+) -> BillsSpaceFunding:
+    horizon = today + timedelta(days=90)
+    movements = list(session.scalars(select(ExpectedMovement).where(
+        ExpectedMovement.household_id == account.household_id,
+        ExpectedMovement.account_id == account.id,
+        ExpectedMovement.dismissed_at.is_(None),
+        ExpectedMovement.expected_date >= today,
+        ExpectedMovement.expected_date <= (through or horizon),
+        current_movement_account(),
+    ).order_by(ExpectedMovement.expected_date, ExpectedMovement.amount_pence, ExpectedMovement.id)))
+    totals = matched_totals(session, [movement.id for movement in movements])
+    rule_ids = {movement.source_id for movement in movements
+                if movement.source_type == ExpectedSource.transfer_rule}
+    rules = {rule.id: rule for rule in session.scalars(
+        select(TransferRule).where(TransferRule.id.in_(rule_ids))
+    )} if rule_ids else {}
+    next_top_up = None
+    if through is None:
+        next_top_up = next((movement.expected_date for movement in movements
+                            if movement.expected_date > today
+                            and movement.amount_pence > totals[movement.id]
+                            and _is_standing_top_up(rules, movement)), None)
+        through = next_top_up or today + timedelta(days=30)
+    balance = current_balance(session, account.id)
+    running = balance
+    low = None
+    first_shortfall = None
+    rows = []
+    # An explicitly accepted one-off is intended to fund that day's bills.
+    # Other same-day income is assumed to arrive after the debits.
+    def order(movement: ExpectedMovement) -> tuple[date, int, int]:
+        rule = rules.get(movement.source_id)
+        proactive = (movement.source_type == ExpectedSource.transfer_rule
+                     and movement.amount_pence > 0 and rule is not None
+                     and rule.start_date == rule.end_date)
+        return movement.expected_date, 0 if proactive else 1, movement.amount_pence
+
+    for movement in sorted(movements, key=order):
+        if movement.expected_date > through:
+            break
+        outstanding = max(0, abs(movement.amount_pence) - totals[movement.id])
+        if not outstanding:
+            continue
+        rule = rules.get(movement.source_id)
+        if movement.amount_pence < 0 and movement.source_type in (
+            ExpectedSource.commitment, ExpectedSource.subscription,
+        ):
+            outstanding = -outstanding
+        elif not (movement.amount_pence > 0
+                  and movement.source_type == ExpectedSource.transfer_rule
+                  and rule is not None and rule.active
+                  and movement.confidence == Confidence.scheduled
+                  and not (movement.expected_date == next_top_up
+                           and _is_standing_top_up(rules, movement))):
+            continue
+        if movement.expected_date > today and low is None:
+            low = running
+            if running < buffer_pence:
+                first_shortfall = today
+        running += outstanding
+        if outstanding < 0 or low is not None:
+            low = running if low is None else min(low, running)
+        if low is not None and first_shortfall is None and running < buffer_pence:
+            first_shortfall = movement.expected_date
+        rows.append(BillsSpaceMovement(
+            date=movement.expected_date, label=movement.label, pence=outstanding,
+        ))
+    if low is None:
+        low = running
+        if running < buffer_pence:
+            first_shortfall = today
+    return BillsSpaceFunding(
+        balance_pence=balance, buffer_pence=buffer_pence, through=through,
+        next_top_up=next_top_up, first_shortfall=first_shortfall,
+        top_up_pence=max(0, buffer_pence - low), movements=rows,
+    )
+
+
+def _is_standing_top_up(rules: dict[int, TransferRule], movement: ExpectedMovement) -> bool:
+    if (movement.source_type != ExpectedSource.transfer_rule
+            or movement.confidence != Confidence.scheduled):
+        return False
+    rule = rules.get(movement.source_id)
+    return rule is not None and rule.active and rule.start_date != rule.end_date
