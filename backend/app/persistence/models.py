@@ -1674,6 +1674,18 @@ class MonthlyAggregate(TimestampMixin, Base):
                                                  nullable=False)
 
 
+class SharedContributionProposal(Base):
+    __tablename__ = "shared_contribution_proposal"
+    __table_args__ = (Index("ix_shared_contribution_proposal_scope", "household_id", "account_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("household.id"), nullable=False)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id", ondelete="CASCADE"), nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    data: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+
+
 class NotificationKind(enum.StrEnum):
     """Trigger kinds the rules engine evaluates (issue #116)."""
     spend_above = "spend_above"      # a transaction over threshold_pence

@@ -27,6 +27,7 @@ from app.persistence.models import (
     NotificationKind,
     NotificationRule,
     NotificationState,
+    SharedContributionProposal,
     TransferRule,
 )
 
@@ -50,27 +51,39 @@ def split_key(household_id: int, account_id: int) -> str:
     return f"shared_split:{household_id}:{account_id}"
 
 
-def _proposal_key(household_id: int, account_id: int) -> str:
-    return f"shared_proposal:{household_id}:{account_id}"
-
-
 def read(
     session: Session, household_id: int, account_id: int,
-) -> tuple[AppMeta | None, list[ContributionProposal]]:
-    row = session.get(AppMeta, _proposal_key(household_id, account_id))
-    return row, [ContributionProposal.model_validate(item)
-                 for item in json.loads(row.value)] if row else []
+) -> tuple[dict[str, SharedContributionProposal], list[ContributionProposal]]:
+    # Older decisions remain durable. Only active scheduling windows are loaded.
+    lower = date.today() - timedelta(days=40)
+    rows = session.scalars(select(SharedContributionProposal).where(
+        SharedContributionProposal.household_id == household_id,
+        SharedContributionProposal.account_id == account_id,
+        SharedContributionProposal.effective_date >= lower,
+    ).order_by(SharedContributionProposal.effective_date, SharedContributionProposal.id)).all()
+    return {row.id: row for row in rows}, [ContributionProposal.model_validate(row.data)
+                                          for row in rows]
 
 
 def save(
     session: Session, household_id: int, account_id: int,
-    row: AppMeta | None, changes: list[ContributionProposal],
+    rows: dict[str, SharedContributionProposal], changes: list[ContributionProposal],
 ) -> None:
-    value = json.dumps([item.model_dump(mode="json") for item in changes])
-    if row is None:
-        session.add(AppMeta(key=_proposal_key(household_id, account_id), value=value))
-    else:
-        row.value = value
+    proposed = {item.id: item for item in changes}
+    for row_id, row in rows.items():
+        if row_id not in proposed:
+            session.delete(row)
+    for item in changes:
+        payload = item.model_dump(mode="json")
+        if existing := rows.get(item.id):
+            if existing.data != payload:
+                existing.data = payload
+        else:
+            session.add(SharedContributionProposal(
+                id=item.id, household_id=household_id, account_id=account_id,
+                effective_date=item.effective_date, data=payload,
+            ))
+    session.flush()
 
 
 def _notify(session: Session, household_id: int, change: ContributionProposal) -> None:
@@ -104,7 +117,7 @@ def close_notification(session: Session, proposal_id: str) -> None:
 
 def invalidate_for_rule(session: Session, rule: TransferRule) -> None:
     row, changes = read(session, rule.household_id, rule.dest_account_id)
-    if row is None:
+    if not row:
         return
     expired = [proposal for proposal in changes
                if proposal.rule_id == rule.id and proposal.state == "pending"]
