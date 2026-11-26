@@ -8,7 +8,7 @@ from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.api.schemas import SharedSplitPolicy
@@ -148,6 +148,18 @@ def expire(session: Session, household_id: int, today: date) -> None:
         row.data = {**row.data, "state": "expired"}
         close_notification(session, row.id)
 
+    ended = select(Budget.id).where(Budget.household_id == household_id, Budget.end_date < today)
+    notification_rules = select(NotificationRule.id).where(
+        NotificationRule.household_id == household_id,
+        NotificationRule.kind == NotificationKind.shared_contribution_change,
+    )
+    session.execute(update(NotificationEvent).where(
+        NotificationEvent.rule_id.in_(notification_rules),
+        NotificationEvent.dedup_key.startswith("shared-split-conflict:"),
+        NotificationEvent.state != NotificationState.acked,
+        NotificationEvent.payload["budget_id"].as_integer().in_(ended),
+    ).values(state=NotificationState.acked))
+
 
 def invalidate_for_rule(session: Session, rule: TransferRule) -> None:
     row, changes = read(session, rule.household_id, rule.dest_account_id)
@@ -199,8 +211,8 @@ def _proposed_amounts(
     return amounts
 
 
-def eligible_approver(session: Session, household_id: int, nominated: int) -> int | None:
-    profile = session.get(UserProfile, nominated)
+def eligible_approver(session: Session, household_id: int, nominated: int | None) -> int | None:
+    profile = session.get(UserProfile, nominated) if nominated is not None else None
     if (profile is not None and profile.household_id == household_id
             and rbac.can(profile, rbac.Action.write)):
         return profile.id
@@ -293,11 +305,7 @@ def propose(
         ) if next_amounts else target)
         recipient = (policy.approver_profile_id or policy.remainder_profile_id
                      or min(current, default=None))
-        if ambiguous:
-            recipient = session.scalar(select(UserProfile.id).where(
-                UserProfile.household_id == household_id, UserProfile.is_active.is_(True),
-                UserProfile.role == Role.admin,
-            ).order_by(UserProfile.id).limit(1)) or recipient
+        recipient = eligible_approver(session, household_id, recipient)
         _reconcile_conflict(session, household_id, pot_id, budget.id, recipient,
                             target, fixed_total if conflict else None, funded,
                             overlap=bool(overlapping) and guided == {pot_id},
