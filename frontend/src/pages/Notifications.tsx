@@ -58,6 +58,12 @@ function eventSummary(e: Event, acctName: (id: number) => string): {
       detail: `Fixed shares of ${formatPence(p.fixed_total_pence)} exceed the Shared budget target of ${formatPence(p.new_target_pence)}.`,
     };
   }
+  if (typeof p.scheduled_total_pence === "number" && typeof p.new_target_pence === "number") {
+    return {
+      title: String(p.title ?? "Shared contribution split needs updating"),
+      detail: `Scheduled contributions total ${formatPence(p.scheduled_total_pence)} against a target of ${formatPence(p.new_target_pence)}. Review the difference in Shared.`,
+    };
+  }
   if (typeof p.old_pence === "number" && typeof p.new_pence === "number"
       && typeof p.effective_date === "string" && typeof p.title === "string") {
     return {
