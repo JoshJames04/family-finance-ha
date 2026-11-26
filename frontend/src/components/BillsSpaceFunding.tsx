@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "../api/client";
 import { useAccounts, useReady } from "../api/hooks";
 import { useApi } from "../api/useApi";
-import { formatDate, toISODate } from "../lib/format";
+import { formatDate, formatPence, toISODate } from "../lib/format";
 import { Button } from "./Button";
 import { DataView } from "./DataView";
 import { Field, Input, Select } from "./Field";
@@ -148,7 +148,7 @@ export function BillsSpaceFunding() {
         <summary className="cursor-pointer">Change the standing top-up</summary>
         <div className="mt-2 flex flex-wrap items-end gap-3">
           <Field label="New standing amount (£)" hint={funding.data.standing_pence == null ? undefined
-            : `Scheduled amount: £${(funding.data.standing_pence / 100).toFixed(2)}`}>{id => (
+            : `Scheduled amount: ${formatPence(funding.data.standing_pence)}`}>{id => (
             <Input id={id} type="number" min="0.01" max="1000000" step="0.01" value={standingAmount}
               onChange={e => setStandingAmount(e.target.value)} />
           )}</Field>
