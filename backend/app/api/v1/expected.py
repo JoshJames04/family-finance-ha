@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from calendar import monthrange
+from datetime import date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,13 +14,14 @@ from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
 from app.api.v1.budgets import _get as get_budget
-from app.domain import contributions, rbac, schedule
+from app.domain import budget_periods, contributions, rbac, schedule
 from app.persistence.models import (
     Account,
     ExpectedMovement,
     ExpectedSource,
     Role,
     Transaction,
+    TransferRule,
     UserProfile,
 )
 
@@ -182,6 +184,13 @@ def confirm_match(
     if (account is None or account.household_id != household.id
             or not rbac.write_allowed(account.owner_profile_id, profile)):
         raise HTTPException(404, "transaction not found")
+    if tx.account_id != mv.account_id and profile is not None:
+        rule = session.get(TransferRule, mv.source_id)
+        source_id = (mv.transfer_source_account_id or rule.source_account_id) if rule else None
+        owner_account = session.get(Account, source_id) if source_id is not None else None
+        if (rule is None or rule.household_id != household.id or owner_account is None
+                or not rbac.write_allowed(owner_account.owner_profile_id, profile)):
+            raise HTTPException(403, "only the contributor or an admin can confirm this transfer")
     contributions.confirm(
         session, mv, tx,
         pence=body.amount.pence if body.amount else None)
@@ -225,6 +234,101 @@ def contributions_by_member(
         contributed_pence=c.contributed_pence)
         for c in contributions.member_contributions(
             session, household.id, start=start, end=end)]
+
+
+@router.get("/contributions/cycles", response_model=list[schemas.SharedContributionCycle])
+def contribution_cycles(
+    household: HouseholdDep, session: SessionDep, profile: ProfileDep,
+    start: Annotated[date, Query()], end: Annotated[date, Query()],
+    account_id: int | None = None,
+) -> list[schemas.SharedContributionCycle]:
+    """Show each member's contribution cycle and next instalment without moving the plan."""
+    today = date.today()
+    current = start <= today <= end
+    members = session.scalars(select(UserProfile).where(
+        UserProfile.household_id == household.id, UserProfile.is_active.is_(True))).all()
+    windows = {}
+    for member in members:
+        window = budget_periods.resolve_member_period(
+            session, household.id, member.id, start, end)
+        month_end = end
+        # An early payday on the 1st may open the next labelled cycle
+        # on the last working day of the current calendar month.
+        while current and window.basis == "pay_cycle" and window.end < today:
+            month_start = month_end + timedelta(days=1)
+            month_end = month_start.replace(day=monthrange(month_start.year, month_start.month)[1])
+            window = budget_periods.resolve_member_period(
+                session, household.id, member.id, month_start, month_end)
+        windows[member.id] = window
+    if not windows:
+        return []
+
+    accounts = {a.id: a for a in session.scalars(select(Account).where(
+        Account.household_id == household.id, Account.archived.is_(False)))}
+    destinations = {a.id for a in accounts.values()
+                    if a.owner_profile_id is None and rbac.visible(None, profile)
+                    and (account_id is None or account_id == a.id)}
+    rules = {
+        rule.id: rule
+        for rule in session.scalars(select(TransferRule).where(
+            TransferRule.household_id == household.id,
+            TransferRule.source_account_id.in_(accounts),
+            TransferRule.dest_account_id.in_(accounts),
+        ))
+    }
+    scheduled = [
+        movement for movement in schedule.stream(
+            session, household.id, start=min(w.start for w in windows.values()),
+            end=max(max(w.end for w in windows.values()),
+                    today + timedelta(days=90) if current else end))
+        if movement.source_type == ExpectedSource.transfer_rule
+        and movement.dismissed_at is None and movement.source_id in rules
+    ]
+
+    def occurrence(movement: ExpectedMovement) -> tuple[int, date, int, int]:
+        rule = rules[movement.source_id]
+        return (rule.id, movement.expected_date,
+                movement.transfer_source_account_id or rule.source_account_id,
+                movement.transfer_dest_account_id or rule.dest_account_id)
+
+    by_occurrence = {}
+    rule_members = {}
+    for m in scheduled:
+        if m.amount_pence <= 0:
+            continue
+        key = occurrence(m)
+        source = accounts.get(key[2])
+        if (m.account_id not in destinations or key[3] != m.account_id
+                or source is None or source.owner_profile_id not in windows):
+            continue
+        by_occurrence[key] = m
+        rule_members[m.id] = source.owner_profile_id
+    movements = list(by_occurrence.values())
+    outgoing = {
+        m.id: receipt
+        for m in scheduled if m.amount_pence < 0
+        if (receipt := by_occurrence.get(occurrence(m))) is not None
+    }
+    matched = contributions.shared_payment_totals(session, movements, outgoing)
+    rows: dict[int, list[schemas.SharedContributionPayment]] = {
+        member.id: [] for member in members
+    }
+    for m in movements:
+        member_id = rule_members[m.id]
+        assert m.account_id is not None and member_id is not None
+        rows[member_id].append(schemas.SharedContributionPayment(
+            movement_id=m.id, account_id=m.account_id, due_date=m.expected_date,
+            expected_pence=m.amount_pence, matched_pence=matched[m.id],
+        ))
+    return [schemas.SharedContributionCycle(
+        profile_id=member_id, start=window.start, end=window.end,
+        basis="pay_cycle" if window.basis == "pay_cycle" else "calendar",
+        warning=window.warning,
+        payments=[p for p in rows[member_id] if window.start <= p.due_date <= window.end],
+        next_payment=next((p for p in rows[member_id] if p.due_date > today or
+                           (p.due_date == today and p.matched_pence < p.expected_pence)), None)
+        if current else None,
+    ) for member_id, window in windows.items()]
 
 
 @router.get("/requirements",

@@ -10,6 +10,7 @@ import { DataView } from "../components/DataView";
 import { Money } from "../components/Money";
 import { Button } from "../components/Button";
 import { Panel } from "../components/Panel";
+import { BillsSpaceFunding } from "../components/BillsSpaceFunding";
 import { SharedPot } from "../components/SharedPot";
 import { IconTile, PageHeader, Stat } from "../components/Display";
 import { Skeleton } from "../components/Feedback";
@@ -128,12 +129,13 @@ export function Shared() {
               </Panel>
             )}
 
-            <SharedPot period={{
+            <SharedPot sharedTotal={detail.data ? total : undefined} period={{
               start: shared.start_date, end: shared.end_date,
             }} />
           </>
         )}
       </DataView>
+      <BillsSpaceFunding />
     </div>
   );
 }

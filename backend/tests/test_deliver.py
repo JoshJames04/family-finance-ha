@@ -18,6 +18,7 @@ from app.persistence.models import (
     Household,
     NotificationDelivery,
     NotificationKind,
+    NotificationState,
 )
 
 
@@ -76,6 +77,16 @@ class TestCompose:
 
 
 class TestDelivery:
+    def test_acknowledged_contribution_delivery_is_cancelled(self, session, household):
+        rule = _rule(session, household, kind=NotificationKind.shared_contribution_change)
+        delivery, = _deliverable(session, rule)
+        event, = delivery.events
+        event.state = NotificationState.acked
+        n = FakeNotifier()
+        assert deliver.deliver_pending(session, household.id, n).sent == 0
+        assert delivery.status == "cancelled"
+        assert not n.calls
+
     def test_sent_marks_row(self, session, household):
         rule = _rule(session, household)
         _deliverable(session, rule)

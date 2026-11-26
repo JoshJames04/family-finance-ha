@@ -1,7 +1,7 @@
 /** #277/#293/#297: the shared pot embedded in Budget — the split
  * (total + member £/%), per-member standing for the viewed period,
  * auto-match, share-rule management behind the disclosure. */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -49,35 +49,19 @@ const MONTH = (() => {
   };
 })();
 
-const MOVEMENTS = [
-  { id: 10, source_type: "transfer_rule", source_id: 1, account_id: 2,
-    expected_date: MONTH.end, amount_pence: -80000, label: "Alice share (out)" },
-  { id: 11, source_type: "transfer_rule", source_id: 1, account_id: 4,
-    expected_date: MONTH.end, amount_pence: 80000, label: "Alice share (in)" },
-  { id: 12, source_type: "transfer_rule", source_id: 2, account_id: 3,
-    expected_date: MONTH.end, amount_pence: -70000, label: "Carol share (out)" },
-  { id: 13, source_type: "transfer_rule", source_id: 2, account_id: 4,
-    expected_date: MONTH.end, amount_pence: 70000, label: "Carol share (in)" },
-];
-
-const CONTRIBUTIONS = [
-  { movement_id: 10, expected_pence: 80000, matched_pence: 80000,
-    outstanding_pence: 0, state: "satisfied" },
-  { movement_id: 11, expected_pence: 80000, matched_pence: 80000,
-    outstanding_pence: 0, state: "satisfied" },
-  { movement_id: 12, expected_pence: 70000, matched_pence: 0,
-    outstanding_pence: 70000, state: "pending" },
-  { movement_id: 13, expected_pence: 70000, matched_pence: 0,
-    outstanding_pence: 70000, state: "pending" },
-];
-
-const BY_MEMBER = [
-  { profile_id: 1, display_name: "Alice", contributed_pence: 80000 },
-  { profile_id: 2, display_name: "Carol", contributed_pence: 0 },
+const CYCLES = [
+  { profile_id: 1, start: MONTH.start, end: MONTH.end, basis: "pay_cycle",
+    payments: [{ movement_id: 11, account_id: 4, due_date: MONTH.end,
+      expected_pence: 80000, matched_pence: 80000 }],
+    next_payment: { movement_id: 21, account_id: 4, due_date: "2027-01-28",
+      expected_pence: 80000, matched_pence: 20000 } },
+  { profile_id: 2, start: MONTH.start, end: MONTH.end, basis: "calendar",
+    payments: [{ movement_id: 13, account_id: 4, due_date: MONTH.end,
+      expected_pence: 70000, matched_pence: 0 }] },
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
-  opts: { rules?: object[] } = {}) {
+  opts: { rules?: object[]; alternate?: boolean; proposals?: object[] } = {}) {
   const rules = opts.rules ?? RULES;
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -91,23 +75,28 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
           : url.includes("/api/v1/profiles")
             ? { items: PROFILES, total: PROFILES.length }
             : url.includes("/api/v1/accounts")
-              ? { items: ACCOUNTS, total: ACCOUNTS.length }
+              ? { items: opts.alternate ? [...ACCOUNTS, {
+                  id: 12, name: "House Bills space", owner_profile_id: null, archived: false,
+                }] : ACCOUNTS, total: ACCOUNTS.length + Number(Boolean(opts.alternate)) }
+              : url.endsWith("/proposals") ? opts.proposals ?? []
+              : url.includes("/shared-split/") ? {
+                  policy: opts.alternate ? { alternate_account_ids: [12] } : null, next_paydays: {},
+                }
+              : opts.alternate && url.includes("/transactions") && url.includes("account_id=12")
+                ? { items: [{ id: 70, payee: "Direct receipt", date: MONTH.start, amount_pence: 2100,
+                    transfer_id: 33 }], total: 1 }
               : url.includes("/api/v1/transfer-rules")
                 ? { items: rules, total: rules.length }
-                : url.includes("/contributions/by-member")
-                  ? BY_MEMBER
-                  : url.includes("/contributions")
-                    ? CONTRIBUTIONS
-                    : url.includes("/expected-movements")
-                      ? MOVEMENTS
-                      : { items: [], total: 0 };
+                : url.includes("/contributions/cycles")
+                  ? CYCLES
+                  : { items: [], total: 0 };
       return Promise.resolve(new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json" } }));
     });
 }
 
-const open = () => render(
-  <MemoryRouter><SharedPot period={{ start: MONTH.start, end: MONTH.end }} /></MemoryRouter>);
+const open = (sharedTotal?: number) => render(
+  <MemoryRouter><SharedPot sharedTotal={sharedTotal} period={{ start: MONTH.start, end: MONTH.end }} /></MemoryRouter>);
 
 describe("SharedPot", () => {
   afterEach(cleanup);
@@ -116,17 +105,32 @@ describe("SharedPot", () => {
     stubFetch([]);
     open();
     // Alice satisfied, Carol outstanding — £1,500 due, £800 in.
-    await screen.findByText(/satisfied/i);
-    expect(screen.getByText(/^outstanding$/i)).toBeTruthy();
+    await screen.findByText(/^Paid$/i);
+    expect(screen.getByText(/Next payment/).textContent).toContain("£600.00 left to pay");
+    expect(screen.getByText(/Configure a pay-cycle source/)).toBeTruthy();
+    expect(screen.getByText(/^Due$/i)).toBeTruthy();
     expect(screen.getAllByText("£1,500.00").length).toBeGreaterThan(0);
     expect(screen.getByText(/to go/)).toBeTruthy();
+  });
+
+  it("shows only budget contribution proposals in the shared pot", async () => {
+    stubFetch([], { proposals: [
+      { id: "budget", budget_id: 7, profile_id: 1, old_pence: 80000,
+        new_pence: 81000, reason: "Budget changed", effective_date: MONTH.end },
+      { id: "top-up", budget_id: null, profile_id: 1, old_pence: 80000,
+        new_pence: 82000, reason: "Standing bills account top-up", effective_date: MONTH.end },
+    ] });
+    open();
+    await screen.findByText(/Budget changed/);
+    expect(screen.queryByText(/Standing bills account top-up/)).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Accept change" })).toHaveLength(1);
   });
 
   it("shows the pot total and each member's percentage share", async () => {
     stubFetch([]);
     open();
     await screen.findByText("Shared pot — Joint Bills");
-    const bar = screen.getByRole("img", { name: /Alice \d+%, Carol \d+%/ });
+    const bar = await screen.findByRole("img", { name: /Alice \d+%, Carol \d+%/ });
     expect(bar.getAttribute("aria-label")).toBe("Alice 53%, Carol 47%");
   });
 
@@ -138,6 +142,31 @@ describe("SharedPot", () => {
     await user.click(await screen.findByRole("button", { name: /Match payments/ }));
     await waitFor(() => expect(calls.some((c) =>
       c.method === "POST" && c.url.includes("/expected-movements/match"))).toBe(true));
+  });
+
+  it("keeps the payday schedule when only the share name changes", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    const rule = RULES[0]!;
+    stubFetch(calls, { rules: [{ ...rule, amount_spec: {
+      ...rule.amount_spec, on_member_payday: true, pence: 99500, original_pence: 80000,
+      effective_amounts: [{ date: "2199-01-01", pence: 99500 }],
+    } }] });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "Share rules (1)" }));
+    await user.click(screen.getByRole("button", { name: "Edit Alice share" }));
+    expect((screen.getByLabelText("Share amount") as HTMLInputElement).value).toBe("800");
+    const name = screen.getByLabelText("Rule name");
+    await user.clear(name);
+    await user.type(name, "New name");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      const change = calls.find((call) => call.method === "PATCH");
+      expect(change).toBeDefined();
+      expect(JSON.parse(change!.body)).toEqual({
+        name: "New name", source_account_id: 2, dest_account_id: 4, frequency: "monthly",
+      });
+    });
   });
 
   it("Set a share creates a fixed contribution rule", async () => {
@@ -189,13 +218,66 @@ describe("SharedPot", () => {
     });
   });
 
+  it("uses the Shared target and allocates every penny when changing the split", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls);
+    const user = userEvent.setup();
+    open(150001);
+    await user.click(await screen.findByRole("button", { name: /Adjust split/ }));
+    const alice = screen.getByLabelText("Alice share amount");
+    await user.clear(alice);
+    await user.type(alice, "801");
+    expect((screen.getByLabelText("Carol share amount") as HTMLInputElement).value).toBe("699.01");
+    await user.click(screen.getByRole("radio", { name: "By percentage" }));
+    const pct = screen.getByLabelText("Alice share percent");
+    await user.clear(pct);
+    await user.type(pct, "50");
+    await user.click(screen.getByRole("button", { name: "Save split" }));
+    await waitFor(() => {
+      const write = calls.find((call) => call.method === "POST" && call.url.endsWith("/shared-split"));
+      expect(write).toBeDefined();
+      const body = JSON.parse(write!.body);
+      expect(body.target_pence).toBe(150001);
+      expect(body.shares.map((share: { pence: number }) => share.pence)).toEqual([75001, 75000]);
+    });
+  });
+
+  it("updates the fixed share percentage against the Shared total", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    open(150000);
+    await user.click(await screen.findByRole("button", { name: /Adjust split/ }));
+    await user.click(screen.getByRole("radio", { name: "Fixed plus remainder" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const carol = dialog.getByLabelText("Carol share amount");
+    await user.clear(carol);
+    await user.type(carol, "500");
+    expect(dialog.getByText("33%")).toBeTruthy();
+    expect(dialog.getByText("£1,000.00")).toBeTruthy();
+  });
+
+  it("records a confirmed receipt into an eligible alternate account", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls, { alternate: true });
+    const user = userEvent.setup();
+    open(150000);
+    await user.click(await screen.findByRole("button", { name: /Record Carol's payment/ }));
+    const dialog = within(screen.getByRole("dialog"));
+    await user.selectOptions(await dialog.findByLabelText("Receiving account"), "12");
+    const option = await dialog.findByRole("option", { name: /Direct receipt/ });
+    await user.selectOptions(dialog.getByLabelText(/Transfer transaction/), option);
+    await user.click(dialog.getByRole("button", { name: "Record payment" }));
+    await waitFor(() => expect(calls.some(call => call.method === "POST"
+      && call.url.endsWith("/13/matches") && JSON.parse(call.body).transaction_id === 70)).toBe(true));
+  });
+
   it("rules list hides behind a disclosure", async () => {
     stubFetch([]);
     const user = userEvent.setup();
     open();
     await screen.findByText("Shared pot — Joint Bills");
     expect(screen.queryByText("Alice share")).toBeNull();
-    await user.click(screen.getByRole("button", { name: /Share rules/ }));
+    await user.click(await screen.findByRole("button", { name: /Share rules/ }));
     await screen.findByText("Alice share");
     expect(screen.getByText("Carol share")).toBeTruthy();
   });

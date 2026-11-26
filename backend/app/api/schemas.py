@@ -1147,6 +1147,70 @@ class TransferRulePatch(BaseModel):
     active: bool | None = None
 
 
+class BillsSpaceMovement(BaseModel):
+    date: date
+    label: str
+    pence: int
+
+
+class BillsSpaceFunding(BaseModel):
+    balance_pence: int
+    buffer_pence: int
+    through: date
+    next_top_up: date | None
+    standing_rule_id: int | None
+    standing_pence: int | None
+    funding_parent_id: int | None
+    first_shortfall: date | None
+    top_up_pence: int
+    movements: list[BillsSpaceMovement]
+
+
+class BillsSpaceStandingTopUpIn(BaseModel):
+    rule_id: int
+    amount_pence: int = Field(gt=0, le=100_000_000)
+
+
+class BillsSpaceTopUpIn(BaseModel):
+    source_account_id: int
+    buffer_pence: int = Field(ge=0, le=100_000_000)
+    through: date | None = None
+    amount_pence: int = Field(gt=0)
+
+
+class SharedSplitShare(BaseModel):
+    on_member_payday: bool = False
+    profile_id: int
+    source_account_id: int | None = None
+    rule_id: int | None = None
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
+    pence: int = Field(ge=0)
+    percentage_bps: int | None = Field(default=None, ge=0, le=10000)
+
+
+class SharedSplitPolicy(BaseModel):
+    mode: Literal["amount", "equal", "percent", "fixed_remainder"]
+    member_ids: list[int] = Field(default_factory=list)
+    remainder_profile_id: int | None = None
+    percentages: dict[int, int] = Field(default_factory=dict)
+    fixed_pence: dict[int, int] = Field(default_factory=dict)
+    approval: Literal["contributor", "delegated", "automatic"] | None = None
+    approver_profile_id: int | None = None
+    alternate_account_ids: list[int] | None = Field(default=None, max_length=50)
+
+
+class SharedSplitSetup(BaseModel):
+    policy: SharedSplitPolicy | None
+    next_paydays: dict[int, date]
+
+
+class SharedSplitIn(BaseModel):
+    account_id: int
+    target_pence: int = Field(gt=0)
+    shares: list[SharedSplitShare] = Field(min_length=1, max_length=100)
+    policy: SharedSplitPolicy | None = None
+
+
 class TransferRuleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -1203,6 +1267,24 @@ class ContributionStatusOut(BaseModel):
     matched_pence: int
     outstanding_pence: int
     state: str
+
+
+class SharedContributionPayment(BaseModel):
+    movement_id: int
+    account_id: int
+    due_date: date
+    expected_pence: int
+    matched_pence: int
+
+
+class SharedContributionCycle(BaseModel):
+    profile_id: int
+    start: date
+    end: date
+    basis: Literal["calendar", "pay_cycle"]
+    warning: str | None = None
+    payments: list[SharedContributionPayment]
+    next_payment: SharedContributionPayment | None = None
 
 
 class MatchResult(BaseModel):

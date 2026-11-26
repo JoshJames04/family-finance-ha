@@ -1671,6 +1671,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/expected-movements/contributions/cycles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contribution Cycles
+         * @description Show each member's contribution cycle and next instalment without moving the plan.
+         */
+        get: operations["contribution_cycles_api_v1_expected_movements_contributions_cycles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/expected-movements/requirements": {
         parameters: {
             query?: never;
@@ -2420,6 +2440,129 @@ export interface paths {
         head?: never;
         /** Update Rule */
         patch: operations["update_rule_api_v1_transfer_rules__rid__patch"];
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/shared-split/{account_id}/receiving-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Save Receiving Accounts */
+        patch: operations["save_receiving_accounts_api_v1_transfer_rules_shared_split__account_id__receiving_accounts_patch"];
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/shared-split/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Shared Split */
+        get: operations["get_shared_split_api_v1_transfer_rules_shared_split__account_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/shared-split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Shared Split
+         * @description Apply all of a shared pot's monthly shares in one transaction.
+         */
+        post: operations["save_shared_split_api_v1_transfer_rules_shared_split_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/bills-space/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bills Space Funding */
+        get: operations["bills_space_funding_api_v1_transfer_rules_bills_space__account_id__get"];
+        put?: never;
+        /** Schedule Bills Space Top Up */
+        post: operations["schedule_bills_space_top_up_api_v1_transfer_rules_bills_space__account_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/bills-space/{account_id}/standing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose Bills Space Schedule Change */
+        post: operations["propose_bills_space_schedule_change_api_v1_transfer_rules_bills_space__account_id__standing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/shared-split/{account_id}/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contribution Proposals */
+        get: operations["contribution_proposals_api_v1_transfer_rules_shared_split__account_id__proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/shared-split/{account_id}/proposals/{proposal_id}/{decision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Contribution Change */
+        post: operations["decide_contribution_change_api_v1_transfer_rules_shared_split__account_id__proposals__proposal_id___decision__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/transfer-rules/{rid}/materialise": {
@@ -4195,6 +4338,62 @@ export interface components {
             /** Sync Interval Minutes */
             sync_interval_minutes: number;
         };
+        /** BillsSpaceFunding */
+        BillsSpaceFunding: {
+            /** Balance Pence */
+            balance_pence: number;
+            /** Buffer Pence */
+            buffer_pence: number;
+            /**
+             * Through
+             * Format: date
+             */
+            through: string;
+            /** Next Top Up */
+            next_top_up: string | null;
+            /** Standing Rule Id */
+            standing_rule_id: number | null;
+            /** Standing Pence */
+            standing_pence: number | null;
+            /** Funding Parent Id */
+            funding_parent_id: number | null;
+            /** First Shortfall */
+            first_shortfall: string | null;
+            /** Top Up Pence */
+            top_up_pence: number;
+            /** Movements */
+            movements: components["schemas"]["BillsSpaceMovement"][];
+        };
+        /** BillsSpaceMovement */
+        BillsSpaceMovement: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Label */
+            label: string;
+            /** Pence */
+            pence: number;
+        };
+        /** BillsSpaceStandingTopUpIn */
+        BillsSpaceStandingTopUpIn: {
+            /** Rule Id */
+            rule_id: number;
+            /** Amount Pence */
+            amount_pence: number;
+        };
+        /** BillsSpaceTopUpIn */
+        BillsSpaceTopUpIn: {
+            /** Source Account Id */
+            source_account_id: number;
+            /** Buffer Pence */
+            buffer_pence: number;
+            /** Through */
+            through?: string | null;
+            /** Amount Pence */
+            amount_pence: number;
+        };
         /** Body_preview_api_v1_imports_preview_post */
         Body_preview_api_v1_imports_preview_post: {
             /** File */
@@ -4910,6 +5109,40 @@ export interface components {
             amount?: (number | string | {
                 pence: number;
             }) | null;
+        };
+        /** ContributionProposal */
+        ContributionProposal: {
+            /** Id */
+            id: string;
+            /** Profile Id */
+            profile_id: number;
+            /** Approver Profile Id */
+            approver_profile_id?: number | null;
+            /** Rule Id */
+            rule_id: number;
+            /** Budget Id */
+            budget_id?: number | null;
+            /** Old Pence */
+            old_pence: number;
+            /** New Pence */
+            new_pence: number;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Old Target Pence */
+            old_target_pence: number;
+            /** New Target Pence */
+            new_target_pence: number;
+            /** Reason */
+            reason: string;
+            /**
+             * State
+             * @default pending
+             * @enum {string}
+             */
+            state: "pending" | "accepted" | "kept" | "expired";
         };
         /** ContributionStatusOut */
         ContributionStatusOut: {
@@ -7547,6 +7780,111 @@ export interface components {
             notes: string | null;
             /** Event Date */
             event_date?: string | null;
+        };
+        /** SharedContributionCycle */
+        SharedContributionCycle: {
+            /** Profile Id */
+            profile_id: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "calendar" | "pay_cycle";
+            /** Warning */
+            warning?: string | null;
+            /** Payments */
+            payments: components["schemas"]["SharedContributionPayment"][];
+            next_payment?: components["schemas"]["SharedContributionPayment"] | null;
+        };
+        /** SharedContributionPayment */
+        SharedContributionPayment: {
+            /** Movement Id */
+            movement_id: number;
+            /** Account Id */
+            account_id: number;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Expected Pence */
+            expected_pence: number;
+            /** Matched Pence */
+            matched_pence: number;
+        };
+        /** SharedSplitIn */
+        SharedSplitIn: {
+            /** Account Id */
+            account_id: number;
+            /** Target Pence */
+            target_pence: number;
+            /** Shares */
+            shares: components["schemas"]["SharedSplitShare"][];
+            policy?: components["schemas"]["SharedSplitPolicy"] | null;
+        };
+        /** SharedSplitPolicy */
+        SharedSplitPolicy: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "amount" | "equal" | "percent" | "fixed_remainder";
+            /** Member Ids */
+            member_ids?: number[];
+            /** Remainder Profile Id */
+            remainder_profile_id?: number | null;
+            /** Percentages */
+            percentages?: {
+                [key: string]: number;
+            };
+            /** Fixed Pence */
+            fixed_pence?: {
+                [key: string]: number;
+            };
+            /** Approval */
+            approval?: ("contributor" | "delegated" | "automatic") | null;
+            /** Approver Profile Id */
+            approver_profile_id?: number | null;
+            /** Alternate Account Ids */
+            alternate_account_ids?: number[] | null;
+        };
+        /** SharedSplitSetup */
+        SharedSplitSetup: {
+            policy: components["schemas"]["SharedSplitPolicy"] | null;
+            /** Next Paydays */
+            next_paydays: {
+                [key: string]: string;
+            };
+        };
+        /** SharedSplitShare */
+        SharedSplitShare: {
+            /**
+             * On Member Payday
+             * @default false
+             */
+            on_member_payday: boolean;
+            /** Profile Id */
+            profile_id: number;
+            /** Source Account Id */
+            source_account_id?: number | null;
+            /** Rule Id */
+            rule_id?: number | null;
+            /** Day Of Month */
+            day_of_month?: number | null;
+            /** Pence */
+            pence: number;
+            /** Percentage Bps */
+            percentage_bps?: number | null;
         };
         /** StatementImportOut */
         StatementImportOut: {
@@ -12501,6 +12839,42 @@ export interface operations {
             };
         };
     };
+    contribution_cycles_api_v1_expected_movements_contributions_cycles_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                account_id?: number | null;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedContributionCycle"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     requirement_totals_api_v1_expected_movements_requirements_get: {
         parameters: {
             query: {
@@ -14286,6 +14660,295 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TransferRuleOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_receiving_accounts_api_v1_transfer_rules_shared_split__account_id__receiving_accounts_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": number[];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shared_split_api_v1_transfer_rules_shared_split__account_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedSplitSetup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_shared_split_api_v1_transfer_rules_shared_split_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedSplitIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bills_space_funding_api_v1_transfer_rules_bills_space__account_id__get: {
+        parameters: {
+            query?: {
+                through?: string | null;
+                buffer_pence?: number;
+            };
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillsSpaceFunding"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schedule_bills_space_top_up_api_v1_transfer_rules_bills_space__account_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillsSpaceTopUpIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferRuleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_bills_space_schedule_change_api_v1_transfer_rules_bills_space__account_id__standing_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillsSpaceStandingTopUpIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionProposal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contribution_proposals_api_v1_transfer_rules_shared_split__account_id__proposals_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionProposal"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_contribution_change_api_v1_transfer_rules_shared_split__account_id__proposals__proposal_id___decision__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+                proposal_id: string;
+                decision: "accept" | "keep";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

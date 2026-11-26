@@ -15,13 +15,17 @@ from app.persistence.migrate import (
 )
 
 MERGED_HEAD = "0075_merge_seasonal_payroll"
+PROPOSALS_HEAD = "0078_shared_contribution_proposals"
+CURRENT_HEAD = "0079_alternate_contribution_evidence"
 SEASONAL = "0071_seasonal_event_date"
 BONUSES = "0074_employer_bonuses"
 
 
 def test_migration_history_has_one_head_and_keeps_existing_parents(tmp_path):
     script = ScriptDirectory.from_config(alembic_config(f"sqlite:///{tmp_path / 'graph.db'}"))
-    assert script.get_heads() == [MERGED_HEAD]
+    assert script.get_heads() == [CURRENT_HEAD]
+    assert script.get_revision(PROPOSALS_HEAD).down_revision == MERGED_HEAD
+    assert script.get_revision(CURRENT_HEAD).down_revision == PROPOSALS_HEAD
     assert script.get_revision(SEASONAL).down_revision == "0070_transfer_confirmation_history"
     assert script.get_revision(BONUSES).down_revision == "0073_payroll_verified_inputs"
     assert set(script.get_revision(MERGED_HEAD).down_revision) == {SEASONAL, BONUSES}
@@ -55,7 +59,7 @@ def test_prior_branches_roundtrip_without_losing_rows(tmp_path, starting_revisio
         assert migrations_current(engine, url)
         with engine.connect() as conn:
             versions = conn.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
-            assert versions == [MERGED_HEAD]
+            assert versions == [CURRENT_HEAD]
             row = conn.execute(text(
                 "SELECT name,budget_pence,event_date FROM seasonal_event")).one()
             assert tuple(row) == ("Preserved synthetic plan", 12345, original_date)
@@ -82,9 +86,24 @@ def test_fresh_database_upgrades_directly_to_combined_head(tmp_path):
     engine = create_engine(url)
     with engine.connect() as conn:
         versions = conn.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
-        assert versions == [MERGED_HEAD]
+        assert versions == [CURRENT_HEAD]
     assert "event_date" in {c["name"] for c in inspect(engine).get_columns("seasonal_event")}
     assert "employment_bonus" in inspect(engine).get_table_names()
+    engine.dispose()
+
+
+def test_shared_proposals_migration_rolls_back_and_reapplies(tmp_path):
+    url = f"sqlite:///{tmp_path / 'proposals.db'}"
+    config = alembic_config(url)
+    command.upgrade(config, "head")
+    engine = create_engine(url)
+    assert "shared_contribution_proposal" in inspect(engine).get_table_names()
+    command.downgrade(config, MERGED_HEAD)
+    assert set(current_revisions(engine)) == {MERGED_HEAD}
+    assert "shared_contribution_proposal" not in inspect(engine).get_table_names()
+    command.upgrade(config, "head")
+    assert set(current_revisions(engine)) == {CURRENT_HEAD}
+    assert "shared_contribution_proposal" in inspect(engine).get_table_names()
     engine.dispose()
 
 

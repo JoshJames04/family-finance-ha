@@ -214,6 +214,10 @@ def evaluate(session: Session, rule: NotificationRule,
         return _eval_sync_failure(session, rule, params, at=at)
     if rule.kind is NotificationKind.payroll_variance:
         return 0
+    if rule.kind is NotificationKind.shared_contribution_change:
+        from app.domain import shared_contribution_approvals
+        shared_contribution_approvals.expire(session, rule.household_id, today or date.today())
+        return 0
     if rule.kind is NotificationKind.payslip_review:
         return 0
     raise NotificationError(f"unknown rule kind {rule.kind}")

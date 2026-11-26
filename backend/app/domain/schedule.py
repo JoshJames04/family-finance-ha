@@ -21,6 +21,7 @@ from app.domain import goals, outbox, pay_calendar, paydays, payroll_totals, pay
 from app.domain.accounts import current_movement_account
 from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
+    Account,
     AmountKind,
     Confidence,
     Employment,
@@ -513,7 +514,23 @@ def rematerialize_transfer_rule(
     spec = transfer_rules.parse_spec(rule.amount_spec)
     confidence = Confidence.scheduled if spec.kind is AmountKind.fixed else Confidence.estimated
     n = 0
-    for d in transfer_rules.occurrences(rule, horizon, today):
+    if transfer_rules.follows_member_payday(rule):
+        start = max(today, rule.start_date)
+        end = min(horizon, rule.end_date) if rule.end_date else horizon
+        raw = json.loads(rule.amount_spec)
+        previous = raw.get("payday_cycles", {})
+        cycles = transfer_rules.member_payday_cycles(session, rule, start, end)
+        dates = sorted({day for day in cycles.values() if start <= day <= end})
+        updated = {month.isoformat(): day.isoformat() for month, day in cycles.items()
+                   if start <= day <= end or (
+                       start - timedelta(days=40) <= day < start
+                       and previous.get(month.isoformat()) == day.isoformat())}
+        if updated != previous:
+            raw["payday_cycles"] = updated
+            rule.amount_spec = json.dumps(raw)
+    else:
+        dates = transfer_rules.occurrences(rule, horizon, today)
+    for d in dates:
         amount = transfer_rules.evaluate(session, rule, d)
         if amount is None:
             continue
@@ -536,6 +553,28 @@ def rematerialize_transfer_rule(
             n += 1
     session.flush()
     return n
+
+
+def rematerialize_payday_transfers(session: Session, household_id: int, profile_id: int) -> None:
+    rules = session.scalars(select(TransferRule).join(
+        Account, Account.id == TransferRule.source_account_id,
+    ).where(
+        TransferRule.household_id == household_id,
+        TransferRule.active.is_(True),
+        Account.owner_profile_id == profile_id,
+    )).all()
+    updated_pots = set()
+    for rule in rules:
+        if transfer_rules.follows_member_payday(rule):
+            prior_spec = rule.amount_spec
+            rematerialize_transfer_rule(session, rule)
+            if prior_spec != rule.amount_spec:
+                updated_pots.add(rule.dest_account_id)
+    if updated_pots:
+        from app.domain import shared_contribution_approvals
+
+        for pot_id in sorted(updated_pots):
+            shared_contribution_approvals.reassess_pending(session, household_id, pot_id)
 
 
 def rematerialize_budget_derived_rules(

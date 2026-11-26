@@ -635,7 +635,10 @@ export function Budget() {
                    * here, period-scoped to the viewed month (issue
                    * #297). */}
                   <div className="mt-4">
-                    <SharedPot period={{ start: period?.from ?? d.start_date, end: period?.to ?? d.end_date }} />
+                    <SharedPot
+                      sharedTotal={scope === "shared" ? plannedOut : undefined}
+                      period={{ start: d.start_date, end: d.end_date }}
+                    />
                   </div>
                 </>
               )}

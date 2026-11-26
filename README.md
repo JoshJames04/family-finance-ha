@@ -60,6 +60,10 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   joint and bills accounts, with outstanding-transfer detection.
   Expected payments count live eligible payment amounts and retain their matches
   through financially equivalent corrections; void entries cannot mark them paid.
+- **Bills account funding** — open Shared, select a bills account, and enter a
+  buffer to see how much extra it needs before its next top-up, including
+  scheduled transfers out. Plan a one-off transfer or request an approved
+  change to the standing amount from the bills account panel.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and
   repayment schedules.
 - **Christmas and gifts** — seasonal budgeting with recipients, gift tracking
@@ -220,6 +224,37 @@ their authorized account actuals still contribute to All. Section category table
 include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+Shared can save an equal split, custom percentages, or fixed contributions
+with one member covering the remainder. New shares can follow the member's
+configured monthly payday or a selected day of the month. The setup previews
+the amount and first payment date and creates a forecast schedule in Family
+Finance. The account holder still makes the transfer at their bank.
+
+When the Shared target changes, Family Finance proposes a new amount to each
+affected contributor by default. Open the notification or go to Shared to
+accept the next amount or keep the agreed amount. Household admins can
+designate an approver or allow automatic changes with a notification.
+
+Household admins can nominate additional shared receiving accounts in Adjust
+split. Use Save receiving accounts if there is no funded Shared budget.
+In Record payment, select a receiving account to confirm a member's
+direct transfer into it. A confirmed payment reduces the scheduled amount
+on both sides of the forecast. Transfers onward from joint to a bills space
+fund that space and leave member contribution totals as they were.
+
+Bills and Subscriptions offer a payment-account filter below All, Mine and
+Shared. Each list offers accounts used on that page. Open Mine for personal
+accounts or Shared for joint accounts. The figures follow the account filter.
+
+On Shared, choose the account you and other members pay into. Adjust split uses
+the Shared expense total as a suggested funding target. For two members, editing
+one amount allocates the remainder to the other. The transfers change only when
+you save. Each contribution card shows the member's Budget pay cycle and the
+next payment separately. Members without a monthly payday use the calendar
+period. In Budget, the Shared tab provides the funding target. The contribution
+cards use the selected calendar month even when a personal budget displays pay
+cycle dates. New guided shares begin on the next occurrence of their chosen
+payment day.
 
 Automatic payroll forecasts, optional payslip confirmation and the five local acceptance
 checks are documented in [Payroll reliability](docs/PAYROLL-RELIABILITY.md).
