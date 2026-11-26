@@ -96,6 +96,24 @@ describe("Forecast", () => {
     expect(fetch.mock.calls.some(([url]) => String(url).includes("/accounts/3/projection"))).toBe(true);
   });
 
+  it("labels the combined calendar before a forecast account is selected", async () => {
+    const date = plus(0);
+    stubFetch(null, [
+      { ...MOVEMENTS[0]!, expected_date: date },
+      { ...MOVEMENTS[1]!, expected_date: date, account_id: 3 },
+    ]);
+    const user = userEvent.setup();
+    render(<MemoryRouter><Forecast /></MemoryRouter>);
+    await screen.findByText("Choose an account to forecast");
+    expect(screen.getByText("Calendar: All accounts")).toBeTruthy();
+    expect(await screen.findByLabelText(`${date} — 2 events`)).toBeTruthy();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Account" }), "3");
+    expect(await screen.findByLabelText(`${date} — 1 events`)).toBeTruthy();
+    expect(screen.queryByText("Calendar: All accounts")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Calendar accounts" })).toBeTruthy();
+  });
+
   it("renders chart, summary cards and calendar", async () => {
     stubFetch();
     render(<MemoryRouter><Forecast /></MemoryRouter>);

@@ -205,12 +205,14 @@ export function Forecast() {
           }
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              {selectedAccount && (
+              {selectedAccount ? (
                 <Select aria-label="Calendar accounts" value={calendarAccount == null ? "all" : "selected"}
                   onChange={e => setCalendarAllAccounts(e.target.value === "all")}>
                   <option value="selected">{selectedAccount.name}</option>
                   <option value="all">All accounts</option>
                 </Select>
+              ) : (
+                <span className="text-sm text-fg-muted">Calendar: All accounts</span>
               )}
               <span className="hidden text-[12.5px] text-fg-subtle sm:inline">
                 In <Money pence={monthTotals.inP} className="font-medium text-positive" /> · Out <Money pence={Math.abs(monthTotals.outP)} className="font-medium text-fg" />
