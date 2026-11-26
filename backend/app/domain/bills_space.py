@@ -77,14 +77,14 @@ def suggest(
         if not outstanding:
             continue
         rule = rules.get(movement.source_id)
-        if movement.amount_pence < 0 and movement.source_type in (
+        scheduled_transfer = (movement.source_type == ExpectedSource.transfer_rule
+                              and rule is not None and rule.active
+                              and movement.confidence == Confidence.scheduled)
+        if movement.amount_pence < 0 and (scheduled_transfer or movement.source_type in (
             ExpectedSource.commitment, ExpectedSource.subscription,
-        ):
+        )):
             outstanding = -outstanding
-        elif not (movement.amount_pence > 0
-                  and movement.source_type == ExpectedSource.transfer_rule
-                  and rule is not None and rule.active
-                  and movement.confidence == Confidence.scheduled
+        elif not (movement.amount_pence > 0 and scheduled_transfer
                   and not (movement.expected_date == next_top_up
                            and _is_standing_top_up(standing_rules, movement))):
             continue

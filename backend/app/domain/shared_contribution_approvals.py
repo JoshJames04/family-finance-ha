@@ -413,8 +413,8 @@ def retire_top_up_proposals_for_source(
         close_notification(session, row.id)
 
 
-def top_up_policy(session: Session, rule: TransferRule) -> SharedSplitPolicy:
-    record = session.get(AppMeta, split_key(rule.household_id, rule.source_account_id))
+def top_up_policy(session: Session, household_id: int, source_id: int) -> SharedSplitPolicy:
+    record = session.get(AppMeta, split_key(household_id, source_id))
     if record is None:
         return SharedSplitPolicy(mode="amount")
     return SharedSplitPolicy.model_validate_json(record.value)
@@ -430,7 +430,7 @@ def top_up_approver(
 def propose_top_up(
     session: Session, rule: TransferRule, profile_id: int, effective_date: date, amount: int,
 ) -> ContributionProposal | None:
-    policy = top_up_policy(session, rule)
+    policy = top_up_policy(session, rule.household_id, rule.source_account_id)
     approver = top_up_approver(session, rule, policy, profile_id)
     if approver is None:
         return None

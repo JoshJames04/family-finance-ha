@@ -61,8 +61,9 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   Expected payments count live eligible payment amounts and retain their matches
   through financially equivalent corrections; void entries cannot mark them paid.
 - **Bills account funding** — open Shared, select a bills account, and enter a
-  buffer to see how much extra it needs before its next top-up. Plan a one-off
-  transfer or request an approved change to the standing amount.
+  buffer to see how much extra it needs before its next top-up, including
+  scheduled transfers out. Plan a one-off transfer or request an approved
+  change to the standing amount.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and
   repayment schedules.
 - **Christmas and gifts** — seasonal budgeting with recipients, gift tracking
