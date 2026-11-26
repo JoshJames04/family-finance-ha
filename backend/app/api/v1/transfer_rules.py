@@ -572,8 +572,10 @@ def decide_contribution_change(
             or transfer_rules.fixed_amount_at(rule, proposal.effective_date) != proposal.old_pence):
         raise HTTPException(409, "the agreed schedule has changed")
     if decision == "accept":
-        if shared_contribution_approvals.guided_pot_ids(session, household.id) != {account_id}:
-            raise HTTPException(409, "choose one budget-guided funding account before approving")
+        if proposal.budget_id is not None:
+            guided = shared_contribution_approvals.guided_pot_ids(session, household.id)
+            if guided != {account_id}:
+                raise HTTPException(409, "choose a single budget-guided funding account")
         due = shared_contribution_approvals.next_unpaid_date(
             session, rule, proposal.effective_date)
         source = session.get(Account, rule.source_account_id)
