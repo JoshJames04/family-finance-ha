@@ -2479,6 +2479,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transfer-rules/shared-split/{account_id}/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contribution Proposals */
+        get: operations["contribution_proposals_api_v1_transfer_rules_shared_split__account_id__proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer-rules/shared-split/{account_id}/proposals/{proposal_id}/{decision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Contribution Change */
+        post: operations["decide_contribution_change_api_v1_transfer_rules_shared_split__account_id__proposals__proposal_id___decision__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transfer-rules/{rid}/materialise": {
         parameters: {
             query?: never;
@@ -4967,6 +5001,40 @@ export interface components {
             amount?: (number | string | {
                 pence: number;
             }) | null;
+        };
+        /** ContributionProposal */
+        ContributionProposal: {
+            /** Id */
+            id: string;
+            /** Profile Id */
+            profile_id: number;
+            /** Approver Profile Id */
+            approver_profile_id?: number | null;
+            /** Rule Id */
+            rule_id: number;
+            /** Budget Id */
+            budget_id: number;
+            /** Old Pence */
+            old_pence: number;
+            /** New Pence */
+            new_pence: number;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Old Target Pence */
+            old_target_pence: number;
+            /** New Target Pence */
+            new_target_pence: number;
+            /** Reason */
+            reason: string;
+            /**
+             * State
+             * @default pending
+             * @enum {string}
+             */
+            state: "pending" | "accepted" | "kept" | "expired";
         };
         /** ContributionStatusOut */
         ContributionStatusOut: {
@@ -7663,6 +7731,8 @@ export interface components {
              * @enum {string}
              */
             mode: "amount" | "equal" | "percent" | "fixed_remainder";
+            /** Member Ids */
+            member_ids?: number[];
             /** Remainder Profile Id */
             remainder_profile_id?: number | null;
             /** Percentages */
@@ -7673,6 +7743,10 @@ export interface components {
             fixed_pence?: {
                 [key: string]: number;
             };
+            /** Approval */
+            approval?: ("contributor" | "delegated" | "automatic") | null;
+            /** Approver Profile Id */
+            approver_profile_id?: number | null;
         };
         /** SharedSplitSetup */
         SharedSplitSetup: {
@@ -14538,6 +14612,75 @@ export interface operations {
                 "application/json": components["schemas"]["SharedSplitIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contribution_proposals_api_v1_transfer_rules_shared_split__account_id__proposals_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionProposal"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_contribution_change_api_v1_transfer_rules_shared_split__account_id__proposals__proposal_id___decision__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-actor-id"?: string | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+                proposal_id: string;
+                decision: "accept" | "keep";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             204: {

@@ -34,6 +34,14 @@ type Txn = components["schemas"]["TransactionOut"];
 type Account = components["schemas"]["AccountOut"];
 type Frequency = components["schemas"]["Frequency"];
 
+function currentFixedAmount(rule: Rule): number {
+  const spec = rule.amount_spec;
+  const today = toISODate(new Date());
+  if (!Array.isArray(spec.effective_amounts)) return Number(spec.pence ?? 0);
+  const effective = spec.effective_amounts.slice().reverse().find(change => change.date <= today);
+  return Number(effective?.pence ?? spec.original_pence ?? spec.pence ?? 0);
+}
+
 const STATE_TONE: Record<string, BadgeTone> = {
   satisfied: "success", partial: "warning", overdue: "error",
   outstanding: "info", scheduled: "info", none: "neutral",
@@ -101,6 +109,23 @@ export function SharedPot({ period, sharedTotal }: {
     [sharedAccountIds, acctById]);
   const pot = (potId != null ? acctById.get(potId) : undefined) ?? pots[0];
 
+  const proposals = useApi(
+    () => api.get("/api/v1/transfer-rules/shared-split/{account_id}/proposals", {
+      path: { account_id: pot!.id },
+    }), ready && pot != null, [pot?.id, rev]);
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const decide = (id: string, decision: "accept" | "keep") => {
+    if (!pot) return;
+    setDeciding(id);
+    api.post("/api/v1/transfer-rules/shared-split/{account_id}/proposals/{proposal_id}/{decision}", {
+      path: { account_id: pot.id, proposal_id: id, decision },
+    }).then(() => {
+      toast.success(decision === "accept" ? "Contribution change accepted" : "Kept the agreed contribution");
+      refresh();
+    }).catch((error: Error) => { toast.error(error.message); proposals.refetch(); })
+      .finally(() => setDeciding(null));
+  };
+
   const cycles = useApi(
     () => api.get("/api/v1/expected-movements/contributions/cycles", {
       query: { start: period.start, end: period.end, account_id: pot?.id },
@@ -134,7 +159,7 @@ export function SharedPot({ period, sharedTotal }: {
         ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id
         && (r.amount_spec.kind !== "fixed" || r.frequency !== "monthly"));
       const pence = fixed.reduce(
-        (s, r) => s + Math.abs(Number((r.amount_spec as { pence?: number }).pence ?? 0)), 0);
+        (s, r) => s + Math.abs(currentFixedAmount(r)), 0);
       return { profile: p, fixed, custom, pence };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -209,6 +234,27 @@ export function SharedPot({ period, sharedTotal }: {
       >
         {() => (
           <>
+            {Array.isArray(proposals.data) && proposals.data.length > 0 && (
+              <section aria-label="Proposed contribution changes" className="mb-4 grid gap-2">
+                {proposals.data.map(proposal => (
+                  <div key={proposal.id} className="rounded-lg border border-border bg-surface-2 p-3">
+                    <p className="font-medium">
+                      {identity.data?.find(member => member.id === proposal.profile_id)?.display_name ?? "Member"}
+                      {" · "}<Money pence={proposal.old_pence} /> to <Money pence={proposal.new_pence} />
+                    </p>
+                    <p className="text-sm text-fg-muted">
+                      {proposal.reason} · Effective {formatDayMonth(proposal.effective_date)}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button variant="primary" size="sm" disabled={deciding != null}
+                        onClick={() => decide(proposal.id, "accept")}>Accept change</Button>
+                      <Button variant="secondary" size="sm" disabled={deciding != null}
+                        onClick={() => decide(proposal.id, "keep")}>Keep agreed amount</Button>
+                    </div>
+                  </div>
+                ))}
+              </section>
+            )}
             {/* The split — the household decision: one total, each
              * member's £ and % share, repeats monthly until changed. */}
             {pot != null && splitTotal > 0 && (
@@ -370,7 +416,7 @@ export function SharedPot({ period, sharedTotal }: {
                             </p>
                           </div>
                           {r.amount_spec.kind === "fixed"
-                            ? <Money pence={Number((r.amount_spec as { pence?: number }).pence ?? 0)} className="text-[13px] font-medium" />
+                            ? <Money pence={currentFixedAmount(r)} className="text-[13px] font-medium" />
                             : <Badge tone="info">{specLabel(r.amount_spec)}</Badge>}
                           <div className="flex gap-1">
                             <Button size="sm" variant="ghost" onClick={() => setEditing(r)}
@@ -395,6 +441,7 @@ export function SharedPot({ period, sharedTotal }: {
         <SplitDialog
           pot={pot}
           shares={memberShare}
+          canConfigureApproval={identity.data?.some(member => member.id === me && member.role === "admin") ?? false}
           sharedTotal={sharedTotal}
           accounts={accounts.data?.items ?? []}
           onClose={() => setAdjusting(false)}
@@ -450,9 +497,10 @@ type MemberShare = {
  * on save each member's fixed rule into the pot is patched, created,
  * or paused to match. The rules recur monthly — the split carries
  * forward until next edited. */
-function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
+function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval, onClose, onSaved }: {
   pot: Account;
   shares: MemberShare[];
+  canConfigureApproval: boolean;
   sharedTotal?: number;
   accounts: Account[];
   onClose: () => void;
@@ -471,6 +519,11 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
   const [chosenRemainder, setRemainder] = useState<number | null>(null);
   const remainder = chosenRemainder ?? policy?.remainder_profile_id ?? shares[0]?.profile.id;
   const policyError = guided && setup.error;
+  type Approval = "contributor" | "delegated" | "automatic";
+  const [chosenApproval, setApproval] = useState<Approval | null>(null);
+  const [chosenApprover, setApprover] = useState<number | null>(null);
+  const approval = chosenApproval ?? policy?.approval ?? "contributor";
+  const approver = chosenApprover ?? policy?.approver_profile_id;
   const [editedPcts, setPcts] = useState<Record<number, string>>(() => {
     let remaining = 100;
     return Object.fromEntries(shares.map((m, index) => {
@@ -550,10 +603,11 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
   const previewTotal = mode === "fixed_remainder" ? target : amountTotal;
   const otherSchedules = guided && shares.some((m) => m.custom.length > 0 || m.fixed.length > 1);
   const canSave = shares.length > 0 && !otherSchedules && !policyError && (!guided || !setup.loading)
+    && (approval !== "delegated" || approver != null)
     && (mode !== "amount" || !guided || amountTotal === target)
     && (mode !== "percent" || percentOk)
     && (mode !== "fixed_remainder" || fixedRemainder >= 0)
-    && shares.every((m) => (targets[m.profile.id] ?? 0) <= 0 || m.fixed[0]
+    && shares.every((m) => ((targets[m.profile.id] ?? 0) <= 0 && (!guided || mode === "amount")) || m.fixed[0]
       || (guided ? sourceFor(m.profile.id) != null && ((payday[m.profile.id] && nextPayday(m.profile.id))
         || ((days[m.profile.id] ?? 0) >= 1 && (days[m.profile.id] ?? 0) <= 31)) : sourceOptions(m.profile.id).length > 0));
 
@@ -594,7 +648,12 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
         body: {
           account_id: pot.id,
           target_pence: target,
-          policy: { mode, remainder_profile_id: mode === "fixed_remainder" ? remainder : undefined },
+          policy: {
+            mode,
+            remainder_profile_id: mode === "fixed_remainder" ? remainder : undefined,
+            approval: canConfigureApproval ? approval : undefined,
+            approver_profile_id: canConfigureApproval && approval === "delegated" ? approver : undefined,
+          },
           shares: shares.map((m) => ({
             profile_id: m.profile.id,
             rule_id: m.fixed[0]?.id,
@@ -671,6 +730,25 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
               { value: "fixed_remainder" as const, label: "Fixed plus remainder" },
             ] : []),
           ]} />
+        {guided && canConfigureApproval && (
+          <Field label="Future contribution changes">{(id) => (
+            <Select id={id} value={approval} onChange={event => setApproval(event.target.value as Approval)}>
+              <option value="contributor">Ask each affected contributor</option>
+              <option value="delegated">Ask one household approver</option>
+              <option value="automatic">Apply automatically and notify</option>
+            </Select>
+          )}</Field>
+        )}
+        {guided && canConfigureApproval && approval === "delegated" && (
+          <Field label="Household approver">{(id) => (
+            <Select id={id} value={approver ?? ""} onChange={event => setApprover(Number(event.target.value))}>
+              <option value="" disabled>Choose a household member</option>
+              {shares.filter(member => member.profile.role !== "viewer").map(member => <option key={member.profile.id} value={member.profile.id}>
+                {member.profile.display_name}
+              </option>)}
+            </Select>
+          )}</Field>
+        )}
         {policyError && <p role="alert">Could not load the agreed split. Close and try again.</p>}
         {mode === "fixed_remainder" && (
           <Field label="Who covers the remainder?">{(id) => (
@@ -713,7 +791,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, onClose, onSaved }: {
               <span className="min-w-0 flex-1 basis-32 wrap-anywhere text-[13.5px] font-medium">
                 {m.profile.display_name}
               </span>
-              {guided && !m.fixed.length && (targets[m.profile.id] ?? 0) > 0 && (
+              {guided && !m.fixed.length && (mode !== "amount" || (targets[m.profile.id] ?? 0) > 0) && (
                 <>
                 <Select aria-label={`${m.profile.display_name} payment account`}
                   value={sourceFor(m.profile.id) ?? ""}
@@ -810,8 +888,7 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
   const [sourceId, setSourceId] = useState(String(rule?.source_account_id ?? ""));
   const [destId, setDestId] = useState(String(rule?.dest_account_id ?? ""));
   const [pounds, setPounds] = useState(() => {
-    const p = (rule?.amount_spec as { pence?: number } | undefined)?.pence;
-    return p != null ? String(p / 100) : "";
+    return rule ? String(currentFixedAmount(rule) / 100) : "";
   });
   const [dom, setDom] = useState(String(rule?.day_of_month ?? 1));
   const [frequency, setFrequency] = useState<Frequency>(rule?.frequency ?? "monthly");
@@ -845,7 +922,7 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
             name: body.name,
             source_account_id: body.source_account_id,
             dest_account_id: body.dest_account_id,
-            amount_spec: body.amount_spec.pence === rule!.amount_spec.pence
+            amount_spec: body.amount_spec.pence === currentFixedAmount(rule!)
               ? undefined : body.amount_spec,
             frequency: body.frequency,
             day_of_month: body.day_of_month !== (rule!.day_of_month ?? 1)

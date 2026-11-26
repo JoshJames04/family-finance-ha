@@ -83,7 +83,7 @@ def parse_spec(raw: str | dict[str, Any]) -> AmountSpec:
         raise TransferRuleError(f"unknown amount kind: {e}") from e
     if kind is AmountKind.fixed:
         pence = int(data["pence"])
-        if pence <= 0:
+        if pence < 0 or (pence == 0 and not data.get("effective_amounts")):
             raise TransferRuleError("fixed spec needs positive pence")
         return AmountSpec(kind, pence=pence)
     if kind is AmountKind.income_pct:
@@ -128,6 +128,11 @@ def member_payday_cycles(
             cycle = date.fromisoformat(month_text)
             old_day = date.fromisoformat(day_text)
             new_day = result.get(cycle)
+            if new_day is None and budget_periods.ambiguous_member_payday(
+                session, rule.household_id, source.owner_profile_id, cycle,
+            ):
+                result[cycle] = old_day
+                continue
             # Once a date is paid or due, keep that month's obligation there.
             # Also keep the old date if moving it would create a retroactive due date.
             if (old_day in matched or (new_day is not None
@@ -165,13 +170,20 @@ def _period_before(rule: TransferRule, occ: date) -> date:
     return prev
 
 
+def fixed_amount_at(rule: TransferRule, on: date) -> int:
+    raw = json.loads(rule.amount_spec)
+    boundary = on.isoformat()
+    return int(next((item["pence"] for item in reversed(raw.get("effective_amounts", []))
+                     if item["date"] <= boundary), raw.get("original_pence", raw["pence"])))
+
+
 def evaluate(session: Session, rule: TransferRule,
              on: date) -> int | None:
     """Amount in pence for the occurrence on ``on``. ``None`` when the
     amount cannot be derived yet (no covering budget / no income)."""
     spec = parse_spec(rule.amount_spec)
     if spec.kind is AmountKind.fixed:
-        return spec.pence
+        return fixed_amount_at(rule, on) or None
     if spec.kind is AmountKind.income_pct:
         since = _period_before(rule, on)
         amounts = external_category_amounts(

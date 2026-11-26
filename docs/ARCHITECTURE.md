@@ -639,3 +639,13 @@ uses the guarded payroll rebuild for source-change, startup and daily refreshes.
 Savepoints preserve valid source edits if calculation inputs are incomplete.
 It never manufactures historical actuals or changes independent bank/payslip evidence.
 The owner-scoped refresh POST supports opening Breakdown; GET remains read-only.
+
+
+### Shared contribution approvals
+
+Budget revisions produce a proposal per changed contribution and budget period.
+A proposal stores its effective date and amount in its own household-scoped row.
+Recent proposals can be replaced by a newer revision. Accepting an earlier
+amount recalculates later pending proposals and leaves later accepted dates in
+place. An accepted amount takes effect on its displayed date. Notifications
+appear in the inbox for the configured approver.

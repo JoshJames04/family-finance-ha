@@ -226,6 +226,11 @@ configured monthly payday or a selected day of the month. The setup previews
 the amount and first payment date and creates a forecast schedule in Family
 Finance. The account holder still makes the transfer at their bank.
 
+When the Shared target changes, Family Finance proposes a new amount to each
+affected contributor by default. Open the notification or go to Shared to
+accept the next amount or keep the agreed amount. Household admins can
+designate an approver or allow automatic changes with a notification.
+
 Bills and Subscriptions offer a payment-account filter below All, Mine and
 Shared. Each list offers accounts used on that page. Open Mine for personal
 accounts or Shared for joint accounts. The figures follow the account filter.
