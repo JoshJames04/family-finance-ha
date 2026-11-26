@@ -599,6 +599,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
     }
     return [id, pence];
   }));
+  const previewTotal = mode === "fixed_remainder" ? target : amountTotal;
   const otherSchedules = guided && shares.some((m) => m.custom.length > 0 || m.fixed.length > 1);
   const canSave = shares.length > 0 && !otherSchedules && !policyError && (!guided || !setup.loading)
     && (approval !== "delegated" || approver != null)
@@ -826,8 +827,8 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
                     value={(mode === "fixed_remainder" ? fixedAmounts : amounts)[m.profile.id] ?? ""}
                     onChange={(e) => setAmount(m.profile.id, e.target.value)} />
                   <span className="tnum w-14 text-right text-[12.5px] text-fg-subtle">
-                    {amountTotal > 0
-                      ? `${Math.round((toPence(amounts[m.profile.id] ?? "") / amountTotal) * 100)}%`
+                    {previewTotal > 0
+                      ? `${Math.round(((targets[m.profile.id] ?? 0) / previewTotal) * 100)}%`
                       : "—"}
                   </span>
                 </>
