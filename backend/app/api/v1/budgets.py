@@ -550,8 +550,11 @@ def share_budget(
              and profile.role != Role.admin
              and b.owner_profile_id != profile.id)):
         raise HTTPException(403, "only the owner or an admin can share")
+    became_shared = b.owner_profile_id is not None
     b.owner_profile_id = None
     session.flush()
+    if became_shared:
+        shared_contribution_approvals.propose(session, b, "Approved budget shared with household")
     emit(session, household.id, actor, "update", "budget", b.id,
          {"shared": True})
     return schemas.BudgetOut.model_validate(b)
