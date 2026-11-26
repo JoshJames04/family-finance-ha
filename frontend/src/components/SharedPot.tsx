@@ -143,7 +143,7 @@ export function SharedPot({ period, sharedTotal }: {
   });
 
   const memberShare = useMemo(() => {
-    const members = (identity.data ?? []).filter((p) => p.is_active);
+    const members = (identity.data ?? []).filter((p) => p.is_active && p.role !== "viewer");
     return members.map((p) => {
       const fixed = ruleItems.filter((r) =>
         ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id

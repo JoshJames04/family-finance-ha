@@ -33,6 +33,7 @@ from app.persistence.models import (
     ExpectedMovement,
     ExpectedSource,
     Frequency,
+    Role,
     TransferRule,
     UserProfile,
 )
@@ -446,6 +447,12 @@ def save_shared_split(
                 if allowed != included:
                     raise HTTPException(422, "choose active shared receiving accounts")
             body.policy.alternate_account_ids = sorted(included)
+        if body.policy.approval == "contributor":
+            viewers = set(session.scalars(select(UserProfile.id).where(
+                UserProfile.id.in_(amounts), UserProfile.role == Role.viewer,
+            )))
+            if viewers:
+                raise HTTPException(422, "choose contributors who can approve their changes")
         saved = body.policy.model_dump_json()
         if len(saved.encode("utf-8")) > 1024:
             raise HTTPException(422, "the contribution split exceeds the saved settings limit")
@@ -453,6 +460,8 @@ def save_shared_split(
             session.add(AppMeta(key=key, value=saved))
         else:
             record.value = saved
+        if prior_policy and prior_policy != body.policy:
+            shared_contribution_approvals.reassess_pending(session, household.id, pot.id)
         emit(session, household.id, actor, "update", "shared_split", pot.id,
              {"mode": body.policy.mode})
 
