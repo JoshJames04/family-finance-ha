@@ -333,7 +333,12 @@ def save_shared_split(
         source = accounts.get(source_id) if source_id is not None else None
         if source is None or source.owner_profile_id != share.profile_id:
             raise HTTPException(422, "select each member's own payment account")
-        if pence == (json.loads(rule.amount_spec).get("pence") if rule else None):
+        unchanged = rule is not None and json.loads(rule.amount_spec).get("pence") == pence
+        if rule is not None and share.rule_id is None:
+            same_source = share.source_account_id in (None, rule.source_account_id)
+            if not unchanged or not same_source:
+                raise HTTPException(409, "a member's schedule changed, refresh the split")
+        if unchanged:
             continue
         if not rbac.write_allowed(source.owner_profile_id, profile):
             raise HTTPException(403, "only the account owner or an admin can change this share")

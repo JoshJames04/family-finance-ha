@@ -392,6 +392,10 @@ class TestApi:
         old_ids = {rule["id"] for rule in rules()}
         assert client.post(route, headers=headers, json=body).status_code == 204
         assert {rule["id"] for rule in rules()} == old_ids
+        body["shares"][1]["pence"] = 13000
+        assert client.post(route, headers=headers, json=body).status_code == 409
+        assert {rule["amount_spec"]["pence"] for rule in rules()} == {12000, 18001}
+
 
     def test_new_shared_schedule_follows_early_payday(self, client: TestClient) -> None:
         base = "/api/v1"
