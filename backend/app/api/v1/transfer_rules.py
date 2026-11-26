@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -12,11 +12,19 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import budget_periods, rbac, schedule, shared_contribution_approvals, transfer_rules
+from app.domain import (
+    bills_space,
+    budget_periods,
+    rbac,
+    schedule,
+    shared_contribution_approvals,
+    transfer_rules,
+)
 from app.domain.paydays import PaydayRule, RuleKind, ShiftPolicy, pay_date
 from app.domain.recurring import advance
 from app.persistence.models import (
     Account,
+    AccountType,
     AmountKind,
     AppMeta,
     Budget,
@@ -165,6 +173,35 @@ def update_rule(
     rid: int, body: schemas.TransferRulePatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.TransferRuleOut:
+    rule = _get(session, household.id, rid)
+    current = (rule.source_account_id, rule.dest_account_id)
+    effective = (
+        body.source_account_id if body.source_account_id is not None else rule.source_account_id,
+        body.dest_account_id if body.dest_account_id is not None else rule.dest_account_id,
+    )
+    start = body.start_date or rule.start_date
+    end = body.end_date if "end_date" in body.model_fields_set else rule.end_date
+    was_fixed = json.loads(rule.amount_spec).get("kind") == AmountKind.fixed
+    effective_fixed = (body.amount_spec.kind == AmountKind.fixed
+                       if body.amount_spec is not None else was_fixed)
+    was_recurring = rule.start_date != rule.end_date
+    approval_endpoints = set()
+    if body.amount_spec is not None and was_recurring and was_fixed:
+        approval_endpoints.add(current)
+    # Retargeting or extending a one-off can establish a fixed standing amount.
+    if start != end and effective_fixed and (effective != current or not was_recurring):
+        approval_endpoints.add(effective)
+    for source_id, target_id in sorted(approval_endpoints):
+        source = session.get(Account, source_id)
+        target = session.get(Account, target_id)
+        if (source is not None and target is not None
+                and source.household_id == target.household_id == household.id
+                and source.type == AccountType.joint and source.owner_profile_id is None
+                and target.type == AccountType.bills and target.owner_profile_id is None
+                and shared_contribution_approvals.top_up_policy(
+                    session, household.id, source_id,
+                ).approval != "automatic"):
+            raise HTTPException(409, "request a standing top-up amount change in Shared")
     return _update_rule(rid, body, household, session, actor)
 
 
@@ -502,8 +539,94 @@ def save_shared_split(
         if shares_changed or prior_policy != body.policy:
             session.flush()
             shared_contribution_approvals.reassess_pending(session, household.id, pot.id)
+        old_approval = ((prior_policy.approval, prior_policy.approver_profile_id)
+                        if prior_policy else ("contributor", None))
+        if old_approval != (body.policy.approval, body.policy.approver_profile_id):
+            shared_contribution_approvals.retire_top_up_proposals_for_source(
+                session, household.id, pot.id,
+            )
         emit(session, household.id, actor, "update", "shared_split", pot.id,
              {"mode": body.policy.mode})
+
+
+def _bills_account(session: Session, household_id: int, account_id: int) -> Account:
+    account = _shared_pot(session, household_id, account_id)
+    if account.type != AccountType.bills:
+        raise HTTPException(404, "shared bills account not found")
+    return account
+
+
+@router.get("/bills-space/{account_id}", response_model=schemas.BillsSpaceFunding)
+def bills_space_funding(
+    account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
+    through: date | None = None, buffer_pence: Annotated[int, Query(ge=0, le=100_000_000)] = 0,
+) -> schemas.BillsSpaceFunding:
+    account = _bills_account(session, household.id, account_id)
+    if not rbac.visible(account.owner_profile_id, profile):
+        raise HTTPException(404, "bills account not found")
+    today = date.today()
+    if through is not None and not today <= through <= today + timedelta(days=90):
+        raise HTTPException(422, "choose a date within the next 90 days")
+    return bills_space.suggest(session, account, today, through, buffer_pence)
+
+
+@router.post("/bills-space/{account_id}", response_model=schemas.TransferRuleOut, status_code=201)
+def schedule_bills_space_top_up(
+    account_id: int, body: schemas.BillsSpaceTopUpIn, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep, profile: ProfileDep,
+) -> schemas.TransferRuleOut:
+    if not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "role cannot schedule shared transfers")
+    source = _shared_pot(session, household.id, body.source_account_id)
+    target = _bills_account(session, household.id, account_id)
+    parent = transfer_rules.space_parent(session, target.id)
+    if (source.id == target.id or source.type != AccountType.joint
+            or (parent is not None and source.id != parent.id)):
+        raise HTTPException(422, "choose the joint account that funds this bills account")
+    estimate = bills_space_funding(account_id, household, session, profile,
+                                   through=body.through, buffer_pence=body.buffer_pence)
+    if estimate.top_up_pence != body.amount_pence:
+        raise HTTPException(409, "the suggested amount changed, refresh the calculation")
+    today = date.today()
+    return create_rule(schemas.TransferRuleIn(
+        name=f"One-off top-up for {target.name}"[:120], source_account_id=source.id,
+        dest_account_id=target.id,
+        amount_spec=schemas.FixedSpecIn(kind="fixed", pence=estimate.top_up_pence),
+        frequency=Frequency.monthly, day_of_month=today.day,
+        start_date=today, end_date=today,
+    ), household, session, actor)
+
+
+@router.post(
+    "/bills-space/{account_id}/standing",
+    response_model=shared_contribution_approvals.ContributionProposal, status_code=201,
+)
+def propose_bills_space_schedule_change(
+    account_id: int, body: schemas.BillsSpaceStandingTopUpIn, household: HouseholdDep,
+    session: SessionDep, profile: ProfileDep,
+) -> shared_contribution_approvals.ContributionProposal:
+    if profile is None or not rbac.write_allowed(None, profile):
+        raise HTTPException(403, "sign in as a member to propose standing transfer changes")
+    target = _bills_account(session, household.id, account_id)
+    rule = _get(session, household.id, body.rule_id)
+    source = _shared_pot(session, household.id, rule.source_account_id)
+    if (rule.dest_account_id != target.id or source.type != AccountType.joint
+            or not rule.active or rule.start_date == rule.end_date
+            or json.loads(rule.amount_spec).get("kind") != "fixed"):
+        raise HTTPException(422, "choose the standing fixed transfer into this bills account")
+    if bills_space.derived_space_rule(session, household.id, rule.id):
+        raise HTTPException(409, "edit the source transfer for this linked bank space")
+    due = shared_contribution_approvals.next_unpaid_date(
+        session, rule, date.today() + timedelta(days=1),
+    )
+    if due is None or transfer_rules.fixed_amount_at(rule, due) == body.amount_pence:
+        raise HTTPException(409, "there is no upcoming change to this standing transfer")
+    proposal = shared_contribution_approvals.propose_top_up(
+        session, rule, profile.id, due, body.amount_pence,
+    )
+    if proposal is None:
+        raise HTTPException(409, "choose an active approver for standing top-ups")
+    return proposal
 
 
 @router.get(
@@ -544,13 +667,32 @@ def decide_contribution_change(
             or transfer_rules.fixed_amount_at(rule, proposal.effective_date) != proposal.old_pence):
         raise HTTPException(409, "the agreed schedule has changed")
     if decision == "accept":
-        if shared_contribution_approvals.guided_pot_ids(session, household.id) != {account_id}:
-            raise HTTPException(409, "choose one budget-guided funding account before approving")
+        if proposal.budget_id is not None:
+            guided = shared_contribution_approvals.guided_pot_ids(session, household.id)
+            if guided != {account_id}:
+                raise HTTPException(409, "choose a single budget-guided funding account")
         due = shared_contribution_approvals.next_unpaid_date(
             session, rule, proposal.effective_date)
         source = session.get(Account, rule.source_account_id)
-        if (due != proposal.effective_date or source is None
-                or source.owner_profile_id != proposal.profile_id):
+        if proposal.budget_id is None:
+            if bills_space.derived_space_rule(session, household.id, rule.id):
+                raise HTTPException(409, "edit the source transfer for this linked bank space")
+            policy = shared_contribution_approvals.top_up_policy(
+                session, rule.household_id, rule.source_account_id,
+            )
+            expected_approver = shared_contribution_approvals.top_up_approver(
+                session, rule, policy, proposal.profile_id,
+            )
+            if (expected_approver != (proposal.approver_profile_id or proposal.profile_id)
+                    or policy.approval == "automatic"):
+                raise HTTPException(409, "approval policy changed, request the top-up again")
+            _bills_account(session, household.id, account_id)
+            valid_source = (source is not None and not source.archived
+                            and source.type == AccountType.joint
+                            and source.owner_profile_id is None)
+        else:
+            valid_source = source is not None and source.owner_profile_id == proposal.profile_id
+        if due != proposal.effective_date or not valid_source:
             raise HTTPException(409, "the scheduled payment date or account has changed")
         shared_contribution_approvals.apply(session, rule, proposal)
     proposal.state = state
@@ -559,6 +701,7 @@ def decide_contribution_change(
     if decision == "accept":
         later_budgets = {item.budget_id for item in changes
                          if item.rule_id == rule.id and item.state == "pending"
+                         and item.budget_id is not None
                          and item.effective_date >= proposal.effective_date}
         for later in session.scalars(select(Budget).where(
             Budget.household_id == household.id, Budget.id.in_(later_budgets),
@@ -566,9 +709,11 @@ def decide_contribution_change(
             shared_contribution_approvals.propose(
                 session, later, "An earlier Shared contribution changed")
 
-    elif (budget := session.get(Budget, proposal.budget_id)) is not None:
-        shared_contribution_approvals.propose(
-            session, budget, "A contributor kept their agreed amount", account_id=account_id)
+    elif proposal.budget_id is not None:
+        budget = session.get(Budget, proposal.budget_id)
+        if budget is not None:
+            shared_contribution_approvals.propose(
+                session, budget, "A contributor kept their agreed amount", account_id=account_id)
     emit(session, household.id, actor, state, "shared_contribution_proposal", rule.id,
          {"proposal_id": proposal.id, "effective_date": proposal.effective_date.isoformat()})
 

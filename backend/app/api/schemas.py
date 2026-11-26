@@ -1147,6 +1147,37 @@ class TransferRulePatch(BaseModel):
     active: bool | None = None
 
 
+class BillsSpaceMovement(BaseModel):
+    date: date
+    label: str
+    pence: int
+
+
+class BillsSpaceFunding(BaseModel):
+    balance_pence: int
+    buffer_pence: int
+    through: date
+    next_top_up: date | None
+    standing_rule_id: int | None
+    standing_pence: int | None
+    funding_parent_id: int | None
+    first_shortfall: date | None
+    top_up_pence: int
+    movements: list[BillsSpaceMovement]
+
+
+class BillsSpaceStandingTopUpIn(BaseModel):
+    rule_id: int
+    amount_pence: int = Field(gt=0, le=100_000_000)
+
+
+class BillsSpaceTopUpIn(BaseModel):
+    source_account_id: int
+    buffer_pence: int = Field(ge=0, le=100_000_000)
+    through: date | None = None
+    amount_pence: int = Field(gt=0)
+
+
 class SharedSplitShare(BaseModel):
     on_member_payday: bool = False
     profile_id: int
