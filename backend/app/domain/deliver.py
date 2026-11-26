@@ -21,7 +21,9 @@ from app.domain.sync_lock import claim
 from app.persistence.models import (
     NotificationDelivery,
     NotificationEvent,
+    NotificationKind,
     NotificationRule,
+    NotificationState,
 )
 
 
@@ -102,7 +104,14 @@ def _deliver_pending(session: Session, household_id: int, notifier: HaNotifier,
             failed += 1
             session.commit()
             continue
-        title, message = compose(rule, list(d.events))
+        events = list(d.events)
+        if rule.kind == NotificationKind.shared_contribution_change:
+            events = [event for event in events if event.state != NotificationState.acked]
+            if not events:
+                d.status = "cancelled"
+                session.commit()
+                continue
+        title, message = compose(rule, events)
         try:
             notifier.notify(rule.service, title, message)
         except Exception as exc:  # noqa: BLE001 — captured by design

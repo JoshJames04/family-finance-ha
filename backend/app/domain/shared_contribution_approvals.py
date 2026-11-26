@@ -8,18 +8,19 @@ from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import SharedSplitPolicy
 from app.domain import notifications, schedule, transfer_rules
+from app.domain.contributions import matched_totals
 from app.persistence.models import (
     Account,
     AppMeta,
     Budget,
     BudgetLineSide,
+    BudgetPeriodType,
     BudgetStatus,
-    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Frequency,
@@ -146,15 +147,15 @@ def invalidate_for_rule(session: Session, rule: TransferRule) -> None:
 
 
 def next_unpaid_date(session: Session, rule: TransferRule, today: date) -> date | None:
-    unavailable_days = set(session.scalars(select(ExpectedMovement.expected_date).outerjoin(
-        ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
-    ).where(
+    movements = list(session.scalars(select(ExpectedMovement).where(
         ExpectedMovement.household_id == rule.household_id,
         ExpectedMovement.source_type == ExpectedSource.transfer_rule,
         ExpectedMovement.source_id == rule.id,
         ExpectedMovement.expected_date >= today,
-        or_(ExpectedMatch.id.is_not(None), ExpectedMovement.dismissed_at.is_not(None)),
     )))
+    totals = matched_totals(session, [movement.id for movement in movements])
+    unavailable_days = {movement.expected_date for movement in movements
+                        if movement.dismissed_at is not None or totals[movement.id] > 0}
     days = transfer_rules.occurrences(rule, today + timedelta(days=100), today, session=session)
     return next((day for day in days if day not in unavailable_days), None)
 
@@ -192,13 +193,15 @@ def propose(
 ) -> None:
     today = date.today()
     if (budget.owner_profile_id is not None or budget.end_date < today
+            or budget.period_type != BudgetPeriodType.monthly
             or budget.status not in (BudgetStatus.approved, BudgetStatus.locked)):
         return
     session.flush()
     household_id = budget.household_id
     overlapping = set(session.scalars(select(Budget.id).where(
         Budget.household_id == household_id, Budget.owner_profile_id.is_(None),
-        Budget.id != budget.id, Budget.start_date <= budget.end_date,
+        Budget.id != budget.id, Budget.period_type == BudgetPeriodType.monthly,
+        Budget.start_date <= budget.end_date,
         Budget.end_date >= budget.start_date,
         Budget.status.in_((BudgetStatus.approved, BudgetStatus.locked)),
     )))
