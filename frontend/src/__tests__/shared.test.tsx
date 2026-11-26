@@ -1,7 +1,7 @@
 /** #277/#293/#297: the shared pot embedded in Budget — the split
  * (total + member £/%), per-member standing for the viewed period,
  * auto-match, share-rule management behind the disclosure. */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -194,6 +194,20 @@ describe("SharedPot", () => {
       expect(body.target_pence).toBe(150001);
       expect(body.shares.map((share: { pence: number }) => share.pence)).toEqual([75001, 75000]);
     });
+  });
+
+  it("updates the fixed share percentage against the Shared total", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    open(150000);
+    await user.click(await screen.findByRole("button", { name: /Adjust split/ }));
+    await user.click(screen.getByRole("radio", { name: "Fixed plus remainder" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const carol = dialog.getByLabelText("Carol share amount");
+    await user.clear(carol);
+    await user.type(carol, "500");
+    expect(dialog.getByText("33%")).toBeTruthy();
+    expect(dialog.getByText("£1,000.00")).toBeTruthy();
   });
 
   it("rules list hides behind a disclosure", async () => {
