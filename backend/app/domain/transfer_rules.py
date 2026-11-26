@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain import budget_periods
 from app.domain.recurring import advance
 from app.domain.reporting import external_category_amounts
 from app.persistence.models import (
@@ -32,6 +33,10 @@ from app.persistence.models import (
     Budget,
     BudgetLine,
     BudgetStatus,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
+    Frequency,
     Transaction,
     TransactionStatus,
     TransferRule,
@@ -89,10 +94,57 @@ def parse_spec(raw: str | dict[str, Any]) -> AmountSpec:
     return AmountSpec(kind, category_id=int(data["category_id"]))
 
 
+def follows_member_payday(rule: TransferRule) -> bool:
+    return rule.frequency == Frequency.monthly and bool(
+        json.loads(rule.amount_spec).get("on_member_payday")
+    )
+
+
+def member_payday_cycles(
+    session: Session, rule: TransferRule, start: date, end: date,
+) -> dict[date, date]:
+    """Nominal month and cash date, including paydays shifted across month boundaries."""
+    source = session.get(Account, rule.source_account_id)
+    if source is None or source.owner_profile_id is None:
+        return {}
+    month = (start.replace(day=1) - timedelta(days=1)).replace(day=1)
+    last_month = advance(end.replace(day=1), Frequency.monthly, 1)
+    result = {}
+    while month <= last_month:
+        payday = budget_periods.member_payday(
+            session, rule.household_id, source.owner_profile_id, month)
+        if payday is not None:
+            result[month] = payday
+        month = advance(month, Frequency.monthly, 1)
+    recorded = json.loads(rule.amount_spec).get("payday_cycles", {})
+    if recorded:
+        matched = set(session.scalars(select(ExpectedMovement.expected_date).join(
+            ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
+        ).where(ExpectedMovement.household_id == rule.household_id,
+                ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+                ExpectedMovement.source_id == rule.id,
+                ExpectedMovement.expected_date >= start - timedelta(days=40))))
+        for month_text, day_text in recorded.items():
+            cycle = date.fromisoformat(month_text)
+            old_day = date.fromisoformat(day_text)
+            new_day = result.get(cycle)
+            # Once a date is paid or due, keep that month's obligation there.
+            # Also keep the old date if moving it would create a retroactive due date.
+            if (old_day in matched or (new_day is not None
+                                      and (old_day <= start or new_day < start <= old_day))):
+                result[cycle] = old_day
+    return result
+
+
 def occurrences(rule: TransferRule, horizon: date,
-                today: date | None = None) -> list[date]:
+                today: date | None = None, *, session: Session | None = None) -> list[date]:
     """Occurrence dates in (max(today, start_date) .. horizon]."""
     today = today or date.today()
+    if session is not None and follows_member_payday(rule):
+        start = max(today, rule.start_date)
+        end = min(horizon, rule.end_date) if rule.end_date else horizon
+        cycles = member_payday_cycles(session, rule, start, end)
+        return sorted({day for day in cycles.values() if start <= day <= end})
     d = rule.start_date
     while d < today:
         d = advance(d, rule.frequency, rule.day_of_month)

@@ -180,6 +180,7 @@ def create_employment(
         session.flush()
         payroll_automation.refresh(session, prior)
     payroll_automation.refresh(session, e)
+    schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,
@@ -225,6 +226,8 @@ def delete_employment(
     for rev in list(e.salary_revisions):
         session.delete(rev)
     session.delete(e)
+    session.flush()
+    schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(session, household.id, actor, "delete", "employment", emp_id, {"employer": e.employer})
 
 
@@ -553,6 +556,8 @@ def patch_employment(
     dom.invalidate_forecasts(session, e.id)
     # Rule/account/activity changes all reshape the projection.
     payroll_automation.refresh(session, e)
+    if {"payday_rule", "start_date", "end_date", "is_active"} & changed.keys():
+        schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     if "paid_into_account_id" in changed:
         for r in session.scalars(select(PayrollRun).where(PayrollRun.employment_id == e.id)).all():
             schedule.rematerialize_payroll_run(session, r)
@@ -712,6 +717,9 @@ def add_salary_revision(
         shares_owned=body.shares_owned,
     )
     payroll_automation.refresh(session, e)
+    if e.start_date is None:
+        session.expire(e, ["salary_revisions"])
+        schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,
@@ -753,7 +761,11 @@ def patch_salary_revision(
         notes=changed.get("notes", ...),
     )
     if (rev.effective_date, rev.annual_salary_pence) != previous_pay:
-        payroll_automation.refresh(session, _get(session, household.id, emp_id))
+        e = _get(session, household.id, emp_id)
+        payroll_automation.refresh(session, e)
+        if e.start_date is None and rev.effective_date != previous_pay[0]:
+            session.expire(e, ["salary_revisions"])
+            schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,
@@ -776,7 +788,11 @@ def delete_salary_revision(
 ) -> None:
     rev = _get_revision(session, household.id, emp_id, rev_id)
     dom.delete_salary_revision(session, rev)
-    payroll_automation.refresh(session, _get(session, household.id, emp_id))
+    e = _get(session, household.id, emp_id)
+    payroll_automation.refresh(session, e)
+    if e.start_date is None:
+        session.expire(e, ["salary_revisions"])
+        schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,

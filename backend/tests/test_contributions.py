@@ -9,10 +9,11 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
-from app.domain import contributions
+from app.domain import budget_periods, contributions, schedule
 from app.domain.contributions import ContributionState, MatchError
 from app.main import create_app
 from app.persistence.models import (
@@ -26,6 +27,7 @@ from app.persistence.models import (
     TransactionStatus,
     Transfer,
     TransferRule,
+    UserProfile,
 )
 
 TODAY = date(2025, 4, 10)
@@ -152,6 +154,35 @@ def test_shared_standing_uses_each_current_pay_cycle_and_separate_next_payment(
         assert row.next_payment is not None
         assert row.next_payment.due_date == due
         assert row.next_payment.matched_pence == 0
+
+
+@pytest.mark.parametrize("old_day,new_day", [(28, 17), (17, 28)])
+def test_moving_payday_across_today_preserves_the_existing_unpaid_date(
+    session: Session, household: Household, pair: tuple[Account, Account, TransferRule],
+    monkeypatch: pytest.MonkeyPatch, old_day: int, new_day: int,
+) -> None:
+    source, _, rule = pair
+    member = UserProfile(household_id=household.id, display_name="Test payer")
+    session.add(member)
+    session.flush()
+    source.owner_profile_id = member.id
+    rule.amount_spec = '{"kind":"fixed","pence":30000,"on_member_payday":true}'
+    day = old_day
+
+    def member_payday(_session, _household, _profile, month):
+        return month.replace(day=day)
+
+    monkeypatch.setattr(budget_periods, "member_payday", member_payday)
+    today = date(2025, 4, 20)
+    schedule.rematerialize_transfer_rule(
+        session, rule, today=date(2025, 4, 10), horizon_days=60)
+    day = new_day
+    schedule.rematerialize_transfer_rule(session, rule, today=today, horizon_days=40)
+    due = session.scalars(select(ExpectedMovement.expected_date).where(
+        ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+        ExpectedMovement.source_id == rule.id,
+    )).all()
+    assert sorted(due) == [date(2025, 4, old_day)] * 2 + [date(2025, 5, new_day)] * 2
 
 
 class TestStates:
@@ -368,6 +399,102 @@ class TestApi:
         assert refreshed[josh_account]["day_of_month"] == 28
         assert refreshed[chloe_account]["day_of_month"] == 11
         assert sum(rule["amount_spec"]["pence"] for rule in refreshed.values()) == 30001
+
+        policy = {"mode": "fixed_remainder", "remainder_profile_id": josh}
+        body.update(policy=policy)
+        body["shares"][0]["pence"] = 0  # the server computes the remainder
+        body["shares"][1]["rule_id"] = refreshed[chloe_account]["id"]
+        response = client.post(route, headers=headers, json=body)
+        assert response.status_code == 204, response.text
+        saved = client.get(f"{route}/{pot}", headers=headers).json()["policy"]
+        assert saved["remainder_profile_id"] == josh
+        assert saved["mode"] == "fixed_remainder"
+        assert saved["fixed_pence"] == {str(chloe): 12000}
+        assert {r["source_account_id"]: r["amount_spec"]["pence"] for r in rules()} == {
+            josh_account: 18001, chloe_account: 12000,
+        }
+        body["shares"][1]["pence"] = 40000
+        assert client.post(route, headers=headers, json=body).status_code == 422
+
+        body["shares"][1]["pence"] = 12000
+        for share in body["shares"]:
+            share.pop("rule_id", None)
+        # Replaying an unchanged submission keeps the same schedule IDs.
+        old_ids = {rule["id"] for rule in rules()}
+        assert client.post(route, headers=headers, json=body).status_code == 204
+        assert {rule["id"] for rule in rules()} == old_ids
+        body["shares"][1]["pence"] = 13000
+        assert client.post(route, headers=headers, json=body).status_code == 409
+        assert {rule["amount_spec"]["pence"] for rule in rules()} == {12000, 18001}
+
+
+    def test_new_shared_schedule_follows_early_payday(self, client: TestClient) -> None:
+        base = "/api/v1"
+        household = client.post(f"{base}/households", json={"name": "Test"}).json()["id"]
+        headers = {"X-Household-Id": str(household)}
+        member = client.post(f"{base}/profiles", headers=headers,
+                             json={"display_name": "Member", "role": "admin"}).json()["id"]
+        headers["X-Profile-Id"] = str(member)
+        def account(name, owner=None):
+            return client.post(f"{base}/accounts", headers=headers, json={
+                "name": name, "type": "personal" if owner else "joint",
+                "owner_profile_id": owner, "opening_balance": 0,
+                "opening_date": "2026-01-01",
+            }).json()["id"]
+        pot, src = account("Shared"), account("Personal", member)
+        assert client.put(f"{base}/budgets/pay-cycle-settings", headers=headers, json={
+            "owner_profile_id": member, "payday_day": 28,
+        }).status_code == 200
+        route = f"{base}/transfer-rules/shared-split"
+        setup = client.get(f"{route}/{pot}", headers=headers).json()
+        assert client.post(route, headers=headers, json={
+            "account_id": pot, "target_pence": 20000, "policy": {"mode": "equal"},
+            "shares": [{"profile_id": member, "source_account_id": src,
+                        "pence": 0, "on_member_payday": True}],
+        }).status_code == 204
+        rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
+        assert rules[0]["start_date"] == date.today().isoformat()
+        due = setup["next_paydays"][str(member)]
+        assert date.fromisoformat(due).weekday() < 5
+        rows = client.get(f"{base}/expected-movements", headers=headers, params={
+            "start": due, "end": due,
+        }).json()
+        assert sorted(row["amount_pence"] for row in rows) == [-20000, 20000]
+        incoming = next(row for row in rows if row["amount_pence"] > 0)
+        tx = client.post(f"{base}/transactions", headers=headers, json={
+            "account_id": pot, "date": due, "amount": 20000, "payee": "Confirmed receipt",
+        }).json()
+        assert client.post(f"{base}/expected-movements/{incoming['id']}/matches",
+                           headers=headers, json={"transaction_id": tx["id"]}).status_code == 201
+
+
+        assert client.put(f"{base}/budgets/pay-cycle-settings", headers=headers, json={
+            "owner_profile_id": member, "payday_day": 17,
+        }).status_code == 200
+        new_due = client.get(f"{route}/{pot}", headers=headers).json()["next_paydays"][str(member)]
+        nominal_month = date.fromisoformat(due).replace(day=1)
+        last = (nominal_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+        cycle = client.get(f"{base}/expected-movements", headers=headers, params={
+            "start": nominal_month.isoformat(), "end": (last - timedelta(days=1)).isoformat(),
+        }).json()
+        assert {row["expected_date"] for row in cycle} == {due}
+        assert len(cycle) == 2
+
+        # The rule already started at the first agreed date. Compare a future month
+        # that the old and new schedules would both cover.
+        after = max(date.fromisoformat(due), date.fromisoformat(new_due))
+        first = (after.replace(day=28) + timedelta(days=4)).replace(day=1)
+        future = client.get(f"{base}/expected-movements", headers=headers, params={
+            "start": first.isoformat(), "end": first.replace(day=28).isoformat(),
+        }).json()
+        assert len(future) == 2
+        assert {date.fromisoformat(row["expected_date"]).day for row in future} <= {15, 16, 17}
+
+        edit = client.patch(f"{base}/transfer-rules/{rules[0]['id']}", headers=headers, json={
+            "day_of_month": 20,
+        })
+        assert edit.status_code == 200
+        assert "on_member_payday" not in edit.json()["amount_spec"]
 
     def test_match_and_status_flow(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",

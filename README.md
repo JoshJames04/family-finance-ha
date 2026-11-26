@@ -220,6 +220,12 @@ their authorized account actuals still contribute to All. Section category table
 include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+Shared can save an equal split, custom percentages, or fixed contributions
+with one member covering the remainder. New shares can follow the member's
+configured monthly payday or a selected day of the month. The setup previews
+the amount and first payment date and creates a forecast schedule in Family
+Finance. The account holder still makes the transfer at their bank.
+
 Bills and Subscriptions offer a payment-account filter below All, Mine and
 Shared. Each list offers accounts used on that page. Open Mine for personal
 accounts or Shared for joint accounts. The figures follow the account filter.

@@ -1,7 +1,7 @@
 /** #277/#293/#297: the shared pot embedded in Budget — the split
  * (total + member £/%), per-member standing for the viewed period,
  * auto-match, share-rule management behind the disclosure. */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -76,6 +76,7 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
             ? { items: PROFILES, total: PROFILES.length }
             : url.includes("/api/v1/accounts")
               ? { items: ACCOUNTS, total: ACCOUNTS.length }
+              : url.includes("/shared-split/") ? { policy: null, next_paydays: {} }
               : url.includes("/api/v1/transfer-rules")
                 ? { items: rules, total: rules.length }
                 : url.includes("/contributions/cycles")
@@ -120,6 +121,27 @@ describe("SharedPot", () => {
     await user.click(await screen.findByRole("button", { name: /Match payments/ }));
     await waitFor(() => expect(calls.some((c) =>
       c.method === "POST" && c.url.includes("/expected-movements/match"))).toBe(true));
+  });
+
+  it("keeps the payday schedule when only the share name changes", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    const rule = RULES[0]!;
+    stubFetch(calls, { rules: [{ ...rule, amount_spec: { ...rule.amount_spec, on_member_payday: true } }] });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "Share rules (1)" }));
+    await user.click(screen.getByRole("button", { name: "Edit Alice share" }));
+    const name = screen.getByLabelText("Rule name");
+    await user.clear(name);
+    await user.type(name, "New name");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      const change = calls.find((call) => call.method === "PATCH");
+      expect(change).toBeDefined();
+      expect(JSON.parse(change!.body)).toEqual({
+        name: "New name", source_account_id: 2, dest_account_id: 4, frequency: "monthly",
+      });
+    });
   });
 
   it("Set a share creates a fixed contribution rule", async () => {
@@ -193,6 +215,20 @@ describe("SharedPot", () => {
       expect(body.target_pence).toBe(150001);
       expect(body.shares.map((share: { pence: number }) => share.pence)).toEqual([75001, 75000]);
     });
+  });
+
+  it("updates the fixed share percentage against the Shared total", async () => {
+    stubFetch([]);
+    const user = userEvent.setup();
+    open(150000);
+    await user.click(await screen.findByRole("button", { name: /Adjust split/ }));
+    await user.click(screen.getByRole("radio", { name: "Fixed plus remainder" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const carol = dialog.getByLabelText("Carol share amount");
+    await user.clear(carol);
+    await user.type(carol, "500");
+    expect(dialog.getByText("33%")).toBeTruthy();
+    expect(dialog.getByText("£1,000.00")).toBeTruthy();
   });
 
   it("rules list hides behind a disclosure", async () => {
