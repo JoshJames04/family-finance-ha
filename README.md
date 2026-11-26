@@ -63,7 +63,7 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
 - **Bills account funding** — open Shared, select a bills account, and enter a
   buffer to see how much extra it needs before its next top-up, including
   scheduled transfers out. Plan a one-off transfer or request an approved
-  change to the standing amount.
+  change to the standing amount from the bills account panel.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and
   repayment schedules.
 - **Christmas and gifts** — seasonal budgeting with recipients, gift tracking

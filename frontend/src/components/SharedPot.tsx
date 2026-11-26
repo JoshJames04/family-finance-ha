@@ -113,6 +113,9 @@ export function SharedPot({ period, sharedTotal }: {
     () => api.get("/api/v1/transfer-rules/shared-split/{account_id}/proposals", {
       path: { account_id: pot!.id },
     }), ready && pot != null, [pot?.id, rev]);
+  const contributionProposals = Array.isArray(proposals.data)
+    ? proposals.data.filter(proposal => proposal.budget_id != null)
+    : [];
   const [deciding, setDeciding] = useState<string | null>(null);
   const decide = (id: string, decision: "accept" | "keep") => {
     if (!pot) return;
@@ -234,9 +237,9 @@ export function SharedPot({ period, sharedTotal }: {
       >
         {() => (
           <>
-            {Array.isArray(proposals.data) && proposals.data.length > 0 && (
+            {contributionProposals.length > 0 && (
               <section aria-label="Proposed contribution changes" className="mb-4 grid gap-2">
-                {proposals.data.map(proposal => (
+                {contributionProposals.map(proposal => (
                   <div key={proposal.id} className="rounded-lg border border-border bg-surface-2 p-3">
                     <p className="font-medium">
                       {identity.data?.find(member => member.id === proposal.profile_id)?.display_name ?? "Member"}
