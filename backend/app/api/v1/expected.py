@@ -184,6 +184,13 @@ def confirm_match(
     if (account is None or account.household_id != household.id
             or not rbac.write_allowed(account.owner_profile_id, profile)):
         raise HTTPException(404, "transaction not found")
+    if tx.account_id != mv.account_id and profile is not None:
+        rule = session.get(TransferRule, mv.source_id)
+        source_id = (mv.transfer_source_account_id or rule.source_account_id) if rule else None
+        owner_account = session.get(Account, source_id) if source_id is not None else None
+        if (rule is None or rule.household_id != household.id or owner_account is None
+                or not rbac.write_allowed(owner_account.owner_profile_id, profile)):
+            raise HTTPException(403, "only the contributor or an admin can confirm this transfer")
     contributions.confirm(
         session, mv, tx,
         pence=body.amount.pence if body.amount else None)

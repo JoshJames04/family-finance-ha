@@ -3,6 +3,7 @@ satisfied / partial / overdue states; auto + manual matching."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,7 @@ from app.domain.contributions import ContributionState, MatchError
 from app.main import create_app
 from app.persistence.models import (
     Account,
+    AppMeta,
     Confidence,
     ExpectedMovement,
     ExpectedSource,
@@ -249,6 +251,28 @@ class TestAutoMatch:
         assert s.matched_pence == inside.amount_pence
         assert outside.id != inside.id  # sanity
 
+    def test_two_paired_receipts_in_same_account_stay_with_their_source(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        src, dst, rule = pair
+        due = date(2025, 4, 1)
+        other = Account(household_id=household.id, name="Other payer",
+                        type=src.type, opening_date=due)
+        session.add(other)
+        session.flush()
+        mv = _movement(session, household, dst, 30000, due, rule.id)
+        wrong = _leg(session, household, dst, 30000, due)
+        right = _leg(session, household, dst, 20000, due + timedelta(days=1))
+        session.add_all([
+            Transaction(account_id=other.id, date=wrong.date, amount_pence=-30000,
+                        payee="Wrong payer", transfer_id=wrong.transfer_id),
+            Transaction(account_id=src.id, date=right.date, amount_pence=-20000,
+                        payee="Expected payer", transfer_id=right.transfer_id),
+        ])
+        session.flush()
+        assert contributions.auto_match(session, household.id, today=TODAY) == 1
+        assert contributions.status(session, mv, TODAY).matched_pence == 20000
+
     def test_wrong_sign_never_matches(
             self, session: Session, household: Household,
             pair: tuple[Account, Account, TransferRule]) -> None:
@@ -291,6 +315,62 @@ class TestAutoMatch:
 
 
 class TestManualConfirm:
+    def test_direct_bills_space_receipt_consumes_each_scheduled_leg_once(
+        self, session: Session, household: Household, pair: tuple[Account, Account, TransferRule],
+    ) -> None:
+        source, joint, rule = pair
+        member = UserProfile(household_id=household.id, display_name="Test payer")
+        bills = Account(household_id=household.id, name="Alternative bills space",
+                        type="bills", opening_date=TODAY)
+        session.add_all([member, bills])
+        session.flush()
+        source.owner_profile_id = member.id
+        session.add(AppMeta(key=f"shared_split:{household.id}:{joint.id}",
+                            value=json.dumps({"mode": "equal",
+                                              "alternate_account_ids": [bills.id]})))
+        incoming = _movement(session, household, joint, 30000, TODAY, rule.id)
+        outgoing = _movement(session, household, source, -30000, TODAY, rule.id)
+        receipt = _leg(session, household, bills, 20000, TODAY)
+        debit = Transaction(account_id=source.id, date=TODAY, amount_pence=-20000,
+                            payee="Direct contribution", transfer_id=receipt.transfer_id)
+        session.add(debit)
+        session.flush()
+
+        contributions.confirm(session, incoming, receipt)
+        assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
+            incoming.id: 20000, outgoing.id: 20000,
+        }
+        totals = contributions.shared_payment_totals(session, [incoming], {outgoing.id: incoming})
+        assert totals == {incoming.id: 20000}
+        with pytest.raises(MatchError):
+            contributions.confirm(session, incoming, receipt)
+        incoming.transfer_source_account_id = source.id
+        incoming.transfer_dest_account_id = joint.id
+        outgoing.transfer_source_account_id = source.id
+        outgoing.transfer_dest_account_id = joint.id
+        session.delete(rule)
+        session.flush()
+        assert contributions.matched_totals(session, [incoming.id])[incoming.id] == 20000
+        debit.status = TransactionStatus.void
+        session.flush()
+        assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
+            incoming.id: 0, outgoing.id: 0,
+        }
+        for index in range(2):
+            session.add(Transaction(
+                account_id=source.id, date=TODAY, amount_pence=-20000,
+                payee=f"Equivalent correction {index}", transfer_id=receipt.transfer_id,
+                corrects_id=debit.id,
+            ))
+            session.flush()
+            expected = 20000 if index == 0 else 0
+            assert contributions.matched_totals(session, [incoming.id])[incoming.id] == expected
+        receipt.status = TransactionStatus.void
+        session.flush()
+        assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
+            incoming.id: 0, outgoing.id: 0,
+        }
+
     def test_confirm_records_match(
             self, session: Session, household: Household,
             pair: tuple[Account, Account, TransferRule]) -> None:
@@ -468,9 +548,29 @@ class TestApi:
                            headers=headers, json={"transaction_id": tx["id"]}).status_code == 201
 
 
+        plan_month = (date.fromisoformat(due).replace(day=28) + timedelta(days=4)).replace(day=1)
+        following_month = (plan_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+        category_id = client.post(f"{base}/categories", headers=headers,
+                                  json={"name": "Shared bills"}).json()["id"]
+        budget = client.post(f"{base}/budgets", headers=headers, json={
+            "name": "Future Shared", "period_type": "monthly",
+            "start_date": plan_month.isoformat(),
+            "end_date": (following_month - timedelta(days=1)).isoformat(),
+        }).json()["id"]
+        assert client.post(f"{base}/budgets/{budget}/lines", headers=headers, json={
+            "category_id": category_id, "side": "expense", "amount": 30000,
+        }).status_code == 201
+        assert client.post(f"{base}/budgets/{budget}/approve", headers=headers).status_code == 200
+        proposals_path = f"{route}/{pot}/proposals"
+        original, = client.get(proposals_path, headers=headers).json()
+
         assert client.put(f"{base}/budgets/pay-cycle-settings", headers=headers, json={
             "owner_profile_id": member, "payday_day": 17,
         }).status_code == 200
+        refreshed, = client.get(proposals_path, headers=headers).json()
+        assert refreshed["id"] != original["id"]
+        assert date.fromisoformat(refreshed["effective_date"]).day in {15, 16, 17}
+
         new_due = client.get(f"{route}/{pot}", headers=headers).json()["next_paydays"][str(member)]
         nominal_month = date.fromisoformat(due).replace(day=1)
         last = (nominal_month.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -692,3 +792,23 @@ class TestOutstandingApi:
             headers=h, params={"start": mid, "end": "2030-01-01"}
         ).json()
         assert len(after) < len(reqs)
+
+
+    def test_receiving_accounts_can_be_saved_without_a_budget(self, client: TestClient) -> None:
+        base = "/api/v1"
+        household = client.post(f"{base}/households", json={"name": "Home"}).json()["id"]
+        headers = {"X-Household-Id": str(household)}
+        ids = []
+        for name in ("Joint", "Bills"):
+            response = client.post(f"{base}/accounts", headers=headers, json={
+                "name": name, "type": "joint", "opening_date": date.today().isoformat(),
+                "opening_balance": 0,
+            })
+            assert response.status_code == 201
+            ids.append(response.json()["id"])
+        setup = f"{base}/transfer-rules/shared-split/{ids[0]}"
+        route = f"{setup}/receiving-accounts"
+        assert client.patch(route, headers=headers, json=[ids[0]]).status_code == 422
+        assert client.patch(route, headers=headers, json=[ids[1]]).status_code == 204
+        policy = client.get(setup, headers=headers).json()["policy"]
+        assert policy["mode"] == "amount" and policy["alternate_account_ids"] == [ids[1]]

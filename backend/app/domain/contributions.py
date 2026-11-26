@@ -2,7 +2,7 @@
 
 Expected transfer-rule movements carry due dates; real transfer legs
 (transactions with a ``transfer_id``) are matched to them — automatically
-by account + amount-sign + date window, or manually confirmed by a user.
+by transfer endpoints, amount sign and date window, or manually confirmed by a user.
 Each match is an ``ExpectedMatch`` row; a leg may satisfy at most one
 movement.
 
@@ -16,12 +16,13 @@ States per expected movement:
 from __future__ import annotations
 
 import enum
+import json
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.domain.accounts import current_movement_account
 from app.domain.expected_matches import (
@@ -30,11 +31,14 @@ from app.domain.expected_matches import (
     eligible_matches,
 )
 from app.persistence.models import (
+    Account,
+    AppMeta,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Transaction,
     TransactionStatus,
+    TransferRule,
 )
 
 DEFAULT_WINDOW_DAYS = 7
@@ -154,13 +158,11 @@ def _used_legs(session: Session, *, household_id: int | None = None) -> set[int]
 
 
 def assert_payment_eligible(session: Session, movement: ExpectedMovement,
-                            tx: Transaction) -> None:
+                            tx: Transaction, *, alternate_destination: bool = False) -> None:
     """Validate new evidence before a match, category or schedule write."""
-    from app.persistence.models import Account
-
     if tx.status == TransactionStatus.void:
         raise MatchError("void transactions cannot satisfy expected movements")
-    if tx.account_id != movement.account_id:
+    if tx.account_id != movement.account_id and not alternate_destination:
         raise MatchError("transaction account does not match the movement")
     if tx.amount_pence * movement.amount_pence <= 0:
         raise MatchError("transaction must be nonzero and match the movement sign")
@@ -181,12 +183,55 @@ def assert_payment_eligible(session: Session, movement: ExpectedMovement,
 
 
 def _link(session: Session, movement: ExpectedMovement,
-          tx: Transaction, pence: int, manual: bool) -> ExpectedMatch:
+          tx: Transaction, pence: int, manual: bool, *,
+          alternate_destination: bool = False) -> ExpectedMatch:
     m = ExpectedMatch(movement_id=movement.id, transaction_id=tx.id,
-                      matched_pence=pence, manual=manual)
+                      matched_pence=pence, manual=manual,
+                      alternate_destination=alternate_destination)
     session.add(m)
     session.flush()
     return m
+
+
+def _direct_contribution_debit(
+    session: Session, movement: ExpectedMovement, receipt: Transaction,
+) -> tuple[ExpectedMovement, Transaction]:
+    if (movement.source_type != ExpectedSource.transfer_rule or movement.amount_pence <= 0
+            or receipt.transfer_id is None or movement.account_id is None):
+        raise MatchError("choose a matched bank transfer into an eligible shared account")
+    rule = session.get(TransferRule, movement.source_id)
+    if rule is None or rule.household_id != movement.household_id:
+        raise MatchError("the contribution schedule is unavailable")
+    source_id = movement.transfer_source_account_id or rule.source_account_id
+    destination_id = movement.transfer_dest_account_id or rule.dest_account_id
+    source = session.get(Account, source_id)
+    destination = session.get(Account, destination_id)
+    alternate = session.get(Account, receipt.account_id)
+    settings = session.get(AppMeta, f"shared_split:{movement.household_id}:{destination_id}")
+    allowed = json.loads(settings.value).get("alternate_account_ids") or [] if settings else []
+    if (source is None or source.owner_profile_id is None or destination is None
+            or destination.owner_profile_id is not None or movement.account_id != destination_id
+            or alternate is None or alternate.owner_profile_id is not None or alternate.archived
+            or alternate.id not in allowed):
+        raise MatchError("the receiving account is outside this contribution's setup")
+    legs = session.scalars(select(Transaction).where(
+        Transaction.transfer_id == receipt.transfer_id,
+        Transaction.status != TransactionStatus.void,
+    )).all()
+    debit_rows = [leg for leg in legs if leg.account_id == source_id
+                  and leg.amount_pence == -receipt.amount_pence]
+    debit_plan = session.scalar(select(ExpectedMovement).where(
+        ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+        ExpectedMovement.source_id == rule.id,
+        ExpectedMovement.household_id == movement.household_id,
+        ExpectedMovement.expected_date == movement.expected_date,
+        ExpectedMovement.account_id == source_id,
+        ExpectedMovement.amount_pence < 0,
+        ExpectedMovement.dismissed_at.is_(None),
+    ))
+    if debit_plan is None or len(legs) != 2 or len(debit_rows) != 1:
+        raise MatchError("the transfer must have one matching leg from the contributor's account")
+    return debit_plan, debit_rows[0]
 
 
 def confirm(session: Session, movement: ExpectedMovement,
@@ -194,18 +239,25 @@ def confirm(session: Session, movement: ExpectedMovement,
             pence: int | None = None,
             today: date | None = None) -> ExpectedMatch:
     """Manual confirmation of a leg against an expected movement."""
-    assert_payment_eligible(session, movement, tx)
-    if tx.id in _used_legs(session, household_id=movement.household_id):
-        raise MatchError(
-            f"transaction {tx.id} already matched to a movement")
+    alternate = tx.account_id != movement.account_id
+    assert_payment_eligible(session, movement, tx, alternate_destination=alternate)
+    paired = _direct_contribution_debit(session, movement, tx) if alternate else None
+    used = _used_legs(session, household_id=movement.household_id)
+    if tx.id in used or (paired is not None and paired[1].id in used):
+        raise MatchError(f"transaction {tx.id} already matched to a movement")
     need = status(session, movement, today).outstanding_pence
-    amount = min(abs(tx.amount_pence), need) \
-        if pence is None else pence
+    if paired is not None:
+        assert_payment_eligible(session, paired[0], paired[1])
+        need = min(need, status(session, paired[0], today).outstanding_pence)
+    amount = min(abs(tx.amount_pence), need) if pence is None else pence
     if amount <= 0 or amount > abs(tx.amount_pence):
         raise MatchError("match amount must be within the leg amount")
     if amount > need:
         raise MatchError("match exceeds the outstanding expected amount")
-    return _link(session, movement, tx, amount, manual=True)
+    if paired is not None:
+        _link(session, paired[0], paired[1], amount, manual=True)
+    return _link(session, movement, tx, amount, manual=True, alternate_destination=alternate)
+
 
 
 def auto_match(session: Session, household_id: int, *,
@@ -228,6 +280,15 @@ def auto_match(session: Session, household_id: int, *,
         .order_by(ExpectedMovement.expected_date)).scalars())
     used = _used_legs(session, household_id=household_id)
     totals = matched_totals(session, [mv.id for mv in movements])
+    rules = {rule.id: rule for rule in session.scalars(select(TransferRule).where(
+        TransferRule.household_id == household_id,
+        TransferRule.id.in_({movement.source_id for movement in movements}),
+    ))}
+    configured = {int(key.rsplit(":", 1)[1]) for key in session.scalars(select(AppMeta.key).where(
+        AppMeta.key.like(f"shared_split:{household_id}:%"),
+    ))}
+    counterpart = aliased(Transaction)
+
     written = 0
     for mv in movements:
         if account_ids is not None and mv.account_id not in account_ids:
@@ -246,6 +307,26 @@ def auto_match(session: Session, household_id: int, *,
                 if mv.amount_pence > 0 else
                 Transaction.amount_pence < 0)
             .order_by(Transaction.date))
+        rule = rules.get(mv.source_id)
+        source = mv.transfer_source_account_id or (rule.source_account_id if rule else None)
+        destination = mv.transfer_dest_account_id or (rule.dest_account_id if rule else None)
+        expected_account = source if mv.amount_pence > 0 else destination
+        if expected_account is not None:
+            other_legs = select(counterpart.id).where(
+                counterpart.transfer_id == Transaction.transfer_id,
+                counterpart.id != Transaction.id,
+            ).correlate(Transaction)
+            correct_leg = other_legs.where(
+                counterpart.account_id == expected_account,
+                counterpart.status != TransactionStatus.void,
+                counterpart.amount_pence == -Transaction.amount_pence,
+            ).exists()
+            # Old ledger data can contain a single transfer leg. Preserve its existing
+            # matching behavior unless the household has configured this contribution pot.
+            if destination in configured:
+                candidates_query = candidates_query.where(correct_leg)
+            else:
+                candidates_query = candidates_query.where(correct_leg | ~other_legs.exists())
         candidates = session.scalars(candidates_query.where(Transaction.id.in_(
             acyclic_transaction_ids(candidates_query.with_only_columns(
                 Transaction.id).order_by(None))))).all()

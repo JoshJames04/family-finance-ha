@@ -242,3 +242,21 @@ Assistant service cannot read that archive. The endpoints return `Cache-Control:
 no-store`; invalid import responses omit note inputs. No annotation content is
 published to integration events or attached to current finance records. Database
 backups still contain archives and require the same protection as financial data.
+
+
+### Shared contribution access
+
+A household admin configures alternate receiving accounts. Eligible accounts
+are active shared accounts in the same household. Confirming a receipt into an
+alternate account requires both a verified debit from the contributor's account
+and write access to that account. The contributor or an admin can confirm it.
+
+Proposal details are visible in the scoped inbox of the designated approver,
+who is the contributor by default. The approver or a household admin can decide. Viewers cannot
+approve. A replacement approval or conflict notice falls back to an active
+household admin when the original recipient no longer has write access.
+Generic transfer edits cannot bypass the source joint account's approval policy
+by moving a fixed recurring rule to a shared bills account or extending a
+fixed one-off into a standing top-up. Use the Shared approval flow for changes
+to fixed standing amounts. Percentage and budget-linked rules retain their
+normal editing flow.
