@@ -79,11 +79,13 @@ def test_budget_change_requires_latest_proposal_approval(
         revise(50000)
         pending_zero, = client.get(path, headers=headers).json()
         assert pending_zero["new_pence"] == 0
-        assert client.post(f"{path}/{pending_zero['id']}/accept", headers=headers).status_code == 204
+        zero = client.post(f"{path}/{pending_zero['id']}/accept", headers=headers)
+        assert zero.status_code == 204
         revise(150000)
         pending_restore, = client.get(path, headers=headers).json()
         assert (pending_restore["old_pence"], pending_restore["new_pence"]) == (0, 100000)
-        assert client.post(f"{path}/{pending_restore['id']}/accept", headers=headers).status_code == 204
+        restored = client.post(f"{path}/{pending_restore['id']}/accept", headers=headers)
+        assert restored.status_code == 204
         revise(155000)
         response = client.get(path, headers=headers)
         assert response.status_code == 200, response.text
