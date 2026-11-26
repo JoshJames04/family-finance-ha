@@ -69,6 +69,10 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
         rules = client.get(f"{base}/transfer-rules", headers=h).json()["items"]
         assert next(r for r in rules if r["id"] == standing_id)["end_date"] is None
 
+        direct = client.patch(f"{base}/transfer-rules/{standing_id}", headers=h, json={
+            "amount_spec": {"kind": "fixed", "pence": 14000},
+        })
+        assert direct.status_code == 409
         pending = client.post(f"{route}/standing", headers=h, json={
             "rule_id": standing_id, "amount_pence": 14000,
         })

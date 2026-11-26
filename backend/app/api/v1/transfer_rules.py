@@ -173,6 +173,17 @@ def update_rule(
     rid: int, body: schemas.TransferRulePatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.TransferRuleOut:
+    if body.amount_spec is not None:
+        rule = _get(session, household.id, rid)
+        source = session.get(Account, rule.source_account_id)
+        target = session.get(Account, rule.dest_account_id)
+        if (source is not None and source.type == AccountType.joint
+                and source.owner_profile_id is None and target is not None
+                and target.type == AccountType.bills and target.owner_profile_id is None
+                and rule.start_date != rule.end_date
+                and shared_contribution_approvals.top_up_policy(session, rule).approval
+                != "automatic"):
+            raise HTTPException(409, "request a standing top-up amount change in Shared")
     return _update_rule(rid, body, household, session, actor)
 
 
@@ -623,7 +634,10 @@ def decide_contribution_change(
             if (expected_approver != proposal.approver_profile_id
                     or policy.approval == "automatic"):
                 raise HTTPException(409, "approval policy changed, request the top-up again")
-            valid_source = source is not None and source.owner_profile_id is None
+            _bills_account(session, household.id, account_id)
+            valid_source = (source is not None and not source.archived
+                            and source.type == AccountType.joint
+                            and source.owner_profile_id is None)
         else:
             valid_source = source is not None and source.owner_profile_id == proposal.profile_id
         if due != proposal.effective_date or not valid_source:
