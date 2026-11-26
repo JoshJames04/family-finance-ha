@@ -48,7 +48,8 @@ def suggest(
     ))) if source_ids else set()
     standing_rules = {rid for rid, rule in rules.items()
                       if rule.active and rule.start_date != rule.end_date
-                      and rule.source_account_id in joint_ids}
+                      and rule.source_account_id in joint_ids
+                      and json.loads(rule.amount_spec).get("kind") == "fixed"}
     standing = next((movement for movement in movements
                      if movement.expected_date > today
                      and movement.amount_pence > totals[movement.id]
