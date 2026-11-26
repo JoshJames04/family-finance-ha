@@ -539,9 +539,29 @@ class TestApi:
                            headers=headers, json={"transaction_id": tx["id"]}).status_code == 201
 
 
+        plan_month = (date.fromisoformat(due).replace(day=28) + timedelta(days=4)).replace(day=1)
+        following_month = (plan_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+        category_id = client.post(f"{base}/categories", headers=headers,
+                                  json={"name": "Shared bills"}).json()["id"]
+        budget = client.post(f"{base}/budgets", headers=headers, json={
+            "name": "Future Shared", "period_type": "monthly",
+            "start_date": plan_month.isoformat(),
+            "end_date": (following_month - timedelta(days=1)).isoformat(),
+        }).json()["id"]
+        assert client.post(f"{base}/budgets/{budget}/lines", headers=headers, json={
+            "category_id": category_id, "side": "expense", "amount": 30000,
+        }).status_code == 201
+        assert client.post(f"{base}/budgets/{budget}/approve", headers=headers).status_code == 200
+        proposals_path = f"{route}/{pot}/proposals"
+        original, = client.get(proposals_path, headers=headers).json()
+
         assert client.put(f"{base}/budgets/pay-cycle-settings", headers=headers, json={
             "owner_profile_id": member, "payday_day": 17,
         }).status_code == 200
+        refreshed, = client.get(proposals_path, headers=headers).json()
+        assert refreshed["id"] != original["id"]
+        assert date.fromisoformat(refreshed["effective_date"]).day in {15, 16, 17}
+
         new_due = client.get(f"{route}/{pot}", headers=headers).json()["next_paydays"][str(member)]
         nominal_month = date.fromisoformat(due).replace(day=1)
         last = (nominal_month.replace(day=28) + timedelta(days=4)).replace(day=1)
