@@ -52,6 +52,12 @@ function eventSummary(e: Event, acctName: (id: number) => string): {
   title: string; detail: string;
 } {
   const p = (e.payload ?? {}) as Record<string, unknown>;
+  if (p.overlapping_budgets === true) {
+    return {
+      title: "Shared budgets overlap",
+      detail: "Contribution changes are paused until the Shared budget periods are resolved.",
+    };
+  }
   if (typeof p.fixed_total_pence === "number" && typeof p.new_target_pence === "number") {
     return {
       title: String(p.title ?? "Shared contribution split needs updating"),

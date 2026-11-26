@@ -280,7 +280,8 @@ def propose(
         recipient = (policy.approver_profile_id or policy.remainder_profile_id
                      or min(current, default=None))
         _reconcile_conflict(session, household_id, pot_id, budget.id, recipient,
-                            target, fixed_total if conflict else None, funded)
+                            target, fixed_total if conflict else None, funded,
+                            overlap=bool(overlapping) and guided == {pot_id})
         if next_amounts and not overlapping and guided == {pot_id}:
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
@@ -322,11 +323,11 @@ def propose(
 
 def _reconcile_conflict(
     session: Session, household_id: int, pot_id: int, budget_id: int, recipient: int | None,
-    target: int, fixed_total: int | None, funded: int,
+    target: int, fixed_total: int | None, funded: int, *, overlap: bool,
 ) -> None:
     prefix = f"shared-split-conflict:{pot_id}:{budget_id}:"
-    conflict = fixed_total is not None or funded != target
-    key = f"{prefix}{target}:{fixed_total}:{funded}:"
+    conflict = overlap or fixed_total is not None or funded != target
+    key = f"{prefix}{target}:{fixed_total}:{funded}:{overlap}:"
     for event in session.scalars(select(NotificationEvent).join(
         NotificationRule, NotificationRule.id == NotificationEvent.rule_id,
     ).where(
@@ -344,6 +345,7 @@ def _reconcile_conflict(
             "budget_id": budget_id, "account_id": pot_id,
             "fixed_total_pence": fixed_total, "new_target_pence": target,
             "scheduled_total_pence": funded,
+            "overlapping_budgets": overlap,
         })
 
 

@@ -4,7 +4,6 @@
  * viewed budget month. Member standing reads expected vs matched for
  * that period; the rule machinery sits behind a disclosure. */
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowLeftRight, Check, ChevronDown, HandCoins, Pencil, Plus,
@@ -246,12 +245,6 @@ export function SharedPot({ period, sharedTotal }: {
                     <p className="text-sm text-fg-muted">
                       {proposal.reason} · Effective {formatDayMonth(proposal.effective_date)}
                     </p>
-                    {proposal.new_target_pence > proposal.old_target_pence && (
-                      <p className="text-sm text-fg-muted">
-                        <Money pence={proposal.new_target_pence - proposal.old_target_pence} /> funding gap.{" "}
-                        <Link to="/upcoming" className="underline">Plan a one-off top-up</Link>
-                      </p>
-                    )}
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button variant="primary" size="sm" disabled={deciding != null}
                         onClick={() => decide(proposal.id, "accept")}>Accept change</Button>
