@@ -417,6 +417,8 @@ class TestApi:
             "shares": [{"profile_id": member, "source_account_id": src,
                         "pence": 0, "on_member_payday": True}],
         }).status_code == 204
+        rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
+        assert rules[0]["start_date"] == date.today().isoformat()
         due = setup["next_paydays"][str(member)]
         assert date.fromisoformat(due).weekday() < 5
         rows = client.get(f"{base}/expected-movements", headers=headers, params={

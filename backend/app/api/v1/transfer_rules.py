@@ -345,7 +345,6 @@ def save_shared_split(
                 if payday is None:
                     raise HTTPException(422, "configure a monthly payday or choose a payment day")
                 day = payday.day
-                first = payday
             if day is None:
                 raise HTTPException(422, "choose a payment day for each new share")
             if not share.on_member_payday:
