@@ -54,6 +54,19 @@ def split_key(household_id: int, account_id: int) -> str:
     return f"shared_split:{household_id}:{account_id}"
 
 
+def guided_pot_ids(session: Session, household_id: int) -> set[int]:
+    accounts = set(session.scalars(select(Account.id).where(
+        Account.household_id == household_id, Account.archived.is_(False),
+        Account.owner_profile_id.is_(None),
+    )))
+    records = session.scalars(select(AppMeta).where(
+        AppMeta.key.startswith(f"shared_split:{household_id}:"),
+    ))
+    return {pot_id for record in records
+            if (pot_id := int(record.key.rsplit(":", 1)[1])) in accounts
+            and SharedSplitPolicy.model_validate_json(record.value).mode != "amount"}
+
+
 def read(
     session: Session, household_id: int, account_id: int,
 ) -> tuple[dict[str, SharedContributionProposal], list[ContributionProposal]]:
@@ -221,6 +234,7 @@ def propose(
     )))
     target = sum(line.effective_pence for line in budget.lines
                  if line.side == BudgetLineSide.expense)
+    guided = guided_pot_ids(session, household_id)
     settings = session.scalars(select(AppMeta).where(
         AppMeta.key.like(f"shared_split:{household_id}:%"),
     )).all()
@@ -261,7 +275,7 @@ def propose(
         recipient = policy.approver_profile_id or policy.remainder_profile_id
         _reconcile_conflict(session, household_id, pot_id, budget.id, recipient,
                             target, fixed_total, conflict)
-        if next_amounts and not overlapping:
+        if next_amounts and not overlapping and guided == {pot_id}:
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
                     continue
@@ -273,7 +287,8 @@ def propose(
                 delegated = approver if approver != owner else None
                 rule = by_profile[owner]
                 date_due = dates[owner]
-                assert date_due is not None
+                if date_due is None or date_due > budget.end_date:
+                    continue
                 kept = next((item for item in previous if (
                     item.budget_id, item.rule_id, item.old_pence, item.new_pence,
                     item.effective_date, item.approver_profile_id,
