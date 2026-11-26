@@ -642,9 +642,11 @@ def decide_contribution_change(
             shared_contribution_approvals.propose(
                 session, later, "An earlier Shared contribution changed")
 
-    elif (budget := session.get(Budget, proposal.budget_id)) is not None:
-        shared_contribution_approvals.propose(
-            session, budget, "A contributor kept their agreed amount", account_id=account_id)
+    elif proposal.budget_id is not None:
+        budget = session.get(Budget, proposal.budget_id)
+        if budget is not None:
+            shared_contribution_approvals.propose(
+                session, budget, "A contributor kept their agreed amount", account_id=account_id)
     emit(session, household.id, actor, state, "shared_contribution_proposal", rule.id,
          {"proposal_id": proposal.id, "effective_date": proposal.effective_date.isoformat()})
 

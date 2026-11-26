@@ -663,4 +663,7 @@ A one-off top-up creates a dated forecast entry. For a provider bills space it
 uses the mapped parent joint account. Changes to the standing amount follow the
 funding joint account's approval policy and take effect from its next unpaid
 occurrence. Member contribution status is calculated separately from the bills
-account's funding estimate.
+account's funding estimate. Changing the approval policy retires pending
+standing changes from that source and closes their notifications. An internal
+leg derived from a linked provider transfer is excluded from standing edits
+through Shared because it cannot be changed independently.
