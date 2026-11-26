@@ -109,7 +109,7 @@ def test_budget_change_requires_latest_proposal_approval(
         assert client.post(f"{path}/{first['id']}/accept", headers=headers).status_code == 409
         rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
         assert {r["amount_spec"]["pence"] for r in rules} == {50000, 100000}
-        future = (today + timedelta(days=90)).replace(day=1)
+        future = (today + timedelta(days=160)).replace(day=1)
         future_budget = post("budgets", {
             "name": "Future shared", "period_type": "monthly",
             "start_date": future.isoformat(),
