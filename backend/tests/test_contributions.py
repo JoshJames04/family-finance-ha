@@ -455,6 +455,12 @@ class TestApi:
         assert len(future) == 2
         assert {date.fromisoformat(row["expected_date"]).day for row in future} <= {15, 16, 17}
 
+        edit = client.patch(f"{base}/transfer-rules/{rules[0]['id']}", headers=headers, json={
+            "day_of_month": 20,
+        })
+        assert edit.status_code == 200
+        assert "on_member_payday" not in edit.json()["amount_spec"]
+
     def test_match_and_status_flow(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
                           json={"name": "H"}).json()["id"]

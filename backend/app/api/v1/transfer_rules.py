@@ -19,6 +19,7 @@ from app.persistence.models import (
     Account,
     AmountKind,
     AppMeta,
+    Budget,
     Confidence,
     ExpectedMatch,
     ExpectedMovement,
@@ -164,14 +165,18 @@ def update_rule(
             session, household.id,
             changes.get("source_account_id", r.source_account_id),
             changes.get("dest_account_id", r.dest_account_id))
+    prior_spec = json.loads(r.amount_spec)
+    explicit_day = "day_of_month" in changes
     if "amount_spec" in changes and changes["amount_spec"] is not None:
         next_spec = changes["amount_spec"]
-        prior_spec = json.loads(r.amount_spec)
-        if next_spec["kind"] == "fixed" and prior_spec.get("on_member_payday"):
+        if next_spec["kind"] == "fixed" and prior_spec.get("on_member_payday") and not explicit_day:
             next_spec["on_member_payday"] = True
             if "payday_cycles" in prior_spec:
                 next_spec["payday_cycles"] = prior_spec["payday_cycles"]
         changes["amount_spec"] = json.dumps(next_spec)
+    elif explicit_day and prior_spec.pop("on_member_payday", False):
+        prior_spec.pop("payday_cycles", None)
+        changes["amount_spec"] = json.dumps(prior_spec)
     endpoints_changed = any(k in changes and changes[k] != getattr(r, k)
                             for k in ("source_account_id", "dest_account_id"))
     if endpoints_changed:
@@ -445,6 +450,16 @@ def decide_contribution_change(
     proposal.state = state
     shared_contribution_approvals.close_notification(session, proposal.id)
     shared_contribution_approvals.save(session, household.id, account_id, row, changes)
+    if decision == "accept":
+        later_budgets = {item.budget_id for item in changes
+                         if item.rule_id == rule.id and item.state == "pending"
+                         and item.effective_date >= proposal.effective_date}
+        for later in session.scalars(select(Budget).where(
+            Budget.household_id == household.id, Budget.id.in_(later_budgets),
+        ).order_by(Budget.start_date, Budget.id)):
+            shared_contribution_approvals.propose(
+                session, later, "An earlier Shared contribution changed")
+
     emit(session, household.id, actor, state, "shared_contribution_proposal", rule.id,
          {"proposal_id": proposal.id, "effective_date": proposal.effective_date.isoformat()})
 

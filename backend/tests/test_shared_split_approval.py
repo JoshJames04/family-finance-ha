@@ -6,13 +6,17 @@ from calendar import monthrange
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
 from app.main import create_app
 
 
-def test_budget_change_requires_latest_proposal_approval(tmp_path: Path) -> None:
+@pytest.mark.parametrize("earlier_first", [True, False])
+def test_budget_change_requires_latest_proposal_approval(
+        tmp_path: Path, earlier_first: bool,
+) -> None:
     settings = Settings.load({"FF_DATA_DIR": str(tmp_path)})
     with TestClient(create_app(settings)) as client:
         base = "/api/v1"
@@ -97,9 +101,15 @@ def test_budget_change_requires_latest_proposal_approval(tmp_path: Path) -> None
                            headers=headers).status_code == 200
         pending = client.get(path, headers=headers).json()
         later = next(item for item in pending if item["budget_id"] == future_budget)
-        assert client.post(f"{path}/{later['id']}/accept", headers=headers).status_code == 204
+        if not earlier_first:
+            assert client.post(f"{path}/{later['id']}/accept", headers=headers).status_code == 204
         for _ in range(2):
             assert client.post(f"{path}/{latest['id']}/accept", headers=headers).status_code == 204
+        if earlier_first:
+            assert client.post(f"{path}/{later['id']}/accept", headers=headers).status_code == 409
+            later, = client.get(path, headers=headers).json()
+            assert later["old_pence"] == latest["new_pence"]
+            assert client.post(f"{path}/{later['id']}/accept", headers=headers).status_code == 204
         rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
         assert {r["amount_spec"]["pence"] for r in rules} == {50000, 111000}
         for proposal in (latest, later):
