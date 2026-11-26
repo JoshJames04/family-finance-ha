@@ -50,6 +50,13 @@ def advance(d: date, freq: Frequency, day_of_month: int | None) -> date:
     raise ValueError(f"unknown frequency {freq}")
 
 
+def first_monthly_occurrence(day: int, today: date | None = None) -> date:
+    """The first occurrence on or after today, clamped in short months."""
+    today = today or date.today()
+    this_month = _clamp_day(today.year, today.month, day)
+    return this_month if this_month >= today else advance(this_month, Frequency.monthly, day)
+
+
 def occurrences(c: RecurringCommitment, horizon: date) -> Iterator[date]:
     """Occurrence dates from next_date up to and including horizon.
 

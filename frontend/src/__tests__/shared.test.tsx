@@ -61,7 +61,7 @@ const CYCLES = [
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
-  opts: { rules?: object[]; alternate?: boolean } = {}) {
+  opts: { rules?: object[]; alternate?: boolean; proposals?: object[] } = {}) {
   const rules = opts.rules ?? RULES;
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -78,6 +78,7 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
               ? { items: opts.alternate ? [...ACCOUNTS, {
                   id: 12, name: "House Bills space", owner_profile_id: null, archived: false,
                 }] : ACCOUNTS, total: ACCOUNTS.length + Number(Boolean(opts.alternate)) }
+              : url.endsWith("/proposals") ? opts.proposals ?? []
               : url.includes("/shared-split/") ? {
                   policy: opts.alternate ? { alternate_account_ids: [12] } : null, next_paydays: {},
                 }
@@ -110,6 +111,19 @@ describe("SharedPot", () => {
     expect(screen.getByText(/^Due$/i)).toBeTruthy();
     expect(screen.getAllByText("£1,500.00").length).toBeGreaterThan(0);
     expect(screen.getByText(/to go/)).toBeTruthy();
+  });
+
+  it("shows only budget contribution proposals in the shared pot", async () => {
+    stubFetch([], { proposals: [
+      { id: "budget", budget_id: 7, profile_id: 1, old_pence: 80000,
+        new_pence: 81000, reason: "Budget changed", effective_date: MONTH.end },
+      { id: "top-up", budget_id: null, profile_id: 1, old_pence: 80000,
+        new_pence: 82000, reason: "Standing bills account top-up", effective_date: MONTH.end },
+    ] });
+    open();
+    await screen.findByText(/Budget changed/);
+    expect(screen.queryByText(/Standing bills account top-up/)).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Accept change" })).toHaveLength(1);
   });
 
   it("shows the pot total and each member's percentage share", async () => {

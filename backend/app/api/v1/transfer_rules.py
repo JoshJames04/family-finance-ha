@@ -20,8 +20,7 @@ from app.domain import (
     shared_contribution_approvals,
     transfer_rules,
 )
-from app.domain.paydays import PaydayRule, RuleKind, ShiftPolicy, pay_date
-from app.domain.recurring import advance
+from app.domain.recurring import first_monthly_occurrence
 from app.persistence.models import (
     Account,
     AccountType,
@@ -466,12 +465,7 @@ def save_shared_split(
             if day is None:
                 raise HTTPException(422, "choose a payment day for each new share")
             if not share.on_member_payday:
-                first = pay_date(
-                    PaydayRule(RuleKind.fixed_day, day=day, adjust=ShiftPolicy.none),
-                    first.year, first.month,
-                )
-                if first < date.today():
-                    first = advance(first, Frequency.monthly, day)
+                first = first_monthly_occurrence(day)
             created = _create_rule(schemas.TransferRuleIn.model_validate({
                 "name": f"{source.name} to {pot.name}"[:120],
                 "source_account_id": source.id, "dest_account_id": pot.id,
