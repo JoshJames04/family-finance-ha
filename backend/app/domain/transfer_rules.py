@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain import budget_periods
 from app.domain.recurring import advance
 from app.domain.reporting import external_category_amounts
 from app.persistence.models import (
@@ -90,9 +91,25 @@ def parse_spec(raw: str | dict[str, Any]) -> AmountSpec:
 
 
 def occurrences(rule: TransferRule, horizon: date,
-                today: date | None = None) -> list[date]:
+                today: date | None = None, *, session: Session | None = None) -> list[date]:
     """Occurrence dates in (max(today, start_date) .. horizon]."""
     today = today or date.today()
+    if session is not None and json.loads(rule.amount_spec).get("on_member_payday"):
+        source = session.get(Account, rule.source_account_id)
+        if source is not None and source.owner_profile_id is not None:
+            start = max(today, rule.start_date)
+            end = min(horizon, rule.end_date) if rule.end_date else horizon
+            month = (start.replace(day=1) - timedelta(days=1)).replace(day=1)
+            last_month = advance(end.replace(day=1), rule.frequency, 1)
+            result = []
+            while month <= last_month:
+                payday = budget_periods.member_payday(
+                    session, rule.household_id, source.owner_profile_id, month)
+                if payday is not None and start <= payday <= end:
+                    result.append(payday)
+                month = advance(month, rule.frequency, 1)
+            return sorted(set(result))
+        return []
     d = rule.start_date
     while d < today:
         d = advance(d, rule.frequency, rule.day_of_month)

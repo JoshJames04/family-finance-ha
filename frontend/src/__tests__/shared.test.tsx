@@ -76,6 +76,7 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
             ? { items: PROFILES, total: PROFILES.length }
             : url.includes("/api/v1/accounts")
               ? { items: ACCOUNTS, total: ACCOUNTS.length }
+              : url.includes("/shared-split/") ? { policy: null, next_paydays: {} }
               : url.includes("/api/v1/transfer-rules")
                 ? { items: rules, total: rules.length }
                 : url.includes("/contributions/cycles")

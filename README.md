@@ -220,6 +220,12 @@ their authorized account actuals still contribute to All. Section category table
 include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+Shared can save an equal split, custom percentages, or fixed contributions
+with one member covering the remainder. New shares can follow the member's
+configured monthly payday or a selected day of the month. The setup previews
+the amount and first payment date and creates a forecast schedule in Family
+Finance. The account holder still makes the transfer at their bank.
+
 On Shared, choose the account you and other members pay into. Adjust split uses
 the Shared expense total as a suggested funding target. For two members, editing
 one amount allocates the remainder to the other. The transfers change only when

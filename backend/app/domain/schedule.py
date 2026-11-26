@@ -513,7 +513,7 @@ def rematerialize_transfer_rule(
     spec = transfer_rules.parse_spec(rule.amount_spec)
     confidence = Confidence.scheduled if spec.kind is AmountKind.fixed else Confidence.estimated
     n = 0
-    for d in transfer_rules.occurrences(rule, horizon, today):
+    for d in transfer_rules.occurrences(rule, horizon, today, session=session):
         amount = transfer_rules.evaluate(session, rule, d)
         if amount is None:
             continue

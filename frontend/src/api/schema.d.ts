@@ -2442,6 +2442,23 @@ export interface paths {
         patch: operations["update_rule_api_v1_transfer_rules__rid__patch"];
         trace?: never;
     };
+    "/api/v1/transfer-rules/shared-split/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Shared Split */
+        get: operations["get_shared_split_api_v1_transfer_rules_shared_split__account_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transfer-rules/shared-split": {
         parameters: {
             query?: never;
@@ -7637,9 +7654,41 @@ export interface components {
             target_pence: number;
             /** Shares */
             shares: components["schemas"]["SharedSplitShare"][];
+            policy?: components["schemas"]["SharedSplitPolicy"] | null;
+        };
+        /** SharedSplitPolicy */
+        SharedSplitPolicy: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "amount" | "equal" | "percent" | "fixed_remainder";
+            /** Remainder Profile Id */
+            remainder_profile_id?: number | null;
+            /** Percentages */
+            percentages?: {
+                [key: string]: number;
+            };
+            /** Fixed Pence */
+            fixed_pence?: {
+                [key: string]: number;
+            };
+        };
+        /** SharedSplitSetup */
+        SharedSplitSetup: {
+            policy: components["schemas"]["SharedSplitPolicy"] | null;
+            /** Next Paydays */
+            next_paydays: {
+                [key: string]: string;
+            };
         };
         /** SharedSplitShare */
         SharedSplitShare: {
+            /**
+             * On Member Payday
+             * @default false
+             */
+            on_member_payday: boolean;
             /** Profile Id */
             profile_id: number;
             /** Source Account Id */
@@ -7650,6 +7699,8 @@ export interface components {
             day_of_month?: number | null;
             /** Pence */
             pence: number;
+            /** Percentage Bps */
+            percentage_bps?: number | null;
         };
         /** StatementImportOut */
         StatementImportOut: {
@@ -14424,6 +14475,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TransferRuleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shared_split_api_v1_transfer_rules_shared_split__account_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedSplitSetup"];
                 };
             };
             /** @description Validation Error */

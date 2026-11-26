@@ -12,16 +12,20 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.audit import emit
 from app.api.deps import ActorDep, HouseholdDep, ProfileDep, SessionDep
-from app.domain import rbac, schedule, transfer_rules
+from app.domain import budget_periods, rbac, schedule, transfer_rules
+from app.domain.paydays import PaydayRule, RuleKind, ShiftPolicy, pay_date
+from app.domain.recurring import advance
 from app.persistence.models import (
     Account,
     AmountKind,
+    AppMeta,
     Confidence,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Frequency,
     TransferRule,
+    UserProfile,
 )
 
 router = APIRouter(prefix="/transfer-rules", tags=["transfer-rules"])
@@ -161,7 +165,10 @@ def update_rule(
             changes.get("source_account_id", r.source_account_id),
             changes.get("dest_account_id", r.dest_account_id))
     if "amount_spec" in changes and changes["amount_spec"] is not None:
-        changes["amount_spec"] = json.dumps(changes["amount_spec"])
+        next_spec = changes["amount_spec"]
+        if next_spec["kind"] == "fixed" and json.loads(r.amount_spec).get("on_member_payday"):
+            next_spec["on_member_payday"] = True
+        changes["amount_spec"] = json.dumps(next_spec)
     endpoints_changed = any(k in changes and changes[k] != getattr(r, k)
                             for k in ("source_account_id", "dest_account_id"))
     if endpoints_changed:
@@ -195,6 +202,81 @@ def update_rule(
     return schemas.TransferRuleOut.model_validate(r)
 
 
+def _split_key(household_id: int, account_id: int) -> str:
+    return f"shared_split:{household_id}:{account_id}"
+
+
+def _shared_pot(session: Session, household_id: int, account_id: int) -> Account:
+    pot = session.get(Account, account_id)
+    if (pot is None or pot.household_id != household_id or pot.archived
+            or pot.owner_profile_id is not None):
+        raise HTTPException(404, "shared account not found")
+    return pot
+
+
+@router.get("/shared-split/{account_id}", response_model=schemas.SharedSplitSetup)
+def get_shared_split(
+    account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
+) -> schemas.SharedSplitSetup:
+    _shared_pot(session, household.id, account_id)
+    if not rbac.visible(None, profile) and profile is not None:
+        raise HTTPException(404, "shared account not found")
+    record = session.get(AppMeta, _split_key(household.id, account_id))
+    today = date.today()
+    paydays = {}
+    for member_id in session.scalars(select(UserProfile.id).where(
+        UserProfile.household_id == household.id, UserProfile.is_active.is_(True),
+    )):
+        if not rbac.visible(member_id, profile) and profile is not None:
+            continue
+        payday = budget_periods.next_member_payday(session, household.id, member_id, today)
+        if payday is not None:
+            paydays[member_id] = payday
+    return schemas.SharedSplitSetup(
+        policy=schemas.SharedSplitPolicy.model_validate_json(record.value) if record else None,
+        next_paydays=paydays,
+    )
+
+
+def _split_amounts(body: schemas.SharedSplitIn) -> dict[int, int]:
+    shares = sorted(body.shares, key=lambda share: share.profile_id)
+    amounts = {share.profile_id: share.pence for share in shares}
+    target = body.target_pence
+    policy = body.policy
+    if policy is not None:
+        policy.percentages = {}
+        policy.fixed_pence = {}
+        if policy.mode != "fixed_remainder":
+            policy.remainder_profile_id = None
+    if len(amounts) != len(shares):
+        raise HTTPException(422, "each contributor can appear only once")
+    if policy is not None and policy.mode in ("equal", "percent"):
+        weights = {key: 1 for key in amounts}
+        if policy.mode == "percent":
+            weights = {share.profile_id: share.percentage_bps or 0 for share in shares}
+            if sum(weights.values()) != 10000:
+                raise HTTPException(422, "percentages must add to 100")
+            policy.percentages = weights
+        weight_total = sum(weights.values())
+        cumulative = allocated = 0
+        for key, weight in weights.items():
+            cumulative += weight
+            next_total = (2 * target * cumulative + weight_total) // (2 * weight_total)
+            amounts[key] = next_total - allocated
+            allocated = next_total
+    elif policy is not None and policy.mode == "fixed_remainder":
+        remainder = policy.remainder_profile_id
+        if remainder is None or remainder not in amounts:
+            raise HTTPException(422, "select who covers the remaining amount")
+        policy.fixed_pence = {key: value for key, value in amounts.items() if key != remainder}
+        amounts[remainder] = target - sum(policy.fixed_pence.values())
+        if amounts[remainder] < 0:
+            raise HTTPException(422, "fixed shares exceed the Shared budget total")
+    if sum(amounts.values()) != target:
+        raise HTTPException(422, "member shares must add up to the target")
+    return amounts
+
+
 @router.post("/shared-split", status_code=204)
 def save_shared_split(
     body: schemas.SharedSplitIn, household: HouseholdDep, session: SessionDep,
@@ -203,15 +285,14 @@ def save_shared_split(
     """Apply all of a shared pot's monthly shares in one transaction."""
     if not rbac.write_allowed(None, profile):
         raise HTTPException(403, "role cannot edit shared schedules")
-    pot = session.get(Account, body.account_id)
-    if (pot is None or pot.household_id != household.id or pot.archived
-            or pot.owner_profile_id is not None):
-        raise HTTPException(404, "shared account not found")
+    pot = _shared_pot(session, household.id, body.account_id)
     if transfer_rules.space_parent(session, pot.id) is not None:
         raise HTTPException(409, "choose the shared account that receives the bank transfers")
-    if (sum(share.pence for share in body.shares) != body.target_pence
-            or len({share.profile_id for share in body.shares}) != len(body.shares)):
-        raise HTTPException(422, "unique member shares must add up to the target")
+    amounts = _split_amounts(body)
+    active_members = set(session.scalars(select(UserProfile.id).where(
+        UserProfile.household_id == household.id, UserProfile.is_active.is_(True))))
+    if not amounts.keys() <= active_members:
+        raise HTTPException(422, "choose active household contributors")
 
     accounts = {account.id: account for account in session.scalars(select(Account).where(
         Account.household_id == household.id, Account.owner_profile_id.is_not(None),
@@ -222,35 +303,82 @@ def save_shared_split(
         TransferRule.active.is_(True), TransferRule.source_account_id.in_(accounts),
     )))
     submitted = {share.rule_id for share in body.shares if share.rule_id is not None}
-    if (submitted != {rule.id for rule in existing}
+    if (len(submitted) != sum(share.rule_id is not None for share in body.shares)
+            or not submitted <= {rule.id for rule in existing}
             or any(rule.frequency != Frequency.monthly
                    or json.loads(rule.amount_spec).get("kind") != "fixed" for rule in existing)):
         raise HTTPException(409, "share rules changed or are not fixed monthly amounts")
     rules = {rule.id: rule for rule in existing}
+    if any(accounts[rule.source_account_id].owner_profile_id not in amounts for rule in existing):
+        raise HTTPException(409, "include each existing contributor")
     for share in body.shares:
-        rule = rules.get(share.rule_id) if share.rule_id is not None else None
-        if rule is None and share.pence == 0:
+        pence = amounts[share.profile_id]
+        owned = [r for r in existing
+                 if accounts[r.source_account_id].owner_profile_id == share.profile_id]
+        if len(owned) > 1:
+            raise HTTPException(409, "review overlapping contribution schedules")
+        rule = owned[0] if owned else None
+        if share.rule_id is not None and rules[share.rule_id] is not rule:
+            raise HTTPException(422, "select each member's own payment rule")
+        if rule is None and pence == 0:
             continue
         source_id = rule.source_account_id if rule is not None else share.source_account_id
         source = accounts.get(source_id) if source_id is not None else None
         if source is None or source.owner_profile_id != share.profile_id:
             raise HTTPException(422, "select each member's own payment account")
+        if pence == (json.loads(rule.amount_spec).get("pence") if rule else None):
+            continue
+        if not rbac.write_allowed(source.owner_profile_id, profile):
+            raise HTTPException(403, "only the account owner or an admin can change this share")
         if rule is not None:
-            patch = (schemas.TransferRulePatch(active=False) if share.pence == 0 else
+            patch = (schemas.TransferRulePatch(active=False) if pence == 0 else
                      schemas.TransferRulePatch.model_validate({
-                         "amount_spec": {"kind": "fixed", "pence": share.pence},
+                         "amount_spec": {"kind": "fixed", "pence": pence},
                      }))
             update_rule(rule.id, patch, household, session, actor)
         else:
-            if share.day_of_month is None:
+            day = share.day_of_month
+            first = date.today()
+            if share.on_member_payday:
+                payday = budget_periods.next_member_payday(
+                    session, household.id, share.profile_id, date.today())
+                if payday is None:
+                    raise HTTPException(422, "configure a monthly payday or choose a payment day")
+                day = payday.day
+                first = payday
+            if day is None:
                 raise HTTPException(422, "choose a payment day for each new share")
-            create_rule(schemas.TransferRuleIn.model_validate({
+            if not share.on_member_payday:
+                first = pay_date(
+                    PaydayRule(RuleKind.fixed_day, day=day, adjust=ShiftPolicy.none),
+                    first.year, first.month,
+                )
+                if first < date.today():
+                    first = advance(first, Frequency.monthly, day)
+            created = create_rule(schemas.TransferRuleIn.model_validate({
                 "name": f"{source.name} to {pot.name}"[:120],
                 "source_account_id": source.id, "dest_account_id": pot.id,
-                "amount_spec": {"kind": "fixed", "pence": share.pence},
-                "frequency": "monthly", "day_of_month": share.day_of_month,
-                "start_date": date.today(),
+                "amount_spec": {"kind": "fixed", "pence": pence},
+                "frequency": "monthly", "day_of_month": day,
+                "start_date": first,
             }), household, session, actor)
+            if share.on_member_payday:
+                new_rule = _get(session, household.id, created.id)
+                new_rule.amount_spec = json.dumps({
+                    "kind": "fixed", "pence": pence, "on_member_payday": True,
+                })
+                schedule.rematerialize_transfer_rule(session, new_rule)
+
+    if body.policy is not None:
+        key = _split_key(household.id, pot.id)
+        record = session.get(AppMeta, key)
+        saved = body.policy.model_dump_json()
+        if record is None:
+            session.add(AppMeta(key=key, value=saved))
+        else:
+            record.value = saved
+        emit(session, household.id, actor, "update", "shared_split", pot.id,
+             {"mode": body.policy.mode})
 
 
 @router.delete("/{rid}", status_code=204)

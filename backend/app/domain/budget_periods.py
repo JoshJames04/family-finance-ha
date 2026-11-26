@@ -182,6 +182,35 @@ def _boundary(sources: list[Employment], year: int, month: int,
     return candidates
 
 
+def member_payday(session: Session, household_id: int, profile_id: int,
+                  month: date) -> date | None:
+    """Resolve the configured payday in the labelled calendar month."""
+    day = selected_day(session, household_id, profile_id)
+    if day is not None:
+        rule = PaydayRule(RuleKind.fixed_day, day=day, adjust=ShiftPolicy.previous)
+        return pay_date(rule, month.year, month.month)
+    sources = [e for e in _employments(session, household_id, profile_id)
+               if _monthly_rule(e) is not None]
+    candidates = _boundary(sources, month.year, month.month,
+                           selected_anchor(session, household_id, profile_id))
+    return candidates[0][0] if len(candidates) == 1 else None
+
+
+def next_member_payday(session: Session, household_id: int, profile_id: int,
+                      start: date) -> date | None:
+    """First configured payday on or after start, including shifted paydays."""
+    month = start.replace(day=1)
+    candidates = []
+    month -= timedelta(days=1)
+    for _ in range(4):
+        month = month.replace(day=1)
+        day = member_payday(session, household_id, profile_id, month)
+        if day is not None and day >= start:
+            candidates.append(day)
+        month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return min(candidates, default=None)
+
+
 def resolve_period(session: Session, budget: Budget, *,
                    basis: str = "calendar") -> BudgetWindow:
     """Derive boundaries from planned paydays; never update stored plan data."""

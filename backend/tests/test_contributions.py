@@ -369,6 +369,61 @@ class TestApi:
         assert refreshed[chloe_account]["day_of_month"] == 11
         assert sum(rule["amount_spec"]["pence"] for rule in refreshed.values()) == 30001
 
+        policy = {"mode": "fixed_remainder", "remainder_profile_id": josh}
+        body.update(policy=policy)
+        body["shares"][0]["pence"] = 0  # the server computes the remainder
+        body["shares"][1]["rule_id"] = refreshed[chloe_account]["id"]
+        response = client.post(route, headers=headers, json=body)
+        assert response.status_code == 204, response.text
+        saved = client.get(f"{route}/{pot}", headers=headers).json()["policy"]
+        assert saved["remainder_profile_id"] == josh
+        assert saved["mode"] == "fixed_remainder"
+        assert saved["fixed_pence"] == {str(chloe): 12000}
+        assert {r["source_account_id"]: r["amount_spec"]["pence"] for r in rules()} == {
+            josh_account: 18001, chloe_account: 12000,
+        }
+        body["shares"][1]["pence"] = 40000
+        assert client.post(route, headers=headers, json=body).status_code == 422
+
+        body["shares"][1]["pence"] = 12000
+        for share in body["shares"]:
+            share.pop("rule_id", None)
+        # Replaying an unchanged submission keeps the same schedule IDs.
+        old_ids = {rule["id"] for rule in rules()}
+        assert client.post(route, headers=headers, json=body).status_code == 204
+        assert {rule["id"] for rule in rules()} == old_ids
+
+    def test_new_shared_schedule_follows_early_payday(self, client: TestClient) -> None:
+        base = "/api/v1"
+        household = client.post(f"{base}/households", json={"name": "Test"}).json()["id"]
+        headers = {"X-Household-Id": str(household)}
+        member = client.post(f"{base}/profiles", headers=headers,
+                             json={"display_name": "Member", "role": "admin"}).json()["id"]
+        headers["X-Profile-Id"] = str(member)
+        def account(name, owner=None):
+            return client.post(f"{base}/accounts", headers=headers, json={
+                "name": name, "type": "personal" if owner else "joint",
+                "owner_profile_id": owner, "opening_balance": 0,
+                "opening_date": "2026-01-01",
+            }).json()["id"]
+        pot, src = account("Shared"), account("Personal", member)
+        assert client.put(f"{base}/budgets/pay-cycle-settings", headers=headers, json={
+            "owner_profile_id": member, "payday_day": 28,
+        }).status_code == 200
+        route = f"{base}/transfer-rules/shared-split"
+        setup = client.get(f"{route}/{pot}", headers=headers).json()
+        assert client.post(route, headers=headers, json={
+            "account_id": pot, "target_pence": 20000, "policy": {"mode": "equal"},
+            "shares": [{"profile_id": member, "source_account_id": src,
+                        "pence": 0, "on_member_payday": True}],
+        }).status_code == 204
+        due = setup["next_paydays"][str(member)]
+        assert date.fromisoformat(due).weekday() < 5
+        rows = client.get(f"{base}/expected-movements", headers=headers, params={
+            "start": due, "end": due,
+        }).json()
+        assert sorted(row["amount_pence"] for row in rows) == [-20000, 20000]
+
     def test_match_and_status_flow(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
                           json={"name": "H"}).json()["id"]
