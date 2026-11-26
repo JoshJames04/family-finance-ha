@@ -514,7 +514,25 @@ def rematerialize_transfer_rule(
     spec = transfer_rules.parse_spec(rule.amount_spec)
     confidence = Confidence.scheduled if spec.kind is AmountKind.fixed else Confidence.estimated
     n = 0
-    for d in transfer_rules.occurrences(rule, horizon, today, session=session):
+    dates = transfer_rules.occurrences(rule, horizon, today, session=session)
+    if transfer_rules.follows_member_payday(rule):
+        raw = json.loads(rule.amount_spec)
+        previous = raw.get("payday_cycles", {})
+        cycles = transfer_rules.member_payday_cycles(session, rule, today, horizon)
+        retained = set(session.scalars(select(ExpectedMovement.expected_date).join(
+            ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
+        ).where(ExpectedMovement.household_id == rule.household_id,
+                ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+                ExpectedMovement.source_id == rule.id,
+                ExpectedMovement.expected_date >= today - timedelta(days=40))))
+        updated = {month.isoformat(): day.isoformat() for month, day in cycles.items()
+                   if day in dates}
+        updated.update({month: value for month, value in previous.items()
+                        if date.fromisoformat(value) in retained})
+        if updated != previous:
+            raw["payday_cycles"] = updated
+            rule.amount_spec = json.dumps(raw)
+    for d in dates:
         amount = transfer_rules.evaluate(session, rule, d)
         if amount is None:
             continue

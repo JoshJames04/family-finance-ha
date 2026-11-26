@@ -425,11 +425,26 @@ class TestApi:
             "start": due, "end": due,
         }).json()
         assert sorted(row["amount_pence"] for row in rows) == [-20000, 20000]
+        incoming = next(row for row in rows if row["amount_pence"] > 0)
+        tx = client.post(f"{base}/transactions", headers=headers, json={
+            "account_id": pot, "date": due, "amount": 20000, "payee": "Confirmed receipt",
+        }).json()
+        assert client.post(f"{base}/expected-movements/{incoming['id']}/matches",
+                           headers=headers, json={"transaction_id": tx["id"]}).status_code == 201
+
 
         assert client.put(f"{base}/budgets/pay-cycle-settings", headers=headers, json={
             "owner_profile_id": member, "payday_day": 17,
         }).status_code == 200
         new_due = client.get(f"{route}/{pot}", headers=headers).json()["next_paydays"][str(member)]
+        nominal_month = date.fromisoformat(due).replace(day=1)
+        last = (nominal_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+        cycle = client.get(f"{base}/expected-movements", headers=headers, params={
+            "start": nominal_month.isoformat(), "end": (last - timedelta(days=1)).isoformat(),
+        }).json()
+        assert {row["expected_date"] for row in cycle} == {due}
+        assert len(cycle) == 2
+
         # The rule already started at the first agreed date. Compare a future month
         # that the old and new schedules would both cover.
         after = max(date.fromisoformat(due), date.fromisoformat(new_due))
@@ -439,6 +454,12 @@ class TestApi:
         }).json()
         assert len(future) == 2
         assert {date.fromisoformat(row["expected_date"]).day for row in future} <= {15, 16, 17}
+
+        edit = client.patch(f"{base}/transfer-rules/{rules[0]['id']}", headers=headers, json={
+            "day_of_month": 20,
+        })
+        assert edit.status_code == 200
+        assert "on_member_payday" not in edit.json()["amount_spec"]
 
     def test_match_and_status_flow(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",

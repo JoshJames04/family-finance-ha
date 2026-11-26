@@ -190,7 +190,7 @@ def member_payday(session: Session, household_id: int, profile_id: int,
         rule = PaydayRule(RuleKind.fixed_day, day=day, adjust=ShiftPolicy.previous)
         return pay_date(rule, month.year, month.month)
     sources = [e for e in _employments(session, household_id, profile_id)
-               if _monthly_rule(e) is not None]
+               if e.is_active and _monthly_rule(e) is not None]
     candidates = _boundary(sources, month.year, month.month,
                            selected_anchor(session, household_id, profile_id))
     return candidates[0][0] if len(candidates) == 1 else None

@@ -197,3 +197,16 @@ def test_viewer_role_cannot_read_even_formerly_owned_private_budget(setup):
                       headers=headers).status_code == 404
     listed = client.get("/api/v1/budgets", headers=headers).json()["items"]
     assert private["id"] not in {item["id"] for item in listed}
+
+
+def test_deactivated_employment_stops_supplying_future_shared_payday(setup):
+    client, owner, _, _, employment, _, _ = setup
+    pot = post(client, "accounts", {
+        "name": "Synthetic joint", "type": "joint", "opening_balance": 0,
+        "opening_date": "2025-01-01",
+    })
+    route = f"/api/v1/transfer-rules/shared-split/{pot['id']}"
+    assert str(owner["id"]) in client.get(route).json()["next_paydays"]
+    response = client.patch(f"/api/v1/employments/{employment['id']}", json={"is_active": False})
+    assert response.status_code == 200, response.text
+    assert str(owner["id"]) not in client.get(route).json()["next_paydays"]
