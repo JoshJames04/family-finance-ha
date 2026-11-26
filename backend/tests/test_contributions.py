@@ -3,6 +3,7 @@ satisfied / partial / overdue states; auto + manual matching."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,7 @@ from app.domain.contributions import ContributionState, MatchError
 from app.main import create_app
 from app.persistence.models import (
     Account,
+    AppMeta,
     Confidence,
     ExpectedMovement,
     ExpectedSource,
@@ -247,6 +249,28 @@ class TestAutoMatch:
         assert s.matched_pence == inside.amount_pence
         assert outside.id != inside.id  # sanity
 
+    def test_two_paired_receipts_in_same_account_stay_with_their_source(
+            self, session: Session, household: Household,
+            pair: tuple[Account, Account, TransferRule]) -> None:
+        src, dst, rule = pair
+        due = date(2025, 4, 1)
+        other = Account(household_id=household.id, name="Other payer",
+                        type=src.type, opening_date=due)
+        session.add(other)
+        session.flush()
+        mv = _movement(session, household, dst, 30000, due, rule.id)
+        wrong = _leg(session, household, dst, 30000, due)
+        right = _leg(session, household, dst, 20000, due + timedelta(days=1))
+        session.add_all([
+            Transaction(account_id=other.id, date=wrong.date, amount_pence=-30000,
+                        payee="Wrong payer", transfer_id=wrong.transfer_id),
+            Transaction(account_id=src.id, date=right.date, amount_pence=-20000,
+                        payee="Expected payer", transfer_id=right.transfer_id),
+        ])
+        session.flush()
+        assert contributions.auto_match(session, household.id, today=TODAY) == 1
+        assert contributions.status(session, mv, TODAY).matched_pence == 20000
+
     def test_wrong_sign_never_matches(
             self, session: Session, household: Household,
             pair: tuple[Account, Account, TransferRule]) -> None:
@@ -289,6 +313,42 @@ class TestAutoMatch:
 
 
 class TestManualConfirm:
+    def test_direct_bills_space_receipt_consumes_each_scheduled_leg_once(
+        self, session: Session, household: Household, pair: tuple[Account, Account, TransferRule],
+    ) -> None:
+        source, joint, rule = pair
+        member = UserProfile(household_id=household.id, display_name="Test payer")
+        bills = Account(household_id=household.id, name="Alternative bills space",
+                        type="bills", opening_date=TODAY)
+        session.add_all([member, bills])
+        session.flush()
+        source.owner_profile_id = member.id
+        session.add(AppMeta(key=f"shared_split:{household.id}:{joint.id}",
+                            value=json.dumps({"mode": "equal",
+                                              "alternate_account_ids": [bills.id]})))
+        incoming = _movement(session, household, joint, 30000, TODAY, rule.id)
+        outgoing = _movement(session, household, source, -30000, TODAY, rule.id)
+        receipt = _leg(session, household, bills, 20000, TODAY)
+        debit = Transaction(account_id=source.id, date=TODAY, amount_pence=-20000,
+                            payee="Direct contribution", transfer_id=receipt.transfer_id)
+        session.add(debit)
+        session.flush()
+
+        contributions.confirm(session, incoming, receipt)
+        assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
+            incoming.id: 20000, outgoing.id: 20000,
+        }
+        totals = contributions.shared_payment_totals(session, [incoming], {outgoing.id: incoming})
+        assert totals == {incoming.id: 20000}
+        with pytest.raises(MatchError):
+            contributions.confirm(session, incoming, receipt)
+        receipt.status = TransactionStatus.void
+        debit.status = TransactionStatus.void
+        session.flush()
+        assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
+            incoming.id: 0, outgoing.id: 0,
+        }
+
     def test_confirm_records_match(
             self, session: Session, household: Household,
             pair: tuple[Account, Account, TransferRule]) -> None:

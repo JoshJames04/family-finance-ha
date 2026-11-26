@@ -112,7 +112,11 @@ def eligible_matches(movement_ids: Collection[int] | Select[Any] | None = None, 
         ExpectedMovement, ExpectedMovement.id == ExpectedMatch.movement_id).join(
         Account, Account.id == Transaction.account_id).where(
         live.c.branches == 1, ExpectedMatch.matched_pence > 0,
-        ExpectedMovement.account_id == Transaction.account_id,
+        or_(ExpectedMovement.account_id == Transaction.account_id, and_(
+            ExpectedMatch.alternate_destination.is_(True), ExpectedMatch.manual.is_(True),
+            ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+            Transaction.transfer_id.is_not(None), Transaction.amount_pence > 0,
+        )),
         ExpectedMovement.household_id == Account.household_id,
         or_(and_(Transaction.amount_pence > 0, ExpectedMovement.amount_pence > 0),
             and_(Transaction.amount_pence < 0, ExpectedMovement.amount_pence < 0)),

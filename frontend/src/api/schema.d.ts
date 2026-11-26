@@ -7745,6 +7745,8 @@ export interface components {
             approval?: ("contributor" | "delegated" | "automatic") | null;
             /** Approver Profile Id */
             approver_profile_id?: number | null;
+            /** Alternate Account Ids */
+            alternate_account_ids?: number[] | null;
         };
         /** SharedSplitSetup */
         SharedSplitSetup: {

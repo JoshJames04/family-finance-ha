@@ -400,6 +400,25 @@ def save_shared_split(
                 raise HTTPException(422, "choose an active household approver")
         else:
             body.policy.approver_profile_id = None
+        if body.policy.alternate_account_ids is None:
+            body.policy.alternate_account_ids = (prior_policy.alternate_account_ids
+                                                 if prior_policy else [])
+        else:
+            included = set(body.policy.alternate_account_ids)
+            prior_included = (set(prior_policy.alternate_account_ids or [])
+                              if prior_policy else set())
+            if (included != prior_included and profile is not None
+                    and not rbac.can(profile, rbac.Action.admin)):
+                raise HTTPException(403, "only a household admin can edit receiving accounts")
+            if included:
+                allowed = set(session.scalars(select(Account.id).where(
+                    Account.id.in_(included), Account.id != pot.id,
+                    Account.household_id == household.id, Account.archived.is_(False),
+                    Account.owner_profile_id.is_(None),
+                )))
+                if allowed != included:
+                    raise HTTPException(422, "choose active shared receiving accounts")
+            body.policy.alternate_account_ids = sorted(included)
         saved = body.policy.model_dump_json()
         if record is None:
             session.add(AppMeta(key=key, value=saved))

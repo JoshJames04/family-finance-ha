@@ -518,6 +518,8 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
   const [chosenRemainder, setRemainder] = useState<number | null>(null);
   const remainder = chosenRemainder ?? policy?.remainder_profile_id ?? shares[0]?.profile.id;
   const policyError = guided && setup.error;
+  const [receivingAccounts, setReceivingAccounts] = useState<number[] | null>(null);
+  const alternateAccounts = receivingAccounts ?? policy?.alternate_account_ids ?? [];
   type Approval = "contributor" | "delegated" | "automatic";
   const [chosenApproval, setApproval] = useState<Approval | null>(null);
   const [chosenApprover, setApprover] = useState<number | null>(null);
@@ -652,6 +654,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
             remainder_profile_id: mode === "fixed_remainder" ? remainder : undefined,
             approval: canConfigureApproval ? approval : undefined,
             approver_profile_id: canConfigureApproval && approval === "delegated" ? approver : undefined,
+            alternate_account_ids: canConfigureApproval ? alternateAccounts : undefined,
           },
           shares: shares.map((m) => ({
             profile_id: m.profile.id,
@@ -747,6 +750,22 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
               </option>)}
             </Select>
           )}</Field>
+        )}
+        {guided && canConfigureApproval && accounts.some(account =>
+          account.id !== pot.id && account.owner_profile_id === null && !account.archived) && (
+          <fieldset className="grid gap-1">
+            <legend className="text-sm font-medium">Also accept direct contributions into</legend>
+            {accounts.filter(account => account.id !== pot.id
+              && account.owner_profile_id === null && !account.archived).map(account => (
+              <label key={account.id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={alternateAccounts.includes(account.id)}
+                  onChange={event => setReceivingAccounts(event.target.checked
+                    ? [...alternateAccounts, account.id]
+                    : alternateAccounts.filter(id => id !== account.id))} />
+                {account.name}
+              </label>
+            ))}
+          </fieldset>
         )}
         {policyError && <p role="alert">Could not load the agreed split. Close and try again.</p>}
         {mode === "fixed_remainder" && (
@@ -1004,17 +1023,25 @@ function MatchDialog({ movement, member, onClose, onDone }: {
   onDone: () => void;
 }) {
   const ready = useReady();
+  const accounts = useAccounts();
+  const setup = useApi(() => api.get("/api/v1/transfer-rules/shared-split/{account_id}", {
+    path: { account_id: movement.account_id! },
+  }), ready && movement.account_id != null, [movement.account_id]);
+  const [receivingAccount, setReceivingAccount] = useState(movement.account_id!);
+  const alternatives = (accounts.data?.items ?? []).filter(account =>
+    !account.archived && setup.data?.policy?.alternate_account_ids?.includes(account.id));
+  const isAlternate = receivingAccount !== movement.account_id;
   const txns = useApi(
     () => api.get("/api/v1/transactions", {
       query: {
-        account_id: movement.account_id!,
+        account_id: receivingAccount,
         direction: "income",
         size: 50,
       },
-    }), ready);
+    }), ready, [receivingAccount]);
   const [txnId, setTxnId] = useState("");
   const [busy, setBusy] = useState(false);
-  const items = txns.data?.items ?? [];
+  const items = (txns.data?.items ?? []).filter(txn => !isAlternate || txn.transfer_id != null);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1039,7 +1066,18 @@ function MatchDialog({ movement, member, onClose, onDone }: {
         </Button>
       </>}>
       <form id="ff-match" onSubmit={submit} className="grid gap-4">
-        <Field label="Transfer transaction" hint="Incoming payments on the shared account.">
+        {alternatives.length > 0 && <Field label="Receiving account">{(id) => (
+          <Select id={id} value={receivingAccount} onChange={event => {
+            setReceivingAccount(Number(event.target.value));
+            setTxnId("");
+          }}>
+            <option value={movement.account_id!}>Scheduled shared account</option>
+            {alternatives.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+          </Select>
+        )}</Field>}
+        <Field label="Transfer transaction" hint={isAlternate
+          ? "Choose a transfer from the contributor’s payment account."
+          : "Incoming payments on the shared account."}>
           {(id) => (
             <Select id={id} required className="min-h-11" value={txnId} onChange={(e) => setTxnId(e.target.value)}>
               <option value="" disabled>Choose…</option>
