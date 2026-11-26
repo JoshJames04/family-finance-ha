@@ -1,7 +1,7 @@
 """Historical personal cycles and calendar household views use synthetic data."""
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -211,3 +211,39 @@ def test_deactivated_employment_stops_supplying_future_shared_payday(setup):
                             headers={"X-Profile-Id": str(owner["id"])})
     assert response.status_code == 200, response.text
     assert str(owner["id"]) not in client.get(route).json()["next_paydays"]
+
+def test_first_salary_revision_moves_contributions_for_jobs_without_start_date(setup):
+    client, owner, _, _, existing, _, _ = setup
+    base = "/api/v1"
+    owner_headers = {"X-Profile-Id": str(owner["id"])}
+    assert client.patch(f"{base}/employments/{existing['id']}", headers=owner_headers,
+                        json={"is_active": False}).status_code == 200
+    created = client.post(f"{base}/employments", headers=owner_headers, json={
+        "profile_id": owner["id"], "employer": "Open date", "contracted_hours": 35,
+        "payday_rule": json.dumps({"kind": "fixed_day", "day": 28, "adjust": "previous"}),
+    })
+    assert created.status_code == 201, created.text
+    job = created.json()
+    assert job["start_date"] is None
+    pot = post(client, "accounts", {
+        "name": "Joint paydays", "type": "joint", "opening_balance": 0,
+        "opening_date": "2025-01-01",
+    })
+    route = f"{base}/transfer-rules/shared-split"
+    today = date.today()
+    assert client.post(route, json={
+        "account_id": pot["id"], "target_pence": 1000, "policy": {"mode": "equal"},
+        "shares": [{"profile_id": owner["id"],
+                    "source_account_id": existing["paid_into_account_id"],
+                    "pence": 0, "on_member_payday": True}],
+    }).status_code == 204
+    window = {"start": today.isoformat(), "end": (today + timedelta(days=90)).isoformat(),
+              "account_id": pot["id"]}
+    assert client.get(f"{base}/expected-movements", params=window).json()
+    revision = client.post(f"{base}/employments/{job['id']}/salary-revisions",
+                           headers=owner_headers, json={
+        "effective_date": (today + timedelta(days=180)).isoformat(),
+        "annual_salary": 1500000,
+    })
+    assert revision.status_code == 201, revision.text
+    assert client.get(f"{base}/expected-movements", params=window).json() == []

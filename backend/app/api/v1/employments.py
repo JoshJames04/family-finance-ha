@@ -717,6 +717,9 @@ def add_salary_revision(
         shares_owned=body.shares_owned,
     )
     payroll_automation.refresh(session, e)
+    if e.start_date is None:
+        session.expire(e, ["salary_revisions"])
+        schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,
@@ -758,7 +761,11 @@ def patch_salary_revision(
         notes=changed.get("notes", ...),
     )
     if (rev.effective_date, rev.annual_salary_pence) != previous_pay:
-        payroll_automation.refresh(session, _get(session, household.id, emp_id))
+        e = _get(session, household.id, emp_id)
+        payroll_automation.refresh(session, e)
+        if e.start_date is None and rev.effective_date != previous_pay[0]:
+            session.expire(e, ["salary_revisions"])
+            schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,
@@ -781,7 +788,11 @@ def delete_salary_revision(
 ) -> None:
     rev = _get_revision(session, household.id, emp_id, rev_id)
     dom.delete_salary_revision(session, rev)
-    payroll_automation.refresh(session, _get(session, household.id, emp_id))
+    e = _get(session, household.id, emp_id)
+    payroll_automation.refresh(session, e)
+    if e.start_date is None:
+        session.expire(e, ["salary_revisions"])
+        schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,

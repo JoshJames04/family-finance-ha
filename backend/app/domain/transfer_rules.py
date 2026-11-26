@@ -116,6 +116,22 @@ def member_payday_cycles(
         if payday is not None:
             result[month] = payday
         month = advance(month, Frequency.monthly, 1)
+    recorded = json.loads(rule.amount_spec).get("payday_cycles", {})
+    if recorded:
+        matched = set(session.scalars(select(ExpectedMovement.expected_date).join(
+            ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
+        ).where(ExpectedMovement.household_id == rule.household_id,
+                ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+                ExpectedMovement.source_id == rule.id,
+                ExpectedMovement.expected_date >= start - timedelta(days=40))))
+        for month_text, day_text in recorded.items():
+            cycle = date.fromisoformat(month_text)
+            old_day = date.fromisoformat(day_text)
+            new_day = result.get(cycle)
+            # Keep an existing due date when the new date has already passed.
+            # A matched date also keeps its cycle even when the pay rule changes.
+            if old_day in matched or (new_day is not None and new_day < start <= old_day):
+                result[cycle] = old_day
     return result
 
 
@@ -127,17 +143,6 @@ def occurrences(rule: TransferRule, horizon: date,
         start = max(today, rule.start_date)
         end = min(horizon, rule.end_date) if rule.end_date else horizon
         cycles = member_payday_cycles(session, rule, start, end)
-        recorded = json.loads(rule.amount_spec).get("payday_cycles", {})
-        if recorded:
-            matched_dates = set(session.scalars(select(ExpectedMovement.expected_date).join(
-                ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
-            ).where(ExpectedMovement.household_id == rule.household_id,
-                    ExpectedMovement.source_type == ExpectedSource.transfer_rule,
-                    ExpectedMovement.source_id == rule.id,
-                    ExpectedMovement.expected_date >= start - timedelta(days=40))))
-            for cycle, payday in recorded.items():
-                if (pinned := date.fromisoformat(payday)) in matched_dates:
-                    cycles[date.fromisoformat(cycle)] = pinned
         return sorted({day for day in cycles.values() if start <= day <= end})
     d = rule.start_date
     while d < today:

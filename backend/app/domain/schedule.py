@@ -514,24 +514,22 @@ def rematerialize_transfer_rule(
     spec = transfer_rules.parse_spec(rule.amount_spec)
     confidence = Confidence.scheduled if spec.kind is AmountKind.fixed else Confidence.estimated
     n = 0
-    dates = transfer_rules.occurrences(rule, horizon, today, session=session)
     if transfer_rules.follows_member_payday(rule):
+        start = max(today, rule.start_date)
+        end = min(horizon, rule.end_date) if rule.end_date else horizon
         raw = json.loads(rule.amount_spec)
         previous = raw.get("payday_cycles", {})
-        cycles = transfer_rules.member_payday_cycles(session, rule, today, horizon)
-        retained = set(session.scalars(select(ExpectedMovement.expected_date).join(
-            ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
-        ).where(ExpectedMovement.household_id == rule.household_id,
-                ExpectedMovement.source_type == ExpectedSource.transfer_rule,
-                ExpectedMovement.source_id == rule.id,
-                ExpectedMovement.expected_date >= today - timedelta(days=40))))
+        cycles = transfer_rules.member_payday_cycles(session, rule, start, end)
+        dates = sorted({day for day in cycles.values() if start <= day <= end})
         updated = {month.isoformat(): day.isoformat() for month, day in cycles.items()
-                   if day in dates}
-        updated.update({month: value for month, value in previous.items()
-                        if date.fromisoformat(value) in retained})
+                   if start <= day <= end or (
+                       start - timedelta(days=40) <= day < start
+                       and previous.get(month.isoformat()) == day.isoformat())}
         if updated != previous:
             raw["payday_cycles"] = updated
             rule.amount_spec = json.dumps(raw)
+    else:
+        dates = transfer_rules.occurrences(rule, horizon, today)
     for d in dates:
         amount = transfer_rules.evaluate(session, rule, d)
         if amount is None:
