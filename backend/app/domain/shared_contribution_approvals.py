@@ -196,6 +196,12 @@ def propose(
         return
     session.flush()
     household_id = budget.household_id
+    overlapping = set(session.scalars(select(Budget.id).where(
+        Budget.household_id == household_id, Budget.owner_profile_id.is_(None),
+        Budget.id != budget.id, Budget.start_date <= budget.end_date,
+        Budget.end_date >= budget.start_date,
+        Budget.status.in_((BudgetStatus.approved, BudgetStatus.locked)),
+    )))
     target = sum(line.effective_pence for line in budget.lines
                  if line.side == BudgetLineSide.expense)
     settings = session.scalars(select(AppMeta).where(
@@ -229,21 +235,16 @@ def propose(
                    for owner, rule in by_profile.items() if (due := dates[owner]) is not None}
         next_amounts = _proposed_amounts(policy, current, target) if current else None
         row, previous = read(session, household_id, pot_id)
-        changes = [item for item in previous if item.budget_id != budget.id]
+        changes = [item for item in previous
+                   if item.budget_id != budget.id
+                   and not (item.state == "pending" and item.budget_id in overlapping)]
         fixed_total = sum(policy.fixed_pence.values())
-        if (next_amounts is None and policy.mode == "fixed_remainder"
-                and policy.remainder_profile_id in current and fixed_total > target):
-            recipient = policy.approver_profile_id or policy.remainder_profile_id
-            _notify_recipient(
-                session, household_id, recipient,
-                f"shared-split-conflict:{pot_id}:{budget.id}:{target}:{fixed_total}",
-                {
-                    "path": "/shared", "title": "Shared contribution split needs updating",
-                    "budget_id": budget.id, "account_id": pot_id,
-                    "fixed_total_pence": fixed_total, "new_target_pence": target,
-                },
-            )
-        if next_amounts:
+        conflict = (next_amounts is None and policy.mode == "fixed_remainder"
+                    and policy.remainder_profile_id in current and fixed_total > target)
+        recipient = policy.approver_profile_id or policy.remainder_profile_id
+        _reconcile_conflict(session, household_id, pot_id, budget.id, recipient,
+                            target, fixed_total, conflict)
+        if next_amounts and not overlapping:
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
                     continue
@@ -274,6 +275,31 @@ def propose(
                 if stale.state == "pending" and stale.id not in active:
                     close_notification(session, stale.id)
             save(session, household_id, pot_id, row, changes)
+
+
+def _reconcile_conflict(
+    session: Session, household_id: int, pot_id: int, budget_id: int, recipient: int | None,
+    target: int, fixed_total: int, conflict: bool,
+) -> None:
+    prefix = f"shared-split-conflict:{pot_id}:{budget_id}:"
+    key = f"{prefix}{target}:{fixed_total}:"
+    for event in session.scalars(select(NotificationEvent).join(
+        NotificationRule, NotificationRule.id == NotificationEvent.rule_id,
+    ).where(
+        NotificationRule.household_id == household_id,
+        NotificationEvent.dedup_key.startswith(prefix),
+        NotificationEvent.state != NotificationState.acked,
+    )):
+        if conflict and event.dedup_key.startswith(key):
+            conflict = False
+        else:
+            event.state = NotificationState.acked
+    if conflict and recipient is not None:
+        _notify_recipient(session, household_id, recipient, key + uuid4().hex, {
+            "path": "/shared", "title": "Shared contribution split needs updating",
+            "budget_id": budget_id, "account_id": pot_id,
+            "fixed_total_pence": fixed_total, "new_target_pence": target,
+        })
 
 
 def reassess_pending(session: Session, household_id: int, account_id: int) -> None:

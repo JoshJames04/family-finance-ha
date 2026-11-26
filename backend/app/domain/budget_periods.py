@@ -196,6 +196,17 @@ def member_payday(session: Session, household_id: int, profile_id: int,
     return candidates[0][0] if len(candidates) == 1 else None
 
 
+def ambiguous_member_payday(
+    session: Session, household_id: int, profile_id: int, month: date,
+) -> bool:
+    if selected_day(session, household_id, profile_id) is not None:
+        return False
+    sources = [e for e in _employments(session, household_id, profile_id)
+               if e.is_active and _monthly_rule(e) is not None]
+    return len(_boundary(sources, month.year, month.month,
+                         selected_anchor(session, household_id, profile_id))) > 1
+
+
 def next_member_payday(session: Session, household_id: int, profile_id: int,
                       start: date) -> date | None:
     """First configured payday on or after start, including shifted paydays."""
