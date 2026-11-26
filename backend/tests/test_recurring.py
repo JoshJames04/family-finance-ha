@@ -150,7 +150,8 @@ class TestMaterialise:
         assert materialise(session, bill, date(2026, 2, 4)) == []
 
     @pytest.mark.parametrize("route", [
-        "auto", "review", "manual", "manual_partial", "matched_bank_merge", "queued_bank_merge",
+        "auto", "review", "manual", "manual_partial", "smaller_receipt",
+        "matched_bank_merge", "queued_bank_merge",
     ])
     def test_bank_payment_can_replace_a_pending_bill_remainder(
         self, session: Session, account: Account, route: str,
@@ -171,6 +172,9 @@ class TestMaterialise:
         receipt = Transaction(account_id=account.id, date=date(2026, 2, 1),
                               payee=bill.name if route == "auto" else "Bank description",
                               amount_pence=-9000, source="starling", status="cleared")
+        if route == "smaller_receipt":
+            receipt.amount_pence = -4000
+            receipt.payee = bill.name
         if route == "review":
             receipt.date = date(2026, 2, 5)
         session.add(receipt)
@@ -193,7 +197,7 @@ class TestMaterialise:
                                   pence=4000 if route == "manual_partial" else None)
         else:
             stats = reconcile.reconcile_account(session, account, receipt.date)
-            if route == "review":
+            if route in ("review", "smaller_receipt"):
                 assert stats.queued == 1 and pending.status == "pending"
                 queued = session.scalars(select(Reconciliation).where(
                     Reconciliation.transaction_id == receipt.id)).one()
@@ -201,11 +205,19 @@ class TestMaterialise:
             else:
                 assert stats.matched == 1
             assert reconcile.reconcile_account(session, account, receipt.date).matched == 0
+        if route in ("manual_partial", "smaller_receipt"):
+            assert pending.status == "pending" and pending.amount_pence == -5000
+            assert materialise(session, bill, bill.next_date) == []
+            assert contributions.status(session, movement).outstanding_pence == 0
+            final = Transaction(account_id=account.id, date=receipt.date, payee=bill.name,
+                                amount_pence=-5000, source="starling", status="cleared")
+            session.add(final)
+            session.flush()
+            assert reconcile.reconcile_account(session, account, final.date).matched == 1
         assert pending.status == "void"
-        remaining = 5000 if route == "manual_partial" else 0
-        assert contributions.status(session, movement).outstanding_pence == remaining
+        assert contributions.status(session, movement).outstanding_pence == 0
         assert sum(t.amount_pence for t in session.scalars(select(Transaction)).all()
-                   if t.status != "void") == -15000
+                   if t.status != "void") == (-20000 if route == "manual_partial" else -15000)
 
     def test_replacement_with_same_ids_has_its_own_posting_date(
         self, session: Session, account: Account,

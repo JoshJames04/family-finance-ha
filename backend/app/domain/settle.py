@@ -57,9 +57,9 @@ def settle_occurrence(
     outstanding = contributions.payment_outstanding(movement, matched, provisional)
     if outstanding <= 0:
         return None
-    match = contributions._link(
-        session, movement, txn,
-        min(abs(txn.amount_pence), outstanding), manual=manual, replaces=provisional)
+    match = contributions.record_payment(
+        session, movement, txn, min(abs(txn.amount_pence), outstanding),
+        manual=manual, provisional=provisional, outstanding=outstanding)
     from app.domain import categorise
     categorise.inherit_movement_category(session, movement, txn)
     if txn.category_id is None:

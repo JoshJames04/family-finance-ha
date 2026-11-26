@@ -227,15 +227,30 @@ def payment_outstanding(movement: ExpectedMovement, matched: int,
 
 
 def _link(session: Session, movement: ExpectedMovement,
-          tx: Transaction, pence: int, manual: bool,
-          replaces: Transaction | None = None) -> ExpectedMatch:
-    if replaces is not None:
-        replaces.status = TransactionStatus.void
+          tx: Transaction, pence: int, manual: bool) -> ExpectedMatch:
     m = ExpectedMatch(movement_id=movement.id, transaction_id=tx.id,
                       matched_pence=pence, manual=manual)
     session.add(m)
     session.flush()
     return m
+
+
+def record_payment(
+    session: Session, movement: ExpectedMovement, tx: Transaction, pence: int, *,
+    manual: bool, provisional: Transaction | None, outstanding: int,
+) -> ExpectedMatch:
+    """Exchange the allocated portion of an editable posting for real evidence."""
+    if provisional is not None:
+        remainder = min(abs(provisional.amount_pence), outstanding) - pence
+        if remainder > 0:
+            provisional.amount_pence = remainder if provisional.amount_pence > 0 else -remainder
+            link = session.scalars(select(ExpectedMatch).where(
+                ExpectedMatch.movement_id == movement.id,
+                ExpectedMatch.transaction_id == provisional.id)).one()
+            link.matched_pence = remainder
+        else:
+            provisional.status = TransactionStatus.void
+    return _link(session, movement, tx, pence, manual=manual)
 
 
 def confirm(session: Session, movement: ExpectedMovement,
@@ -256,7 +271,8 @@ def confirm(session: Session, movement: ExpectedMovement,
         raise MatchError("match amount must be within the leg amount")
     if amount > need:
         raise MatchError("match exceeds the outstanding expected amount")
-    return _link(session, movement, tx, amount, manual=True, replaces=provisional)
+    return record_payment(session, movement, tx, amount, manual=True,
+                          provisional=provisional, outstanding=need)
 
 
 def auto_match(session: Session, household_id: int, *,
