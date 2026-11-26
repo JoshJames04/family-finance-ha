@@ -424,9 +424,8 @@ def decide_contribution_change(
     if proposal.state != "pending" or proposal.effective_date < date.today():
         raise HTTPException(409, "this proposal has expired")
     rule = _get(session, household.id, proposal.rule_id)
-    spec = json.loads(rule.amount_spec)
     if (not rule.active or rule.dest_account_id != account_id
-            or spec.get("pence") != proposal.old_pence):
+            or transfer_rules.fixed_amount_at(rule, proposal.effective_date) != proposal.old_pence):
         raise HTTPException(409, "the agreed schedule has changed")
     if decision == "accept":
         due = shared_contribution_approvals.next_unpaid_date(

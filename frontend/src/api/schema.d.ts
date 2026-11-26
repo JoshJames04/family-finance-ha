@@ -5012,6 +5012,8 @@ export interface components {
             approver_profile_id?: number | null;
             /** Rule Id */
             rule_id: number;
+            /** Budget Id */
+            budget_id: number;
             /** Old Pence */
             old_pence: number;
             /** New Pence */

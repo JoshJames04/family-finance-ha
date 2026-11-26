@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -84,7 +84,27 @@ def test_budget_change_requires_latest_proposal_approval(tmp_path: Path) -> None
         assert client.post(f"{path}/{first['id']}/accept", headers=headers).status_code == 409
         rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
         assert {r["amount_spec"]["pence"] for r in rules} == {50000, 100000}
+        future = (today + timedelta(days=90)).replace(day=1)
+        future_budget = post("budgets", {
+            "name": "Future shared", "period_type": "monthly",
+            "start_date": future.isoformat(),
+            "end_date": future.replace(day=monthrange(future.year, future.month)[1]).isoformat(),
+        })
+        post(f"budgets/{future_budget}/lines", {
+            "category_id": category, "side": "expense", "amount": 161000,
+        })
+        assert client.post(f"{base}/budgets/{future_budget}/approve",
+                           headers=headers).status_code == 200
+        pending = client.get(path, headers=headers).json()
+        later = next(item for item in pending if item["budget_id"] == future_budget)
+        assert client.post(f"{path}/{later['id']}/accept", headers=headers).status_code == 204
         for _ in range(2):
             assert client.post(f"{path}/{latest['id']}/accept", headers=headers).status_code == 204
         rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
-        assert {r["amount_spec"]["pence"] for r in rules} == {50000, 107000}
+        assert {r["amount_spec"]["pence"] for r in rules} == {50000, 111000}
+        for proposal in (latest, later):
+            value = client.get(
+                f"{base}/transfer-rules/{proposal['rule_id']}/evaluate",
+                headers=headers, params={"on": proposal["effective_date"]},
+            ).json()
+            assert value["amount_pence"] == proposal["new_pence"]

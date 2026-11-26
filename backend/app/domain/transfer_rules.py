@@ -137,19 +137,20 @@ def _period_before(rule: TransferRule, occ: date) -> date:
     return prev
 
 
+def fixed_amount_at(rule: TransferRule, on: date) -> int:
+    raw = json.loads(rule.amount_spec)
+    boundary = on.isoformat()
+    return int(next((item["pence"] for item in reversed(raw.get("effective_amounts", []))
+                     if item["date"] <= boundary), raw.get("original_pence", raw["pence"])))
+
+
 def evaluate(session: Session, rule: TransferRule,
              on: date) -> int | None:
     """Amount in pence for the occurrence on ``on``. ``None`` when the
     amount cannot be derived yet (no covering budget / no income)."""
     spec = parse_spec(rule.amount_spec)
     if spec.kind is AmountKind.fixed:
-        raw = json.loads(rule.amount_spec)
-        if "effective_amounts" in raw:
-            boundary = on.isoformat()
-            amount = next((item["pence"] for item in reversed(raw["effective_amounts"])
-                           if item["date"] <= boundary), raw["original_pence"])
-            return int(amount) or None
-        return spec.pence
+        return fixed_amount_at(rule, on) or None
     if spec.kind is AmountKind.income_pct:
         since = _period_before(rule, on)
         amounts = external_category_amounts(

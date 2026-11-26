@@ -235,7 +235,9 @@ def remove_future_lines(
             "rollover": row.rollover,
         })
     if removed:
-        shared_contribution_approvals.propose(session, b, "A planned expense was removed")
+        for affected_budget in dict.fromkeys(row.budget for row in removed):
+            shared_contribution_approvals.propose(
+                session, affected_budget, "A planned expense was removed")
         schedule.rematerialize_budget_derived_rules(session, household.id)
         financial_events.evaluate_budgets(session, household.id)
     return {"removed": len(removed)}

@@ -36,6 +36,7 @@ class ContributionProposal(BaseModel):
     profile_id: int
     approver_profile_id: int | None = None
     rule_id: int
+    budget_id: int
     old_pence: int
     new_pence: int
     effective_date: date
@@ -174,24 +175,26 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
                 by_profile.clear()
                 break
             by_profile[owner] = rule
-        current = {owner: int(json.loads(rule.amount_spec)["pence"])
-                   for owner, rule in by_profile.items()}
+        dates = {owner: next_unpaid_date(session, rule, max(today, budget.start_date))
+                 for owner, rule in by_profile.items()}
+        current = {owner: transfer_rules.fixed_amount_at(rule, due)
+                   for owner, rule in by_profile.items() if (due := dates[owner]) is not None}
         next_amounts = _proposed_amounts(policy, current, target) if current else None
         row, previous = read(session, household_id, pot_id)
-        changes = []
+        changes = [item for item in previous if item.budget_id != budget.id]
         if next_amounts:
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
                     continue
                 rule = by_profile[owner]
-                date_due = next_unpaid_date(session, rule, max(today, budget.start_date))
-                if date_due is None:
-                    continue
+                date_due = dates[owner]
+                assert date_due is not None
                 kept = next((item for item in previous if (
-                    item.rule_id, item.old_pence, item.new_pence, item.effective_date,
-                ) == (rule.id, current[owner], amount, date_due)), None)
+                    item.budget_id, item.rule_id, item.old_pence, item.new_pence,
+                    item.effective_date,
+                ) == (budget.id, rule.id, current[owner], amount, date_due)), None)
                 change = kept or ContributionProposal(
-                    id=uuid4().hex, profile_id=owner, rule_id=rule.id,
+                    id=uuid4().hex, profile_id=owner, rule_id=rule.id, budget_id=budget.id,
                     approver_profile_id=policy.approver_profile_id if policy.approval == "delegated"
                     else None,
                     old_pence=current[owner], new_pence=amount, effective_date=date_due,
@@ -203,6 +206,7 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
                         change.state = "accepted"
                     _notify(session, household_id, change)
                 changes.append(change)
+        changes.sort(key=lambda item: (item.effective_date, item.profile_id, item.budget_id))
         if changes != previous:
             active = {change.id for change in changes}
             for stale in previous:
@@ -214,9 +218,10 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
 def apply(session: Session, rule: TransferRule, proposal: ContributionProposal) -> None:
     spec = json.loads(rule.amount_spec)
     changes = spec.get("effective_amounts", [])
-    changes = [item for item in changes if item["date"] < proposal.effective_date.isoformat()]
+    changes = [item for item in changes if item["date"] != proposal.effective_date.isoformat()]
     changes.append({"date": proposal.effective_date.isoformat(), "pence": proposal.new_pence})
     spec.setdefault("original_pence", spec["pence"])
-    spec.update(pence=proposal.new_pence, effective_amounts=changes)
+    changes.sort(key=lambda item: item["date"])
+    spec.update(pence=changes[-1]["pence"], effective_amounts=changes)
     rule.amount_spec = json.dumps(spec)
     schedule.rematerialize_transfer_rule(session, rule)
