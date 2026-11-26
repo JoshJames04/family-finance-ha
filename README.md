@@ -44,6 +44,10 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   configuration and regular deductions, into the account it is
   paid into. Account and scenario forecasts include only outstanding amounts
   after matching; received salary and paid bills are not projected again.
+  The balance chart starts with the selected account's opening balance.
+  Each future point shows its daily net scheduled change and closing balance.
+  A scheduled transfer to a bills space reduces the source account on the
+  transfer date. Bills paid by that space appear in its own forecast.
 - **UK payroll** — salary history, overtime (configurable multipliers), PAYE,
   National Insurance, student loans, pension and payslip reconciliation.
   Overtime is grouped into Monday–Sunday weekly sheets, including historical
