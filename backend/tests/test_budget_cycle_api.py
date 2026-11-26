@@ -207,6 +207,7 @@ def test_deactivated_employment_stops_supplying_future_shared_payday(setup):
     })
     route = f"/api/v1/transfer-rules/shared-split/{pot['id']}"
     assert str(owner["id"]) in client.get(route).json()["next_paydays"]
-    response = client.patch(f"/api/v1/employments/{employment['id']}", json={"is_active": False})
+    response = client.patch(f"/api/v1/employments/{employment['id']}", json={"is_active": False},
+                            headers={"X-Profile-Id": str(owner["id"])})
     assert response.status_code == 200, response.text
     assert str(owner["id"]) not in client.get(route).json()["next_paydays"]
