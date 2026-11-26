@@ -91,6 +91,7 @@ def suggest(
         low = running
         if running < buffer_pence:
             first_shortfall = today
+    parent = transfer_rules.space_parent(session, account.id)
     return BillsSpaceFunding(
         balance_pence=balance, buffer_pence=buffer_pence, through=through,
         next_top_up=next_top_up,
@@ -99,6 +100,7 @@ def suggest(
             rules[standing.source_id], standing.expected_date,
         ) if standing else None),
         first_shortfall=first_shortfall,
+        funding_parent_id=parent.id if parent else None,
         top_up_pence=max(0, buffer_pence - low), movements=rows,
     )
 

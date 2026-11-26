@@ -1160,6 +1160,7 @@ class BillsSpaceFunding(BaseModel):
     next_top_up: date | None
     standing_rule_id: int | None
     standing_pence: int | None
+    funding_parent_id: int | None
     first_shortfall: date | None
     top_up_pence: int
     movements: list[BillsSpaceMovement]

@@ -21,14 +21,16 @@ export function BillsSpaceFunding() {
   const [standingAmount, setStandingAmount] = useState("");
   const bills = accounts.data?.items.filter(a => a.owner_profile_id === null && a.type === "bills") ?? [];
   const selected = bills.find(a => a.id === target) ?? bills[0];
-  const sources = accounts.data?.items.filter(a => a.owner_profile_id === null && a.type === "joint") ?? [];
-  const sourceAccount = sources.find(a => a.id === source) ?? (sources.length === 1 ? sources[0] : undefined);
   const bufferPence = Math.round(Number(buffer) * 100);
   const validBuffer = Number.isFinite(bufferPence) && bufferPence >= 0 && bufferPence <= 100_000_000;
   const funding = useApi(() => api.get("/api/v1/transfer-rules/bills-space/{account_id}", {
     path: { account_id: selected!.id },
     query: { through: through || undefined, buffer_pence: bufferPence },
   }), ready && selected != null && validBuffer, [selected?.id, through, bufferPence]);
+  const parentId = funding.data?.funding_parent_id;
+  const sources = accounts.data?.items.filter(a => a.owner_profile_id === null && a.type === "joint"
+    && (parentId == null || parentId === a.id)) ?? [];
+  const sourceAccount = sources.find(a => a.id === source) ?? (sources.length === 1 ? sources[0] : undefined);
 
   const approvals = useApi(() => api.get("/api/v1/transfer-rules/shared-split/{account_id}/proposals", {
     path: { account_id: selected!.id },

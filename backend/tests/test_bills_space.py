@@ -49,6 +49,8 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
                 ))
 
         route = f"{base}/transfer-rules/bills-space/{bills}"
+        joint_funding = client.get(f"{base}/transfer-rules/bills-space/{joint}", headers=h)
+        assert joint_funding.status_code == 404
         default = client.get(route, headers=h).json()
         assert default["top_up_pence"] == 10000 and default["next_top_up"] == due.isoformat()
         assert default["first_shortfall"] == today.isoformat()

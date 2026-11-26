@@ -469,12 +469,19 @@ def save_shared_split(
              {"mode": body.policy.mode})
 
 
+def _bills_account(session: Session, household_id: int, account_id: int) -> Account:
+    account = _shared_pot(session, household_id, account_id)
+    if account.type != AccountType.bills:
+        raise HTTPException(404, "shared bills account not found")
+    return account
+
+
 @router.get("/bills-space/{account_id}", response_model=schemas.BillsSpaceFunding)
 def bills_space_funding(
     account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
     through: date | None = None, buffer_pence: Annotated[int, Query(ge=0, le=100_000_000)] = 0,
 ) -> schemas.BillsSpaceFunding:
-    account = _shared_pot(session, household.id, account_id)
+    account = _bills_account(session, household.id, account_id)
     if not rbac.visible(account.owner_profile_id, profile):
         raise HTTPException(404, "bills account not found")
     today = date.today()
@@ -491,7 +498,7 @@ def schedule_bills_space_top_up(
     if not rbac.write_allowed(None, profile):
         raise HTTPException(403, "role cannot schedule shared transfers")
     source = _shared_pot(session, household.id, body.source_account_id)
-    target = _shared_pot(session, household.id, account_id)
+    target = _bills_account(session, household.id, account_id)
     parent = transfer_rules.space_parent(session, target.id)
     if (source.id == target.id or source.type != AccountType.joint
             or (parent is not None and source.id != parent.id)):
@@ -520,7 +527,7 @@ def propose_bills_space_schedule_change(
 ) -> shared_contribution_approvals.ContributionProposal:
     if profile is None or not rbac.write_allowed(None, profile):
         raise HTTPException(403, "sign in as a member to propose standing transfer changes")
-    target = _shared_pot(session, household.id, account_id)
+    target = _bills_account(session, household.id, account_id)
     rule = _get(session, household.id, body.rule_id)
     source = _shared_pot(session, household.id, rule.source_account_id)
     if (rule.dest_account_id != target.id or source.type != AccountType.joint

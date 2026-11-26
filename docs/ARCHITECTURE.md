@@ -649,3 +649,18 @@ Recent proposals can be replaced by a newer revision. Accepting an earlier
 amount recalculates later pending proposals and leaves later accepted dates in
 place. An accepted amount takes effect on its displayed date. Notifications
 appear in the inbox for the configured approver.
+
+### Bills account funding
+
+Shared estimates the shortfall from the account balance and outstanding bills,
+subscriptions and dependable scheduled transfers through the selected date. It
+uses live match evidence to avoid counting settled amounts twice. By default the
+window ends at the next standing top-up, with a 30-day fallback. Same-day bills
+are evaluated before ordinary receipts, and the estimate shows the first date
+the balance would fall below the chosen buffer.
+
+A one-off top-up creates a dated forecast entry. For a provider bills space it
+uses the mapped parent joint account. Changes to the standing amount follow the
+funding joint account's approval policy and take effect from its next unpaid
+occurrence. Member contribution status is calculated separately from the bills
+account's funding estimate.
