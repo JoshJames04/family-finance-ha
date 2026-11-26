@@ -43,6 +43,10 @@ are excluded from the repository.
 
 ## Legacy refund correction capacity
 
+Refund capacity follows the purchase through corrections. Earlier refunds retain
+their original links and reduce the available amount on the current purchase.
+Voiding the final purchase leaves no amount available for a new refund.
+
 Refund capacity resolves each correction family to one live payment. A live
 explicit purchase link remains authoritative after amount, date or account
 edits. Pre-upgrade NULL links inherit only through financially equivalent void
