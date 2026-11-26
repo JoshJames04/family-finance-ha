@@ -5,7 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Plus, Radar, Repeat, TrendingUp } from "lucide-react";
 import { api } from "../api/client";
-import { useApi } from "../api/useApi";
+import { useApi, useMeProfileId } from "../api/useApi";
 import { useAccounts, useCategories, useReady } from "../api/hooks";
 import type { components } from "../api/schema";
 import { DataView } from "../components/DataView";
@@ -14,6 +14,7 @@ import { Badge, type BadgeTone } from "../components/Badge";
 import { Money } from "../components/Money";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
+import { PaymentAccountFilter, usePaymentAccountFilter } from "../components/PaymentAccountFilter";
 import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Segmented, Stat } from "../components/Display";
 import {
@@ -49,13 +50,22 @@ export function Subscriptions() {
   const priceChanges = useApi(() => api.get("/api/v1/subscriptions/price-changes"), ready, [rev]);
   const candidates = useApi(() => api.get("/api/v1/subscriptions/candidates"), ready, [rev]);
   const categories = useCategories();
+  const accounts = useAccounts(rev);
+  const me = useMeProfileId();
   const refresh = () => setRev((r) => r + 1);
 
-  const list = (subs.data ?? []).filter((s) =>
-    tab === "cancelled" ? s.status === "cancelled" : s.status !== "cancelled");
+  const subscriptions = subs.data ?? [];
+  const used = new Set(subscriptions.flatMap(s => s.account_id === null ? [] : [s.account_id]));
+  const accountFilter = usePaymentAccountFilter(accounts.data?.items ?? [], used, me);
+  const scoped = subscriptions.filter(s => accountFilter.includes(s.account_id));
+  const scopedIds = new Set(scoped.map(s => s.id));
+  const list = scoped.filter((s) => tab === "cancelled" ? s.status === "cancelled" : s.status !== "cancelled");
   const pending = (Array.isArray(candidates.data) ? candidates.data : [])
-    .filter((c) => c.status === "pending");
-  const active = (subs.data ?? []).filter((s) => s.status !== "cancelled");
+    .filter(c => c.status === "pending" && accountFilter.includes(c.account_id));
+  const history = (priceChanges.data ?? []).filter(change => scopedIds.has(change.subscription_id));
+  const active = scoped.filter(s => s.status !== "cancelled");
+  const annualTotal = (annualised.data?.per_subscription ?? [])
+    .reduce((sum, row) => scopedIds.has(row.subscription_id) ? sum + row.annualised_pence : sum, 0);
   const monthlyTotal = active
     .reduce((sum, s) => sum + monthlyPence(s), 0);
   const next = [...active]
@@ -88,6 +98,7 @@ export function Subscriptions() {
         description="Recurring services, renewals and what they really cost per year."
         actions={
           <>
+            <PaymentAccountFilter label="Subscription scope" filter={accountFilter} />
             <Button variant="secondary" onClick={runDetection}><Radar /> Scan transactions</Button>
             <Button variant="primary" onClick={() => setAdding(true)}><Plus /> Add subscription</Button>
           </>
@@ -98,7 +109,7 @@ export function Subscriptions() {
         <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Monthly equivalent"
           value={subs.data ? <Money pence={monthlyTotal} /> : "—"} hint="across active services" />
         <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Annualised"
-          value={annualised.data ? <Money pence={annualised.data.total_annualised_pence} /> : "—"}
+          value={annualised.data && subs.data ? <Money pence={annualTotal} /> : "—"}
           hint="true yearly cost" />
         <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Active"
           value={subs.data ? String(active.length) : "—"}
@@ -198,10 +209,10 @@ export function Subscriptions() {
         </DataView>
       </Panel>
 
-      {(priceChanges.data ?? []).length > 0 && (
+      {history.length > 0 && (
         <Panel flush className="mt-4" title="Price changes" description="Detected changes in what your services charge.">
           <ul className="divide-y divide-border">
-            {(priceChanges.data ?? []).slice(0, 8).map((p: PriceChange) => {
+            {history.slice(0, 8).map((p: PriceChange) => {
               const name = subs.data?.find((s) => s.id === p.subscription_id)?.payee ?? `Subscription #${p.subscription_id}`;
               return (
                 <li key={p.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">

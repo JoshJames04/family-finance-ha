@@ -226,6 +226,10 @@ configured monthly payday or a selected day of the month. The setup previews
 the amount and first payment date and creates a forecast schedule in Family
 Finance. The account holder still makes the transfer at their bank.
 
+Bills and Subscriptions offer a payment-account filter below All, Mine and
+Shared. Each list offers accounts used on that page. Open Mine for personal
+accounts or Shared for joint accounts. The figures follow the account filter.
+
 On Shared, choose the account you and other members pay into. Adjust split uses
 the Shared expense total as a suggested funding target. For two members, editing
 one amount allocates the remainder to the other. The transfers change only when
