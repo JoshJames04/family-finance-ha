@@ -1076,6 +1076,7 @@ class ExpectedMovement(Base):
         ForeignKey("household.id"), nullable=False, index=True)
     account_id: Mapped[int | None] = mapped_column(
         ForeignKey("account.id"), nullable=True, index=True)
+    original_expected_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expected_date: Mapped[date_t] = mapped_column(Date, nullable=False)
     amount_pence: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(String(200), nullable=False)

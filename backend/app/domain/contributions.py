@@ -384,6 +384,9 @@ def reschedule(session: Session, movement: ExpectedMovement,
             f"expected movement {movement.id} is written off")
     if new_date <= movement.expected_date:
         raise MatchError("new due date must be after the current one")
+    if (movement.source_type == ExpectedSource.commitment
+            and movement.original_expected_date is None):
+        movement.original_expected_date = movement.expected_date
     movement.expected_date = new_date
     session.flush()
     return movement

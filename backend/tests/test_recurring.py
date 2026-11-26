@@ -7,9 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.audit import emit
 from app.domain import contributions, schedule, settle
-from app.domain.recurring import advance, materialise, occurrences
+from app.domain.recurring import advance, materialise, occurrences, rescheduled_occurrences
 from app.persistence.models import (
     Account,
     AccountType,
@@ -131,10 +130,7 @@ class TestMaterialise:
             session.flush()
             settle.settle_occurrence(session, movement, tx, manual=True)
         for due in [date(2026, 2, 2), date(2026, 2, 4)]:
-            old = movement.expected_date
             contributions.reschedule(session, movement, due)
-            emit(session, account.household_id, "test", "reschedule", "expected_movement",
-                 movement.id, {"from": str(old), "to": str(due)})
         if state == "written_off":
             contributions.write_off(session, movement, when=datetime.now(UTC))
         schedule.rematerialize_commitment(session, bill, today=date(2026, 1, 30))
@@ -150,6 +146,35 @@ class TestMaterialise:
             assert contributions.status(session, movement).outstanding_pence == 0
         assert bill.generated_count == 1
         assert materialise(session, bill, date(2026, 2, 4)) == []
+
+    def test_replacement_with_same_ids_has_its_own_posting_date(
+        self, session: Session, account: Account,
+    ) -> None:
+        from app.api.audit import emit
+
+        old = _rc(account, occurrence_count=1)
+        session.add(old)
+        session.flush()
+        schedule.rematerialize_commitment(session, old, today=old.next_date)
+        movement = session.scalars(select(ExpectedMovement)).one()
+        identifiers = old.id, movement.id
+        new_due = date(2026, 2, 4)
+        contributions.reschedule(session, movement, new_due)
+        emit(session, account.household_id, "test", "reschedule", "expected_movement",
+             movement.id, {"from": str(old.next_date), "to": str(new_due)})
+        session.delete(movement)
+        session.delete(old)
+        session.flush()
+        replacement = _rc(account, next_date=new_due, occurrence_count=1)
+        session.add(replacement)
+        session.flush()
+        schedule.rematerialize_commitment(session, replacement, today=new_due)
+        fresh = session.scalars(select(ExpectedMovement)).one()
+        assert (replacement.id, fresh.id) == identifiers
+        assert fresh.original_expected_date is None
+        assert rescheduled_occurrences(session, replacement) == {}
+        assert [(t.date, t.amount_pence) for t in materialise(session, replacement, new_due)] == [
+            (new_due, -15000)]
 
     @pytest.mark.parametrize("partially_paid", [False, True])
     def test_written_off_occurrence_advances_without_posting(

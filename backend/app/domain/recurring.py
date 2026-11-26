@@ -14,13 +14,12 @@ import calendar
 from collections.abc import Iterator
 from datetime import date, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.domain import contributions, outbox
 from app.persistence.models import (
     Account,
-    AuditEvent,
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
@@ -89,24 +88,15 @@ def emit_lifecycle(session: Session, c: RecurringCommitment, event_type: str) ->
 def rescheduled_occurrences(
     session: Session, c: RecurringCommitment,
 ) -> dict[date, ExpectedMovement]:
-    """Recover original occurrence dates from the recorded sequence of due-date changes."""
-    rows = session.execute(select(
-        ExpectedMovement, func.json_extract(AuditEvent.payload, "$.from"),
-        func.json_extract(AuditEvent.payload, "$.to"),
-    ).join(AuditEvent, AuditEvent.entity_id == ExpectedMovement.id).where(
+    """Return this schedule's moved occurrences by their original calendar date."""
+    rows = session.scalars(select(ExpectedMovement).where(
         ExpectedMovement.household_id == c.household_id,
         ExpectedMovement.account_id == c.account_id,
         ExpectedMovement.source_type == ExpectedSource.commitment,
         ExpectedMovement.source_id == c.id,
-        AuditEvent.household_id == c.household_id, AuditEvent.entity_type == "expected_movement",
-        AuditEvent.action == "reschedule", AuditEvent.created_at >= ExpectedMovement.created_at,
-    ).order_by(AuditEvent.id.desc()))
-    origins: dict[ExpectedMovement, date] = {}
-    for movement, previous, target in rows:
-        current = origins.get(movement, movement.expected_date)
-        if current.isoformat() == target and previous:
-            origins[movement] = date.fromisoformat(previous)
-    return {original: movement for movement, original in origins.items()}
+        ExpectedMovement.original_expected_date.is_not(None),
+    ))
+    return {m.original_expected_date: m for m in rows if m.original_expected_date is not None}
 
 
 def materialise(
