@@ -60,7 +60,7 @@ export function BillsSpaceFunding() {
           <Input id={id} type="date" value={through} min={toISODate(new Date())}
             onChange={e => setThrough(e.target.value)} />
         )}</Field>
-        <Field label="Keep a buffer (£)">{id => (
+        <Field label="Keep a buffer (Â£)">{id => (
           <Input id={id} type="number" min="0" max="1000000" step="0.01" value={buffer}
             onChange={e => setBuffer(e.target.value)} />
         )}</Field>
@@ -81,7 +81,7 @@ export function BillsSpaceFunding() {
             <ul className="mt-2 space-y-1">
               {result.movements.map((row, index) => (
                 <li key={index} className="flex flex-wrap justify-between gap-x-3">
-                  <span>{formatDate(row.date)} · {row.label}</span><Money pence={row.pence} />
+                  <span>{formatDate(row.date)} Â· {row.label}</span><Money pence={row.pence} />
                 </li>
               ))}
             </ul>
