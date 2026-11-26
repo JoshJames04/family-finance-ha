@@ -356,6 +356,15 @@ class TestManualConfirm:
         assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
             incoming.id: 0, outgoing.id: 0,
         }
+        for index in range(2):
+            session.add(Transaction(
+                account_id=source.id, date=TODAY, amount_pence=-20000,
+                payee=f"Equivalent correction {index}", transfer_id=receipt.transfer_id,
+                corrects_id=debit.id,
+            ))
+            session.flush()
+            expected = 20000 if index == 0 else 0
+            assert contributions.matched_totals(session, [incoming.id])[incoming.id] == expected
         receipt.status = TransactionStatus.void
         session.flush()
         assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
