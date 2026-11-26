@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.domain.accounts import current_movement_account
 from app.domain.expected_matches import (
@@ -33,7 +33,11 @@ from app.persistence.models import (
     ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
+    MergeCandidate,
+    MergeStatus,
+    StatementBankIdentity,
     Transaction,
+    TransactionSource,
     TransactionStatus,
 )
 
@@ -180,6 +184,66 @@ def assert_payment_eligible(session: Session, movement: ExpectedMovement,
         raise MatchError("cyclic transaction corrections cannot satisfy expected movements")
 
 
+def bill_post_ref(movement: ExpectedMovement) -> str:
+    return f"rec:{movement.source_id}:{movement.original_expected_date or movement.expected_date}"
+
+
+def editable_bill_posts(
+    session: Session, movements: Collection[ExpectedMovement], account_id: int,
+) -> dict[int, Transaction]:
+    """Unprotected pending ledger entries belonging to these exact bill occurrences."""
+    from app.domain.categorise import transaction_editable
+
+    bills = {m.id: m for m in movements
+             if m.source_type == ExpectedSource.commitment and m.account_id == account_id}
+    refs = {mid: bill_post_ref(m) for mid, m in bills.items()}
+    if not refs:
+        return {}
+    accepted_refs = {*refs.values(), *(f"{ref}:provisional" for ref in refs.values())}
+    other = aliased(ExpectedMatch)
+    rows = session.execute(select(ExpectedMatch, Transaction).join(
+        Transaction, ExpectedMatch.transaction_id == Transaction.id).where(
+            ExpectedMatch.movement_id.in_(refs), Transaction.account_id == account_id,
+            Transaction.source == TransactionSource.system,
+            Transaction.status == TransactionStatus.pending,
+            Transaction.external_ref.in_(accepted_refs), Transaction.transfer_id.is_(None),
+            Transaction.refund_of_id.is_(None),
+            ~select(other.id).where(other.transaction_id == Transaction.id,
+                                    other.id != ExpectedMatch.id).exists(),
+            ~select(MergeCandidate.id).where(
+                MergeCandidate.existing_txn_id == Transaction.id,
+                MergeCandidate.status != MergeStatus.dismissed).exists(),
+            ~select(StatementBankIdentity.transaction_id).where(
+                StatementBankIdentity.transaction_id == Transaction.id).exists()))
+    editable = {}
+    for match, post in rows:
+        ref = refs[match.movement_id]
+        if (post.external_ref in (ref, f"{ref}:provisional")
+                and match.matched_pence == abs(post.amount_pence)
+                and bills[match.movement_id].amount_pence * post.amount_pence > 0
+                and not post.splits and transaction_editable(session, post)):
+            editable[match.movement_id] = post
+    return editable
+
+
+def pending_bill_posts(
+    session: Session, movements: Collection[ExpectedMovement], payment: Transaction,
+) -> dict[int, Transaction]:
+    if (payment.source in (TransactionSource.system, TransactionSource.manual_verification)
+            or payment.refund_of_id is not None or payment.transfer_id is not None):
+        return {}
+    posts = editable_bill_posts(session, movements, payment.account_id)
+    return {mid: post for mid, post in posts.items()
+            if post.amount_pence * payment.amount_pence > 0}
+
+
+def payment_outstanding(movement: ExpectedMovement, matched: int,
+                        provisional: Transaction | None) -> int:
+    """Capacity for real payment evidence after releasing a provisional posting."""
+    posted = abs(provisional.amount_pence) if provisional is not None else 0
+    return max(0, abs(movement.amount_pence) - max(0, matched - posted))
+
+
 def _link(session: Session, movement: ExpectedMovement,
           tx: Transaction, pence: int, manual: bool) -> ExpectedMatch:
     m = ExpectedMatch(movement_id=movement.id, transaction_id=tx.id,
@@ -187,6 +251,33 @@ def _link(session: Session, movement: ExpectedMovement,
     session.add(m)
     session.flush()
     return m
+
+
+def resize_bill_post(session: Session, movement: ExpectedMovement,
+                     provisional: Transaction, remaining: int) -> None:
+    """Preserve the user-void reference; only automatic retirement releases it for a retry."""
+    ref = bill_post_ref(movement)
+    if remaining <= 0:
+        provisional.status = TransactionStatus.void
+        provisional.external_ref = f"{ref}:superseded:{provisional.id}"
+        return
+    provisional.external_ref = f"{ref}:provisional"
+    provisional.amount_pence = remaining if provisional.amount_pence > 0 else -remaining
+    link = session.scalars(select(ExpectedMatch).where(
+        ExpectedMatch.movement_id == movement.id,
+        ExpectedMatch.transaction_id == provisional.id)).one()
+    link.matched_pence = remaining
+
+
+def record_payment(
+    session: Session, movement: ExpectedMovement, tx: Transaction, pence: int, *,
+    manual: bool, provisional: Transaction | None, outstanding: int,
+) -> ExpectedMatch:
+    """Exchange the allocated portion of an editable posting for real evidence."""
+    if provisional is not None:
+        remainder = min(abs(provisional.amount_pence), outstanding) - pence
+        resize_bill_post(session, movement, provisional, remainder)
+    return _link(session, movement, tx, pence, manual=manual)
 
 
 def confirm(session: Session, movement: ExpectedMovement,
@@ -198,14 +289,17 @@ def confirm(session: Session, movement: ExpectedMovement,
     if tx.id in _used_legs(session, household_id=movement.household_id):
         raise MatchError(
             f"transaction {tx.id} already matched to a movement")
-    need = status(session, movement, today).outstanding_pence
+    provisional = pending_bill_posts(session, [movement], tx).get(movement.id)
+    matched = status(session, movement, today).matched_pence
+    need = payment_outstanding(movement, matched, provisional)
     amount = min(abs(tx.amount_pence), need) \
         if pence is None else pence
     if amount <= 0 or amount > abs(tx.amount_pence):
         raise MatchError("match amount must be within the leg amount")
     if amount > need:
         raise MatchError("match exceeds the outstanding expected amount")
-    return _link(session, movement, tx, amount, manual=True)
+    return record_payment(session, movement, tx, amount, manual=True,
+                          provisional=provisional, outstanding=need)
 
 
 def auto_match(session: Session, household_id: int, *,
@@ -384,6 +478,9 @@ def reschedule(session: Session, movement: ExpectedMovement,
             f"expected movement {movement.id} is written off")
     if new_date <= movement.expected_date:
         raise MatchError("new due date must be after the current one")
+    if (movement.source_type == ExpectedSource.commitment
+            and movement.original_expected_date is None):
+        movement.original_expected_date = movement.expected_date
     movement.expected_date = new_date
     session.flush()
     return movement

@@ -63,6 +63,21 @@ def _txn(session: Session, a: Account, on: date, pence: int,
 
 
 class TestAutoMatch:
+    def test_legacy_matched_snapshot_without_a_payment_link_reserves_the_bill(
+        self, session: Session, household: Household, account: Account,
+    ) -> None:
+        day = date(2025, 5, 1)
+        bill = _expected(session, household, account, day, -1500, "Example bill")
+        settled = _txn(session, account, day, -1500, bill.label)
+        settled.status = TransactionStatus.reconciled
+        session.add(Reconciliation(household_id=household.id, account_id=account.id,
+                    transaction_id=settled.id, status=ReconStatus.matched, score=100,
+                    expected_source_type="commitment", expected_source_id=bill.source_id,
+                    expected_date=day))
+        second = _txn(session, account, day, -1500, bill.label)
+        assert recon.reconcile_account(session, account, day).matched == 0
+        assert second.status == TransactionStatus.pending
+
     def test_expected_bill_matched_closes_loop(
             self, session: Session, household: Household,
             account: Account) -> None:

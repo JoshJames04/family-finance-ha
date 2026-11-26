@@ -82,6 +82,14 @@ feature PR ──► develop ──► release PR develop→main ──► tag v
    a verified matching backup; reinstalling an old image alone does not
    undo schema changes.
 
+Revision `0077_bill_occurrence_origin` records the original date of a rescheduled
+bill on its movement row. The upgrade recovers unambiguous legacy reschedules.
+Events in the same second as a legacy movement's creation cannot prove that
+the SQLite row ID still refers to that movement.
+
+Revision `0076_statement_bank_identity` adds reviewed OFX identity links on top of
+the merged seasonal and payroll schema.
+
 Revision `0075_merge_seasonal_payroll` joins the seasonal-date (`0071`) and
 payroll/bonus (`0074`) branches. Existing revision IDs and parent links are kept,
 so startup can upgrade from either branch or a database already at both heads.

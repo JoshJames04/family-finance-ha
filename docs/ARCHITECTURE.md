@@ -334,6 +334,18 @@ Shared Budget variance drills include `shared_only=true`; personal drills carry
 the owner filter. Transaction drills retain non-void/opening/transfer exclusions. Account
 balances and net worth continue to include opening stock.
 
+**Post next** advances each recurring bill occurrence once. Where payment
+evidence already exists for that date and account, it creates a pending ledger
+transaction only for the outstanding amount and links that transaction to the
+occurrence. Prepaid and written-off dates advance without another ledger entry.
+A generated pending remainder is provisional. When a real payment is accepted
+for the same occurrence, its allocation reduces the pending posting and the
+linked amount together. Full settlement retires the provisional posting. A
+**Post next** retry rebuilds or adjusts the posting if the replacement payment
+later becomes void, preserving explicit user voids and locked periods. Ambiguous reconciliation proposals require confirmation.
+A rescheduled bill retains its original occurrence identity during schedule regeneration and posts
+the remaining amount on its revised due date once the posting horizon reaches it.
+
 Expected movements retain their original scheduled amounts and expose
 `outstanding_pence` from contribution matching plus `dismissed_at`. Budget salary
 forecasts use the undismissed residual of employment/payroll-run movements within
