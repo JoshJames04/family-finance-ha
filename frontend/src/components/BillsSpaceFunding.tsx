@@ -137,6 +137,26 @@ export function BillsSpaceFunding() {
           </div>}
         </div>
       )}</DataView>}
+      {(Array.isArray(approvals.data) ? approvals.data : []).filter(change => change.budget_id == null).map(change => (
+        <div key={change.id} className="flex flex-wrap items-center gap-2 text-sm">
+          <span>Standing top-up from {formatDate(change.effective_date)} <Money pence={change.old_pence} /> to <Money pence={change.new_pence} /></span>
+          <Button disabled={busy} onClick={() => void decide(change.id, "accept")}>Accept</Button>
+          <Button disabled={busy} onClick={() => void decide(change.id, "keep")}>Keep existing amount</Button>
+        </div>
+      ))}
+      {funding.data?.standing_rule_id != null && <details className="text-sm">
+        <summary className="cursor-pointer">Change the standing top-up</summary>
+        <div className="mt-2 flex flex-wrap items-end gap-3">
+          <Field label="New standing amount (£)" hint={funding.data.standing_pence == null ? undefined
+            : `Scheduled amount: £${(funding.data.standing_pence / 100).toFixed(2)}`}>{id => (
+            <Input id={id} type="number" min="0.01" max="1000000" step="0.01" value={standingAmount}
+              onChange={e => setStandingAmount(e.target.value)} />
+          )}</Field>
+          <Button disabled={busy || funding.loading || !(Number(standingAmount) > 0)
+            || Number(standingAmount) > 1_000_000}
+            onClick={() => void propose(funding.data!.standing_rule_id!)}>Request standing change</Button>
+        </div>
+      </details>}
     </Panel>
   );
 }
