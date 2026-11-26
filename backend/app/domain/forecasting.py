@@ -90,7 +90,7 @@ def _actuals(session: Session, household_id: int, start: date,
 
 def _commitment_spend(session: Session, household_id: int,
                       horizon: date, *, account_ids: list[int] | None = None
-                      ) -> dict[tuple[int, date], int]:
+                      ) -> dict[tuple[int | None, date], int]:
     """Per (category, month) committed spend across all occurrences —
     same expansion the expected-movement stream uses."""
     cats = session.scalars(
@@ -99,13 +99,11 @@ def _commitment_spend(session: Session, household_id: int,
             RecurringCommitment.active.is_(True),
             RecurringCommitment.account_id.in_(select(Account.id).where(
                 Account.household_id == household_id, Account.archived.is_(False))),
-            RecurringCommitment.category_id.isnot(None),
             RecurringCommitment.amount_pence < 0,
             *([RecurringCommitment.account_id.in_(account_ids)]
               if account_ids is not None else [])))
-    out: dict[tuple[int, date], int] = {}
+    out: dict[tuple[int | None, date], int] = {}
     for c in cats:
-        assert c.category_id is not None
         assert c.amount_pence is not None
         for d in occurrences(c, horizon):
             key = (c.category_id, _month_start(d.year, d.month))
@@ -172,7 +170,7 @@ def forecast(session: Session, household_id: int,
         window = [cat_actuals.get(m, 0) for m in history]
         input_months = sum(1 for a in window if a > 0)
         for m in future:
-            confirmed = committed.get((cat, m), 0) if cat else 0
+            confirmed = committed.get((cat, m), 0)
             modelled, method, conf = _model(
                 cat_actuals, m, history)
             residual = max(0, modelled - confirmed)

@@ -38,6 +38,7 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
 
 - **Budgeting** — monthly, annual and custom-period budgets with original
   budget, revised forecast, actuals, variance and forecast-accuracy tracking.
+- The expenditure forecast includes confirmed recurring bills under their category, including uncategorised bills.
 - **Cash-flow forecasting** — date-aware projected balances, safe-to-spend,
   payday intelligence and overdraft risk warnings. Salary is projected from
   the employment's payday rule — no run needed — using effective salary/tax

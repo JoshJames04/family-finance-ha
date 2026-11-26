@@ -187,7 +187,7 @@ class TestConfirmedLayer:
         assert [r.amount_pence for r in rows
                 if r.confidence == "confirmed"] == [50_000]
 
-    def test_uncategorised_commitment_ignored(
+    def test_uncategorised_commitment_keeps_confirmed_amount(
             self, session: Session, household: Household,
             account: Account) -> None:
         c = RecurringCommitment(
@@ -198,7 +198,12 @@ class TestConfirmedLayer:
         session.flush()
         rows = forecasting.forecast(
             session, household.id, from_month=ANCHOR, months=2)
-        assert not any(r.confidence == "confirmed" for r in rows)
+        assert [(r.month, r.category_id, r.method, r.amount_pence) for r in rows] == [
+            (date(2025, 1, 1), None, "commitment", 5_000),
+            (date(2025, 2, 1), None, "commitment", 5_000),
+        ]
+        assert not forecasting.forecast(session, household.id, from_month=ANCHOR,
+                                        months=2, account_ids=[])
 
 
 class TestApi:
