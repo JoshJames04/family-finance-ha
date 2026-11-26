@@ -1165,6 +1165,7 @@ class SharedSplitPolicy(BaseModel):
     fixed_pence: dict[int, int] = Field(default_factory=dict)
     approval: Literal["contributor", "delegated", "automatic"] | None = None
     approver_profile_id: int | None = None
+    alternate_account_ids: list[int] | None = Field(default=None, max_length=50)
 
 
 class SharedSplitSetup(BaseModel):

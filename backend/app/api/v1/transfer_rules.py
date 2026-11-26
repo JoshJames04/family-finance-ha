@@ -5,7 +5,7 @@ import json
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
@@ -248,6 +248,42 @@ def _shared_pot(session: Session, household_id: int, account_id: int) -> Account
     return pot
 
 
+def _receiving_accounts(session: Session, pot: Account, included: set[int]) -> list[int]:
+    if included:
+        allowed = set(session.scalars(select(Account.id).where(
+            Account.id.in_(included), Account.id != pot.id,
+            Account.household_id == pot.household_id, Account.archived.is_(False),
+            Account.owner_profile_id.is_(None),
+        )))
+        if allowed != included:
+            raise HTTPException(422, "choose active shared receiving accounts")
+    return sorted(included)
+
+
+@router.patch("/shared-split/{account_id}/receiving-accounts", status_code=204)
+def save_receiving_accounts(
+    account_id: int, accounts: Annotated[list[int], Body(max_length=50)],
+    household: HouseholdDep, session: SessionDep, profile: ProfileDep, actor: ActorDep,
+) -> None:
+    if profile is not None and not rbac.can(profile, rbac.Action.admin):
+        raise HTTPException(403, "only a household admin can edit receiving accounts")
+    pot = _shared_pot(session, household.id, account_id)
+    key = shared_contribution_approvals.split_key(household.id, pot.id)
+    record = session.get(AppMeta, key)
+    policy = (schemas.SharedSplitPolicy.model_validate_json(record.value)
+              if record else schemas.SharedSplitPolicy(mode="amount"))
+    policy.alternate_account_ids = _receiving_accounts(session, pot, set(accounts))
+    saved = policy.model_dump_json()
+    if len(saved.encode("utf-8")) > 1024:
+        raise HTTPException(422, "the receiving accounts exceed the saved settings limit")
+    if record is None:
+        session.add(AppMeta(key=key, value=saved))
+    else:
+        record.value = saved
+    emit(session, household.id, actor, "update", "shared_split", pot.id,
+         {"alternate_account_ids": policy.alternate_account_ids})
+
+
 @router.get("/shared-split/{account_id}", response_model=schemas.SharedSplitSetup)
 def get_shared_split(
     account_id: int, household: HouseholdDep, session: SessionDep, profile: ProfileDep,
@@ -438,6 +474,17 @@ def save_shared_split(
                 raise HTTPException(422, "choose a household member who can approve changes")
         else:
             body.policy.approver_profile_id = None
+        if body.policy.alternate_account_ids is None:
+            body.policy.alternate_account_ids = (prior_policy.alternate_account_ids
+                                                 if prior_policy else [])
+        else:
+            included = set(body.policy.alternate_account_ids)
+            prior_included = (set(prior_policy.alternate_account_ids or [])
+                              if prior_policy else set())
+            if (included != prior_included and profile is not None
+                    and not rbac.can(profile, rbac.Action.admin)):
+                raise HTTPException(403, "only a household admin can edit receiving accounts")
+            body.policy.alternate_account_ids = _receiving_accounts(session, pot, included)
         if body.policy.approval == "contributor":
             viewers = set(session.scalars(select(UserProfile.id).where(
                 UserProfile.id.in_(amounts), UserProfile.role == Role.viewer,
