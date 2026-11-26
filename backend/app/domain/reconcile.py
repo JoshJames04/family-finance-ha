@@ -27,6 +27,7 @@ from app.domain.expected_matches import (
 )
 from app.persistence.models import (
     Account,
+    ExpectedMatch,
     ExpectedMovement,
     ExpectedSource,
     Reconciliation,
@@ -114,14 +115,24 @@ def reconcile_account(session: Session, account: Account,
     """Scan unreconciled transactions on ``account`` and match each
     against the expected movements within ±DATE_WINDOW days."""
     matched_keys, dismissed_keys, dismissed_txns = set(), set(), set()
-    for r in session.scalars(select(Reconciliation).where(
+    # A snapshot predating payment links can still reserve an occurrence.
+    # For linked bills, the current payment evidence decides how much remains,
+    # including after all previously accepted receipts have been voided.
+    linked_bill = select(ExpectedMatch.id).join(ExpectedMovement).where(
+        ExpectedMatch.transaction_id == Reconciliation.transaction_id,
+        ExpectedMovement.account_id == Reconciliation.account_id,
+        ExpectedMovement.household_id == Reconciliation.household_id,
+        ExpectedMovement.source_type == ExpectedSource.commitment,
+        ExpectedMovement.source_id == Reconciliation.expected_source_id,
+        ExpectedMovement.expected_date == Reconciliation.expected_date,
+    ).exists()
+    for r, has_payment_link in session.execute(select(Reconciliation, linked_bill).where(
             Reconciliation.account_id == account.id,
-            Reconciliation.status.in_(
-                [ReconStatus.matched, ReconStatus.dismissed]))):
-        key = (r.expected_source_type, r.expected_source_id,
-               r.expected_date)
+            Reconciliation.status.in_([ReconStatus.matched, ReconStatus.dismissed]))):
+        key = (r.expected_source_type, r.expected_source_id, r.expected_date)
         if r.status == ReconStatus.matched:
-            matched_keys.add(key)
+            if r.expected_source_type != ExpectedSource.commitment.value or not has_payment_link:
+                matched_keys.add(key)
         else:
             dismissed_keys.add(key)
             dismissed_txns.add(r.transaction_id)
@@ -176,9 +187,7 @@ def reconcile_account(session: Session, account: Account,
             key = (exp.source_type.value, exp.source_id, exp.expected_date)
             posted = provisional.get(exp.id)
             need = contributions.payment_outstanding(exp, totals[exp.id], posted)
-            if (need <= 0 or key in dismissed_keys
-                    or (key in matched_keys and not (exp.source_type == ExpectedSource.commitment
-                                                     and totals[exp.id] > 0))
+            if (need <= 0 or key in dismissed_keys or key in matched_keys
                     or (txn.refund_of_id is not None and exp.source_type in SALARY_SOURCES)):
                 continue
             amount = exp.amount_pence
@@ -212,8 +221,8 @@ def reconcile_account(session: Session, account: Account,
                 continue
             r.status = ReconStatus.matched
             r.resolved_at = datetime.now()
-            matched_keys.add((top.source_type.value, top.source_id,
-                              top.expected_date))
+            if top.source_type != ExpectedSource.commitment:
+                matched_keys.add((top.source_type.value, top.source_id, top.expected_date))
             used.add(txn.id)
             txn.status = TransactionStatus.reconciled
             matched += 1

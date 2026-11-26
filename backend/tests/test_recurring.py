@@ -263,6 +263,31 @@ class TestMaterialise:
                    if t.status != "void") == -15000
         assert materialise(session, bill, bill.next_date) == []
 
+    def test_reversed_payments_can_be_replaced_before_reposting(
+        self, session, account, posted_remainder,
+    ):
+        from app.domain import periods, transactions
+        from app.persistence.models import TransactionStatus
+
+        bill, movement, pending, receipt = posted_remainder
+        contributions.confirm(session, movement, receipt)
+        periods.transition(session, receipt, TransactionStatus.void)
+        first = session.get(Transaction, session.scalars(select(
+            Reconciliation.transaction_id)).one())
+        corrected = transactions.correct(session, first, "Bank reversed the original payment")
+        periods.transition(session, corrected, TransactionStatus.void)
+        assert contributions.status(session, movement).outstanding_pence == 15000
+
+        replacement = Transaction(account_id=account.id, date=movement.expected_date,
+                                  amount_pence=-15000, payee=bill.name, source="starling",
+                                  status="cleared")
+        session.add(replacement)
+        session.flush()
+        assert reconcile.reconcile_account(session, account, replacement.date).matched == 1
+        assert replacement.status == "reconciled" and pending.status == "void"
+        assert materialise(session, bill, bill.next_date) == []
+        assert contributions.status(session, movement).outstanding_pence == 0
+
     def test_replacement_with_same_ids_has_its_own_posting_date(
         self, session: Session, account: Account,
     ) -> None:
