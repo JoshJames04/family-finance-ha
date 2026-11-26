@@ -44,7 +44,7 @@ class ContributionProposal(BaseModel):
     old_target_pence: int
     new_target_pence: int
     reason: str
-    state: Literal["pending", "accepted", "kept"] = "pending"
+    state: Literal["pending", "accepted", "kept", "expired"] = "pending"
 
 
 def split_key(household_id: int, account_id: int) -> str:
@@ -88,6 +88,16 @@ def save(
 
 def _notify(session: Session, household_id: int, change: ContributionProposal) -> None:
     recipient = change.approver_profile_id or change.profile_id
+    _notify_recipient(session, household_id, recipient, f"shared-change:{change.id}", {
+        **change.model_dump(mode="json"), "path": "/shared",
+        "title": "Shared contribution updated" if change.state == "accepted"
+        else "Shared contribution change awaiting approval",
+    })
+
+
+def _notify_recipient(
+    session: Session, household_id: int, recipient: int, key: str, payload: dict[str, object],
+) -> None:
     rule = session.scalar(select(NotificationRule).where(
         NotificationRule.household_id == household_id,
         NotificationRule.kind == NotificationKind.shared_contribution_change,
@@ -100,11 +110,7 @@ def _notify(session: Session, household_id: int, change: ContributionProposal) -
             target_profile_id=recipient,
         )
     if rule.enabled:
-        notifications.raise_event(session, rule, f"shared-change:{change.id}", {
-            **change.model_dump(mode="json"), "path": "/shared",
-            "title": "Shared contribution updated" if change.state == "accepted"
-            else "Shared contribution change awaiting approval",
-        })
+        notifications.raise_event(session, rule, key, payload)
 
 
 def close_notification(session: Session, proposal_id: str) -> None:
@@ -113,6 +119,17 @@ def close_notification(session: Session, proposal_id: str) -> None:
     ))
     for event in events:
         event.state = NotificationState.acked
+
+
+def expire(session: Session, household_id: int, today: date) -> None:
+    rows = session.scalars(select(SharedContributionProposal).where(
+        SharedContributionProposal.household_id == household_id,
+        SharedContributionProposal.effective_date < today,
+        SharedContributionProposal.data["state"].as_string() == "pending",
+    )).all()
+    for row in rows:
+        row.data = {**row.data, "state": "expired"}
+        close_notification(session, row.id)
 
 
 def invalidate_for_rule(session: Session, rule: TransferRule) -> None:
@@ -208,6 +225,19 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
         next_amounts = _proposed_amounts(policy, current, target) if current else None
         row, previous = read(session, household_id, pot_id)
         changes = [item for item in previous if item.budget_id != budget.id]
+        fixed_total = sum(policy.fixed_pence.values())
+        if (next_amounts is None and policy.mode == "fixed_remainder"
+                and policy.remainder_profile_id in current and fixed_total > target):
+            recipient = policy.approver_profile_id or policy.remainder_profile_id
+            _notify_recipient(
+                session, household_id, recipient,
+                f"shared-split-conflict:{pot_id}:{budget.id}:{target}:{fixed_total}",
+                {
+                    "path": "/shared", "title": "Shared contribution split needs updating",
+                    "budget_id": budget.id, "account_id": pot_id,
+                    "fixed_total_pence": fixed_total, "new_target_pence": target,
+                },
+            )
         if next_amounts:
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
@@ -242,10 +272,14 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
 
 
 def apply(session: Session, rule: TransferRule, proposal: ContributionProposal) -> None:
+    set_effective_amount(session, rule, proposal.effective_date, proposal.new_pence)
+
+
+def set_effective_amount(session: Session, rule: TransferRule, on: date, pence: int) -> None:
     spec = json.loads(rule.amount_spec)
     changes = spec.get("effective_amounts", [])
-    changes = [item for item in changes if item["date"] != proposal.effective_date.isoformat()]
-    changes.append({"date": proposal.effective_date.isoformat(), "pence": proposal.new_pence})
+    changes = [item for item in changes if item["date"] != on.isoformat()]
+    changes.append({"date": on.isoformat(), "pence": pence})
     spec.setdefault("original_pence", spec["pence"])
     changes.sort(key=lambda item: item["date"])
     spec.update(pence=changes[-1]["pence"], effective_amounts=changes)

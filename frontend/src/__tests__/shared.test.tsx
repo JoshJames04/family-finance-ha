@@ -130,6 +130,27 @@ describe("SharedPot", () => {
       c.method === "POST" && c.url.includes("/expected-movements/match"))).toBe(true));
   });
 
+  it("keeps the payday schedule when only the share name changes", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    const rule = RULES[0]!;
+    stubFetch(calls, { rules: [{ ...rule, amount_spec: { ...rule.amount_spec, on_member_payday: true } }] });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "Share rules (1)" }));
+    await user.click(screen.getByRole("button", { name: "Edit Alice share" }));
+    const name = screen.getByLabelText("Rule name");
+    await user.clear(name);
+    await user.type(name, "New name");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      const change = calls.find((call) => call.method === "PATCH");
+      expect(change).toBeDefined();
+      expect(JSON.parse(change!.body)).toEqual({
+        name: "New name", source_account_id: 2, dest_account_id: 4, frequency: "monthly",
+      });
+    });
+  });
+
   it("Set a share creates a fixed contribution rule", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     stubFetch(calls);

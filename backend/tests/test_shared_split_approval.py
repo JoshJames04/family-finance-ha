@@ -8,9 +8,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
+from app.domain import notifications
 from app.main import create_app
+from app.persistence.models import NotificationKind, NotificationRule
 
 
 @pytest.mark.parametrize("earlier_first", [True, False])
@@ -31,6 +35,7 @@ def test_budget_change_requires_latest_proposal_approval(
         alice = post("profiles", {"display_name": "Alice", "role": "admin"})
         headers["X-Profile-Id"] = str(alice)
         bob = post("profiles", {"display_name": "Bob"})
+        viewer = post("profiles", {"display_name": "Viewer", "role": "viewer"})
         today = date.today()
 
         def account(name: str, owner: int | None = None) -> int:
@@ -51,14 +56,19 @@ def test_budget_change_requires_latest_proposal_approval(
             "category_id": category, "side": "expense", "amount": 150000,
         })
         assert client.post(f"{base}/budgets/{budget}/approve", headers=headers).status_code == 200
-        assert client.post(f"{base}/transfer-rules/shared-split", headers=headers, json={
+        split = {
             "account_id": pot, "target_pence": 150000,
             "policy": {"mode": "fixed_remainder", "remainder_profile_id": alice},
             "shares": [
                 {"profile_id": alice, "source_account_id": a, "day_of_month": 28, "pence": 0},
                 {"profile_id": bob, "source_account_id": b, "day_of_month": 11, "pence": 50000},
             ],
-        }).status_code == 204
+        }
+        route = f"{base}/transfer-rules/shared-split"
+        refused = {**split, "policy": {"mode": "equal", "approval": "delegated",
+                                      "approver_profile_id": viewer}}
+        assert client.post(route, headers=headers, json=refused).status_code == 422
+        assert client.post(route, headers=headers, json=split).status_code == 204
 
         def revise(amount: int) -> None:
             response = client.patch(f"{base}/budgets/{budget}/lines/{line}", headers=headers,
@@ -66,6 +76,14 @@ def test_budget_change_requires_latest_proposal_approval(
             assert response.status_code == 200
 
         path = f"{base}/transfer-rules/shared-split/{pot}/proposals"
+        revise(50000)
+        pending_zero, = client.get(path, headers=headers).json()
+        assert pending_zero["new_pence"] == 0
+        assert client.post(f"{path}/{pending_zero['id']}/accept", headers=headers).status_code == 204
+        revise(150000)
+        pending_restore, = client.get(path, headers=headers).json()
+        assert (pending_restore["old_pence"], pending_restore["new_pence"]) == (0, 100000)
+        assert client.post(f"{path}/{pending_restore['id']}/accept", headers=headers).status_code == 204
         revise(155000)
         response = client.get(path, headers=headers)
         assert response.status_code == 200, response.text
@@ -74,7 +92,7 @@ def test_budget_change_requires_latest_proposal_approval(
         assert first["new_pence"] == 105000
         assert first["profile_id"] == alice
         events = client.get(f"{base}/notifications/events", headers=headers).json()
-        assert len(events) == 1 and events[0]["payload"]["new_pence"] == 105000
+        assert events[0]["payload"]["new_pence"] == 105000
         as_bob = {**headers, "X-Profile-Id": str(bob)}
         assert client.get(path, headers=as_bob).json() == []
         assert client.post(f"{path}/{first['id']}/accept", headers=as_bob).status_code == 403
@@ -84,7 +102,7 @@ def test_budget_change_requires_latest_proposal_approval(
         assert latest["new_pence"] == 107000
         assert first["id"] != latest["id"]
         events = client.get(f"{base}/notifications/events", headers=headers).json()
-        assert [event["state"] for event in events] == ["pending", "acked"]
+        assert [event["state"] for event in events[:2]] == ["pending", "acked"]
         assert client.post(f"{path}/{first['id']}/accept", headers=headers).status_code == 409
         rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
         assert {r["amount_spec"]["pence"] for r in rules} == {50000, 100000}
@@ -112,6 +130,13 @@ def test_budget_change_requires_latest_proposal_approval(
             assert client.post(f"{path}/{later['id']}/accept", headers=headers).status_code == 204
         rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
         assert {r["amount_spec"]["pence"] for r in rules} == {50000, 111000}
+        revise(49000)
+        conflict = next(event["payload"] for event in
+                        client.get(f"{base}/notifications/events", headers=headers).json()
+                        if event["payload"]["title"] == "Shared contribution split needs updating")
+        assert (conflict["fixed_total_pence"], conflict["new_target_pence"]) == (50000, 49000)
+        rules = client.get(f"{base}/transfer-rules", headers=headers).json()["items"]
+        assert {r["amount_spec"]["pence"] for r in rules} == {50000, 111000}
         for proposal in (latest, later):
             value = client.get(
                 f"{base}/transfer-rules/{proposal['rule_id']}/evaluate",
@@ -129,4 +154,21 @@ def test_budget_change_requires_latest_proposal_approval(
         assert all(item["id"] != stale["id"] for item in client.get(path, headers=headers).json())
         events = client.get(f"{base}/notifications/events", headers=headers).json()
         assert next(event for event in events
-                    if event["payload"]["id"] == stale["id"])["state"] == "acked"
+                    if event["payload"].get("id") == stale["id"])["state"] == "acked"
+
+        revise(159000)
+        expiring = next(item for item in client.get(path, headers=headers).json()
+                        if item["budget_id"] == budget)
+        with Session(client.app.state.engine) as session, session.begin():
+            rule = session.scalar(select(NotificationRule).where(
+                NotificationRule.kind == NotificationKind.shared_contribution_change,
+            ))
+            assert rule is not None
+            notifications.evaluate(session, rule, today=(
+                date.fromisoformat(expiring["effective_date"]) + timedelta(days=1)
+            ))
+        remaining = client.get(path, headers=headers).json()
+        assert all(item["id"] != expiring["id"] for item in remaining)
+        events = client.get(f"{base}/notifications/events", headers=headers).json()
+        assert next(event for event in events
+                    if event["payload"].get("id") == expiring["id"])["state"] == "acked"

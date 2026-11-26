@@ -608,7 +608,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
     && (mode !== "amount" || !guided || amountTotal === target)
     && (mode !== "percent" || percentOk)
     && (mode !== "fixed_remainder" || fixedRemainder >= 0)
-    && shares.every((m) => (targets[m.profile.id] ?? 0) <= 0 || m.fixed[0]
+    && shares.every((m) => ((targets[m.profile.id] ?? 0) <= 0 && (!guided || mode === "amount")) || m.fixed[0]
       || (guided ? sourceFor(m.profile.id) != null && ((payday[m.profile.id] && nextPayday(m.profile.id))
         || ((days[m.profile.id] ?? 0) >= 1 && (days[m.profile.id] ?? 0) <= 31)) : sourceOptions(m.profile.id).length > 0));
 
@@ -745,7 +745,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
           <Field label="Household approver">{(id) => (
             <Select id={id} value={approver ?? ""} onChange={event => setApprover(Number(event.target.value))}>
               <option value="" disabled>Choose a household member</option>
-              {shares.map(member => <option key={member.profile.id} value={member.profile.id}>
+              {shares.filter(member => member.profile.role !== "viewer").map(member => <option key={member.profile.id} value={member.profile.id}>
                 {member.profile.display_name}
               </option>)}
             </Select>
@@ -809,7 +809,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
               <span className="min-w-0 flex-1 basis-32 wrap-anywhere text-[13.5px] font-medium">
                 {m.profile.display_name}
               </span>
-              {guided && !m.fixed.length && (targets[m.profile.id] ?? 0) > 0 && (
+              {guided && !m.fixed.length && (mode !== "amount" || (targets[m.profile.id] ?? 0) > 0) && (
                 <>
                 <Select aria-label={`${m.profile.display_name} payment account`}
                   value={sourceFor(m.profile.id) ?? ""}
@@ -941,8 +941,11 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
             name: body.name,
             source_account_id: body.source_account_id,
             dest_account_id: body.dest_account_id,
-            amount_spec: body.amount_spec,
-            frequency: body.frequency, day_of_month: body.day_of_month,
+            amount_spec: body.amount_spec.pence === rule!.amount_spec.pence
+              ? undefined : body.amount_spec,
+            frequency: body.frequency,
+            day_of_month: body.day_of_month !== (rule!.day_of_month ?? 1)
+              || body.frequency !== rule!.frequency ? body.day_of_month : undefined,
           },
         });
     req.then(() => {
@@ -995,7 +998,8 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
             <Input id={id} required type="number" step="0.01" min="0" aria-label="Share amount"
               value={pounds} onChange={(e) => setPounds(e.target.value)} />
           )}</Field>
-          <Field label="Day of month">{(id) => (
+          <Field label="Day of month" hint={rule?.amount_spec.on_member_payday === true
+            ? "Follows member payday. Change the day or frequency to use a fixed schedule." : undefined}>{(id) => (
             <Input id={id} required type="number" min="1" max="31"
               value={dom} onChange={(e) => setDom(e.target.value)} />
           )}</Field>
