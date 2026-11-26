@@ -262,8 +262,9 @@ def propose(
             by_profile[owner] = rule
         dates = {owner: next_unpaid_date(session, rule, max(today, budget.start_date))
                  for owner, rule in by_profile.items()}
-        current = {owner: transfer_rules.fixed_amount_at(rule, due)
-                   for owner, rule in by_profile.items() if (due := dates[owner]) is not None}
+        current = {owner: transfer_rules.fixed_amount_at(
+            rule, min(dates[owner] or budget.end_date, budget.end_date),
+        ) for owner, rule in by_profile.items()}
         next_amounts = _proposed_amounts(policy, current, target) if current else None
         row, previous = read(session, household_id, pot_id)
         changes = [item for item in previous
@@ -272,9 +273,14 @@ def propose(
         fixed_total = sum(policy.fixed_pence.values())
         conflict = (next_amounts is None and policy.mode == "fixed_remainder"
                     and policy.remainder_profile_id in current and fixed_total > target)
-        recipient = policy.approver_profile_id or policy.remainder_profile_id
+        same_period = {owner for owner, due in dates.items()
+                       if due is not None and due <= budget.end_date}
+        funded = (sum(amount if owner in same_period else current[owner]
+                      for owner, amount in next_amounts.items()) if next_amounts else target)
+        recipient = (policy.approver_profile_id or policy.remainder_profile_id
+                     or min(current, default=None))
         _reconcile_conflict(session, household_id, pot_id, budget.id, recipient,
-                            target, fixed_total, conflict)
+                            target, fixed_total if conflict else None, funded)
         if next_amounts and not overlapping and guided == {pot_id}:
             for owner, amount in next_amounts.items():
                 if amount == current[owner]:
@@ -316,10 +322,11 @@ def propose(
 
 def _reconcile_conflict(
     session: Session, household_id: int, pot_id: int, budget_id: int, recipient: int | None,
-    target: int, fixed_total: int, conflict: bool,
+    target: int, fixed_total: int | None, funded: int,
 ) -> None:
     prefix = f"shared-split-conflict:{pot_id}:{budget_id}:"
-    key = f"{prefix}{target}:{fixed_total}:"
+    conflict = fixed_total is not None or funded != target
+    key = f"{prefix}{target}:{fixed_total}:{funded}:"
     for event in session.scalars(select(NotificationEvent).join(
         NotificationRule, NotificationRule.id == NotificationEvent.rule_id,
     ).where(
@@ -336,6 +343,7 @@ def _reconcile_conflict(
             "path": "/shared", "title": "Shared contribution split needs updating",
             "budget_id": budget_id, "account_id": pot_id,
             "fixed_total_pence": fixed_total, "new_target_pence": target,
+            "scheduled_total_pence": funded,
         })
 
 

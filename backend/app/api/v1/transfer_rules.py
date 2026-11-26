@@ -407,6 +407,9 @@ def save_shared_split(
                 schedule.rematerialize_transfer_rule(session, new_rule)
 
     if body.policy is not None:
+        guided = shared_contribution_approvals.guided_pot_ids(session, household.id)
+        if body.policy.mode != "amount" and guided - {pot.id}:
+            raise HTTPException(409, "only one shared account can use the budget-guided split")
         key = shared_contribution_approvals.split_key(household.id, pot.id)
         record = session.get(AppMeta, key)
         prior_policy = (schemas.SharedSplitPolicy.model_validate_json(record.value)
