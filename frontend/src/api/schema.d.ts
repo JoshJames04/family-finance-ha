@@ -5034,7 +5034,7 @@ export interface components {
              * @default pending
              * @enum {string}
              */
-            state: "pending" | "accepted" | "kept";
+            state: "pending" | "accepted" | "kept" | "expired";
         };
         /** ContributionStatusOut */
         ContributionStatusOut: {
