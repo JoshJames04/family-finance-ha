@@ -1183,6 +1183,8 @@ class ExpectedMatch(Base):
     transaction_id: Mapped[int] = mapped_column(
         ForeignKey("transaction.id"), nullable=False, index=True)
     matched_pence: Mapped[int] = mapped_column(Integer, nullable=False)
+    alternate_destination: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0"), nullable=False)
     manual: Mapped[bool] = mapped_column(Boolean, default=False,
                                          nullable=False)
     created_at: Mapped[datetime] = mapped_column(

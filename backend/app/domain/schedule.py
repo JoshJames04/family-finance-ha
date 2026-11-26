@@ -563,9 +563,18 @@ def rematerialize_payday_transfers(session: Session, household_id: int, profile_
         TransferRule.active.is_(True),
         Account.owner_profile_id == profile_id,
     )).all()
+    updated_pots = set()
     for rule in rules:
         if transfer_rules.follows_member_payday(rule):
+            prior_spec = rule.amount_spec
             rematerialize_transfer_rule(session, rule)
+            if prior_spec != rule.amount_spec:
+                updated_pots.add(rule.dest_account_id)
+    if updated_pots:
+        from app.domain import shared_contribution_approvals
+
+        for pot_id in sorted(updated_pots):
+            shared_contribution_approvals.reassess_pending(session, household_id, pot_id)
 
 
 def rematerialize_budget_derived_rules(

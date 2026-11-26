@@ -60,6 +60,9 @@ tax corrections, loan attribution, and seasonal actual versus committed budgets.
   joint and bills accounts, with outstanding-transfer detection.
   Expected payments count live eligible payment amounts and retain their matches
   through financially equivalent corrections; void entries cannot mark them paid.
+- **Bills account funding** — open Shared, select a bills account, and enter a
+  buffer to see how much extra it needs before its next top-up. Plan a one-off
+  transfer or request an approved change to the standing amount.
 - **Savings, goals and debts** — sinking funds, savings goals, family loans and
   repayment schedules.
 - **Christmas and gifts** — seasonal budgeting with recipients, gift tracking
@@ -230,6 +233,13 @@ When the Shared target changes, Family Finance proposes a new amount to each
 affected contributor by default. Open the notification or go to Shared to
 accept the next amount or keep the agreed amount. Household admins can
 designate an approver or allow automatic changes with a notification.
+
+Household admins can nominate additional shared receiving accounts in Adjust
+split. Use Save receiving accounts if there is no funded Shared budget.
+In Record payment, select a receiving account to confirm a member's
+direct transfer into it. A confirmed payment reduces the scheduled amount
+on both sides of the forecast. Transfers onward from joint to a bills space
+fund that space and leave member contribution totals as they were.
 
 Bills and Subscriptions offer a payment-account filter below All, Mine and
 Shared. Each list offers accounts used on that page. Open Mine for personal

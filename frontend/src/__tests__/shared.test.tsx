@@ -61,7 +61,7 @@ const CYCLES = [
 ];
 
 function stubFetch(calls: { url: string; method: string; body: string }[],
-  opts: { rules?: object[] } = {}) {
+  opts: { rules?: object[]; alternate?: boolean } = {}) {
   const rules = opts.rules ?? RULES;
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input, init) => {
@@ -75,8 +75,15 @@ function stubFetch(calls: { url: string; method: string; body: string }[],
           : url.includes("/api/v1/profiles")
             ? { items: PROFILES, total: PROFILES.length }
             : url.includes("/api/v1/accounts")
-              ? { items: ACCOUNTS, total: ACCOUNTS.length }
-              : url.includes("/shared-split/") ? { policy: null, next_paydays: {} }
+              ? { items: opts.alternate ? [...ACCOUNTS, {
+                  id: 12, name: "House Bills space", owner_profile_id: null, archived: false,
+                }] : ACCOUNTS, total: ACCOUNTS.length + Number(Boolean(opts.alternate)) }
+              : url.includes("/shared-split/") ? {
+                  policy: opts.alternate ? { alternate_account_ids: [12] } : null, next_paydays: {},
+                }
+              : opts.alternate && url.includes("/transactions") && url.includes("account_id=12")
+                ? { items: [{ id: 70, payee: "Direct receipt", date: MONTH.start, amount_pence: 2100,
+                    transfer_id: 33 }], total: 1 }
               : url.includes("/api/v1/transfer-rules")
                 ? { items: rules, total: rules.length }
                 : url.includes("/contributions/cycles")
@@ -233,6 +240,21 @@ describe("SharedPot", () => {
     await user.type(carol, "500");
     expect(dialog.getByText("33%")).toBeTruthy();
     expect(dialog.getByText("£1,000.00")).toBeTruthy();
+  });
+
+  it("records a confirmed receipt into an eligible alternate account", async () => {
+    const calls: { url: string; method: string; body: string }[] = [];
+    stubFetch(calls, { alternate: true });
+    const user = userEvent.setup();
+    open(150000);
+    await user.click(await screen.findByRole("button", { name: /Record Carol's payment/ }));
+    const dialog = within(screen.getByRole("dialog"));
+    await user.selectOptions(await dialog.findByLabelText("Receiving account"), "12");
+    const option = await dialog.findByRole("option", { name: /Direct receipt/ });
+    await user.selectOptions(dialog.getByLabelText(/Transfer transaction/), option);
+    await user.click(dialog.getByRole("button", { name: "Record payment" }));
+    await waitFor(() => expect(calls.some(call => call.method === "POST"
+      && call.url.endsWith("/13/matches") && JSON.parse(call.body).transaction_id === 70)).toBe(true));
   });
 
   it("rules list hides behind a disclosure", async () => {
