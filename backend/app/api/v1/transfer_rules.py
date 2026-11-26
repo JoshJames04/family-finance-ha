@@ -396,11 +396,16 @@ def save_shared_split(
         ):
             raise HTTPException(403, "only a household admin can change the approval policy")
         if body.policy.approval == "delegated":
-            if body.policy.approver_profile_id not in active_members:
-                raise HTTPException(422, "choose an active household approver")
+            approver_id = body.policy.approver_profile_id
+            approver = session.get(UserProfile, approver_id) if approver_id is not None else None
+            if (approver is None or approver.id not in active_members
+                    or not rbac.can(approver, rbac.Action.write)):
+                raise HTTPException(422, "choose a household member who can approve changes")
         else:
             body.policy.approver_profile_id = None
         saved = body.policy.model_dump_json()
+        if len(saved.encode("utf-8")) > 1024:
+            raise HTTPException(422, "the contribution split exceeds the saved settings limit")
         if record is None:
             session.add(AppMeta(key=key, value=saved))
         else:
@@ -418,7 +423,9 @@ def contribution_proposals(
 ) -> list[shared_contribution_approvals.ContributionProposal]:
     _shared_pot(session, household.id, account_id)
     _, changes = shared_contribution_approvals.read(session, household.id, account_id)
+    today = date.today()
     return [item for item in changes if item.state == "pending"
+            and item.effective_date >= today
             and rbac.visible(item.approver_profile_id or item.profile_id, profile)]
 
 

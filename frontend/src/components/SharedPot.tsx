@@ -742,7 +742,7 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
           <Field label="Household approver">{(id) => (
             <Select id={id} value={approver ?? ""} onChange={event => setApprover(Number(event.target.value))}>
               <option value="" disabled>Choose a household member</option>
-              {shares.map(member => <option key={member.profile.id} value={member.profile.id}>
+              {shares.filter(member => member.profile.role !== "viewer").map(member => <option key={member.profile.id} value={member.profile.id}>
                 {member.profile.display_name}
               </option>)}
             </Select>
