@@ -173,7 +173,15 @@ def update_rule(
     rid: int, body: schemas.TransferRulePatch,
     household: HouseholdDep, session: SessionDep, actor: ActorDep,
 ) -> schemas.TransferRuleOut:
+    return _update_rule(rid, body, household, session, actor)
+
+
+def _update_rule(
+    rid: int, body: schemas.TransferRulePatch, household: HouseholdDep,
+    session: SessionDep, actor: ActorDep, *, replan: bool = True,
+) -> schemas.TransferRuleOut:
     r = _get(session, household.id, rid)
+    prior_pot = r.dest_account_id
     changes = body.model_dump(exclude_unset=True)
     # Explicit null is only meaningful for nullable columns — drop it
     # elsewhere rather than breaking the NOT NULL constraint on flush.
@@ -213,7 +221,9 @@ def update_rule(
         _retain_endpoints(session, r)
     schedule_fields = {"amount_spec", "source_account_id", "dest_account_id",
                        "frequency", "day_of_month", "start_date", "end_date", "active"}
-    if any(changes[field] != getattr(r, field) for field in changes.keys() & schedule_fields):
+    schedule_changed = any(changes[field] != getattr(r, field)
+                           for field in changes.keys() & schedule_fields)
+    if schedule_changed:
         shared_contribution_approvals.invalidate_for_rule(session, r)
     for k, v in changes.items():
         setattr(r, k, v)
@@ -230,6 +240,9 @@ def update_rule(
                           space, r)
     # spec/timing edits regenerate future rows only — history untouched
     schedule.rematerialize_transfer_rule(session, r)
+    if replan and schedule_changed:
+        for pot_id in {prior_pot, r.dest_account_id}:
+            shared_contribution_approvals.reassess_pending(session, household.id, pot_id)
     emit(session, household.id, actor, "update", "transfer_rule", r.id,
          {"fields": sorted(changes)})
     return schemas.TransferRuleOut.model_validate(r)
@@ -340,6 +353,7 @@ def save_shared_split(
     rules = {rule.id: rule for rule in existing}
     if any(accounts[rule.source_account_id].owner_profile_id not in amounts for rule in existing):
         raise HTTPException(409, "include each existing contributor")
+    shares_changed = False
     for share in body.shares:
         pence = amounts[share.profile_id]
         owned = [r for r in existing
@@ -363,6 +377,7 @@ def save_shared_split(
                 raise HTTPException(409, "a member's schedule changed, refresh the split")
         if unchanged:
             continue
+        shares_changed = True
         if not rbac.write_allowed(source.owner_profile_id, profile):
             raise HTTPException(403, "only the account owner or an admin can change this share")
         if rule is not None and pence == 0 and retain_zero:
@@ -373,7 +388,7 @@ def save_shared_split(
                      schemas.TransferRulePatch.model_validate({
                          "amount_spec": {"kind": "fixed", "pence": pence},
                      }))
-            update_rule(rule.id, patch, household, session, actor)
+            _update_rule(rule.id, patch, household, session, actor, replan=False)
         else:
             day = share.day_of_month
             first = date.today()
@@ -463,8 +478,15 @@ def save_shared_split(
             session.add(AppMeta(key=key, value=saved))
         else:
             record.value = saved
-        if prior_policy and prior_policy != body.policy:
+        if shares_changed or prior_policy != body.policy:
+            session.flush()
             shared_contribution_approvals.reassess_pending(session, household.id, pot.id)
+        old_approval = ((prior_policy.approval, prior_policy.approver_profile_id)
+                        if prior_policy else ("contributor", None))
+        if old_approval != (body.policy.approval, body.policy.approver_profile_id):
+            shared_contribution_approvals.retire_top_up_proposals_for_source(
+                session, household.id, pot.id,
+            )
         emit(session, household.id, actor, "update", "shared_split", pot.id,
              {"mode": body.policy.mode})
 
@@ -534,6 +556,8 @@ def propose_bills_space_schedule_change(
             or not rule.active or rule.start_date == rule.end_date
             or json.loads(rule.amount_spec).get("kind") != "fixed"):
         raise HTTPException(422, "choose the standing fixed transfer into this bills account")
+    if bills_space.derived_space_rule(session, household.id, rule.id):
+        raise HTTPException(409, "edit the source transfer for this linked bank space")
     due = shared_contribution_approvals.next_unpaid_date(
         session, rule, date.today() + timedelta(days=1),
     )
@@ -590,6 +614,8 @@ def decide_contribution_change(
             session, rule, proposal.effective_date)
         source = session.get(Account, rule.source_account_id)
         if proposal.budget_id is None:
+            if bills_space.derived_space_rule(session, household.id, rule.id):
+                raise HTTPException(409, "edit the source transfer for this linked bank space")
             policy = shared_contribution_approvals.top_up_policy(session, rule)
             expected_approver = (policy.approver_profile_id if policy.approval == "delegated"
                                  else None)

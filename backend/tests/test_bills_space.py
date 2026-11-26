@@ -19,10 +19,10 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
         household = client.post(f"{base}/households", json={"name": "Test"}).json()["id"]
         h = {"X-Household-Id": str(household)}
 
-        def account(name: str, kind: str, balance: int) -> int:
+        def account(name: str, kind: str, balance: int, owner: int | None = None) -> int:
             response = client.post(f"{base}/accounts", headers=h, json={
                 "name": name, "type": kind, "opening_balance": balance,
-                "opening_date": today.isoformat(),
+                "opening_date": today.isoformat(), "owner_profile_id": owner,
             })
             assert response.status_code == 201, response.text
             return int(response.json()["id"])
@@ -83,3 +83,24 @@ def test_bills_space_funding_window_and_one_off(tmp_path: Path) -> None:
         decisions = f"{base}/transfer-rules/shared-split/{bills}/proposals/{proposal['id']}"
         assert client.post(f"{decisions}/accept", headers=h).status_code == 204
         assert client.get(route, headers=h).json()["standing_pence"] == 14000
+
+
+        pending = client.post(f"{route}/standing", headers=h, json={
+            "rule_id": standing_id, "amount_pence": 14500,
+        })
+        assert pending.status_code == 201
+        stale = pending.json()["id"]
+        personal = account("Personal", "personal", 30000, profile)
+        changed_policy = client.post(f"{base}/transfer-rules/shared-split", headers=h, json={
+            "account_id": joint, "target_pence": 5000,
+            "policy": {"mode": "amount", "approval": "automatic"},
+            "shares": [{"profile_id": profile, "source_account_id": personal,
+                        "day_of_month": today.day, "pence": 5000}],
+        })
+        assert changed_policy.status_code == 204, changed_policy.text
+        path = f"{base}/transfer-rules/shared-split/{bills}/proposals"
+        assert client.get(path, headers=h).json() == []
+        assert client.post(f"{path}/{stale}/accept", headers=h).status_code == 409
+        inbox = client.get(f"{base}/notifications/events", headers=h).json()
+        assert next(event for event in inbox
+                    if event["payload"].get("id") == stale)["state"] == "acked"

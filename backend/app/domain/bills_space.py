@@ -1,6 +1,7 @@
 """Outstanding cash requirements for a shared bills account."""
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 
 from sqlalchemy import select
@@ -12,6 +13,8 @@ from app.domain.accounts import current_balance, current_movement_account
 from app.domain.contributions import matched_totals
 from app.persistence.models import (
     Account,
+    AccountType,
+    AuditEvent,
     Confidence,
     ExpectedMovement,
     ExpectedSource,
@@ -37,10 +40,19 @@ def suggest(
     rules = {rule.id: rule for rule in session.scalars(
         select(TransferRule).where(TransferRule.id.in_(rule_ids))
     )} if rule_ids else {}
+    source_ids = {rule.source_account_id for rule in rules.values()}
+    joint_ids = set(session.scalars(select(Account.id).where(
+        Account.id.in_(source_ids), Account.household_id == account.household_id,
+        Account.type == AccountType.joint, Account.owner_profile_id.is_(None),
+        Account.archived.is_(False),
+    ))) if source_ids else set()
+    standing_rules = {rid for rid, rule in rules.items()
+                      if rule.active and rule.start_date != rule.end_date
+                      and rule.source_account_id in joint_ids}
     standing = next((movement for movement in movements
                      if movement.expected_date > today
                      and movement.amount_pence > totals[movement.id]
-                     and _is_standing_top_up(rules, movement)), None)
+                     and _is_standing_top_up(standing_rules, movement)), None)
     next_top_up = standing.expected_date if standing and through is None else None
     through = through or next_top_up or today + timedelta(days=30)
     balance = current_balance(session, account.id)
@@ -73,7 +85,7 @@ def suggest(
                   and rule is not None and rule.active
                   and movement.confidence == Confidence.scheduled
                   and not (movement.expected_date == next_top_up
-                           and _is_standing_top_up(rules, movement))):
+                           and _is_standing_top_up(standing_rules, movement))):
             continue
         if movement.expected_date > today and low is None:
             low = running
@@ -92,10 +104,13 @@ def suggest(
         if running < buffer_pence:
             first_shortfall = today
     parent = transfer_rules.space_parent(session, account.id)
+    editable = standing is not None and (
+        parent is None or not derived_space_rule(session, account.household_id, standing.source_id)
+    )
     return BillsSpaceFunding(
         balance_pence=balance, buffer_pence=buffer_pence, through=through,
         next_top_up=next_top_up,
-        standing_rule_id=standing.source_id if standing else None,
+        standing_rule_id=standing.source_id if standing and editable else None,
         standing_pence=(transfer_rules.fixed_amount_at(
             rules[standing.source_id], standing.expected_date,
         ) if standing else None),
@@ -105,9 +120,15 @@ def suggest(
     )
 
 
-def _is_standing_top_up(rules: dict[int, TransferRule], movement: ExpectedMovement) -> bool:
-    if (movement.source_type != ExpectedSource.transfer_rule
-            or movement.confidence != Confidence.scheduled):
-        return False
-    rule = rules.get(movement.source_id)
-    return rule is not None and rule.active and rule.start_date != rule.end_date
+def _is_standing_top_up(rule_ids: set[int], movement: ExpectedMovement) -> bool:
+    return (movement.source_type == ExpectedSource.transfer_rule
+            and movement.confidence == Confidence.scheduled and movement.source_id in rule_ids)
+
+
+def derived_space_rule(session: Session, household_id: int, rule_id: int) -> bool:
+    payloads = session.scalars(select(AuditEvent.payload).where(
+        AuditEvent.household_id == household_id, AuditEvent.entity_type == "transfer_rule",
+        AuditEvent.entity_id == rule_id, AuditEvent.action == "create",
+    ))
+    return any(payload and json.loads(payload).get("derived") == "space_leg"
+               for payload in payloads)
