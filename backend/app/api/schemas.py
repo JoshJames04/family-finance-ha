@@ -1148,17 +1148,35 @@ class TransferRulePatch(BaseModel):
 
 
 class SharedSplitShare(BaseModel):
+    on_member_payday: bool = False
     profile_id: int
     source_account_id: int | None = None
     rule_id: int | None = None
     day_of_month: int | None = Field(default=None, ge=1, le=31)
     pence: int = Field(ge=0)
+    percentage_bps: int | None = Field(default=None, ge=0, le=10000)
+
+
+class SharedSplitPolicy(BaseModel):
+    mode: Literal["amount", "equal", "percent", "fixed_remainder"]
+    member_ids: list[int] = Field(default_factory=list)
+    remainder_profile_id: int | None = None
+    percentages: dict[int, int] = Field(default_factory=dict)
+    fixed_pence: dict[int, int] = Field(default_factory=dict)
+    approval: Literal["contributor", "delegated", "automatic"] | None = None
+    approver_profile_id: int | None = None
+
+
+class SharedSplitSetup(BaseModel):
+    policy: SharedSplitPolicy | None
+    next_paydays: dict[int, date]
 
 
 class SharedSplitIn(BaseModel):
     account_id: int
     target_pence: int = Field(gt=0)
-    shares: list[SharedSplitShare] = Field(min_length=1)
+    shares: list[SharedSplitShare] = Field(min_length=1, max_length=100)
+    policy: SharedSplitPolicy | None = None
 
 
 class TransferRuleOut(BaseModel):

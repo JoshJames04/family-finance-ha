@@ -145,7 +145,7 @@ describe("Bills", () => {
     const user = userEvent.setup();
     render(<MemoryRouter><Bills /></MemoryRouter>);
     await user.click(await screen.findByRole("radio", { name: "Shared" }));
-    await user.click(screen.getByRole("button", { name: /overdue/i }));
+    await user.click(await screen.findByRole("button", { name: /overdue/i }));
     const dialog = screen.getByRole("dialog", { name: "Overdue bills" });
     expect(within(dialog).queryAllByRole("listitem")).toHaveLength(0);
     expect(within(dialog).getByText("No overdue bills in this view.")).toBeTruthy();

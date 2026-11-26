@@ -220,6 +220,21 @@ their authorized account actuals still contribute to All. Section category table
 include receipts and spending outside the plan, with separate actual totals.
 **Opening funds** are separate ledger balances through
 the stated date; future periods show currently known funds, not future receipts.
+Shared can save an equal split, custom percentages, or fixed contributions
+with one member covering the remainder. New shares can follow the member's
+configured monthly payday or a selected day of the month. The setup previews
+the amount and first payment date and creates a forecast schedule in Family
+Finance. The account holder still makes the transfer at their bank.
+
+When the Shared target changes, Family Finance proposes a new amount to each
+affected contributor by default. Open the notification or go to Shared to
+accept the next amount or keep the agreed amount. Household admins can
+designate an approver or allow automatic changes with a notification.
+
+Bills and Subscriptions offer a payment-account filter below All, Mine and
+Shared. Each list offers accounts used on that page. Open Mine for personal
+accounts or Shared for joint accounts. The figures follow the account filter.
+
 On Shared, choose the account you and other members pay into. Adjust split uses
 the Shared expense total as a suggested funding target. For two members, editing
 one amount allocates the remainder to the other. The transfers change only when

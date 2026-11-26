@@ -15,7 +15,14 @@ from app.api.deps import (
     ProfileDep,
     SessionDep,
 )
-from app.domain import budget_funding, budget_periods, financial_events, rbac, schedule
+from app.domain import (
+    budget_funding,
+    budget_periods,
+    financial_events,
+    rbac,
+    schedule,
+    shared_contribution_approvals,
+)
 from app.domain import budgets as dom
 from app.persistence.models import (
     Account,
@@ -144,6 +151,7 @@ def set_pay_cycle_settings(
                                       body.employment_id)
     except (ValueError, LookupError) as error:
         raise HTTPException(422, str(error)) from error
+    schedule.rematerialize_payday_transfers(session, household.id, body.owner_profile_id)
     emit(session, household.id, actor, "update", "budget_payday", body.owner_profile_id,
          {"employment_id": body.employment_id, "payday_day": body.payday_day})
     return _cycle_settings(session, household.id, body.owner_profile_id)
@@ -197,6 +205,7 @@ def revise_line(
           "reason": body.reason})
     # a revised approved line changes budget-derived rule amounts (#86)
     if b.status is BudgetStatus.approved:
+        shared_contribution_approvals.propose(session, b, body.reason)
         affected = schedule.rematerialize_budget_derived_rules(
             session, household.id)
         if affected:
@@ -226,6 +235,9 @@ def remove_future_lines(
             "rollover": row.rollover,
         })
     if removed:
+        for affected_budget in dict.fromkeys(row.budget for row in removed):
+            shared_contribution_approvals.propose(
+                session, affected_budget, "A planned expense was removed")
         schedule.rematerialize_budget_derived_rules(session, household.id)
         financial_events.evaluate_budgets(session, household.id)
     return {"removed": len(removed)}
@@ -241,6 +253,7 @@ def approve_budget(
     _w(b, profile)
     emit(session, household.id, actor, "update", "budget", b.id,
          {"status": b.status.value})
+    shared_contribution_approvals.propose(session, b, "Shared budget approved")
     # budget-derived transfer rules recompute on approval (#86)
     affected = schedule.rematerialize_budget_derived_rules(
         session, household.id)
@@ -518,6 +531,8 @@ def rollover(
     for e in events:
         emit(session, household.id, actor, "rollover", "budget_line",
              int(str(e["line_id"])), e)
+    if events:
+        shared_contribution_approvals.propose(session, target, "Shared budget rollover applied")
     return schemas.RolloverResult(applied=len(events),
                                   carries=events)
 
@@ -614,6 +629,8 @@ def bulk_revise_lines(
         dom.revise_line(session, line, item.amount.pence,
                         item.reason)
         updated += 1
+    if updated and b.status is BudgetStatus.approved:
+        shared_contribution_approvals.propose(session, b, "Shared budget revised")
     emit(session, household.id, actor, "update", "budget", b.id,
          {"bulk_revisions": updated, "skipped": skipped})
     return schemas.BulkReviseResult(updated=updated,
