@@ -188,3 +188,13 @@ def test_budget_change_requires_latest_proposal_approval(
                        if event["payload"].get("new_target_pence") == 162000
                        and "scheduled_total_pence" in event["payload"])
         assert warning["scheduled_total_pence"] == 158500
+
+        with Session(client.app.state.engine) as session, session.begin():
+            rule = session.scalar(select(NotificationRule).where(
+                NotificationRule.kind == NotificationKind.shared_contribution_change,
+            ))
+            assert rule is not None
+            next_month = today.replace(day=monthrange(today.year, today.month)[1])
+            notifications.evaluate(session, rule, today=next_month + timedelta(days=1))
+        events = client.get(f"{base}/notifications/events", headers=headers).json()
+        assert next(event for event in events if event["payload"] == warning)["state"] == "acked"
