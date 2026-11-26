@@ -463,6 +463,7 @@ def save_shared_split(
             )))
             if viewers:
                 raise HTTPException(422, "choose contributors who can approve their changes")
+        body.policy.member_ids = sorted(amounts)
         saved = body.policy.model_dump_json()
         if len(saved.encode("utf-8")) > 1024:
             raise HTTPException(422, "the contribution split exceeds the saved settings limit")
@@ -562,8 +563,10 @@ def delete_rule(
             ExpectedMovement.source_id == r.id,
             ExpectedMovement.id.not_in(
                 select(ExpectedMatch.movement_id))))
+    pot_id = r.dest_account_id
     session.delete(r)
     session.flush()
+    shared_contribution_approvals.reassess_pending(session, household.id, pot_id)
     emit(session, household.id, actor, "delete", "transfer_rule", rid,
          {"name": r.name})
 

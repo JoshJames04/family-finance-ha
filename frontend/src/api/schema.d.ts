@@ -7731,6 +7731,8 @@ export interface components {
              * @enum {string}
              */
             mode: "amount" | "equal" | "percent" | "fixed_remainder";
+            /** Member Ids */
+            member_ids?: number[];
             /** Remainder Profile Id */
             remainder_profile_id?: number | null;
             /** Percentages */
