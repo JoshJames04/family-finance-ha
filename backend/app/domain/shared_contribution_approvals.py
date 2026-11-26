@@ -8,7 +8,7 @@ from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import SharedSplitPolicy
@@ -146,16 +146,17 @@ def invalidate_for_rule(session: Session, rule: TransferRule) -> None:
 
 
 def next_unpaid_date(session: Session, rule: TransferRule, today: date) -> date | None:
-    matched_days = set(session.scalars(select(ExpectedMovement.expected_date).join(
+    unavailable_days = set(session.scalars(select(ExpectedMovement.expected_date).outerjoin(
         ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
     ).where(
         ExpectedMovement.household_id == rule.household_id,
         ExpectedMovement.source_type == ExpectedSource.transfer_rule,
         ExpectedMovement.source_id == rule.id,
         ExpectedMovement.expected_date >= today,
+        or_(ExpectedMatch.id.is_not(None), ExpectedMovement.dismissed_at.is_not(None)),
     )))
     days = transfer_rules.occurrences(rule, today + timedelta(days=100), today, session=session)
-    return next((day for day in days if day not in matched_days), None)
+    return next((day for day in days if day not in unavailable_days), None)
 
 
 def _proposed_amounts(
@@ -186,7 +187,9 @@ def _is_monthly_fixed(rule: TransferRule) -> bool:
             and json.loads(rule.amount_spec).get("kind") == "fixed")
 
 
-def propose(session: Session, budget: Budget, reason: str) -> None:
+def propose(
+    session: Session, budget: Budget, reason: str, *, account_id: int | None = None,
+) -> None:
     today = date.today()
     if (budget.owner_profile_id is not None or budget.end_date < today
             or budget.status not in (BudgetStatus.approved, BudgetStatus.locked)):
@@ -200,6 +203,8 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
     )).all()
     for setting in settings:
         pot_id = int(setting.key.rsplit(":", 1)[1])
+        if account_id is not None and pot_id != account_id:
+            continue
         pot = session.get(Account, pot_id)
         if pot is None or pot.archived or pot.household_id != household_id:
             continue
@@ -269,6 +274,22 @@ def propose(session: Session, budget: Budget, reason: str) -> None:
                 if stale.state == "pending" and stale.id not in active:
                     close_notification(session, stale.id)
             save(session, household_id, pot_id, row, changes)
+
+
+def reassess_pending(session: Session, household_id: int, account_id: int) -> None:
+    rows, proposals = read(session, household_id, account_id)
+    pending = [item for item in proposals if item.state == "pending"]
+    if not pending:
+        return
+    for item in pending:
+        close_notification(session, item.id)
+    save(session, household_id, account_id, rows,
+         [item for item in proposals if item.state != "pending"])
+    for budget in session.scalars(select(Budget).where(
+        Budget.household_id == household_id,
+        Budget.id.in_({item.budget_id for item in pending}),
+    ).order_by(Budget.start_date, Budget.id)):
+        propose(session, budget, "Household approval policy updated", account_id=account_id)
 
 
 def apply(session: Session, rule: TransferRule, proposal: ContributionProposal) -> None:

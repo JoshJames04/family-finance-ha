@@ -104,13 +104,14 @@ def eligible_matches(movement_ids: Collection[int] | Select[Any] | None = None, 
         anchor = anchor.where(ExpectedMatch.transaction_id.in_(select(family.c.transaction_id)))
     live = live_payment_evidence(anchor)
     paired_debit = aliased(Transaction)
-    has_source_debit = select(paired_debit.id).join(
-        TransferRule, TransferRule.id == ExpectedMovement.source_id,
-    ).where(
+    scheduled_source = select(TransferRule.source_account_id).where(
+        TransferRule.id == ExpectedMovement.source_id,
         TransferRule.household_id == ExpectedMovement.household_id,
+    ).correlate(ExpectedMovement).scalar_subquery()
+    has_source_debit = select(paired_debit.id).where(
         paired_debit.transfer_id == Transaction.transfer_id,
         paired_debit.account_id == func.coalesce(
-            ExpectedMovement.transfer_source_account_id, TransferRule.source_account_id),
+            ExpectedMovement.transfer_source_account_id, scheduled_source),
         paired_debit.amount_pence == -Transaction.amount_pence,
         paired_debit.status != TransactionStatus.void,
     ).correlate(ExpectedMovement, Transaction).exists()

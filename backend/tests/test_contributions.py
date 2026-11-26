@@ -344,6 +344,13 @@ class TestManualConfirm:
         assert totals == {incoming.id: 20000}
         with pytest.raises(MatchError):
             contributions.confirm(session, incoming, receipt)
+        incoming.transfer_source_account_id = source.id
+        incoming.transfer_dest_account_id = joint.id
+        outgoing.transfer_source_account_id = source.id
+        outgoing.transfer_dest_account_id = joint.id
+        session.delete(rule)
+        session.flush()
+        assert contributions.matched_totals(session, [incoming.id])[incoming.id] == 20000
         debit.status = TransactionStatus.void
         session.flush()
         assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
