@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.domain.accounts import active_accounts, current_balance, current_movement_account
@@ -55,14 +55,17 @@ class Projection:
 
 
 def _movement_rows(session: Session, account_id: int, start: date,
-                   end: date, *, payday_only: bool = False) -> list[tuple[int, date, int]]:
+                   end: date, *, payday_only: bool = False,
+                   include_ids: tuple[int, ...] = ()) -> list[tuple[int, date, int]]:
     """Outstanding movements in (start, end] as (id, date, signed pence)
     rows — the level scenario ops need to address individual items."""
+    window = and_(ExpectedMovement.expected_date > start, ExpectedMovement.expected_date <= end)
+    if include_ids:
+        window = window | ExpectedMovement.id.in_(include_ids)
     stmt = (
         select(ExpectedMovement)
         .where(current_movement_account(), ExpectedMovement.account_id == account_id,
-               ExpectedMovement.expected_date > start,
-               ExpectedMovement.expected_date <= end,
+               window,
                ExpectedMovement.dismissed_at.is_(None)))
     if payday_only:
         stmt = stmt.where(ExpectedMovement.source_type.in_(

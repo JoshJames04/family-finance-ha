@@ -137,6 +137,17 @@ class TestRemoveOp:
 
 
 class TestShiftOp:
+    def test_shift_later_bill_into_window(self, session: Session, household: Household,
+                                          account: Account) -> None:
+        bill = _expect(session, household, account, TODAY + timedelta(days=40), -12_345)
+        scenario = _scenario(session, household)
+        scen.add_op(session, scenario, kind=ScenarioOpKind.shift,
+                    expected_movement_id=bill.id, expected_date=TODAY + timedelta(days=3))
+        result = scen.run(session, scenario, account, days=7, from_date=TODAY)
+        assert result.baseline.committed_until_payday_pence == 0
+        assert result.projection.days[2].movements_pence == -12_345
+        assert result.projection.committed_until_payday_pence == 12_345
+
     def test_shift_moves_trough_day(
             self, session: Session, household: Household,
             account: Account) -> None:
