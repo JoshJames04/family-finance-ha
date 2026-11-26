@@ -181,13 +181,15 @@ def update_rule(
     )
     start = body.start_date or rule.start_date
     end = body.end_date if "end_date" in body.model_fields_set else rule.end_date
-    changes_amount = body.amount_spec is not None
+    was_fixed = json.loads(rule.amount_spec).get("kind") == AmountKind.fixed
+    effective_fixed = (body.amount_spec.kind == AmountKind.fixed
+                       if body.amount_spec is not None else was_fixed)
     was_recurring = rule.start_date != rule.end_date
     approval_endpoints = set()
-    if changes_amount and was_recurring:
+    if body.amount_spec is not None and was_recurring and was_fixed:
         approval_endpoints.add(current)
-    # Moving or converting a rule can establish a standing amount on a new account.
-    if start != end and (changes_amount or effective != current or not was_recurring):
+    # Retargeting or extending a one-off can establish a fixed standing amount.
+    if start != end and effective_fixed and (effective != current or not was_recurring):
         approval_endpoints.add(effective)
     for source_id, target_id in sorted(approval_endpoints):
         source = session.get(Account, source_id)

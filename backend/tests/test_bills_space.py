@@ -183,3 +183,19 @@ def test_standing_top_up_approval_uses_effective_rule_endpoints(tmp_path: Path) 
         path = f"{base}/transfer-rules/{one_off.json()['id']}"
         converted = client.patch(path, headers=h, json={"end_date": None})
         assert converted.status_code == 409, converted.text
+
+        percentage = client.post(f"{base}/transfer-rules", headers=h, json={
+            "name": "Percentage transfer", "source_account_id": joint, "dest_account_id": bills,
+            "amount_spec": {"kind": "income_pct", "bps": 500},
+            "frequency": "monthly", "day_of_month": date.today().day, "start_date": today,
+        })
+        assert percentage.status_code == 201, percentage.text
+        path = f"{base}/transfer-rules/{percentage.json()['id']}"
+        edited = client.patch(path, headers=h, json={
+            "amount_spec": {"kind": "income_pct", "bps": 750},
+        })
+        assert edited.status_code == 200, edited.text
+        assert client.patch(path, headers=h, json=amount).status_code == 200
+        assert client.patch(path, headers=h, json={"amount_spec": {
+            "kind": "income_pct", "bps": 1000,
+        }}).status_code == 409
