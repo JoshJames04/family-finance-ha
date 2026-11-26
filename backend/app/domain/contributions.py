@@ -184,26 +184,29 @@ def assert_payment_eligible(session: Session, movement: ExpectedMovement,
         raise MatchError("cyclic transaction corrections cannot satisfy expected movements")
 
 
-def pending_bill_posts(
-    session: Session, movements: Collection[ExpectedMovement], payment: Transaction,
+def bill_post_ref(movement: ExpectedMovement) -> str:
+    return f"rec:{movement.source_id}:{movement.original_expected_date or movement.expected_date}"
+
+
+def editable_bill_posts(
+    session: Session, movements: Collection[ExpectedMovement], account_id: int,
 ) -> dict[int, Transaction]:
-    """Provisional postings this real, non-transfer payment could replace."""
+    """Unprotected pending ledger entries belonging to these exact bill occurrences."""
     from app.domain.categorise import transaction_editable
 
-    refs = {m.id: f"rec:{m.source_id}:{m.original_expected_date or m.expected_date}"
-            for m in movements if m.source_type == ExpectedSource.commitment
-            and m.account_id == payment.account_id and m.amount_pence * payment.amount_pence > 0}
-    if (not refs
-            or payment.source in (TransactionSource.system, TransactionSource.manual_verification)
-            or payment.refund_of_id is not None or payment.transfer_id is not None):
+    bills = {m.id: m for m in movements
+             if m.source_type == ExpectedSource.commitment and m.account_id == account_id}
+    refs = {mid: bill_post_ref(m) for mid, m in bills.items()}
+    if not refs:
         return {}
+    accepted_refs = {*refs.values(), *(f"{ref}:provisional" for ref in refs.values())}
     other = aliased(ExpectedMatch)
     rows = session.execute(select(ExpectedMatch, Transaction).join(
         Transaction, ExpectedMatch.transaction_id == Transaction.id).where(
-            ExpectedMatch.movement_id.in_(refs), Transaction.account_id == payment.account_id,
+            ExpectedMatch.movement_id.in_(refs), Transaction.account_id == account_id,
             Transaction.source == TransactionSource.system,
             Transaction.status == TransactionStatus.pending,
-            Transaction.external_ref.in_(refs.values()), Transaction.transfer_id.is_(None),
+            Transaction.external_ref.in_(accepted_refs), Transaction.transfer_id.is_(None),
             Transaction.refund_of_id.is_(None),
             ~select(other.id).where(other.transaction_id == Transaction.id,
                                     other.id != ExpectedMatch.id).exists(),
@@ -212,11 +215,26 @@ def pending_bill_posts(
                 MergeCandidate.status != MergeStatus.dismissed).exists(),
             ~select(StatementBankIdentity.transaction_id).where(
                 StatementBankIdentity.transaction_id == Transaction.id).exists()))
-    return {match.movement_id: post for match, post in rows
-            if post.external_ref == refs[match.movement_id]
-            and match.matched_pence == abs(post.amount_pence)
-            and post.amount_pence * payment.amount_pence > 0 and not post.splits
-            and transaction_editable(session, post)}
+    editable = {}
+    for match, post in rows:
+        ref = refs[match.movement_id]
+        if (post.external_ref in (ref, f"{ref}:provisional")
+                and match.matched_pence == abs(post.amount_pence)
+                and bills[match.movement_id].amount_pence * post.amount_pence > 0
+                and not post.splits and transaction_editable(session, post)):
+            editable[match.movement_id] = post
+    return editable
+
+
+def pending_bill_posts(
+    session: Session, movements: Collection[ExpectedMovement], payment: Transaction,
+) -> dict[int, Transaction]:
+    if (payment.source in (TransactionSource.system, TransactionSource.manual_verification)
+            or payment.refund_of_id is not None or payment.transfer_id is not None):
+        return {}
+    posts = editable_bill_posts(session, movements, payment.account_id)
+    return {mid: post for mid, post in posts.items()
+            if post.amount_pence * payment.amount_pence > 0}
 
 
 def payment_outstanding(movement: ExpectedMovement, matched: int,
@@ -235,6 +253,22 @@ def _link(session: Session, movement: ExpectedMovement,
     return m
 
 
+def resize_bill_post(session: Session, movement: ExpectedMovement,
+                     provisional: Transaction, remaining: int) -> None:
+    """Preserve the user-void reference; only automatic retirement releases it for a retry."""
+    ref = bill_post_ref(movement)
+    if remaining <= 0:
+        provisional.status = TransactionStatus.void
+        provisional.external_ref = f"{ref}:superseded:{provisional.id}"
+        return
+    provisional.external_ref = f"{ref}:provisional"
+    provisional.amount_pence = remaining if provisional.amount_pence > 0 else -remaining
+    link = session.scalars(select(ExpectedMatch).where(
+        ExpectedMatch.movement_id == movement.id,
+        ExpectedMatch.transaction_id == provisional.id)).one()
+    link.matched_pence = remaining
+
+
 def record_payment(
     session: Session, movement: ExpectedMovement, tx: Transaction, pence: int, *,
     manual: bool, provisional: Transaction | None, outstanding: int,
@@ -242,14 +276,7 @@ def record_payment(
     """Exchange the allocated portion of an editable posting for real evidence."""
     if provisional is not None:
         remainder = min(abs(provisional.amount_pence), outstanding) - pence
-        if remainder > 0:
-            provisional.amount_pence = remainder if provisional.amount_pence > 0 else -remainder
-            link = session.scalars(select(ExpectedMatch).where(
-                ExpectedMatch.movement_id == movement.id,
-                ExpectedMatch.transaction_id == provisional.id)).one()
-            link.matched_pence = remainder
-        else:
-            provisional.status = TransactionStatus.void
+        resize_bill_post(session, movement, provisional, remainder)
     return _link(session, movement, tx, pence, manual=manual)
 
 

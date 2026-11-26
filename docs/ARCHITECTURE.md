@@ -340,7 +340,9 @@ transaction only for the outstanding amount and links that transaction to the
 occurrence. Prepaid and written-off dates advance without another ledger entry.
 A generated pending remainder is provisional. When a real payment is accepted
 for the same occurrence, its allocation reduces the pending posting and the
-linked amount together. Full settlement voids the provisional posting. Ambiguous reconciliation proposals require confirmation.
+linked amount together. Full settlement retires the provisional posting. A
+**Post next** retry rebuilds or adjusts the posting if the replacement payment
+later becomes void, preserving explicit user voids and locked periods. Ambiguous reconciliation proposals require confirmation.
 A rescheduled bill retains its original occurrence identity during schedule regeneration and posts
 the remaining amount on its revised due date once the posting horizon reaches it.
 

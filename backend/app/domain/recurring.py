@@ -99,6 +99,28 @@ def rescheduled_occurrences(
     return {m.original_expected_date: m for m in rows if m.original_expected_date is not None}
 
 
+def _replaced_occurrences(session: Session, c: RecurringCommitment,
+                          horizon: date) -> dict[date, ExpectedMovement]:
+    """Past posts whose provisional amount was changed by real evidence."""
+    rows = session.execute(select(ExpectedMovement, Transaction).join(
+        ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id).join(
+        Transaction, Transaction.id == ExpectedMatch.transaction_id).where(
+            ExpectedMovement.household_id == c.household_id,
+            ExpectedMovement.account_id == c.account_id,
+            ExpectedMovement.source_type == ExpectedSource.commitment,
+            ExpectedMovement.source_id == c.id, ExpectedMovement.expected_date <= horizon,
+            ExpectedMovement.dismissed_at.is_(None), Transaction.account_id == c.account_id,
+            Transaction.source == TransactionSource.system,
+            or_(Transaction.external_ref.endswith(":provisional"),
+                Transaction.external_ref.contains(":superseded:"))))
+    replaced = {}
+    for movement, tx in rows:
+        ref = contributions.bill_post_ref(movement)
+        if tx.external_ref in (f"{ref}:provisional", f"{ref}:superseded:{tx.id}"):
+            replaced[movement.original_expected_date or movement.expected_date] = movement
+    return replaced
+
+
 def materialise(
     session: Session,
     c: RecurringCommitment,
@@ -130,6 +152,9 @@ def materialise(
     moved_ids = {m.id for m in moved.values()}
     by_date = {m.expected_date: m for m in preserved if m.id not in moved_ids}
     by_date.update(moved)
+    replaced = _replaced_occurrences(session, c, horizon)
+    by_date.update(replaced)
+    editable = contributions.editable_bill_posts(session, replaced.values(), c.account_id)
     paid = contributions.matched_totals(session, [m.id for m in by_date.values()])
     created: list[Transaction] = []
     latest: date | None = None
@@ -139,13 +164,13 @@ def materialise(
                       if c.last_generated is not None and original <= c.last_generated
                       and movement.expected_date <= horizon and movement.dismissed_at is None
                       and paid[movement.id] < abs(movement.amount_pence)}
-    for d in sorted(nominal_dates | deferred_dates):
+    for d in sorted(nominal_dates | deferred_dates | replaced.keys()):
         ref = f"rec:{c.id}:{d.isoformat()}"
         exists = session.execute(
             select(Transaction.id).where(
                 Transaction.account_id == c.account_id,
                 Transaction.source == TransactionSource.system,
-                Transaction.external_ref == ref,
+                Transaction.external_ref.in_((ref, f"{ref}:provisional")),
             )
         ).scalar_one_or_none()
         movement = by_date.get(d)
@@ -156,13 +181,25 @@ def materialise(
             remainder = max(0, abs(movement.amount_pence) - paid[movement.id])
             amount = remainder if movement.amount_pence > 0 else -remainder
         due = movement.expected_date if movement is not None else d
+        if d in replaced and movement is not None and movement.id in editable:
+            post = editable[movement.id]
+            desired = contributions.payment_outstanding(movement, paid[movement.id], post)
+            if desired != abs(post.amount_pence):
+                contributions.resize_bill_post(session, movement, post, desired)
         if exists is None and due <= horizon and (movement is None or amount != 0):
+            if d in replaced:
+                # Rebuild a superseded system entry only if the posting period is open.
+                from app.domain import periods
+                period = periods.period_for(session, c.household_id, due)
+                if period is not None and period.locked:
+                    continue
             t = Transaction(
                 account_id=c.account_id, date=due,
                 amount_pence=amount,
                 payee=c.name, category_id=c.category_id,
                 status=TransactionStatus.pending,
-                source=TransactionSource.system, external_ref=ref,
+                source=TransactionSource.system,
+                external_ref=f"{ref}:provisional" if d in replaced else ref,
             )
             session.add(t)
             if movement is not None:
