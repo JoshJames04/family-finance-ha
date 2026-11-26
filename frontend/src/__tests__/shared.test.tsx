@@ -133,11 +133,15 @@ describe("SharedPot", () => {
   it("keeps the payday schedule when only the share name changes", async () => {
     const calls: { url: string; method: string; body: string }[] = [];
     const rule = RULES[0]!;
-    stubFetch(calls, { rules: [{ ...rule, amount_spec: { ...rule.amount_spec, on_member_payday: true } }] });
+    stubFetch(calls, { rules: [{ ...rule, amount_spec: {
+      ...rule.amount_spec, on_member_payday: true, pence: 99500, original_pence: 80000,
+      effective_amounts: [{ date: "2199-01-01", pence: 99500 }],
+    } }] });
     const user = userEvent.setup();
     open();
     await user.click(await screen.findByRole("button", { name: "Share rules (1)" }));
     await user.click(screen.getByRole("button", { name: "Edit Alice share" }));
+    expect((screen.getByLabelText("Share amount") as HTMLInputElement).value).toBe("800");
     const name = screen.getByLabelText("Rule name");
     await user.clear(name);
     await user.type(name, "New name");

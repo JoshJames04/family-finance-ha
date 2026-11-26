@@ -348,7 +348,7 @@ def save_shared_split(
         source = accounts.get(source_id) if source_id is not None else None
         if source is None or source.owner_profile_id != share.profile_id:
             raise HTTPException(422, "select each member's own payment account")
-        unchanged = rule is not None and json.loads(rule.amount_spec).get("pence") == pence
+        unchanged = rule is not None and transfer_rules.fixed_amount_at(rule, date.today()) == pence
         if rule is not None and share.rule_id is None:
             same_source = share.source_account_id in (None, rule.source_account_id)
             if not unchanged or not same_source:
