@@ -232,7 +232,8 @@ accept the next amount or keep the agreed amount. Household admins can
 designate an approver or allow automatic changes with a notification.
 
 Household admins can nominate additional shared receiving accounts in Adjust
-split. In Record payment, select a receiving account to confirm a member's
+split. Use Save receiving accounts if there is no funded Shared budget.
+In Record payment, select a receiving account to confirm a member's
 direct transfer into it. A confirmed payment reduces the scheduled amount
 on both sides of the forecast. Transfers onward from joint to a bills space
 fund that space and leave member contribution totals as they were.

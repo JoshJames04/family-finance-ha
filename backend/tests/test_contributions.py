@@ -763,3 +763,23 @@ class TestOutstandingApi:
             headers=h, params={"start": mid, "end": "2030-01-01"}
         ).json()
         assert len(after) < len(reqs)
+
+
+    def test_receiving_accounts_can_be_saved_without_a_budget(self, client: TestClient) -> None:
+        base = "/api/v1"
+        household = client.post(f"{base}/households", json={"name": "Home"}).json()["id"]
+        headers = {"X-Household-Id": str(household)}
+        ids = []
+        for name in ("Joint", "Bills"):
+            response = client.post(f"{base}/accounts", headers=headers, json={
+                "name": name, "type": "joint", "opening_date": date.today().isoformat(),
+                "opening_balance": 0,
+            })
+            assert response.status_code == 201
+            ids.append(response.json()["id"])
+        setup = f"{base}/transfer-rules/shared-split/{ids[0]}"
+        route = f"{setup}/receiving-accounts"
+        assert client.patch(route, headers=headers, json=[ids[0]]).status_code == 422
+        assert client.patch(route, headers=headers, json=[ids[1]]).status_code == 204
+        policy = client.get(setup, headers=headers).json()["policy"]
+        assert policy["mode"] == "amount" and policy["alternate_account_ids"] == [ids[1]]

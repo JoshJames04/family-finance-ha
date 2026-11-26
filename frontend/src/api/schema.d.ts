@@ -2442,6 +2442,23 @@ export interface paths {
         patch: operations["update_rule_api_v1_transfer_rules__rid__patch"];
         trace?: never;
     };
+    "/api/v1/transfer-rules/shared-split/{account_id}/receiving-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Save Receiving Accounts */
+        patch: operations["save_receiving_accounts_api_v1_transfer_rules_shared_split__account_id__receiving_accounts_patch"];
+        trace?: never;
+    };
     "/api/v1/transfer-rules/shared-split/{account_id}": {
         parameters: {
             query?: never;
@@ -14552,6 +14569,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TransferRuleOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_receiving_accounts_api_v1_transfer_rules_shared_split__account_id__receiving_accounts_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-household-id"?: number | null;
+                "x-profile-id"?: number | null;
+                "x-actor-id"?: string | null;
+            };
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": number[];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
