@@ -424,6 +424,20 @@ class TestApi:
         }).json()
         assert sorted(row["amount_pence"] for row in rows) == [-20000, 20000]
 
+        assert client.put(f"{base}/budgets/pay-cycle-settings", headers=headers, json={
+            "owner_profile_id": member, "payday_day": 17,
+        }).status_code == 200
+        new_due = client.get(f"{route}/{pot}", headers=headers).json()["next_paydays"][str(member)]
+        # The rule already started at the first agreed date. Compare a future month
+        # that the old and new schedules would both cover.
+        after = max(date.fromisoformat(due), date.fromisoformat(new_due))
+        first = (after.replace(day=28) + timedelta(days=4)).replace(day=1)
+        future = client.get(f"{base}/expected-movements", headers=headers, params={
+            "start": first.isoformat(), "end": first.replace(day=28).isoformat(),
+        }).json()
+        assert len(future) == 2
+        assert {date.fromisoformat(row["expected_date"]).day for row in future} <= {15, 16, 17}
+
     def test_match_and_status_flow(self, client: TestClient) -> None:
         hid = client.post("/api/v1/households",
                           json={"name": "H"}).json()["id"]

@@ -180,6 +180,7 @@ def create_employment(
         session.flush()
         payroll_automation.refresh(session, prior)
     payroll_automation.refresh(session, e)
+    schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(
         session,
         household.id,
@@ -225,6 +226,8 @@ def delete_employment(
     for rev in list(e.salary_revisions):
         session.delete(rev)
     session.delete(e)
+    session.flush()
+    schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     emit(session, household.id, actor, "delete", "employment", emp_id, {"employer": e.employer})
 
 
@@ -553,6 +556,8 @@ def patch_employment(
     dom.invalidate_forecasts(session, e.id)
     # Rule/account/activity changes all reshape the projection.
     payroll_automation.refresh(session, e)
+    if {"payday_rule", "start_date", "end_date", "is_active"} & changed.keys():
+        schedule.rematerialize_payday_transfers(session, household.id, e.profile_id)
     if "paid_into_account_id" in changed:
         for r in session.scalars(select(PayrollRun).where(PayrollRun.employment_id == e.id)).all():
             schedule.rematerialize_payroll_run(session, r)

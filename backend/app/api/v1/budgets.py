@@ -144,6 +144,7 @@ def set_pay_cycle_settings(
                                       body.employment_id)
     except (ValueError, LookupError) as error:
         raise HTTPException(422, str(error)) from error
+    schedule.rematerialize_payday_transfers(session, household.id, body.owner_profile_id)
     emit(session, household.id, actor, "update", "budget_payday", body.owner_profile_id,
          {"employment_id": body.employment_id, "payday_day": body.payday_day})
     return _cycle_settings(session, household.id, body.owner_profile_id)

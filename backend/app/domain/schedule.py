@@ -21,6 +21,7 @@ from app.domain import goals, outbox, pay_calendar, paydays, payroll_totals, pay
 from app.domain.accounts import current_movement_account
 from app.domain.recurring import advance, occurrences
 from app.persistence.models import (
+    Account,
     AmountKind,
     Confidence,
     Employment,
@@ -536,6 +537,19 @@ def rematerialize_transfer_rule(
             n += 1
     session.flush()
     return n
+
+
+def rematerialize_payday_transfers(session: Session, household_id: int, profile_id: int) -> None:
+    rules = session.scalars(select(TransferRule).join(
+        Account, Account.id == TransferRule.source_account_id,
+    ).where(
+        TransferRule.household_id == household_id,
+        TransferRule.active.is_(True),
+        Account.owner_profile_id == profile_id,
+    )).all()
+    for rule in rules:
+        if transfer_rules.follows_member_payday(rule):
+            rematerialize_transfer_rule(session, rule)
 
 
 def rematerialize_budget_derived_rules(

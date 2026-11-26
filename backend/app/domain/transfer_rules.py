@@ -33,6 +33,7 @@ from app.persistence.models import (
     Budget,
     BudgetLine,
     BudgetStatus,
+    Frequency,
     Transaction,
     TransactionStatus,
     TransferRule,
@@ -90,11 +91,17 @@ def parse_spec(raw: str | dict[str, Any]) -> AmountSpec:
     return AmountSpec(kind, category_id=int(data["category_id"]))
 
 
+def follows_member_payday(rule: TransferRule) -> bool:
+    return rule.frequency == Frequency.monthly and bool(
+        json.loads(rule.amount_spec).get("on_member_payday")
+    )
+
+
 def occurrences(rule: TransferRule, horizon: date,
                 today: date | None = None, *, session: Session | None = None) -> list[date]:
     """Occurrence dates in (max(today, start_date) .. horizon]."""
     today = today or date.today()
-    if session is not None and json.loads(rule.amount_spec).get("on_member_payday"):
+    if session is not None and follows_member_payday(rule):
         source = session.get(Account, rule.source_account_id)
         if source is not None and source.owner_profile_id is not None:
             start = max(today, rule.start_date)
