@@ -128,6 +128,11 @@ def member_payday_cycles(
             cycle = date.fromisoformat(month_text)
             old_day = date.fromisoformat(day_text)
             new_day = result.get(cycle)
+            if new_day is None and budget_periods.ambiguous_member_payday(
+                session, rule.household_id, source.owner_profile_id, cycle,
+            ):
+                result[cycle] = old_day
+                continue
             # Once a date is paid or due, keep that month's obligation there.
             # Also keep the old date if moving it would create a retroactive due date.
             if (old_day in matched or (new_day is not None

@@ -35,6 +35,14 @@ type Txn = components["schemas"]["TransactionOut"];
 type Account = components["schemas"]["AccountOut"];
 type Frequency = components["schemas"]["Frequency"];
 
+function currentFixedAmount(rule: Rule): number {
+  const spec = rule.amount_spec;
+  const today = toISODate(new Date());
+  if (!Array.isArray(spec.effective_amounts)) return Number(spec.pence ?? 0);
+  const effective = spec.effective_amounts.slice().reverse().find(change => change.date <= today);
+  return Number(effective?.pence ?? spec.original_pence ?? spec.pence ?? 0);
+}
+
 const STATE_TONE: Record<string, BadgeTone> = {
   satisfied: "success", partial: "warning", overdue: "error",
   outstanding: "info", scheduled: "info", none: "neutral",
@@ -143,7 +151,7 @@ export function SharedPot({ period, sharedTotal }: {
   });
 
   const memberShare = useMemo(() => {
-    const members = (identity.data ?? []).filter((p) => p.is_active && p.role !== "viewer");
+    const members = (identity.data ?? []).filter((p) => p.is_active);
     return members.map((p) => {
       const fixed = ruleItems.filter((r) =>
         ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id
@@ -152,7 +160,7 @@ export function SharedPot({ period, sharedTotal }: {
         ruleOwner(r) === p.id && pot != null && r.dest_account_id === pot.id
         && (r.amount_spec.kind !== "fixed" || r.frequency !== "monthly"));
       const pence = fixed.reduce(
-        (s, r) => s + Math.abs(Number((r.amount_spec as { pence?: number }).pence ?? 0)), 0);
+        (s, r) => s + Math.abs(currentFixedAmount(r)), 0);
       return { profile: p, fixed, custom, pence };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -415,7 +423,7 @@ export function SharedPot({ period, sharedTotal }: {
                             </p>
                           </div>
                           {r.amount_spec.kind === "fixed"
-                            ? <Money pence={Number((r.amount_spec as { pence?: number }).pence ?? 0)} className="text-[13px] font-medium" />
+                            ? <Money pence={currentFixedAmount(r)} className="text-[13px] font-medium" />
                             : <Badge tone="info">{specLabel(r.amount_spec)}</Badge>}
                           <div className="flex gap-1">
                             <Button size="sm" variant="ghost" onClick={() => setEditing(r)}
@@ -906,8 +914,7 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
   const [sourceId, setSourceId] = useState(String(rule?.source_account_id ?? ""));
   const [destId, setDestId] = useState(String(rule?.dest_account_id ?? ""));
   const [pounds, setPounds] = useState(() => {
-    const p = (rule?.amount_spec as { pence?: number } | undefined)?.pence;
-    return p != null ? String(p / 100) : "";
+    return rule ? String(currentFixedAmount(rule) / 100) : "";
   });
   const [dom, setDom] = useState(String(rule?.day_of_month ?? 1));
   const [frequency, setFrequency] = useState<Frequency>(rule?.frequency ?? "monthly");
@@ -941,7 +948,7 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
             name: body.name,
             source_account_id: body.source_account_id,
             dest_account_id: body.dest_account_id,
-            amount_spec: body.amount_spec.pence === rule!.amount_spec.pence
+            amount_spec: body.amount_spec.pence === currentFixedAmount(rule!)
               ? undefined : body.amount_spec,
             frequency: body.frequency,
             day_of_month: body.day_of_month !== (rule!.day_of_month ?? 1)
