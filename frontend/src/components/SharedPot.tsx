@@ -922,8 +922,11 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
             name: body.name,
             source_account_id: body.source_account_id,
             dest_account_id: body.dest_account_id,
-            amount_spec: body.amount_spec,
-            frequency: body.frequency, day_of_month: body.day_of_month,
+            amount_spec: body.amount_spec.pence === rule!.amount_spec.pence
+              ? undefined : body.amount_spec,
+            frequency: body.frequency,
+            day_of_month: body.day_of_month !== (rule!.day_of_month ?? 1)
+              || body.frequency !== rule!.frequency ? body.day_of_month : undefined,
           },
         });
     req.then(() => {
@@ -976,7 +979,8 @@ function ShareDialog({ rule, accounts, profiles, onClose, onSaved }: {
             <Input id={id} required type="number" step="0.01" min="0" aria-label="Share amount"
               value={pounds} onChange={(e) => setPounds(e.target.value)} />
           )}</Field>
-          <Field label="Day of month">{(id) => (
+          <Field label="Day of month" hint={rule?.amount_spec.on_member_payday === true
+            ? "Follows member payday. Change the day or frequency to use a fixed schedule." : undefined}>{(id) => (
             <Input id={id} required type="number" min="1" max="31"
               value={dom} onChange={(e) => setDom(e.target.value)} />
           )}</Field>
