@@ -166,8 +166,11 @@ def update_rule(
             changes.get("dest_account_id", r.dest_account_id))
     if "amount_spec" in changes and changes["amount_spec"] is not None:
         next_spec = changes["amount_spec"]
-        if next_spec["kind"] == "fixed" and json.loads(r.amount_spec).get("on_member_payday"):
+        prior_spec = json.loads(r.amount_spec)
+        if next_spec["kind"] == "fixed" and prior_spec.get("on_member_payday"):
             next_spec["on_member_payday"] = True
+            if "payday_cycles" in prior_spec:
+                next_spec["payday_cycles"] = prior_spec["payday_cycles"]
         changes["amount_spec"] = json.dumps(next_spec)
     endpoints_changed = any(k in changes and changes[k] != getattr(r, k)
                             for k in ("source_account_id", "dest_account_id"))
@@ -182,6 +185,10 @@ def update_rule(
             raise HTTPException(409, "This rule has matched future movements. "
                                 "Create a separate rule for the new accounts.")
         _retain_endpoints(session, r)
+    schedule_fields = {"amount_spec", "source_account_id", "dest_account_id",
+                       "frequency", "day_of_month", "start_date", "end_date", "active"}
+    if any(changes[field] != getattr(r, field) for field in changes.keys() & schedule_fields):
+        shared_contribution_approvals.invalidate_for_rule(session, r)
     for k, v in changes.items():
         setattr(r, k, v)
     session.flush()
@@ -452,6 +459,7 @@ def delete_rule(
     ``expected_match`` FKs to them and real money already met the
     obligation. Pause is the softer option (PATCH ``active=false``)."""
     r = _get(session, household.id, rid)
+    shared_contribution_approvals.invalidate_for_rule(session, r)
     _retain_endpoints(session, r)
     session.execute(
         delete(ExpectedMovement).where(

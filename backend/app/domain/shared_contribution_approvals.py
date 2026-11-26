@@ -102,6 +102,19 @@ def close_notification(session: Session, proposal_id: str) -> None:
         event.state = NotificationState.acked
 
 
+def invalidate_for_rule(session: Session, rule: TransferRule) -> None:
+    row, changes = read(session, rule.household_id, rule.dest_account_id)
+    if row is None:
+        return
+    expired = [proposal for proposal in changes
+               if proposal.rule_id == rule.id and proposal.state == "pending"]
+    if expired:
+        for proposal in expired:
+            close_notification(session, proposal.id)
+        save(session, rule.household_id, rule.dest_account_id, row,
+             [proposal for proposal in changes if proposal not in expired])
+
+
 def next_unpaid_date(session: Session, rule: TransferRule, today: date) -> date | None:
     matched_days = set(session.scalars(select(ExpectedMovement.expected_date).join(
         ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,

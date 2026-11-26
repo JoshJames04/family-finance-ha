@@ -108,3 +108,15 @@ def test_budget_change_requires_latest_proposal_approval(tmp_path: Path) -> None
                 headers=headers, params={"on": proposal["effective_date"]},
             ).json()
             assert value["amount_pence"] == proposal["new_pence"]
+
+        revise(158000)
+        stale = next(item for item in client.get(path, headers=headers).json()
+                     if item["budget_id"] == budget)
+        edit = client.patch(f"{base}/transfer-rules/{stale['rule_id']}", headers=headers, json={
+            "amount_spec": {"kind": "fixed", "pence": 108500},
+        })
+        assert edit.status_code == 200
+        assert all(item["id"] != stale["id"] for item in client.get(path, headers=headers).json())
+        events = client.get(f"{base}/notifications/events", headers=headers).json()
+        assert next(event for event in events
+                    if event["payload"]["id"] == stale["id"])["state"] == "acked"

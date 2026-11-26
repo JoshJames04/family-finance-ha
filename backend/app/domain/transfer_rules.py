@@ -33,6 +33,9 @@ from app.persistence.models import (
     Budget,
     BudgetLine,
     BudgetStatus,
+    ExpectedMatch,
+    ExpectedMovement,
+    ExpectedSource,
     Frequency,
     Transaction,
     TransactionStatus,
@@ -97,26 +100,45 @@ def follows_member_payday(rule: TransferRule) -> bool:
     )
 
 
+def member_payday_cycles(
+    session: Session, rule: TransferRule, start: date, end: date,
+) -> dict[date, date]:
+    """Nominal month and cash date, including paydays shifted across month boundaries."""
+    source = session.get(Account, rule.source_account_id)
+    if source is None or source.owner_profile_id is None:
+        return {}
+    month = (start.replace(day=1) - timedelta(days=1)).replace(day=1)
+    last_month = advance(end.replace(day=1), Frequency.monthly, 1)
+    result = {}
+    while month <= last_month:
+        payday = budget_periods.member_payday(
+            session, rule.household_id, source.owner_profile_id, month)
+        if payday is not None:
+            result[month] = payday
+        month = advance(month, Frequency.monthly, 1)
+    return result
+
+
 def occurrences(rule: TransferRule, horizon: date,
                 today: date | None = None, *, session: Session | None = None) -> list[date]:
     """Occurrence dates in (max(today, start_date) .. horizon]."""
     today = today or date.today()
     if session is not None and follows_member_payday(rule):
-        source = session.get(Account, rule.source_account_id)
-        if source is not None and source.owner_profile_id is not None:
-            start = max(today, rule.start_date)
-            end = min(horizon, rule.end_date) if rule.end_date else horizon
-            month = (start.replace(day=1) - timedelta(days=1)).replace(day=1)
-            last_month = advance(end.replace(day=1), rule.frequency, 1)
-            result = []
-            while month <= last_month:
-                payday = budget_periods.member_payday(
-                    session, rule.household_id, source.owner_profile_id, month)
-                if payday is not None and start <= payday <= end:
-                    result.append(payday)
-                month = advance(month, rule.frequency, 1)
-            return sorted(set(result))
-        return []
+        start = max(today, rule.start_date)
+        end = min(horizon, rule.end_date) if rule.end_date else horizon
+        cycles = member_payday_cycles(session, rule, start, end)
+        recorded = json.loads(rule.amount_spec).get("payday_cycles", {})
+        if recorded:
+            matched_dates = set(session.scalars(select(ExpectedMovement.expected_date).join(
+                ExpectedMatch, ExpectedMatch.movement_id == ExpectedMovement.id,
+            ).where(ExpectedMovement.household_id == rule.household_id,
+                    ExpectedMovement.source_type == ExpectedSource.transfer_rule,
+                    ExpectedMovement.source_id == rule.id,
+                    ExpectedMovement.expected_date >= start - timedelta(days=40))))
+            for cycle, payday in recorded.items():
+                if (pinned := date.fromisoformat(payday)) in matched_dates:
+                    cycles[date.fromisoformat(cycle)] = pinned
+        return sorted({day for day in cycles.values() if start <= day <= end})
     d = rule.start_date
     while d < today:
         d = advance(d, rule.frequency, rule.day_of_month)
