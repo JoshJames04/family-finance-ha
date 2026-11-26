@@ -344,8 +344,12 @@ class TestManualConfirm:
         assert totals == {incoming.id: 20000}
         with pytest.raises(MatchError):
             contributions.confirm(session, incoming, receipt)
-        receipt.status = TransactionStatus.void
         debit.status = TransactionStatus.void
+        session.flush()
+        assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
+            incoming.id: 0, outgoing.id: 0,
+        }
+        receipt.status = TransactionStatus.void
         session.flush()
         assert contributions.matched_totals(session, [incoming.id, outgoing.id]) == {
             incoming.id: 0, outgoing.id: 0,

@@ -214,11 +214,12 @@ def _direct_contribution_debit(
             or alternate is None or alternate.owner_profile_id is not None or alternate.archived
             or alternate.id not in allowed):
         raise MatchError("the receiving account is outside this contribution's setup")
-    debit_rows = session.scalars(select(Transaction).where(
-        Transaction.transfer_id == receipt.transfer_id, Transaction.account_id == source_id,
+    legs = session.scalars(select(Transaction).where(
+        Transaction.transfer_id == receipt.transfer_id,
         Transaction.status != TransactionStatus.void,
-        Transaction.amount_pence == -receipt.amount_pence,
     )).all()
+    debit_rows = [leg for leg in legs if leg.account_id == source_id
+                  and leg.amount_pence == -receipt.amount_pence]
     debit_plan = session.scalar(select(ExpectedMovement).where(
         ExpectedMovement.source_type == ExpectedSource.transfer_rule,
         ExpectedMovement.source_id == rule.id,
@@ -228,7 +229,7 @@ def _direct_contribution_debit(
         ExpectedMovement.amount_pence < 0,
         ExpectedMovement.dismissed_at.is_(None),
     ))
-    if debit_plan is None or len(debit_rows) != 1:
+    if debit_plan is None or len(legs) != 2 or len(debit_rows) != 1:
         raise MatchError("the transfer must have one matching leg from the contributor's account")
     return debit_plan, debit_rows[0]
 

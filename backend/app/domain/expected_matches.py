@@ -16,6 +16,7 @@ from app.persistence.models import (
     ExpectedSource,
     Transaction,
     TransactionStatus,
+    TransferRule,
 )
 
 SALARY_SOURCES = (ExpectedSource.employment, ExpectedSource.payroll_run)
@@ -102,6 +103,17 @@ def eligible_matches(movement_ids: Collection[int] | Select[Any] | None = None, 
                     _equivalent(parent, child)))
         anchor = anchor.where(ExpectedMatch.transaction_id.in_(select(family.c.transaction_id)))
     live = live_payment_evidence(anchor)
+    paired_debit = aliased(Transaction)
+    has_source_debit = select(paired_debit.id).join(
+        TransferRule, TransferRule.id == ExpectedMovement.source_id,
+    ).where(
+        TransferRule.household_id == ExpectedMovement.household_id,
+        paired_debit.transfer_id == Transaction.transfer_id,
+        paired_debit.account_id == func.coalesce(
+            ExpectedMovement.transfer_source_account_id, TransferRule.source_account_id),
+        paired_debit.amount_pence == -Transaction.amount_pence,
+        paired_debit.status != TransactionStatus.void,
+    ).correlate(ExpectedMovement, Transaction).exists()
     claims = select(ExpectedMatch.id, ExpectedMatch.movement_id,
         live.c.transaction_id, ExpectedMatch.manual,
         func.abs(Transaction.amount_pence).label("capacity"),
@@ -115,7 +127,7 @@ def eligible_matches(movement_ids: Collection[int] | Select[Any] | None = None, 
         or_(ExpectedMovement.account_id == Transaction.account_id, and_(
             ExpectedMatch.alternate_destination.is_(True), ExpectedMatch.manual.is_(True),
             ExpectedMovement.source_type == ExpectedSource.transfer_rule,
-            Transaction.transfer_id.is_not(None), Transaction.amount_pence > 0,
+            Transaction.transfer_id.is_not(None), Transaction.amount_pence > 0, has_source_debit,
         )),
         ExpectedMovement.household_id == Account.household_id,
         or_(and_(Transaction.amount_pence > 0, ExpectedMovement.amount_pence > 0),
