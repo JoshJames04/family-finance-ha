@@ -509,13 +509,13 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
   const total0 = shares.reduce((sum, m) => sum + m.pence, 0);
   const guided = sharedTotal != null && sharedTotal > 0;
   const target = guided ? sharedTotal : total0;
-  const setup = useApi(() => guided
-    ? api.get("/api/v1/transfer-rules/shared-split/{account_id}", { path: { account_id: pot.id } })
-    : Promise.resolve(null), guided, [pot.id]);
+  const setup = useApi(() => api.get("/api/v1/transfer-rules/shared-split/{account_id}", {
+    path: { account_id: pot.id },
+  }), guided || canConfigureApproval, [pot.id]);
   const policy = setup.data?.policy;
   type SplitMode = "amount" | "equal" | "percent" | "fixed_remainder";
   const [chosenMode, setMode] = useState<SplitMode | null>(null);
-  const mode = chosenMode ?? policy?.mode ?? "amount";
+  const mode = chosenMode ?? (guided ? policy?.mode : undefined) ?? "amount";
   const [chosenRemainder, setRemainder] = useState<number | null>(null);
   const remainder = chosenRemainder ?? policy?.remainder_profile_id ?? shares[0]?.profile.id;
   const policyError = guided && setup.error;
@@ -641,6 +641,21 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
     });
   };
 
+  const saveReceivingAccounts = async () => {
+    setBusy(true);
+    try {
+      await api.patch("/api/v1/transfer-rules/shared-split/{account_id}/receiving-accounts", {
+        path: { account_id: pot.id }, body: alternateAccounts,
+      });
+      toast.success("Receiving accounts saved");
+      onSaved();
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSave) return;
@@ -752,9 +767,9 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
             </Select>
           )}</Field>
         )}
-        {guided && canConfigureApproval && accounts.some(account =>
+        {canConfigureApproval && accounts.some(account =>
           account.id !== pot.id && account.owner_profile_id === null && !account.archived) && (
-          <fieldset className="grid gap-1">
+          <fieldset className="grid gap-1" disabled={busy || setup.loading || !!setup.error}>
             <legend className="text-sm font-medium">Also accept direct contributions into</legend>
             {accounts.filter(account => account.id !== pot.id
               && account.owner_profile_id === null && !account.archived).map(account => (
@@ -766,6 +781,10 @@ function SplitDialog({ pot, shares, sharedTotal, accounts, canConfigureApproval,
                 {account.name}
               </label>
             ))}
+            {!guided && <Button type="button" disabled={receivingAccounts == null}
+              onClick={() => void saveReceivingAccounts()}>
+              Save receiving accounts
+            </Button>}
           </fieldset>
         )}
         {policyError && <p role="alert">Could not load the agreed split. Close and try again.</p>}
