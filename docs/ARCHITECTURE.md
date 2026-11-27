@@ -341,6 +341,12 @@ the selected period and account scope. Forecast salary remains separate from
 manual plan totals and received ledger income; fully matched salary adds no
 remaining forecast income.
 
+Account and scenario forecasts use the non-void ledger through the forecast start
+as their opening balance. Later postings, including pending bills created by
+**Post next**, enter both series on their transaction date. Scenario operations
+can shift the outstanding part of a schedule while the posted part stays on its
+ledger date.
+
 Account projections and scenario baselines use that same matching status for
 every expected movement, retaining its sign and flooring the remaining magnitude
 at zero. Already received salary and already paid liabilities remain in ledger

@@ -24,6 +24,7 @@ from app.domain.projection import (
     Projection,
     _aggregate,
     _assemble,
+    _ledger_movements,
     _movement_rows,
     _next_payday,
     _payday_dates,
@@ -183,11 +184,12 @@ def run(session: Session, scenario: Scenario, account: Account,
     scen_rows = _apply_ops(rows, list(scenario.ops), account.id,
                            today, end)
 
-    balance = current_balance(session, account.id)
+    postings = _ledger_movements(session, account.id, today, end)
+    balance = current_balance(session, account.id, through=today)
     payday = _next_payday(session, account.id, today, end)
 
-    base_net, base_neg = _aggregate(base_rows)
-    scen_net, scen_neg = _aggregate(scen_rows)
+    base_net, base_neg = _aggregate(postings + base_rows)
+    scen_net, scen_neg = _aggregate(postings + scen_rows)
     baseline = _assemble(account, balance, base_net, base_neg,
                          payday, today, end)
     projected = _assemble(account, balance, scen_net, scen_neg,

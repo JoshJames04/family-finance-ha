@@ -188,14 +188,13 @@ def merge_accounts(
     archive(session, source)
 
 
-def current_balance(session: Session, account_id: int) -> int:
-    """Derived from the ledger (opening row included) — pence.
-    Voided rows never count (issue #347)."""
-    return int(session.execute(
-        select(func.coalesce(func.sum(Transaction.amount_pence), 0))
-        .where(Transaction.account_id == account_id,
-               Transaction.status != TransactionStatus.void)
-    ).scalar_one())
+def current_balance(session: Session, account_id: int, *, through: date | None = None) -> int:
+    """Sum the non-void ledger including the opening, optionally through a statement date."""
+    stmt = select(func.coalesce(func.sum(Transaction.amount_pence), 0)).where(
+        Transaction.account_id == account_id, Transaction.status != TransactionStatus.void)
+    if through is not None:
+        stmt = stmt.where(Transaction.date <= through)
+    return int(session.execute(stmt).scalar_one())
 
 
 def current_movement_account() -> ColumnElement[bool]:
