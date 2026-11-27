@@ -3,6 +3,7 @@
  * no shared (unowned) budget exists. */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { Shared } from "../pages/Shared";
 
@@ -52,10 +53,11 @@ const PROFILES = [
     totp_enabled: false },
 ];
 
-function stubFetch(budgets: object[] = BUDGETS) {
+function stubFetch(budgets: object[] = BUDGETS, detailResponse?: () => Response) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(
     (input) => {
       const url = String(input);
+      if (detailResponse && /\/api\/v1\/budgets\/\d/.test(url)) return Promise.resolve(detailResponse());
       const body = url.includes("/api/v1/households")
         ? { items: [{ id: 1, name: "Home" }], total: 1 }
         : url.includes("/api/v1/profiles")
@@ -93,6 +95,23 @@ describe("Shared page", () => {
     // Only the unowned budget is considered — Alice's £0 personal
     // budget must not leak into the total.
     expect(screen.queryByText("Alice personal")).toBeNull();
+  });
+
+  it("keeps the period and funding available when the budget detail fails", async () => {
+    let failed = true;
+    stubFetch(BUDGETS, () => failed
+      ? Response.json({ detail: "Budget detail unavailable" }, { status: 403 })
+      : Response.json({ ...DETAIL, lines: [] }));
+    render(<MemoryRouter><Shared /></MemoryRouter>);
+
+    await screen.findByText(/Budget detail unavailable/);
+    expect(screen.queryByText("0 planned expenses")).toBeNull();
+    expect(screen.getByText("Shared pot")).toBeTruthy();
+    expect(screen.getByText("Period")).toBeTruthy();
+    failed = false;
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("0 planned expenses")).toBeTruthy();
+    expect(screen.getByText(/£0\.00/)).toBeTruthy();
   });
 
   it("guides members without a shared budget", async () => {
