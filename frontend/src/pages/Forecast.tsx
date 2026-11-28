@@ -193,123 +193,127 @@ export function Forecast() {
         )}
       </DataView>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        <Panel
-          flush
-          title={
-            <span className="flex items-center gap-1">
-              <Button variant="ghost" size="icon-sm" onClick={() => shift(-1)} aria-label="Previous month"><ChevronLeft /></Button>
-              <span id="cal-heading" className="min-w-36 text-center">{monthName}</span>
-              <Button variant="ghost" size="icon-sm" onClick={() => shift(1)} aria-label="Next month"><ChevronRight /></Button>
-            </span>
-          }
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              {selectedAccount && (
-                <Select aria-label="Calendar accounts" value={calendarAccount == null ? "all" : "selected"}
-                  onChange={e => setCalendarAllAccounts(e.target.value === "all")}>
-                  <option value="selected">{selectedAccount.name}</option>
-                  <option value="all">All accounts</option>
-                </Select>
-              )}
-              <span className="hidden text-[12.5px] text-fg-subtle sm:inline">
-                In <Money pence={monthTotals.inP} className="font-medium text-positive" /> · Out <Money pence={Math.abs(monthTotals.outP)} className="font-medium text-fg" />
-              </span>
-            </div>
-          }
-        >
-          <table className="ff-cal w-full table-fixed border-collapse" aria-labelledby="cal-heading">
-            <thead>
-              <tr className="h-9 text-[11.5px] font-medium text-fg-subtle">
-                {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-                  <th key={d} className="font-medium">{d}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {weeks.map((w, i) => (
-                <tr key={i}>
-                  {w.map((day, j) => {
-                    const events = day ? byDate.get(day) ?? [] : [];
-                    const net = events.reduce((s, e) => s + e.amount_pence, 0);
-                    return (
-                      <td key={j} className="border-t border-border p-1 align-top">
-                        {day && (
-                          <button
-                            type="button"
-                            className={cn(
-                              "ff-cal-day flex h-16 w-full flex-col items-start gap-1 rounded-lg p-1.5 text-left transition-colors sm:h-20",
-                              day === selected ? "bg-accent-soft ring-1 ring-accent/40" : "hover:bg-surface-2",
-                              day < todayIso && "opacity-50",
-                            )}
-                            aria-label={`${day} — ${events.length} events`}
-                            aria-pressed={day === selected}
-                            onClick={() => setSelected(day)}
-                          >
-                            <span className={cn(
-                              "tnum grid size-6 place-items-center rounded-full text-[12px] font-medium",
-                              day === todayIso ? "bg-accent text-accent-fg" : "text-fg-muted",
-                            )}>
-                              {Number(day.slice(8))}
-                            </span>
-                            {events.length > 0 && (
-                              <>
-                                <span className="flex gap-0.5">
-                                  {events.slice(0, 4).map((e) => (
-                                    <span key={e.id} className={cn("size-1.5 rounded-full", e.amount_pence < 0 ? "bg-negative" : "bg-positive")} title={e.label} />
-                                  ))}
+      <DataView state={{ ...moves, data: moves.data === null ? null : byDate }} empty="">
+        {(calendarDays) => (
+          <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+            <Panel
+              flush
+              title={
+                <span className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon-sm" onClick={() => shift(-1)} aria-label="Previous month"><ChevronLeft /></Button>
+                  <span id="cal-heading" className="min-w-36 text-center">{monthName}</span>
+                  <Button variant="ghost" size="icon-sm" onClick={() => shift(1)} aria-label="Next month"><ChevronRight /></Button>
+                </span>
+              }
+              actions={
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedAccount && (
+                    <Select aria-label="Calendar accounts" value={calendarAccount == null ? "all" : "selected"}
+                      onChange={e => setCalendarAllAccounts(e.target.value === "all")}>
+                      <option value="selected">{selectedAccount.name}</option>
+                      <option value="all">All accounts</option>
+                    </Select>
+                  )}
+                  <span className="hidden text-[12.5px] text-fg-subtle sm:inline">
+                    In <Money pence={monthTotals.inP} className="font-medium text-positive" /> · Out <Money pence={Math.abs(monthTotals.outP)} className="font-medium text-fg" />
+                  </span>
+                </div>
+              }
+            >
+              <table className="ff-cal w-full table-fixed border-collapse" aria-labelledby="cal-heading">
+                <thead>
+                  <tr className="h-9 text-[11.5px] font-medium text-fg-subtle">
+                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                      <th key={d} className="font-medium">{d}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {weeks.map((w, i) => (
+                    <tr key={i}>
+                      {w.map((day, j) => {
+                        const events = day ? calendarDays.get(day) ?? [] : [];
+                        const net = events.reduce((s, e) => s + e.amount_pence, 0);
+                        return (
+                          <td key={j} className="border-t border-border p-1 align-top">
+                            {day && (
+                              <button
+                                type="button"
+                                className={cn(
+                                  "ff-cal-day flex h-16 w-full flex-col items-start gap-1 rounded-lg p-1.5 text-left transition-colors sm:h-20",
+                                  day === selected ? "bg-accent-soft ring-1 ring-accent/40" : "hover:bg-surface-2",
+                                  day < todayIso && "opacity-50",
+                                )}
+                                aria-label={`${day} — ${events.length} events`}
+                                aria-pressed={day === selected}
+                                onClick={() => setSelected(day)}
+                              >
+                                <span className={cn(
+                                  "tnum grid size-6 place-items-center rounded-full text-[12px] font-medium",
+                                  day === todayIso ? "bg-accent text-accent-fg" : "text-fg-muted",
+                                )}>
+                                  {Number(day.slice(8))}
                                 </span>
-                                <span className={cn("tnum hidden text-[11px] font-medium sm:block", net < 0 ? "text-fg-muted" : "text-positive")}>
-                                  {net > 0 ? "+" : ""}{formatPenceCompact(net)}
-                                </span>
-                              </>
+                                {events.length > 0 && (
+                                  <>
+                                    <span className="flex gap-0.5">
+                                      {events.slice(0, 4).map((e) => (
+                                        <span key={e.id} className={cn("size-1.5 rounded-full", e.amount_pence < 0 ? "bg-negative" : "bg-positive")} title={e.label} />
+                                      ))}
+                                    </span>
+                                    <span className={cn("tnum hidden text-[11px] font-medium sm:block", net < 0 ? "text-fg-muted" : "text-positive")}>
+                                      {net > 0 ? "+" : ""}{formatPenceCompact(net)}
+                                    </span>
+                                  </>
+                                )}
+                              </button>
                             )}
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Panel>
 
-        <Panel
-          title={selected ? formatWeekdayDayMonth(selected) : "Select a day"}
-          description={selected ? `${selectedEvents.length} event${selectedEvents.length === 1 ? "" : "s"}` : "Tap any date to see its money events"}
-          flush
-          className="h-fit lg:sticky lg:top-20"
-        >
-          {selected ? (
-            <ul className="flex flex-col p-2" aria-label={`Events on ${selected}`}>
-              {selectedEvents.map((e) => (
-                <li key={e.id}>
-                  <Link
-                    to={movementLink(e)}
-                    className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2"
-                  >
-                    <IconTile label={e.label} size="sm" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] font-medium">{e.label}</span>
-                      <span className="block text-[12px] text-fg-subtle">{SOURCE_LABEL[e.source_type] ?? e.source_type} · {e.confidence}</span>
-                    </span>
-                    <Money pence={e.amount_pence} signed tone="auto" className="text-[13.5px] font-medium" />
-                  </Link>
-                </li>
-              ))}
-              {selectedEvents.length === 0 && (
-                <li className="ff-muted px-2 py-6 text-center text-[13px] text-fg-subtle">No events.</li>
+            <Panel
+              title={selected ? formatWeekdayDayMonth(selected) : "Select a day"}
+              description={selected ? `${selectedEvents.length} event${selectedEvents.length === 1 ? "" : "s"}` : "Tap any date to see its money events"}
+              flush
+              className="h-fit lg:sticky lg:top-20"
+            >
+              {selected ? (
+                <ul className="flex flex-col p-2" aria-label={`Events on ${selected}`}>
+                  {selectedEvents.map((e) => (
+                    <li key={e.id}>
+                      <Link
+                        to={movementLink(e)}
+                        className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2"
+                      >
+                        <IconTile label={e.label} size="sm" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] font-medium">{e.label}</span>
+                          <span className="block text-[12px] text-fg-subtle">{SOURCE_LABEL[e.source_type] ?? e.source_type} · {e.confidence}</span>
+                        </span>
+                        <Money pence={e.amount_pence} signed tone="auto" className="text-[13.5px] font-medium" />
+                      </Link>
+                    </li>
+                  ))}
+                  {selectedEvents.length === 0 && (
+                    <li className="ff-muted px-2 py-6 text-center text-[13px] text-fg-subtle">No events.</li>
+                  )}
+                </ul>
+              ) : (
+                <div className="grid place-items-center gap-2 px-4 py-10 text-center text-fg-subtle">
+                  <CalendarDays className="size-5" />
+                  <p className="text-[13px]">Paydays, bills, transfers and renewals appear on their dates.</p>
+                </div>
               )}
-            </ul>
-          ) : (
-            <div className="grid place-items-center gap-2 px-4 py-10 text-center text-fg-subtle">
-              <CalendarDays className="size-5" />
-              <p className="text-[13px]">Paydays, bills, transfers and renewals appear on their dates.</p>
-            </div>
-          )}
-        </Panel>
-      </div>
+            </Panel>
+          </div>
+        )}
+      </DataView>
     </div>
   );
 }

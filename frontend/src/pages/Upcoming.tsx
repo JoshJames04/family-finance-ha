@@ -16,7 +16,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { Field, Input, Select } from "../components/Field";
 import { IconTile, PageHeader, Segmented, Stat } from "../components/Display";
-import { Skeleton } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import {
   daysUntil, formatMonthOf, formatPence, formatRelativeDays,
   formatSmartDate, formatWeekdayDayMonth, toISODate,
@@ -47,7 +47,8 @@ export function Upcoming() {
     accounts.data?.items.find((a) => a.id === id)?.name ?? "—";
 
   const next30 = useMemo(() => {
-    const items = (state.data ?? []).filter((m) => daysUntil(m.expected_date) <= 30);
+    if (state.data === null) return null;
+    const items = state.data.filter((m) => daysUntil(m.expected_date) <= 30);
     const inP = items.filter((m) => m.amount_pence > 0).reduce((s, m) => s + m.amount_pence, 0);
     const outP = items.filter((m) => m.amount_pence < 0).reduce((s, m) => s + m.amount_pence, 0);
     return { inP, outP, count: items.length };
@@ -71,14 +72,17 @@ export function Upcoming() {
       />
 
       <div className="mb-4 grid grid-cols-3 gap-3">
-        {state.loading ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />) : (
+        {state.loading ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />) : next30 ? (
           <>
             <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Coming in · 30 days" value={<Money pence={next30.inP} className="text-positive" />} />
             <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Going out · 30 days" value={<Money pence={Math.abs(next30.outP)} />} />
             <Stat className="rounded-xl border border-border bg-surface p-4 shadow-card" label="Net · 30 days" value={<Money pence={next30.inP + next30.outP} signed />} hint={`${next30.count} movement${next30.count === 1 ? "" : "s"}`} />
           </>
-        )}
+        ) : null}
       </div>
+      {state.error && !state.loading && tab !== "timeline" && (
+        <ErrorState message={state.error} onRetry={state.refetch} />
+      )}
 
       <Segmented
         label="View"

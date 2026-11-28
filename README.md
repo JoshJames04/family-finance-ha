@@ -175,6 +175,9 @@ account selector lets them choose which account to forecast. The balance chart
 uses that account's scheduled movements. The calendar defaults to the same
 account and can also show all visible accounts.
 
+Upcoming totals and the forecast calendar show schedule loading errors with a retry option.
+A successfully loaded empty schedule shows zero cash flow.
+
 Budget starts with **All**, combining the visible plans for the selected period.
 The section tables show planned spending and income alongside their actual totals.
 Choose a budget scope to edit its plan. A line's adjustment dialog can remove
