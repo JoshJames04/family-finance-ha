@@ -193,7 +193,9 @@ def on_track(session: Session, goal: SavingsGoal,
     req = required_monthly_rate(session, goal, today)
     if req is None:
         return None
-    return average_monthly_rate(session, goal, today) >= req
+    today = today or date.today()
+    saved = contributed_pence(session, goal, today=today)
+    return saved >= goal.target_pence or saved // _months_between(goal.start_date, today) >= req
 
 
 def crossed_milestones(session: Session, goal: SavingsGoal) -> list[int]:

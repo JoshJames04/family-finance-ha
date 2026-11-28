@@ -137,6 +137,14 @@ Budget approval/locking, changed energy readings and successful manual or
 scheduled backups emit canonical outbox transitions. Reposting an unchanged
 energy reading emits no duplicate transition.
 
+Bank statement verification compares the asserted balance with non-void ledger
+entries through the statement date. A correction adjusts the balance on that
+date and preserves later transactions. Reports, budget income and spending
+exclude these adjustments. The ledger retains the correction for reconciliation.
+
+Budget rollover carries amounts into a later, non-overlapping period. A fully
+funded dated goal stays on track after its deadline.
+
 ## Verification boundaries
 
 Native review follow-ups preserve accountless subscriptions in shared Budget

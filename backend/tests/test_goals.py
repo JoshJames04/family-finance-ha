@@ -513,6 +513,12 @@ class TestProjections:
                       date(2025, 4, 1))
         assert goals.on_track(session, g, TODAY) is True
 
+    def test_funded_dated_goal_stays_on_track_after_its_deadline(
+            self, session: Session, household: Household, pot: Account, main: Account) -> None:
+        g = _goal(session, household, pot, target=40_000, target_date=date(2025, 5, 1))
+        _contribution(session, household, main, pot, 40_000, TODAY)
+        assert goals.progress(session, g, date(2026, 5, 1)).on_track is True
+
     def test_undated_goal_track_none(
             self, session: Session, household: Household,
             pot: Account) -> None:

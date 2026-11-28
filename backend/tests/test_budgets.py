@@ -576,6 +576,12 @@ class TestRollover:
                           BudgetLineSide.expense, 50000)
         return may, june, lm, lj
 
+    def test_source_cannot_roll_into_itself(self, session: Session, household, category) -> None:
+        may, _, line, _ = self._setup(session, household, category)
+        with pytest.raises(dom.BudgetError):
+            dom.apply_rollover(session, may, may)
+        assert line.revised_pence is None
+
     def test_surplus_carry(self, session: Session, household,
                            category) -> None:
         may, june, lm, lj = self._setup(session, household, category)
